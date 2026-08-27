@@ -1,0 +1,37 @@
+-- Sharing metadata.  Read by tooling and the manager detail pane; never
+-- by the loader's merge.
+return {
+  summary = "Every wild mon this map can roll, by hour and by rod -- in a START menu page and a live overlay while you walk.",
+  author = "local",
+  contact = "",
+  tags = { "ui", "tool", "quality-of-life", "encounters", "gen1", "gen2" },
+  differences = {
+    changed = {
+      "the START menu gains a RADAR row, anchored before SAVE",
+    },
+    added = {
+      "a paged screen listing the current map's grass, surf and rod tables with odds and level ranges",
+      "morning / day / night grass are separate pages, and the live one is marked NOW",
+      "an owned marker per row, read from the Pokedex",
+      "mod options: ENABLED and MARK OWNED",
+      "mod.exports.report(mapId, tod, mapDef) for other mods and for tests",
+      "runs on gen1recomp and Gen2Recomped, on either generation either can load",
+      "Kanto rods read from field.fishing, with the ItemUseGoodRod bite odds",
+      "a live overlay in the top right of the overworld, via render.hud",
+      "mod options: WALK OVERLAY, OVERLAY ODDS, OVERLAY ROWS, OVERLAY WIDTH and OVERLAY ALPHA",
+      "the overlay panel is see-through, with the names left solid at every setting",
+    },
+    known = {
+      "swarms, the Bug Catching Contest and roaming legendaries are not encounter tables and do not appear",
+      "headbutt and rock smash are extracted by only one of the two ports, so neither gets a page",
+      "odds come from the tables, so a mod that hooks encounter.roll is not reflected",
+      "Kanto's Old and Good Rods are global rules, so they show only where the map has a water table",
+      "the overlay sits over the top right of the window when the world fills it (voxel, Gold zoom), otherwise the playfield; OVERLAY WIDTH and OVERLAY ROWS size it, WALK OVERLAY turns it off",
+      "turning OVERLAY ODDS on inside the default width leaves five characters for the name; widen it to about 14",
+    },
+  },
+  credits = {
+    { who = "gen1recomp / Gen2Recomped", for_ = "the encounters registry, field.fishing and field.fishGroups, and the ui.start_menu.items seam" },
+  },
+  compat = { engine = ">=0.0.0-0 <2.0.0", modApi = 2 },
+}

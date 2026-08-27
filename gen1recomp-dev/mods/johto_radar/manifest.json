@@ -1,0 +1,19 @@
+{
+  "id": "johto_radar",
+  "name": "Encounter Radar",
+  "version": "1.4.3",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "TOOL",
+  "games": [
+  "gen1",
+  "gen2"
+  ],
+  "game_version": ">=0.1.0 <2.0.0",
+  "priority": 100,
+  "dependencies": [],
+  "optional_dependencies": [],
+  "conflicts": [],
+  "description": "A RADAR row in the START menu that lists every wild Pokemon the map you are standing on can produce, with odds and level ranges, plus a small live overlay in the top right that keeps the current answer on screen while you walk. Kanto has one table per map and one rule per rod; Johto splits its grass three ways on the clock and gives every rod its own list, so LEFT and RIGHT page through whatever the map you are on actually has, and the page the clock is on is marked NOW."
+}

@@ -1,0 +1,24 @@
+-- Sharing metadata.  Read by tooling and the manager detail pane; never
+-- by the loader's merge.
+return {
+  summary = "Tap empty glass to press A; hold to re-tap. Pad buttons stay theirs.",
+  author = "local",
+  contact = "",
+  tags = { "ui", "tool", "quality-of-life", "mobile", "touch" },
+  differences = {
+    changed = {
+      "uncaptured screen taps press A; a hold re-taps a few times per second",
+    },
+    added = {
+      "mod options: ENABLED, MOUSE CLICKS, and HOLD TAPS / SEC",
+    },
+    known = {
+      "the on-screen A/B/d-pad/START/SELECT buttons still capture first, so tapping those is not this touchpad",
+      "mouse clicks do nothing unless MOUSE CLICKS is on (desktop testing)",
+    },
+  },
+  credits = {
+    { who = "gen1recomp", for_ = "input.pointer, input.step and mod.input seams" },
+  },
+  compat = { engine = ">=0.0.0-0 <2.0.0", modApi = 2 },
+}
