@@ -1,6 +1,7 @@
 -- Ruby boot copy: copyright is a graphic, but Birch's speech and the
 -- main-menu labels are Latin in the ROM.  Nintendo tiles stay out of git.
 local GbaText = require("src.import.GbaText")
+local Cinema = require("src.import.RomExtractorGen3Cinema")
 
 local Boot = {}
 
@@ -112,6 +113,7 @@ function Boot.extract(data)
       azurill = Boot.SPECIES_AZURILL,
       groudon = Boot.SPECIES_GROUDON,
     },
+    cinema = Cinema.extract(data),
   }
 end
 

@@ -12,6 +12,8 @@ GbaText.NAME_LENGTH = 11 -- POKEMON_NAME_LENGTH (10) + EOS
 GbaText.PLACEHOLDER = 0xAC
 GbaText.HYPHEN = 0xAE
 GbaText.NEWLINE = 0xFE
+-- charmap.txt: \l CHAR_PROMPT_SCROLL waits, then scrolls one line.
+GbaText.SCROLL = 0xFA
 GbaText.EXCLAMATION = 0xAB
 GbaText.PERIOD = 0xAD
 GbaText.APOSTROPHE = 0xB4
@@ -28,7 +30,10 @@ function GbaText.decodeByte(code)
   if code == GbaText.SPACE then return " " end
   if code == GbaText.PLACEHOLDER then return "?" end
   if code == GbaText.HYPHEN then return "-" end
-  if code == GbaText.NEWLINE or code == GbaText.PARA then return " " end
+  if code == GbaText.NEWLINE or code == GbaText.PARA
+      or code == GbaText.SCROLL then
+    return " "
+  end
   if code == GbaText.EXCLAMATION then return "!" end
   if code == GbaText.PERIOD then return "." end
   if code == GbaText.APOSTROPHE then return "'" end
@@ -157,7 +162,7 @@ function GbaText.decodePages(blob, maxLen)
     if c == GbaText.EOS then break end
     if c == GbaText.PARA then
       flushPage()
-    elseif c == GbaText.NEWLINE then
+    elseif c == GbaText.NEWLINE or c == GbaText.SCROLL then
       flushLine()
     elseif c == GbaText.BUFFER then
       chars[#chars + 1] = GbaText.bufferToken(blob:byte(i + 1))

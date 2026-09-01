@@ -12,11 +12,15 @@ local LuaWriter = require("src.import.LuaWriter")
 local BattleData = require("src.import.RomExtractorGen3Battle")
 local Gen3Script = require("src.import.Gen3Script")
 local BootData = require("src.import.RomExtractorGen3Boot")
+local Gen3Ui = require("src.import.RomExtractorGen3Ui")
+local Gen3Audio = require("src.import.RomExtractorGen3Audio")
+local Gen3Icons = require("src.import.RomExtractorGen3Icons")
+local Gen3Party = require("src.import.RomExtractorGen3Party")
 
 local RomExtractorGen3 = {}
 RomExtractorGen3.__index = RomExtractorGen3
 
-local STAGE_COUNT = 7
+local STAGE_COUNT = 9
 local NAMED_SPECIES = 412
 local FONT_GLYPHS = 256
 local FONT3_BYTES = 64
@@ -112,6 +116,52 @@ function RomExtractorGen3.spritePath(graphicsId)
   return ("assets/generated/sprites/ow_%d.png"):format(graphicsId)
 end
 
+-- trainer_see.c gSpriteImage_839B308 / 839B388 / 839B408: 16x16 4bpp
+-- frames for ! / ? / heart. Heart's template uses pal tag 0x1004
+-- (gFieldEffectObjectPalette0); ! and ? use TAG_NONE and pick up the
+-- same field-effect slot already in OBJ VRAM.
+RomExtractorGen3.EMOTE_GFX = 0x39B308
+RomExtractorGen3.EMOTE_BYTES = 0x80
+RomExtractorGen3.EMOTE_PAL = 0x369488
+RomExtractorGen3.EMOTE_NAMES = { "exclaim", "question", "heart" }
+
+function RomExtractorGen3.emotePath(name)
+  return ("assets/generated/emotes/%s.png"):format(name)
+end
+
+function RomExtractorGen3.emoteFrameOff(name)
+  for i = 1, #RomExtractorGen3.EMOTE_NAMES do
+    if RomExtractorGen3.EMOTE_NAMES[i] == name then
+      return RomExtractorGen3.EMOTE_GFX + (i - 1) * RomExtractorGen3.EMOTE_BYTES
+    end
+  end
+end
+
+function RomExtractorGen3.renderEmote(data, name)
+  local frameOff = RomExtractorGen3.emoteFrameOff(name)
+  if not frameOff then return nil, "unknown emote" end
+  return RomExtractorGen3.renderOwFrame(data, {
+    width = 16,
+    height = 16,
+    frameSize = RomExtractorGen3.EMOTE_BYTES,
+    frameOff = frameOff,
+  }, RomExtractorGen3.EMOTE_PAL, frameOff)
+end
+
+function RomExtractorGen3:extractEmotes()
+  local emotes = {}
+  for i = 1, #RomExtractorGen3.EMOTE_NAMES do
+    local name = RomExtractorGen3.EMOTE_NAMES[i]
+    local image = RomExtractorGen3.renderEmote(self.data, name)
+    if image then
+      local path = RomExtractorGen3.emotePath(name)
+      ImageWriter.save(image, path)
+      emotes[name] = { path = path, width = 16, height = 16 }
+    end
+  end
+  return emotes
+end
+
 function RomExtractorGen3.fontPath()
   return "assets/generated/fonts/font.png"
 end
@@ -199,12 +249,59 @@ function RomExtractorGen3.findLatinFont3(data)
   return nil
 end
 
+-- pokeruby sFont3Widths: space=3, 'A' (0xBB)=6. USA 1.0 prefix is
+-- shared with rev1 for the first 32 bytes except later rows.
+local FONT3_WIDTH_PREFIX = string.char(
+  3, 6, 6, 6, 6, 6, 6, 6, 6, 6, 8, 6, 6, 6, 6, 6)
+
+function RomExtractorGen3.isFont3WidthTable(data, off)
+  if type(data) ~= "string" or type(off) ~= "number" then return false end
+  if off < 0 or off + 254 > #data then return false end
+  if data:byte(off + 1) ~= 3 then return false end
+  if data:byte(off + 0xBB + 1) ~= 6 then return false end
+  if data:byte(off + 0xA1 + 1) ~= 6 then return false end
+  for i = 0, 253 do
+    local w = data:byte(off + i + 1) or 0
+    if w < 1 or w > 10 then return false end
+  end
+  return true
+end
+
+function RomExtractorGen3.findFont3Widths(data)
+  if type(data) ~= "string" then return nil end
+  local at = 1
+  while true do
+    local found = data:find(FONT3_WIDTH_PREFIX, at, true)
+    if not found then return nil end
+    local off = found - 1
+    if RomExtractorGen3.isFont3WidthTable(data, off) then
+      return off
+    end
+    at = found + 1
+  end
+end
+
+function RomExtractorGen3.readFont3Widths(data, off)
+  if not RomExtractorGen3.isFont3WidthTable(data, off) then return nil end
+  local widths = {}
+  for i = 0, 255 do
+    widths[i + 1] = data:byte(off + i + 1) or 8
+  end
+  for i = 255, 256 do
+    local w = widths[i]
+    if not w or w < 1 or w > 10 then widths[i] = 8 end
+  end
+  return widths
+end
+
 local function blit4bppGlyph(image, px, py, data, off)
   local raw = data:sub(off + 1, off + FONT3_BYTES)
   if #raw < FONT3_BYTES then return end
   for y = 0, FONT_H - 1 do
     for x = 0, FONT_W - 1 do
       local c = RomExtractorGen3.colorIndex4bpp(raw, FONT_W, x, y)
+      -- ApplyColors_ShadowedFont: 0xF is foreground, 0xE is shadow.
+      -- Other non-zero indices are rare leftovers; treat them as ink.
       if c == 0xF then
         image:setPixel(px + x, py + y, 0, 0, 0, 1)
       elseif c == 0xE then
@@ -427,6 +524,61 @@ function RomExtractorGen3.findMapGroups(data)
   }
 end
 
+-- gMapLayouts is an array of MapLayout pointers. GetMapLayout uses
+-- gMapLayouts[mapLayoutId - 1]. Alternate layouts (Route 131 Sky Pillar
+-- island 320, Mirage 46, Shoal high tide 169/170, Ruby CoO 313 / Seafloor
+-- 327) have no map header, so walking gMapGroups would miss them.
+local MAX_MAP_LAYOUTS = 400
+
+function RomExtractorGen3.findMapLayouts(data, found)
+  local town = found and found.town
+  if type(data) ~= "string" or not town or not town.layoutOff
+      or not town.layoutId or town.layoutId < 1 then
+    return nil
+  end
+  local function layoutLooksValid(layoutOff)
+    if layoutOff < 0 or layoutOff + 24 > #data then return false end
+    local width = GbaBin.s32(data, layoutOff)
+    local height = GbaBin.s32(data, layoutOff + 4)
+    if width < 1 or height < 1 or width > MAX_MAP_DIM
+        or height > MAX_MAP_DIM then
+      return false
+    end
+    local _, mapOff = romPtr(data, layoutOff + 12)
+    local primPtr = romPtr(data, layoutOff + 16)
+    local secPtr = romPtr(data, layoutOff + 20)
+    return mapOff ~= nil and primPtr ~= nil and secPtr ~= nil
+  end
+  local needle = GbaBin.packPtr(town.layoutOff)
+  local search = 1
+  local best, bestCount
+  while true do
+    local hit = data:find(needle, search, true)
+    if not hit then break end
+    local off = hit - 1
+    if off % 4 == 0 then
+      local base = off - (town.layoutId - 1) * 4
+      if base >= 0 and base % 4 == 0 then
+        local _, lo = romPtr(data, base + (town.layoutId - 1) * 4)
+        if lo == town.layoutOff then
+          local count = 0
+          for id = 1, MAX_MAP_LAYOUTS do
+            local _, slot = romPtr(data, base + (id - 1) * 4)
+            if not slot or not layoutLooksValid(slot) then break end
+            count = count + 1
+          end
+          if count > (bestCount or 0) then
+            best, bestCount = base, count
+          end
+        end
+      end
+    end
+    search = hit + 1
+  end
+  if not best or (bestCount or 0) < 1 then return nil end
+  return best, bestCount
+end
+
 local function parseTileset(data, offset)
   local compressed = GbaBin.u8(data, offset) ~= 0
   local secondary = GbaBin.u8(data, offset + 1) ~= 0
@@ -457,6 +609,7 @@ end
 local function parseLayout(data, layoutOff)
   local width = GbaBin.s32(data, layoutOff)
   local height = GbaBin.s32(data, layoutOff + 4)
+  local _, borderOff = romPtr(data, layoutOff + 8)
   local _, mapOff = romPtr(data, layoutOff + 12)
   local primPtr, primOff = romPtr(data, layoutOff + 16)
   local secPtr, secOff = romPtr(data, layoutOff + 20)
@@ -471,10 +624,23 @@ local function parseLayout(data, layoutOff)
   for i = 0, cells - 1 do
     grid[i + 1] = GbaBin.u16(data, mapOff + i * 2)
   end
+  -- fieldmap.c GetBorderBlockAt: a 2x2 of u16 cells, wrap-tiled with
+  -- `(x+1)&1 + ((y+1)&1)*2`. Older caches omit this; the runtime fills
+  -- with the void colour until a re-import.
+  local border
+  if borderOff and borderOff + 8 <= #data then
+    border = {
+      GbaBin.u16(data, borderOff),
+      GbaBin.u16(data, borderOff + 2),
+      GbaBin.u16(data, borderOff + 4),
+      GbaBin.u16(data, borderOff + 6),
+    }
+  end
   return {
     width = width,
     height = height,
     grid = grid,
+    border = border,
     primaryOff = primOff,
     secondaryOff = secOff,
   }
@@ -634,8 +800,11 @@ local MAX_OW_GFX = 256
 local PAL_TAG_MIN = 0x1100
 local PAL_TAG_MAX = 0x11FF
 local PLAYER_GFX_ID = 0
-local PLAYER_FORM_GFX = { 0, 1, 2, 63, 89, 90, 91, 92, 100, 105, 111, 112 }
+local PLAYER_FORM_GFX = {
+  0, 1, 2, 63, 89, 90, 91, 92, 100, 105, 111, 112, 191, 192,
+}
 -- Map templates only stamp gfx 60. get_berry_tree_graphics swaps 61/62.
+-- Both share gObjectEventPicTable_PechaBerryTree (16x16 then 16x32).
 local BERRY_TREE_STAGE_GFX = { 61, 62 }
 -- Woods/Rustboro grunts are OBJ_EVENT_GFX_VAR_1 until SetupEvilTeamGfxIds
 -- writes Magma/Aqua. collectGraphicsIds never sees 117-120 on the map.
@@ -798,18 +967,25 @@ function RomExtractorGen3.parseGraphicsInfo(data, offset)
   if size < 32 or size > 4096 then return nil end
   local imagesPtr, imagesOff = romPtr(data, offset + 28)
   if not imagesPtr then return nil end
-  local framePtr, frameOff = romPtr(data, imagesOff)
-  if not framePtr then return nil end
-  local frameSize = GbaBin.u16(data, imagesOff + 4)
+  -- Berry trees share gObjectEventPicTable_PechaBerryTree: three 16x16
+  -- dirt/sprout images, then six 16x32 bushes. gfx 62 is 16x32, so the
+  -- first entries are the wrong size. Skip that prefix; stop at the next
+  -- mismatch (the following berry table starts at 16x16 again).
   local expected = width * height / 2
-  if frameSize < expected and size < expected then return nil end
-  local frames = { frameOff }
-  for n = 1, 31 do
+  local frames = {}
+  local started = false
+  for n = 0, 31 do
     local p, off = romPtr(data, imagesOff + n * 8)
     local sz = GbaBin.u16(data, imagesOff + n * 8 + 4)
-    if not p or sz ~= expected then break end
-    frames[#frames + 1] = off
+    if not p then break end
+    if sz == expected then
+      started = true
+      frames[#frames + 1] = off
+    elseif started then
+      break
+    end
   end
+  if #frames == 0 then return nil end
   return {
     offset = offset,
     tileTag = GbaBin.u16(data, offset),
@@ -820,7 +996,7 @@ function RomExtractorGen3.parseGraphicsInfo(data, offset)
     paletteSlot = GbaBin.u8(data, offset + 12) % 16,
     imagesOff = imagesOff,
     animsOff = select(2, romPtr(data, offset + 24)),
-    frameOff = frameOff,
+    frameOff = frames[1],
     frameSize = expected,
     frames = frames,
     frameCount = #frames,
@@ -1088,9 +1264,11 @@ function RomExtractorGen3.decodeTownMap(data)
     layoutId = header.layoutId,
     mapType = header.mapType,
     weather = header.weather,
+    regionMapSectionId = header.regionMapSectionId,
     cave = header.cave,
     spawn = { x = sx, y = sy },
     grid = layout.grid,
+    border = layout.border,
     warps = warps,
     objects = parseObjects(data, header.eventsOff),
     bgEvents = parseBgEvents(data, header.eventsOff),
@@ -1319,6 +1497,11 @@ function RomExtractorGen3.decodeHoenn(data)
         for i = 1, #layout.grid do
           pair.used[layout.grid[i] % (MAP_CELL_METATILE + 1)] = true
         end
+        if layout.border then
+          for i = 1, #layout.border do
+            pair.used[layout.border[i] % (MAP_CELL_METATILE + 1)] = true
+          end
+        end
         local id = RomExtractorGen3.mapId(group, index)
         local sx, sy = pickSpawn(layout.grid, layout.width, layout.height)
         local isStart = group == found.startGroup and index == found.startIndex
@@ -1334,10 +1517,12 @@ function RomExtractorGen3.decodeHoenn(data)
           layoutId = header.layoutId,
           mapType = header.mapType,
           weather = header.weather,
+          regionMapSectionId = header.regionMapSectionId,
           cave = header.cave,
           tileset = pair.id,
           spawn = { x = sx, y = sy },
           grid = layout.grid,
+          border = layout.border,
           warps = parseWarps(data, header.eventsOff),
           objects = parseObjects(data, header.eventsOff),
           bgEvents = parseBgEvents(data, header.eventsOff),
@@ -1351,10 +1536,55 @@ function RomExtractorGen3.decodeHoenn(data)
     end
   end
   if not startId then return nil, "start map was not decoded" end
+  local usedLayoutIds = {}
+  for _, map in pairs(maps) do
+    local lid = tonumber(map.layoutId)
+    if lid then usedLayoutIds[lid] = true end
+  end
+  local extraLayouts = {}
+  local layoutsOff = RomExtractorGen3.findMapLayouts(data, found)
+  if layoutsOff then
+    for id = 1, MAX_MAP_LAYOUTS do
+      local _, lo = romPtr(data, layoutsOff + (id - 1) * 4)
+      if not lo then break end
+      local layout = parseLayout(data, lo)
+      if not layout then break end
+      local key = pairKey(layout.primaryOff, layout.secondaryOff)
+      local pair = pairsByKey[key]
+      if not pair then
+        pair = {
+          primaryOff = layout.primaryOff,
+          secondaryOff = layout.secondaryOff,
+          used = {},
+        }
+        pairsByKey[key] = pair
+        pairOrder[#pairOrder + 1] = pair
+        pair.id = "pair_" .. (#pairOrder - 1)
+      end
+      for i = 1, #layout.grid do
+        pair.used[layout.grid[i] % (MAP_CELL_METATILE + 1)] = true
+      end
+      if layout.border then
+        for i = 1, #layout.border do
+          pair.used[layout.border[i] % (MAP_CELL_METATILE + 1)] = true
+        end
+      end
+      if not usedLayoutIds[id] then
+        extraLayouts[id] = {
+          width = layout.width,
+          height = layout.height,
+          grid = layout.grid,
+          border = layout.border,
+          tileset = pair.id,
+        }
+      end
+    end
+  end
   return {
     start = startId,
     maps = maps,
     pairs = pairOrder,
+    layouts = extraLayouts,
     startGroup = found.startGroup,
     startIndex = found.startIndex,
     mapCount = (function()
@@ -1404,6 +1634,8 @@ function RomExtractorGen3:extractPokemon()
       end
     end
   end
+  local Dex = require("src.import.RomExtractorGen3Dex")
+  local dex = Dex.apply(self.data, byIndex)
   self:tick("Pokemon", NAMED_SPECIES, NAMED_SPECIES)
   return {
     names = names,
@@ -1411,6 +1643,8 @@ function RomExtractorGen3:extractPokemon()
     count = NAMED_SPECIES,
     named = named,
     statsOffset = statsOff,
+    dexOffset = dex and dex.entries and dex.entries.offset,
+    hoennDexOffset = dex and dex.maps and dex.maps.hoennOff,
   }
 end
 
@@ -1458,6 +1692,7 @@ function RomExtractorGen3:extractMaps()
     mapCount = hoenn.mapCount,
     tilesetCount = #hoenn.pairs,
     tilesets = tilesets,
+    layouts = hoenn.layouts,
   }
 end
 
@@ -1508,11 +1743,15 @@ function RomExtractorGen3:extractSprites(maps)
   if not byId[61] or not byId[62] then
     error("berry tree stage sprites (ow_61/ow_62) were not extracted")
   end
+  if not byId[191] or not byId[192] then
+    error("watering sprites (ow_191/ow_192) were not extracted")
+  end
   self:tick("Sprites", #ids, #ids)
   return {
     playerGraphicsId = PLAYER_GFX_ID,
     count = count,
     byId = byId,
+    emotes = self:extractEmotes(),
   }
 end
 
@@ -1524,7 +1763,13 @@ function RomExtractorGen3:extractUi()
   if not image then error(err or "could not render latin FONT3") end
   local path = RomExtractorGen3.fontPath()
   ImageWriter.save(image, path)
-  self:tick("Fonts", 1, 1)
+  local widthOff = RomExtractorGen3.findFont3Widths(self.data)
+  local widths = widthOff and RomExtractorGen3.readFont3Widths(self.data, widthOff)
+  self:tick("Fonts", 1, 2)
+  -- Menu/battle window chrome shares this stage: it is the same "draw text
+  -- somewhere" surface and costs one more pass over the cart.
+  local ui = Gen3Ui.extract(self.data)
+  self:tick("Fonts", 2, 2)
   return {
     image = path,
     glyphW = FONT_W,
@@ -1533,7 +1778,9 @@ function RomExtractorGen3:extractUi()
     count = FONT_GLYPHS,
     offset = off,
     kind = "font3",
-  }
+    widths = widths,
+    widthOffset = widthOff,
+  }, ui
 end
 
 function RomExtractorGen3:extractBattle()
@@ -1633,13 +1880,36 @@ function RomExtractorGen3:extractBattle()
   }
 end
 
+function RomExtractorGen3:extractAudio()
+  self:beginStage("Audio")
+  local audio = Gen3Audio.extract(self.data)
+  if not audio then error("the MP2K song table was not found") end
+  self:tick("Audio", 1, 1)
+  return audio
+end
+
+-- Mon icons and party menu chrome share a stage: both are menu furniture
+-- and the icons are what the party screen puts in its boxes.
+function RomExtractorGen3:extractMenus()
+  self:beginStage("Menus")
+  local icons = Gen3Icons.extract(self.data)
+  if not icons then error("gMonIconTable was not found") end
+  self:tick("Menus", 1, 2)
+  local party = Gen3Party.extract(self.data)
+  if not party then error("the party menu graphics group was not found") end
+  self:tick("Menus", 2, 2)
+  return { icons = icons, party = party }
+end
+
 function RomExtractorGen3:run()
   local header = self:extractHeader()
   local pokemon = self:extractPokemon()
   local maps = self:extractMaps()
   local sprites = self:extractSprites(maps)
-  local font = self:extractUi()
+  local font, ui = self:extractUi()
   local battle = self:extractBattle()
+  local audio = self:extractAudio()
+  local menus = self:extractMenus()
   self:beginStage("Cache")
   self:write("header", {
     title = header.title,
@@ -1723,10 +1993,18 @@ function RomExtractorGen3:run()
   self:write("pokemon", pokemon)
   local tilesets = maps.tilesets
   maps.tilesets = nil
+  local layouts = maps.layouts
+  maps.layouts = nil
   self:writeMapPack(maps)
+  if type(layouts) == "table" and next(layouts) then
+    self:write("layouts", { byId = layouts })
+  end
   self:write("tilesets", tilesets)
   self:write("sprites", sprites)
   self:write("font", font)
+  self:write("ui", ui or {})
+  self:write("audio", audio)
+  self:write("menus", menus)
   self:write("encounters", {
     starterSpecies = battle.starterSpecies,
     count = battle.encounterCount,

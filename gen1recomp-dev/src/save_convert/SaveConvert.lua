@@ -226,13 +226,20 @@ SaveConvert.mergeDefaults = mergeDefaults
 -- different bank map, party struct and checksum scheme (pokegold
 -- ram/sram.asm sOptions/sCheckValue1/sPlayerData/sBox1-sBox14 vs
 -- pokered's single sPlayerName..sMainDataCheckSum window), and no Gen 2
--- codec exists yet.  Both directions answer with a plain message the
--- launcher's save card renders as-is, instead of pushing a Gen 2 save
--- table through Gen 1 offsets and surfacing a codec traceback.
-local function gen2CartName(gameVersion)
-  if not GameVersion.VERSIONS[gameVersion] then return nil end
-  if GameVersion.generation(gameVersion) ~= 2 then return nil end
-  return GameVersion.info(gameVersion).displayName
+-- codec exists yet.  A GBA (Ruby) battery image is a different size and
+-- flash layout.  Both directions answer with a plain message the
+-- launcher's save card renders as-is, instead of pushing a later-gen
+-- save table through Gen 1 offsets and surfacing a codec traceback.
+local function unsupportedCartKind(gameVersion)
+  if not GameVersion.VERSIONS[gameVersion] then return nil, nil end
+  local gen = GameVersion.generation(gameVersion)
+  if gen == 2 then
+    return GameVersion.info(gameVersion).displayName, "Gen 2 cart save"
+  end
+  if gen == 3 then
+    return GameVersion.info(gameVersion).displayName, "GBA save"
+  end
+  return nil, nil
 end
 
 -- importSav(bytes, version, gameVersion) -> saveTable, err
@@ -247,9 +254,10 @@ function SaveConvert.importSav(bytes, version, gameVersion)
   if type(bytes) ~= "string" then
     return nil, "expected raw save bytes as a string"
   end
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return nil, gen2Name .. " uses a Gen 2 cart save; importing one is not supported yet."
+  local cartName, cartKind = unsupportedCartKind(gameVersion)
+  if cartName then
+    return nil, cartName .. " uses a " .. cartKind
+      .. "; importing one is not supported yet."
   end
   if #bytes ~= GenSave.SAVE_SIZE then
     return nil, ("save must be %d bytes, got %d"):format(GenSave.SAVE_SIZE, #bytes)
@@ -283,9 +291,10 @@ function SaveConvert.exportSav(saveTable, gameVersion)
   if type(saveTable) ~= "table" then
     return nil, "expected a save table"
   end
-  local gen2Name = gen2CartName(gameVersion)
-  if gen2Name then
-    return nil, gen2Name .. " uses a Gen 2 cart save; exporting one is not supported yet."
+  local cartName, cartKind = unsupportedCartKind(gameVersion)
+  if cartName then
+    return nil, cartName .. " uses a " .. cartKind
+      .. "; exporting one is not supported yet."
   end
   local data, derr = ensureData(gameVersion)
   if not data then return nil, derr end

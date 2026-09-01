@@ -11,7 +11,7 @@ local CacheContract = {}
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v10-crystal2:",
-  ruby = "rom-cache-v10-ruby27:",
+  ruby = "rom-cache-v10-ruby41:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -152,6 +152,28 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
   "data/generated/font.lua",
   "assets/generated/fonts/font.png",
   "data/generated/title.lua",
+  "data/generated/ui.lua",
+  "assets/generated/ui/window_frames.png",
+  "assets/generated/ui/battle_actions.png",
+  "assets/generated/ui/healthbox_player.png",
+  "data/generated/audio.lua",
+  "assets/generated/audio/mp2k.bin",
+  "data/generated/menus.lua",
+  "assets/generated/icons/mon_icons.png",
+  "assets/generated/party/tiles.png",
+  "assets/generated/party/background.png",
+    "assets/generated/party/status.png",
+    "assets/generated/party/font_small.png",
+    "assets/generated/party/ordertext.png",
+    "assets/generated/party/holditems.png",
+    "assets/generated/cable_car/mountain.png",
+    "assets/generated/egg_hatch/egg.png",
+    "assets/generated/trade/cable.png",
+    "assets/generated/rotating_gates/3.png",
+    "assets/generated/sprites/ow_62.png",
+    "assets/generated/sprites/ow_191.png",
+    "assets/generated/field/pokeball_glow.png",
+    "assets/generated/pokenav/region_map.png",
 }
 
 function CacheContract.requiredFilesFor(version)

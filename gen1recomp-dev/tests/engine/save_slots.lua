@@ -84,6 +84,19 @@ do
   T.eq(gMeta.dexCount, 2, "and its dex count")
   T.eq(gMeta.timeText, "3:35",
     "and formats the Gen 2 { hours, minutes, seconds } playTime without crashing")
+
+  -- A Ruby snapshot stores playerName / playSeconds / caught[] / badgeCount,
+  -- not the Gen 1 player+pokedex.owned shape.  The launcher lists every
+  -- version's slots, so this has to read that shape or Ruby rows look empty.
+  local rName, rMeta = SaveData.slotSummary({
+    format = "gen3-ruby-1", engine = "gen3", version = "ruby",
+    playerName = "MAY", playSeconds = 3661, badgeCount = 3,
+    caught = { 280, 283, 263 },
+  })
+  T.eq(rName, "MAY", "slotSummary reads a Ruby save's name")
+  T.eq(rMeta.dexCount, 3, "and its caught count")
+  T.eq(rMeta.badges, 3, "and its badge count")
+  T.eq(rMeta.timeText, "1:01", "and formats playSeconds as H:MM")
 end
 
 -- ---------------------------------------------- legacy migration happy path
@@ -298,6 +311,41 @@ do
 
   T.eq(SaveData.saveFilename("red"), "save.lua",
     "saveFilename still resolves the flat name with no slot in use")
+end
+
+-- ---------------------------------------------- Ruby save3_ruby.lua -> slots
+
+do
+  local files = fresh()
+  files["save3_ruby.lua"] = SaveSerializer.encode({
+    format = "gen3-ruby-1", engine = "gen3", version = "ruby",
+    playerName = "BRENDAN", playSeconds = 125, badgeCount = 1,
+    caught = { 280 }, party = { { species = 280, level = 5 } },
+  })
+
+  local slots = SaveData.listSlots("ruby")
+  T.eq(#slots, 1, "Ruby legacy save migrates into exactly one slot")
+  T.eq(slots[1].id, "slot1", "the migrated Ruby slot is slot1")
+  T.eq(slots[1].exists, true, "the migrated Ruby slot reports a save present")
+  T.eq(slots[1].name, "BRENDAN", "the migrated Ruby slot surfaces the player name")
+  T.eq(slots[1].meta.badges, 1, "migrated Ruby meta carries the badge count")
+  T.eq(slots[1].meta.dexCount, 1, "migrated Ruby meta carries the dex count")
+  T.eq(files["save3_ruby.lua"], nil, "the flat save3_ruby.lua is removed after migration")
+  T.check(files["saves/ruby/slot1.lua"] ~= nil, "the Ruby slot file now holds the save")
+
+  -- Empty launcher slot + leftover flat file: fold the flat file in.
+  files = fresh()
+  SaveData.createSlot("ruby")
+  SaveData.setActiveSlot("ruby", "slot1")
+  files["save3_ruby.lua"] = SaveSerializer.encode({
+    format = "gen3-ruby-1", engine = "gen3", version = "ruby",
+    playerName = "MAY", playSeconds = 60, badgeCount = 0,
+    caught = { 283, 263 }, party = { { species = 283, level = 8 } },
+  })
+  SaveData.resetSlotState()
+  slots = SaveData.listSlots("ruby")
+  T.eq(slots[1].name, "MAY", "an empty Ruby slot adopts save3_ruby.lua")
+  T.eq(files["save3_ruby.lua"], nil, "and removes the flat file after adopting")
 end
 
 love.filesystem = realFS

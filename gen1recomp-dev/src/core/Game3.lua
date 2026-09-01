@@ -27,7 +27,7 @@
 -- Stepping onto a tile runs coord events before warps (GoSeeRoom on the
 -- house doormat), so leaving before the clock cannot skip the rival.
 -- setdynamicwarp (0x3F) is the truck's MAP_DYNAMIC dest; setrespawn (0x9F)
--- is the bedroom heal. playse is skipped so Mom's ROM script still parses.
+-- is the bedroom heal. playse plays the ROM's sound effect (Mp2kAudio).
 -- MSGBOX_DEFAULT waits for A; then jump_right, Mom walks out, and both
 -- enter the house.
 -- After GivePokedex, Oldale's mart employee (gfx 83) is parked at (13,14)
@@ -160,16 +160,37 @@
 -- Rotating gates (201/202) are Fortree gym and Trick House puzzle 6:
 -- bump an arm to spin it, a wall in the sweep blocks. Game Corner
 -- GetSlotMachineId (286) picks a payout table; HasEnoughMoneyFor /
--- PayMoneyFor (197/198) use VAR_0x8005.
+-- PayMoneyFor (197/198) use VAR_0x8005. StartWallClock (154) / View (155)
+-- open the clock UI; confirm calls RtcInitLocalTimeOffset then
+-- InitTimeBasedEvents (FLAG_SYS_CLOCK_SET, VAR_DAYS). View does not set
+-- the sys flag. Both fade FROM_BLACK so the script's FADE_TO_BLACK does
+-- not leave a stuck black screen. playslotmachine (0x89) + coins 0xB3-B5 / 0xC0-C2 need a
+-- re-import for live carts. Mauville Center's old man (specials 97-118)
+-- is bard/hipster/trader/storyteller/giddy from (trainerId % 10) / 2.
+-- Bard lyrics are Easy Chat mode 6; PlayBardSong waitstates the text.
+-- Hipster unlocks trendy-saying group 0x14. Trader swaps four decorations.
+-- Storyteller records game stats (id 50 remaps to 0). Giddy fills
+-- string var 4. PlayRoulette (162) is the Game Corner table: 12
+-- pockets, 6 balls, multipliers 3/4/6/12. Shroomish/Taillow drop
+-- bias is not ported. New Mauville Voltorb (and other statics) use
+-- setwildbattle / dowildbattle (0xB6 / 0xB7); ON_RESUME then
+-- removeobject if FLAG_SYS_CTRL_OBJ_DELETE. Lookup: docs/gen3-index.md.
 -- Granite B1F/B2F; setflashradius / animateflash are Brawly's gym lights
 -- (sFlashLevelPixelRadii 72/56/40/24).  Flash is only legal at max
--- darkness.  The hole is the ROM WIN0 scanline circle at 120,80; while
+-- darkness.  The hole is the ROM WIN0 scanline circle (120,80 on GBA,
+-- window centre when zoomed); while
 -- it is up the camera does not clamp (GBA MAP_OFFSET 7 keeps the player
 -- in that hole; our layouts have no border).  animateflash (Brawly) tweens
 -- the hole at ±1px every 2
 -- frames from field_screen_effect.c, then the script continues.  Old/Good/Super Rod run pokeruby Task_Fishing (wait, dots,
 -- 50% bite, reel window, extra rounds) on facing water; Surf steps roll
--- water slots; Rock Smash can start a rock fight.
+-- water slots. Talking to a smash rock is field_move_scripts.inc
+-- (checkpartymove 0x7C, specials 171 / 298), not the BAG shortcut.
+-- dofieldeffect / setfieldeffectargument / waitfieldeffect (0x9C-0x9E) are
+-- sparkle, NPC fly-out, and HoF record. waitfieldeffect blocks like delay
+-- until the effect is gone; a missing effect continues immediately.
+-- S_BreakableRock follows FLDEFF_USE_ROCK_SMASH (37) with waitstate;
+-- FldEff_RockSmash's task ScriptContext_Enables when the mon anim ends.
 -- BAG Mach / Acro Bike hop on; B with running shoes (FLAG_SYS_B_DASH)
 -- dashes on foot.  BAG Repel / Super / Max Repel last 100/200/250 steps
 -- and skip land/water/smash fights at or below the lead's level.  Escape
@@ -179,7 +200,12 @@
 -- showmoneybox (0x93) draws the $ window the museum fee / Seashore House
 -- soda use; hidemoneybox / updatemoneybox close or reprint it.
 -- playmoncry / waitmoncry (0xA1 / 0xC5) are Peeko and the Route 109
--- Zigzagoon. Cached IR still nops those until a re-import.
+-- Zigzagoon. setweather / resetweather / doweather (0xA3–0xA5) are
+-- Route 111's desert (header is SUNNY; ON_TRANSITION and coord scripts
+-- switch SANDSTORM). Cached IR still nops those until a re-import.
+-- setmaplayoutindex (0xA7) swaps gMapLayouts[id-1] (Route 131 Sky Pillar
+-- island 320 after game clear). Extra layouts need a re-import.
+-- Null-script weather coords (Route 113 ash, 119/123 cycle) run now.
 -- START POKeMON A uses TELEPORT from a town/route (same warp) or DIG
 -- from a cave (same as Escape Rope). Neither is an HM and neither spends
 -- an item.  SWEET SCENT (230) forces a land or water fight on that tile
@@ -188,27 +214,30 @@
 -- Each step adds 1 EXP; taking one back costs $100 + $100 per level and
 -- does not evolve.  Two compatible parents can leave an EGG (man on the
 -- route, OLD_MAN_2). Party eggs hatch after egg-cycle steps.
--- Indoor TEALA (gfx 85) runs a CONTEST: category, rank, five appeal turns.
--- Matching-category moves score full appeal; a win stamps that ribbon.
+-- Indoor TEALA (gfx 85) runs a CONTEST: category, rank, then
+-- CB2_StartContest (five appeal rounds, ROM effects / combos / jam).
 -- Eggs cannot enter.
 -- SECRET POWER (290) / TM43 on a cave or tree spot (behaviors 0x90–0x9D
 -- or a BG event kind 8) makes one SECRET BASE. The interior is a small
 -- room with a PC; the south wall warps you back out. A second spot asks
 -- to move. CONTINUE stores the entrance.
--- Menus and dialogue use extracted latin FONT3 (8x16 4bpp) and GBA-style
--- windows. START is the right-side list. OPTION is the same menu as the
--- title: TEXT SPEED (6/3/1 frames), BATTLE SCENE, BATTLE STYLE SHIFT/SET,
--- SOUND. SHIFT asks to switch when a trainer sends the next POKeMON.
+-- Menus and dialogue use extracted latin FONT3 (8x16 4bpp) and
+-- sFont3Widths (space is 3px, not a fixed 8). START is
+-- Menu_DrawStdWindowFrame(22, 0, 29, n*2+3). OPTION is the same
+-- menu as the title: TEXT SPEED (6/3/1 frames), BATTLE SCENE,
+-- BATTLE STYLE SHIFT/SET, SOUND, then the port's OVERWORLD /
+-- BATTLE / MENU SPEED (same GameSpeed ladder as Gen 1/2), ZOOM,
+-- TILT. SHIFT asks to switch when a trainer sends the next POKeMON.
 -- START on the player name opens the TRAINER CARD (ID, money, dex, time,
 -- badges). SAVE asks first, matching pokeruby save_menu_util.c.
 -- Dialogue typewrites at the chosen speed; A finishes the line, then
--- pages a 2-line FONT3 box (26 glyphs) the way pokeruby does.
+-- pages a 2-line FONT3 box (208px, text_window.c 2,15) the way pokeruby does.
 -- Bike, Surf, and Dive swap the player to those overworld graphics. Map
 -- ON_TRANSITION / ON_LOAD /
 -- ON_FRAME and coord events run from the ROM so story flags are not
 -- hardcoded per map. setobjectxyperm / setobjectmovementtype land before
 -- NPCs spawn. A msgbox queued before waitmovement stays on screen.
--- Boot is copyright → intro → title PRESS START → CONTINUE/NEW GAME/OPTION
+-- Boot is copyright graphic → intro stills → title PRESS START → CONTINUE/NEW GAME/OPTION
 -- then Birch's speech, matching pokeruby intro.c / title_screen.c / main_menu.c.
 -- hideobjectat / showobjectat toggle the sprite; showobjectat the player
 -- on another map is Mr. Briney's landing (Dewford / Route 104 / 109).
@@ -236,11 +265,20 @@
 local GameVersion = require("src.core.GameVersion")
 local GameViewport = require("src.render.GameViewport")
 local Input = require("src.core.Input")
+local GamepadMap = require("src.core.GamepadMap")
 local PixelCanvas = require("src.render.PixelCanvas")
 local TouchControls = require("src.core.TouchControls")
 local SaveSerializer = require("src.core.SaveSerializer")
+local SaveData = require("src.core.SaveData")
 local Gen3Script = require("src.import.Gen3Script")
 local Game3Boot = require("src.core.Game3Boot")
+local Game3Pc = require("src.core.Game3Pc")
+local Mp2kAudio = require("src.core.Mp2kAudio")
+local Mp2kSynth = require("src.core.Mp2kSynth")
+local Game3RegionMap = require("src.core.Game3RegionMap")
+local Contest3 = require("src.core.Contest3")
+local GameSpeed = require("src.core.GameSpeed")
+local FixedStep = require("src.core.FixedStep")
 
 local Game3 = {}
 Game3.__index = Game3
@@ -248,14 +286,100 @@ Game3.__index = Game3
 Game3.SCREEN_W = 240
 Game3.SCREEN_H = 160
 Game3.TILE = 16
--- pokeruby gWindows[] message box: 27 tiles wide, 2 FONT3 rows (8x16).
--- Inner text is 208px after the 8px frame, i.e. 26 glyphs.
+-- pokeruby text_window.c STD_DLG_FRAME: left 0, top 14, drawn
+-- height+2 = 6 tiles (112..160) and width+6 tiles (full 240px).
+-- Contest_StartTextPrinter(..., 2, 15) → text at (16, 120).
+-- GetGlyphWidth FONT3 uses sFont3Widths when spacing is 0.
 Game3.MSG_LINES = 2
 Game3.MSG_GLYPH_PX = 8
 Game3.MSG_WIDTH_PX = 208
 Game3.MSG_LINE_H = 16
+Game3.DLG_FRAME_LEFT = 0
+Game3.DLG_FRAME_TOP = 14
+Game3.DLG_FRAME_RIGHT = 29
+Game3.DLG_FRAME_BOTTOM = 19
+Game3.DLG_TEXT_COL = 2
+Game3.DLG_TEXT_ROW = 15
+-- start_menu.c Menu_DrawStdWindowFrame(22, 0, 29, n*2+3);
+-- Menu_PrintText(..., 23, 2 + index * 2); InitMenu(..., 0x17, 2, n, ..., 6).
+Game3.START_LEFT = 22
+Game3.START_TOP = 0
+Game3.START_RIGHT = 29
+Game3.START_TEXT_COL = 23
+Game3.START_TEXT_ROW = 2
+Game3.SAFARI_STOCK_RIGHT = 10
+Game3.SAFARI_STOCK_BOTTOM = 5
 -- pokeruby menu.c windows are 8x8 tiles. yesnobox 20, 8 is Std_MsgboxYesNo.
 Game3.MENU_TILE = 8
+-- text_window.c sTextWindowFrameGraphics: the OPTION menu's FRAME 1..20.
+Game3.WINDOW_FRAME_STYLES = 20
+-- The battle bottom bar is one of three 6-row bands of the cart's
+-- `gBattleTextboxTilemap`, all shown at y=112. Panel edges measured off the
+-- extracted bands: the action bar splits at x=136, the move bar at x=175.
+Game3.BATTLE_BAR_Y = 112
+Game3.BATTLE_BAR_H = 48
+-- FIGHT / BAG over POKeMON / RUN, inside the right-hand action panel.
+Game3.BATTLE_ACTION_X = 142
+Game3.BATTLE_ACTION_COL = 50
+Game3.BATTLE_ACTION_Y = 120
+Game3.BATTLE_ACTION_ROW = 16
+-- Four moves, also 2x2, inside the wide left panel of the move bar.
+Game3.BATTLE_MOVE_X = 8
+Game3.BATTLE_MOVE_COL = 80
+Game3.BATTLE_MOVE_Y = 120
+Game3.BATTLE_MOVE_ROW = 16
+Game3.BATTLE_MOVE_INFO_X = 182
+-- Battle FIGHT / moves / messages sit on the light gBattleTextboxPalette
+-- fill (menu.pal index 7). gWindowTemplate_81E6C58's "fg 1" is a palette
+-- *slot*, not RGB white — gFontDefaultPalette index 1 is 74,74,74, which
+-- is the readable FONT3 on that lavender bar. White ink is the
+-- white-on-white fight menu. Healthboxes share the same dark ink.
+-- ApplyColors_ShadowedFont: glyph 0xF = fg, 0xE = shadow. The extracted
+-- sheet stores those as black and gray; the shader recolors them.
+Game3.BATTLE_TEXT_INK = { 74 / 255, 74 / 255, 74 / 255, 1 }
+Game3.BATTLE_TEXT_SHADOW = { 65 / 255, 74 / 255, 123 / 255, 1 }
+Game3.TEXT_INK = { 0.10, 0.10, 0.12, 1 }
+Game3.TEXT_SHADOW = { 0.38, 0.38, 0.42, 1 }
+-- menu.pal index 3 = frame, index 7 = interior. Index 15 is the template
+-- backgroundColor (teal) and is not the painted fill of the bar tiles.
+Game3.BATTLE_BAR_FRAME = { 82 / 255, 98 / 255, 156 / 255, 1 }
+Game3.BATTLE_BAR_FILL = { 213 / 255, 205 / 255, 213 / 255, 1 }
+-- menu.pal index 2: the red outline around FIGHT / the selected move.
+Game3.BATTLE_CURSOR = { 1, 0, 0, 1 }
+-- Black (r < 0.25) is 0xF / fg; gray is 0xE / shadow.
+Game3.FONT_INK_SHADER = [[
+extern vec4 shadowColor;
+vec4 effect(vec4 color, Image tex, vec2 uv, vec2 screen_coords)
+{
+  vec4 t = Texel(tex, uv);
+  vec3 rgb = mix(color.rgb, shadowColor.rgb, step(0.25, t.r));
+  return vec4(rgb, t.a * color.a);
+}
+]]
+-- battle_controller_player.c SELECT on the move grid: the PP panel
+-- becomes BattleText_SwitchWhich ("Switch" / "which?").
+Game3.TEXT_SWITCH_WHICH = "Switch"
+Game3.TEXT_SWITCH_WHICH_2 = "which?"
+-- USA Ruby 1.0 sFont3Widths (font3_widths.h ENGLISH #else), glyph 0 at [1].
+-- 254 ROM bytes; 255–256 padded to 8. Extractor overwrites from the cart.
+Game3.FONT3_WIDTHS = {
+  3, 6, 6, 6, 6, 6, 6, 6, 6, 6, 8, 6, 6, 6, 6, 6,
+  6, 6, 6, 6, 6, 6, 6, 6, 8, 6, 6, 6, 6, 6, 4, 8,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 8,
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+  7, 6, 4, 8, 8, 8, 7, 8, 8, 4, 6, 6, 4, 4, 8, 8,
+  8, 8, 8, 8, 8, 8, 8, 8, 6, 7, 8, 7, 7, 8, 8, 4,
+  7, 8, 8, 8, 8, 8, 7, 8, 7, 7, 7, 7, 7, 7, 8, 7,
+  7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+  8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+  7, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 3, 6, 3, 5, 3,
+  6, 6, 6, 3, 3, 6, 6, 6, 3, 6, 6, 6, 6, 6, 6, 6,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 4, 5, 6,
+  3, 6, 6, 6, 6, 6, 5, 6, 6, 6, 6, 6, 6, 6, 6, 7,
+  3, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 1, 1, 8, 8,
+}
 Game3.YESNO_LEFT = 20
 Game3.YESNO_TOP = 8
 Game3.YESNO_RIGHT_OFF = 6
@@ -291,11 +415,13 @@ Game3.DEFAULT_OBJ_SUBPRIORITY = 0x73 + 1
 Game3.LEVITATE_PX = 8
 Game3.FLY_PX = 16
 Game3.EMOTE_GLYPH = { exclaim = "!", question = "?", heart = "<3" }
+Game3.EMOTE_SIZE = 16
 Game3.ATLAS_COLS = 32
 Game3.STARTER_SPECIES = 280
 Game3.TACKLE_POWER = 35
 Game3.TACKLE_TYPE = 0
 Game3.TYPE_FLYING = 2
+Game3.TYPE_NORMAL = 0
 Game3.TYPE_FIGHTING = 1
 Game3.TYPE_POISON = 3
 Game3.TYPE_GROUND = 4
@@ -322,6 +448,7 @@ Game3.EFFECT_ABSORB = 3
 Game3.EFFECT_BURN_HIT = 4
 Game3.EFFECT_FREEZE_HIT = 5
 Game3.EFFECT_PARALYZE_HIT = 6
+Game3.EFFECT_EXPLOSION = 7
 Game3.EFFECT_ATTACK_UP = 10
 Game3.EFFECT_DEFENSE_UP = 11
 Game3.EFFECT_SPEED_UP = 12
@@ -335,10 +462,12 @@ Game3.EFFECT_SPEED_DOWN = 20
 Game3.EFFECT_ACCURACY_DOWN = 23
 Game3.EFFECT_EVASION_DOWN = 24
 Game3.EFFECT_BIDE = 26
+Game3.EFFECT_ROAR = 28
 Game3.EFFECT_MULTI_HIT = 29
 Game3.EFFECT_FLINCH_HIT = 31
 Game3.EFFECT_RESTORE_HP = 32
 Game3.EFFECT_TOXIC = 33
+Game3.EFFECT_LIGHT_SCREEN = 35
 Game3.EFFECT_REST = 37
 Game3.EFFECT_OHKO = 38
 Game3.EFFECT_RAZOR_WIND = 39
@@ -361,6 +490,7 @@ Game3.EFFECT_SPECIAL_ATTACK_DOWN_2 = 61
 Game3.EFFECT_SPECIAL_DEFENSE_DOWN_2 = 62
 Game3.EFFECT_ACCURACY_DOWN_2 = 63
 Game3.EFFECT_EVASION_DOWN_2 = 64
+Game3.EFFECT_REFLECT = 65
 Game3.EFFECT_POISON = 66
 Game3.EFFECT_PARALYZE = 67
 Game3.EFFECT_ATTACK_DOWN_HIT = 68
@@ -372,8 +502,10 @@ Game3.EFFECT_ACCURACY_DOWN_HIT = 73
 Game3.EFFECT_SKY_ATTACK = 75
 Game3.EFFECT_CONFUSE_HIT = 76
 Game3.EFFECT_SPLASH = 85
+Game3.EFFECT_FLAIL = 99
 Game3.EFFECT_LEECH_SEED = 84
 Game3.EFFECT_PROTECT = 111
+Game3.EFFECT_ATTRACT = 120
 Game3.EFFECT_FORESIGHT = 113
 Game3.EFFECT_HIDDEN_POWER = 135
 Game3.EFFECT_ENDURE = 116
@@ -390,14 +522,28 @@ Game3.EFFECT_FLY = 155
 Game3.EFFECT_DEFENSE_CURL = 156
 Game3.EFFECT_WILL_O_WISP = 167
 Game3.EFFECT_KNOCK_OFF = 188
+Game3.EFFECT_ENDEAVOR = 189
+Game3.EFFECT_WEATHER_BALL = 203
+Game3.EFFECT_OVERHEAT = 204
 Game3.EFFECT_TELEPORT = 153
 Game3.EFFECT_LOW_KICK = 196
 Game3.EFFECT_MUD_SPORT = 201
 Game3.EFFECT_WATER_SPORT = 210
 Game3.EFFECT_RAGE = 81
 Game3.MOVE_RAGE = 99
+-- Heal Bell 215 / Aromatherapy 312. Perish Song 195. Uproar 253. Ingrain 275.
+Game3.EFFECT_HEAL_BELL = 102
+Game3.EFFECT_PERISH_SONG = 114
+Game3.EFFECT_UPROAR = 159
+Game3.EFFECT_INGRAIN = 181
+Game3.MOVE_HEAL_BELL = 215
+Game3.MOVE_PERISH_SONG = 195
+Game3.MOVE_UPROAR = 253
+Game3.MOVE_INGRAIN = 275
+Game3.MOVE_AROMATHERAPY = 312
 -- pokeruby sWeightToDamageTable: first threshold greater than weight (hg).
 Game3.LOW_KICK_WEIGHTS = { 100, 20, 250, 40, 500, 60, 1000, 80, 2000, 100 }
+Game3.FLAIL_HP_POWER = { 1, 200, 4, 150, 9, 100, 16, 80, 32, 40, 48, 20 }
 -- gPokedexEntries[].weight via SpeciesToNationalPokedexNum (tenths of kg).
 Game3.DEX_WEIGHT = {
   [0]=0, 69, 130, 1000, 85, 190, 905, 90, 225, 855, 29, 99, 320, 32, 100, 295, 18,
@@ -445,32 +591,75 @@ Game3.TARGET_SELECTED = 0
 Game3.TARGET_BOTH = 8
 Game3.TARGET_USER = 16
 Game3.TARGET_FOES_AND_ALLY = 32
+Game3.TARGET_OPPONENTS_FIELD = 64
+-- pokeruby gSoundMovesTable. Heal Bell / Perish Song are not in it.
+Game3.SOUND_MOVES = {
+  [45] = true, [46] = true, [47] = true, [48] = true,
+  [103] = true, [173] = true, [253] = true, [304] = true,
+  [319] = true, [320] = true,
+}
 Game3.WEATHER_RAIN = "rain"
 Game3.WEATHER_SUN = "sun"
 Game3.WEATHER_SAND = "sand"
 Game3.WEATHER_HAIL = "hail"
 Game3.WEATHER_TURNS = 5
+Game3.SCREEN_TURNS = 5
+-- include/constants/weather.h. Coord-event ids are not 1:1 after fog.
+Game3.OW_WEATHER_NONE = 0
+Game3.OW_WEATHER_CLOUDS = 1
+Game3.OW_WEATHER_SUNNY = 2
+Game3.OW_WEATHER_RAIN_LIGHT = 3
+Game3.OW_WEATHER_SNOW = 4
+Game3.OW_WEATHER_RAIN_MED = 5
+Game3.OW_WEATHER_FOG_1 = 6
+Game3.OW_WEATHER_ASH = 7
+Game3.OW_WEATHER_SANDSTORM = 8
+Game3.OW_WEATHER_FOG_2 = 9
+Game3.OW_WEATHER_FOG_3 = 10
+Game3.OW_WEATHER_SHADE = 11
+Game3.OW_WEATHER_DROUGHT = 12
+Game3.OW_WEATHER_RAIN_HEAVY = 13
+Game3.OW_WEATHER_BUBBLES = 14
+Game3.OW_WEATHER_ROUTE119_CYCLE = 20
+Game3.OW_WEATHER_ROUTE123_CYCLE = 21
+Game3.COORD_EVENT_WEATHER = {
+  [1] = 1, [2] = 2, [3] = 3, [4] = 4, [5] = 5, [6] = 6,
+  [7] = 9, [8] = 7, [9] = 8, [10] = 11, [11] = 12,
+  [20] = 20, [21] = 21,
+}
+-- sWeatherCycleRoute119 / Route123, indexed by weatherCycleStage % 4.
+Game3.WEATHER_CYCLE_119 = { 2, 3, 5, 3 }
+Game3.WEATHER_CYCLE_123 = { 2, 2, 3, 2 }
 Game3.CONFUSION_POWER = 40
 Game3.FLAG_CONTACT = 1
 Game3.FLAG_PROTECT = 2
-Game3.ABILITY_LIMBER = 7
+Game3.ABILITY_STENCH = 1
 Game3.ABILITY_DRIZZLE = 2
+Game3.ABILITY_SPEED_BOOST = 3
+Game3.ABILITY_BATTLE_ARMOR = 4
+Game3.ABILITY_STURDY = 5
+Game3.ABILITY_DAMP = 6
+Game3.ABILITY_LIMBER = 7
 Game3.ABILITY_SAND_VEIL = 8
 Game3.ABILITY_STATIC = 9
 Game3.ABILITY_VOLT_ABSORB = 10
 Game3.ABILITY_WATER_ABSORB = 11
+Game3.ABILITY_OBLIVIOUS = 12
 Game3.ABILITY_COMPOUND_EYES = 14
 Game3.ABILITY_CLOUD_NINE = 13
 Game3.ABILITY_INSOMNIA = 15
+Game3.ABILITY_COLOR_CHANGE = 16
 Game3.ABILITY_IMMUNITY = 17
 Game3.ABILITY_FLASH_FIRE = 18
 Game3.ABILITY_SHIELD_DUST = 19
 Game3.ABILITY_OWN_TEMPO = 20
+Game3.ABILITY_SUCTION_CUPS = 21
 Game3.ABILITY_INTIMIDATE = 22
 Game3.ABILITY_SHADOW_TAG = 23
 Game3.ABILITY_ROUGH_SKIN = 24
 Game3.ABILITY_WONDER_GUARD = 25
 Game3.ABILITY_LEVITATE = 26
+Game3.ABILITY_EFFECT_SPORE = 27
 Game3.ABILITY_SYNCHRONIZE = 28
 Game3.ABILITY_CLEAR_BODY = 29
 Game3.ABILITY_NATURAL_CURE = 30
@@ -478,6 +667,7 @@ Game3.ABILITY_LIGHTNING_ROD = 31
 Game3.ABILITY_SERENE_GRACE = 32
 Game3.ABILITY_SWIFT_SWIM = 33
 Game3.ABILITY_CHLOROPHYLL = 34
+Game3.ABILITY_ILLUMINATE = 35
 Game3.ABILITY_TRACE = 36
 Game3.ABILITY_HUGE_POWER = 37
 Game3.ABILITY_POISON_POINT = 38
@@ -485,9 +675,11 @@ Game3.ABILITY_INNER_FOCUS = 39
 Game3.ABILITY_MAGMA_ARMOR = 40
 Game3.ABILITY_WATER_VEIL = 41
 Game3.ABILITY_MAGNET_PULL = 42
+Game3.ABILITY_SOUNDPROOF = 43
 Game3.ABILITY_THICK_FAT = 47
 Game3.ABILITY_RAIN_DISH = 44
 Game3.ABILITY_SAND_STREAM = 45
+Game3.ABILITY_PRESSURE = 46
 Game3.ABILITY_EARLY_BIRD = 48
 Game3.ABILITY_FLAME_BODY = 49
 Game3.ABILITY_RUN_AWAY = 50
@@ -495,6 +687,11 @@ Game3.ABILITY_KEEN_EYE = 51
 Game3.ABILITY_HYPER_CUTTER = 52
 Game3.ABILITY_PICKUP = 53
 Game3.ABILITY_TRUANT = 54
+Game3.ABILITY_HUSTLE = 55
+Game3.ABILITY_CUTE_CHARM = 56
+Game3.ABILITY_PLUS = 57
+Game3.ABILITY_MINUS = 58
+Game3.ABILITY_FORECAST = 59
 Game3.ABILITY_STICKY_HOLD = 60
 Game3.ABILITY_SHED_SKIN = 61
 Game3.ABILITY_GUTS = 62
@@ -510,12 +707,18 @@ Game3.ABILITY_ARENA_TRAP = 71
 Game3.ABILITY_VITAL_SPIRIT = 72
 Game3.ABILITY_WHITE_SMOKE = 73
 Game3.ABILITY_PURE_POWER = 74
-Game3.ABILITY_AIR_LOCK = 76
+Game3.ABILITY_SHELL_ARMOR = 75
+-- pokeruby abilities.h: Cacophony 76 is unused; Air Lock is 77.
+Game3.ABILITY_CACOPHONY = 76
+Game3.ABILITY_AIR_LOCK = 77
 Game3.PARTY_MAX = 6
 Game3.BOX_COUNT = 14
 Game3.BOX_SIZE = 30
+-- Birch's lab hands this many POKe BALLs. NEW GAME starts with none.
 Game3.START_BALLS = 5
 Game3.START_MONEY = 3000
+-- waitfanfare safety: a looping jingle must not freeze the beaten script.
+Game3.FANFARE_WAIT_MAX = 8
 Game3.SAVE_FORMAT = "gen3-ruby-1"
 Game3.SAVE_FILE = "save3_ruby.lua"
 Game3.ITEM_MASTER_BALL = 1
@@ -542,11 +745,49 @@ Game3.ITEM_HYPER_POTION = 21
 Game3.ITEM_SUPER_POTION = 22
 Game3.ITEM_FULL_HEAL = 23
 Game3.ITEM_REVIVE = 24
+Game3.ITEM_MAX_REVIVE = 25
 Game3.ITEM_FRESH_WATER = 26
 Game3.ITEM_SODA_POP = 27
 Game3.ITEM_LEMONADE = 28
 Game3.ITEM_MOOMOO_MILK = 29
+Game3.ITEM_ENERGY_POWDER = 30
+Game3.ITEM_ENERGY_ROOT = 31
+Game3.ITEM_HEAL_POWDER = 32
+Game3.ITEM_REVIVAL_HERB = 33
+Game3.ITEM_LAVA_COOKIE = 38
+Game3.ITEM_ETHER = 34
+Game3.ITEM_MAX_ETHER = 35
+Game3.ITEM_ELIXIR = 36
+Game3.ITEM_MAX_ELIXIR = 37
+Game3.ITEM_SACRED_ASH = 45
+Game3.ITEM_HP_UP = 63
 Game3.ITEM_PROTEIN = 64
+Game3.ITEM_IRON = 65
+Game3.ITEM_CARBOS = 66
+Game3.ITEM_CALCIUM = 67
+Game3.ITEM_ZINC = 70
+Game3.ITEM_PP_MAX = 71
+Game3.ITEM_SUN_STONE = 93
+Game3.ITEM_MOON_STONE = 94
+Game3.ITEM_FIRE_STONE = 95
+Game3.ITEM_THUNDER_STONE = 96
+Game3.ITEM_WATER_STONE = 97
+Game3.ITEM_LEAF_STONE = 98
+Game3.ITEM_EVERSTONE = 195
+Game3.ITEM_DEEP_SEA_TOOTH = 192
+Game3.ITEM_DEEP_SEA_SCALE = 193
+Game3.ITEM_METAL_COAT = 199
+Game3.ITEM_DRAGON_SCALE = 201
+Game3.ITEM_UP_GRADE = 218
+Game3.ITEM_GUARD_SPEC = 73
+Game3.ITEM_DIRE_HIT = 74
+Game3.ITEM_X_ATTACK = 75
+Game3.ITEM_X_DEFEND = 76
+Game3.ITEM_X_SPEED = 77
+Game3.ITEM_X_ACCURACY = 78
+Game3.ITEM_X_SPECIAL = 79
+Game3.ITEM_POKE_DOLL = 80
+Game3.ITEM_FLUFFY_TAIL = 81
 Game3.ITEM_SUPER_REPEL = 83
 Game3.ITEM_MAX_REPEL = 84
 Game3.ITEM_ESCAPE_ROPE = 85
@@ -560,6 +801,7 @@ Game3.ITEM_RARE_CANDY = 68
 Game3.ITEM_PP_UP = 69
 Game3.ITEM_NUGGET = 110
 Game3.ITEM_KINGS_ROCK = 187
+Game3.ITEM_CLEANSE_TAG = 190
 Game3.ITEM_MACH_BIKE = 259
 Game3.ITEM_ITEMFINDER = 261
 Game3.ITEM_OLD_ROD = 262
@@ -593,6 +835,14 @@ Game3.ITEM_DEVON_GOODS = 269
 Game3.ITEM_SOOT_SACK = 270
 Game3.ITEM_ACRO_BIKE = 272
 Game3.ITEM_LETTER = 274
+Game3.ITEM_GO_GOGGLES = 279
+Game3.ITEM_DEVON_SCOPE = 288
+Game3.ITEM_BLUE_FLUTE = 39
+Game3.ITEM_YELLOW_FLUTE = 40
+Game3.ITEM_RED_FLUTE = 41
+-- items.h: BLACK is 42, WHITE is 43 (workshop scripts give these ids).
+Game3.ITEM_BLACK_FLUTE = 42
+Game3.ITEM_WHITE_FLUTE = 43
 Game3.ITEM_HM_CUT = 339
 Game3.ITEM_HM_FLY = 340
 Game3.ITEM_HM_SURF = 341
@@ -609,6 +859,7 @@ Game3.MOVE_DIG = 91
 Game3.MOVE_TELEPORT = 100
 Game3.MOVE_WATERFALL = 127
 Game3.MOVE_FLASH = 148
+Game3.MOVE_STRUGGLE = 165
 Game3.MOVE_SWEET_SCENT = 230
 Game3.MOVE_ROCK_SMASH = 249
 Game3.MOVE_SECRET_POWER = 290
@@ -625,6 +876,7 @@ Game3.HM_MOVES = {
   [Game3.MOVE_DIVE] = true,
 }
 Game3.ITEM_TM43 = 331
+Game3.ITEM_TM40 = 328
 Game3.ITEM_TM01 = 289
 Game3.ITEM_TM39 = 327
 Game3.TMHM_MOVES = require("src.import.RomExtractorGen3Battle").TMHM_MOVES
@@ -633,11 +885,13 @@ Game3.ITEM_CHESTO_BERRY = 134
 Game3.ITEM_PECHA_BERRY = 135
 Game3.ITEM_RAWST_BERRY = 136
 Game3.ITEM_ASPEAR_BERRY = 137
+Game3.ITEM_LEPPA_BERRY = 138
 Game3.ITEM_ORAN_BERRY = 139
 Game3.ITEM_LUM_BERRY = 141
 Game3.ITEM_SITRUS_BERRY = 142
 Game3.ITEM_ENIGMA_BERRY = 175
 Game3.ITEM_MIRACLE_SEED = 205
+Game3.ITEM_MYSTIC_WATER = 209
 Game3.ITEM_SOOTHE_BELL = 184
 Game3.HOLD_EFFECT_HAPPINESS_UP = 27
 Game3.ITEM_QUICK_CLAW = 183
@@ -650,6 +904,7 @@ Game3.ITEM_EXP_SHARE = 182
 Game3.HOLD_EFFECT_EXP_SHARE = 25
 Game3.ITEM_SMOKE_BALL = 194
 Game3.HOLD_EFFECT_CAN_ALWAYS_RUN = 37
+Game3.HOLD_EFFECT_PREVENT_EVOLVE = 38
 -- pokeruby gHoldEffectToType: HOLD_EFFECT_*_POWER -> move type.
 Game3.HOLD_EFFECT_BUG_POWER = 31
 Game3.HOLD_EFFECT_STEEL_POWER = 42
@@ -725,6 +980,17 @@ Game3.POCKET_COUNT = 5
 Game3.POCKET_NAMES = {
   "ITEMS", "POKe BALLS", "TMs & HMs", "BERRIES", "KEY ITEMS",
 }
+-- item_menu.c: 8 list rows (cursorMax 7), last row CLOSE BAG.
+Game3.BAG_ROWS = 8
+Game3.BAG_CLOSE = "CLOSE BAG"
+
+function Game3.wrapPocket(pocket, delta)
+  local n = Game3.POCKET_COUNT
+  pocket = (tonumber(pocket) or Game3.POCKET_ITEMS) + (tonumber(delta) or 0)
+  while pocket < 1 do pocket = pocket + n end
+  while pocket > n do pocket = pocket - n end
+  return pocket
+end
 -- pokeruby gMultichoiceLists / strings.c. B cancel is MULTI_B_PRESSED 127.
 Game3.MULTI_B_PRESSED = 127
 Game3.MULTICHOICE = {
@@ -733,6 +999,9 @@ Game3.MULTICHOICE = {
   [13] = { "PSN", "PAR", "SLP", "BRN", "FRZ", "CANCEL" },
   [14] = { "DEWFORD", "CANCEL" },
   [50] = { "Excellent!", "Not so hot" },
+  [52] = { "LILYCOVE", "BATTLE TOWER", "CANCEL" },
+  [56] = { "SLATEPORT", "BATTLE TOWER", "CANCEL" },
+  [57] = { "1F", "2F", "3F", "4F", "5F" },
 }
 Game3.PARTY_SUMMARY_PAGES = 3
 Game3.PARTY_FIELD_MOVES = {
@@ -788,6 +1057,8 @@ Game3.GFX_RIVAL_BRENDAN = 100
 Game3.GFX_RIVAL_MAY = 105
 Game3.GFX_BRENDAN_UNDERWATER = 111
 Game3.GFX_MAY_UNDERWATER = 112
+Game3.GFX_BRENDAN_WATERING = 191
+Game3.GFX_MAY_WATERING = 192
 Game3.GFX_OLD_MAN_2 = 29
 Game3.GFX_OLD_WOMAN_2 = 30
 Game3.GFX_DAYCARE_MAN = 29
@@ -800,6 +1071,7 @@ Game3.GFX_MAGMA_MEMBER_M = 119
 Game3.GFX_MAGMA_MEMBER_F = 120
 Game3.GFX_ARCHIE = 195
 Game3.GFX_MAXIE = 196
+Game3.GFX_KECLEON_1 = 204
 Game3.GFX_VAR_0 = 240
 Game3.GFX_VAR_1 = 241
 Game3.GFX_VAR_F = 255
@@ -807,7 +1079,11 @@ Game3.VAR_OBJ_GFX_ID_0 = 0x4010
 Game3.VARS_START = 0x4000
 Game3.SPECIAL_VARS_START = 0x8000
 Game3.MAP_OFFSET = 7
+-- Extra metatiles kept around the camera window between SpriteBatch
+-- refills (Gen 1 TileRenderer WINDOW_MARGIN, in 16px cells).
+Game3.TILE_WINDOW_MARGIN = 2
 Game3.MAPGRID_COLLISION_MASK = 0x0C00
+Game3.TRAINER_BATTLE_SINGLE = 0
 Game3.TRAINER_BATTLE_CONTINUE_NO_MUSIC = 1
 Game3.TRAINER_BATTLE_CONTINUE = 2
 Game3.TRAINER_BATTLE_NO_INTRO = 3
@@ -816,11 +1092,80 @@ Game3.TRAINER_BATTLE_REMATCH = 5
 Game3.TRAINER_BATTLE_CONTINUE_DOUBLE = 6
 Game3.TRAINER_BATTLE_REMATCH_DOUBLE = 7
 Game3.TRAINER_BATTLE_CONTINUE_DOUBLE_NO_MUSIC = 8
+-- pokeruby battle_setup.h / global.h. Lua table is 1-based; C index 0
+-- is TRAINER_EYE_TRAINERS[1] / trainerRematches[1].
+Game3.NUM_TRAINER_EYE_TRAINERS = 56
+Game3.MAX_REMATCH_ENTRIES = 100
+Game3.TRAINER_REMATCH_STEPS = 255
+Game3.TRAINER_EYE_TRAINERS = {
+  { { 37, 40, 41, 42, 43 }, 0, 33 },
+  { { 44, 47, 48, 49, 50 }, 0, 26 },
+  { { 57, 60, 61, 62, 63 }, 0, 24 },
+  { { 64, 67, 68, 69, 70 }, 0, 24 },
+  { { 687, 688, 689, 690, 691 }, 0, 39 },
+  { { 94, 101, 102, 103, 104 }, 0, 26 },
+  { { 78, 84, 85, 86, 87 }, 0, 26 },
+  { { 108, 110, 111, 112, 113 }, 24, 20 },
+  { { 114, 120, 121, 122, 123 }, 0, 19 },
+  { { 127, 132, 133, 134, 135 }, 0, 36 },
+  { { 136, 139, 140, 141, 142 }, 0, 19 },
+  { { 143, 147, 148, 149, 150 }, 0, 29 },
+  { { 155, 175, 176, 177, 178 }, 0, 22 },
+  { { 183, 184, 185, 186, 187 }, 0, 30 },
+  { { 196, 197, 198, 199, 200 }, 0, 33 },
+  { { 206, 207, 208, 209, 210 }, 0, 29 },
+  { { 216, 219, 220, 221, 222 }, 24, 13 },
+  { { 681, 682, 683, 684, 685 }, 24, 1 },
+  { { 226, 228, 229, 230, 231 }, 0, 35 },
+  { { 238, 239, 240, 241, 242 }, 0, 38 },
+  { { 249, 250, 251, 252, 253 }, 0, 38 },
+  { { 254, 257, 258, 259, 260 }, 0, 36 },
+  { { 280, 282, 283, 284, 285 }, 0, 31 },
+  { { 273, 276, 277, 278, 279 }, 0, 31 },
+  { { 287, 288, 289, 290, 291 }, 0, 32 },
+  { { 302, 303, 304, 305, 306 }, 0, 25 },
+  { { 293, 295, 296, 297, 298 }, 0, 18 },
+  { { 307, 308, 309, 310, 311 }, 0, 30 },
+  { { 313, 314, 315, 316, 317 }, 24, 12 },
+  { { 318, 328, 329, 330, 331 }, 0, 17 },
+  { { 339, 346, 347, 348, 349 }, 0, 21 },
+  { { 358, 360, 361, 362, 363 }, 0, 25 },
+  { { 353, 354, 355, 356, 357 }, 0, 25 },
+  { { 376, 379, 380, 381, 382 }, 0, 43 },
+  { { 386, 388, 389, 390, 391 }, 0, 43 },
+  { { 369, 370, 371, 372, 373 }, 0, 32 },
+  { { 364, 365, 366, 367, 368 }, 0, 32 },
+  { { 392, 393, 394, 395, 396 }, 24, 1 },
+  { { 406, 409, 410, 411, 412 }, 0, 35 },
+  { { 419, 421, 422, 423, 424 }, 0, 28 },
+  { { 427, 430, 431, 432, 433 }, 0, 30 },
+  { { 434, 437, 438, 439, 440 }, 0, 28 },
+  { { 449, 465, 466, 467, 468 }, 0, 39 },
+  { { 474, 477, 478, 479, 480 }, 24, 13 },
+  { { 481, 482, 487, 488, 489 }, 0, 18 },
+  { { 492, 497, 498, 499, 500 }, 0, 40 },
+  { { 512, 515, 516, 517, 518 }, 0, 25 },
+  { { 545, 548, 549, 550, 551 }, 0, 32 },
+  { { 538, 541, 542, 543, 544 }, 0, 32 },
+  { { 559, 562, 563, 564, 565 }, 0, 34 },
+  { { 552, 555, 556, 557, 558 }, 0, 34 },
+  { { 604, 607, 608, 609, 610 }, 0, 19 },
+  { { 621, 622, 623, 624, 625 }, 24, 11 },
+  { { 627, 636, 637, 638, 639 }, 0, 27 },
+  { { 642, 643, 644, 645, 646 }, 24, 62 },
+  { { 657, 658, 659, 660, 0 }, 24, 43 },
+}
 Game3.PLAYER_HAS_TWO_USABLE_MONS = 0
 Game3.PLAYER_HAS_ONE_MON = 1
 Game3.PLAYER_HAS_ONE_USABLE_MON = 2
+Game3.TRAINER_CALVIN_1 = 318
+Game3.TRAINER_CALVIN_2 = 328
 Game3.TRAINER_ROXANNE = 265
+Game3.TRAINER_VICTOR = 292
+Game3.TRAINER_VICTORIA = 299
+Game3.TRAINER_VICKY = 312
 Game3.TRAINER_PETALBURG_WOODS_GRUNT = 575
+Game3.TRAINER_VIVI = 606
 Game3.GENDER_MALE = 0
 Game3.GENDER_FEMALE = 1
 Game3.SPECIES_POOCHYENA = 286
@@ -828,7 +1173,26 @@ Game3.SPECIES_TREECKO = 277
 Game3.SPECIES_TORCHIC = 280
 Game3.SPECIES_MUDKIP = 283
 Game3.SPECIES_MACHOP = 66
+Game3.SPECIES_REGIROCK = 401
+Game3.SPECIES_REGICE = 402
+Game3.SPECIES_REGISTEEL = 403
+Game3.SPECIES_KYOGRE = 404
+Game3.SPECIES_GROUDON = 405
+Game3.SPECIES_RAYQUAZA = 406
+Game3.SPECIES_LATIAS = 407
+Game3.SPECIES_LATIOS = 408
+-- roamer.h ROAMER_SPECIES: Ruby is Latios, Sapphire Latias.
+Game3.ROAMER_SPECIES = Game3.SPECIES_LATIOS
+Game3.ROAMER_LEVEL = 40
 Game3.SPECIES_ZIGZAGOON = 288
+Game3.SPECIES_VOLTORB = 100
+Game3.SPECIES_CASTFORM = 385
+Game3.SPECIES_WYNAUT = 360
+Game3.CASTFORM_NO_CHANGE = 0
+Game3.CASTFORM_TO_NORMAL = 1
+Game3.CASTFORM_TO_FIRE = 2
+Game3.CASTFORM_TO_WATER = 3
+Game3.CASTFORM_TO_ICE = 4
 Game3.SPECIES_RALTS = 392
 Game3.MOVE_TACKLE = 33
 Game3.MOVE_STUN_SPORE = 78
@@ -878,8 +1242,15 @@ Game3.WALLY_TUTORIAL_ZIGZAGOON_LEVEL = 7
 Game3.WALLY_TUTORIAL_RALTS_LEVEL = 5
 Game3.STARTERS = { 277, 280, 283 }
 Game3.STARTER_LEVEL = 5
+-- starter_choose.c gStarterChoose_PokeballCoords.
+Game3.STARTER_BALL_XY = { { 60, 64 }, { 120, 88 }, { 180, 64 } }
+Game3.MART_QTY_MAX = 99
+Game3.CATCH_THROW = 0.35
+Game3.CATCH_SHAKE = 0.4
+Game3.CATCH_STARS = 0.5
 Game3.NICKNAME_LEN = 10
 Game3.NICKNAME_COLS = 9
+Game3.PARTY_SIZE = 6
 Game3.NAME_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 Game3.CHASE_LEVEL = 2
 Game3.LAB_GROUP = 1
@@ -893,6 +1264,7 @@ Game3.FADE_FROM_BLACK = 0
 Game3.FADE_FRAMES = 16
 Game3.FLAG_RESCUED_BIRCH = 0x52
 Game3.FLAG_SET_WALL_CLOCK = 0x51
+Game3.FLAG_RUSTURF_TUNNEL_OPENED = 0xC7
 Game3.FLAG_HIDE_MOM_LITTLEROOT = 0x2F0
 Game3.FLAG_HIDE_MACHOKE_MOVER_1 = 0x2F2
 Game3.FLAG_HIDE_MACHOKE_MOVER_2 = 0x2F3
@@ -929,17 +1301,36 @@ Game3.FLAG_ADVENTURE_STARTED = 0x74
 Game3.FLAG_RECEIVED_POTION_OLDALE = 0x84
 Game3.FLAG_RECEIVED_RUNNING_SHOES = 0x112
 Game3.FLAG_TEMP_1 = 0x1
+Game3.FLAG_TEMP_2 = 0x2
+Game3.VAR_TEMP_0 = 0x4000
+Game3.VAR_ICE_STEP_COUNT = 0x4022
 Game3.FLAG_MET_RIVAL_LILYCOVE = 0x124
+Game3.FLAG_MOSSDEEP_GYM_SWITCH_1 = 0x64
+Game3.FLAG_MOSSDEEP_GYM_SWITCH_2 = 0x65
+Game3.FLAG_MOSSDEEP_GYM_SWITCH_3 = 0x66
+Game3.FLAG_MOSSDEEP_GYM_SWITCH_4 = 0x67
+Game3.FLAG_MT_PYRE_ORB_STOLEN = 0x6F
+Game3.FLAG_EVIL_TEAM_ESCAPED_IN_SUBMARINE = 0x70
+Game3.FLAG_RECEIVED_RED_OR_BLUE_ORB = 0xD4
+Game3.FLAG_HIDE_GRUNT_1_BLOCKING_HIDEOUT = 0x335
+Game3.FLAG_HIDE_GRUNT_2_BLOCKING_HIDEOUT = 0x336
+Game3.FLAG_HIDE_ELECTRODE_1_HIDEOUT = 0x3D1
+Game3.FLAG_HIDE_ELECTRODE_2_HIDEOUT = 0x3D2
+Game3.VAR_SLATEPORT_HARBOR_STATE = 0x40A0
+Game3.VAR_MT_PYRE_STATE = 0x40B9
 Game3.FLAG_RIVAL_LEFT_FOR_ROUTE103 = 0x12D
 Game3.VAR_STARTER_MON = 0x4023
 Game3.VAR_LITTLEROOT_STATE = 0x4050
 Game3.VAR_ROUTE102_ACCESSIBLE = 0x4051
 Game3.VAR_PETALBURG_STATE = 0x4057
 Game3.VAR_PETALBURG_WOODS_STATE = 0x4098
+Game3.VAR_RUSTURF_TUNNEL_STATE = 0x409A
 Game3.FLAG_HIDE_DEVON_PETALBURG_WOODS = 0x2D4
 Game3.FLAG_HIDE_EVIL_TEAM_PETALBURG_WOODS = 0x2D5
 Game3.FLAG_HIDE_GRUNT_RUSTBORO = 0x2DB
 Game3.FLAG_HIDE_DEVON_RUSTBORO = 0x2DC
+Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1 = 0x3A3
+Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_2 = 0x3A4
 Game3.VAR_RUSTBORO_STATE = 0x405A
 Game3.VAR_ROUTE101_STATE = 0x4060
 Game3.VAR_ROUTE103_STATE = 0x4062
@@ -959,6 +1350,8 @@ Game3.VAR_LAST_TALKED = 0x800F
 Game3.FLAG_HIDE_MAP_NAME_POPUP = 0x4000
 Game3.WARP_ID_NONE = 0xFF
 Game3.WARP_ID_DYNAMIC = 0x7F
+Game3.MAP_DYNAMIC_GROUP = 0x7F
+Game3.MAP_DYNAMIC_NUM = 0x7F
 Game3.MAP_UNDEFINED_GROUP = 0xFF
 Game3.MAP_UNDEFINED_NUM = 0xFF
 -- pokeruby gMapGroup_Dungeons: GraniteCave_B1F / B2F.
@@ -967,8 +1360,57 @@ Game3.GRANITE_CAVE_B1F_NUM = 8
 Game3.GRANITE_CAVE_B2F_NUM = 9
 Game3.HEAL_LITTLEROOT_BRENDAN_2F = 1
 Game3.HEAL_LITTLEROOT_MAY_2F = 2
+Game3.HEAL_PETALBURG_CITY = 3
+Game3.HEAL_SLATEPORT_CITY = 4
 Game3.HEAL_BEDROOM_X = 4
 Game3.HEAL_BEDROOM_Y = 2
+-- heal_location.c sHealLocations / heal_locations.json. 1-based;
+-- GetHealLocation(0) is NONE. Centers setrespawn the outdoor tile in
+-- front of the building, not the nurse's mat.
+Game3.HEAL_LOCATIONS = {
+  [1] = { group = 1, num = 1, x = 4, y = 2 },
+  [2] = { group = 1, num = 3, x = 4, y = 2 },
+  [3] = { group = 0, num = 0, x = 20, y = 17 },
+  [4] = { group = 0, num = 1, x = 19, y = 20 },
+  [5] = { group = 0, num = 2, x = 22, y = 6 },
+  [6] = { group = 0, num = 3, x = 16, y = 39 },
+  [7] = { group = 0, num = 4, x = 5, y = 7 },
+  [8] = { group = 0, num = 5, x = 24, y = 15 },
+  [9] = { group = 0, num = 6, x = 28, y = 17 },
+  [10] = { group = 0, num = 7, x = 43, y = 32 },
+  [11] = { group = 0, num = 8, x = 27, y = 49 },
+  [12] = { group = 0, num = 9, x = 5, y = 9 },
+  [13] = { group = 0, num = 9, x = 14, y = 9 },
+  [14] = { group = 0, num = 10, x = 6, y = 17 },
+  [15] = { group = 0, num = 11, x = 2, y = 11 },
+  [16] = { group = 0, num = 12, x = 9, y = 7 },
+  [17] = { group = 0, num = 13, x = 14, y = 8 },
+  [18] = { group = 0, num = 14, x = 16, y = 4 },
+  [19] = { group = 0, num = 15, x = 8, y = 16 },
+  [20] = { group = 0, num = 8, x = 18, y = 6 },
+  [21] = { group = 26, num = 4, x = 14, y = 9 },
+  [22] = { group = 26, num = 9, x = 15, y = 20 },
+}
+-- Story order of Center towns. A bedroom lastHeal after Oldale is the
+-- old setrespawn-1/2 bug; skip Littleroot and FLAG_SYS_GAME_CLEAR (HoF
+-- really does setrespawn the bedroom).
+Game3.HEAL_FROM_VISITS = {
+  { id = 14, flag = 0x810 },
+  { id = 3, flag = 0x816 },
+  { id = 6, flag = 0x819 },
+  { id = 15, flag = 0x811 },
+  { id = 4, flag = 0x817 },
+  { id = 5, flag = 0x818 },
+  { id = 16, flag = 0x812 },
+  { id = 17, flag = 0x813 },
+  { id = 18, flag = 0x814 },
+  { id = 7, flag = 0x81A },
+  { id = 8, flag = 0x81B },
+  { id = 9, flag = 0x81C },
+  { id = 10, flag = 0x81D },
+  { id = 19, flag = 0x815 },
+  { id = 11, flag = 0x81E },
+}
 Game3.TRUCK_TOWN_MALE_X = 3
 Game3.TRUCK_TOWN_MALE_Y = 10
 Game3.TRUCK_TOWN_FEMALE_X = 12
@@ -1014,6 +1456,8 @@ Game3.FLAG_VISITED_MOSSDEEP_CITY = 0x81C
 Game3.FLAG_VISITED_SOOTOPOLIS_CITY = 0x81D
 Game3.FLAG_VISITED_EVER_GRANDE_CITY = 0x81E
 Game3.FLAG_SYS_CYCLING_ROAD = 0x82B
+Game3.FLAG_SYS_SAFARI_MODE = 0x82C
+Game3.FLAG_SYS_CRUISE_MODE = 0x82D
 Game3.FLAG_SYS_RIBBON_GET = 0x83B
 Game3.FLAG_SYS_USE_FLASH = 0x828
 Game3.MAX_FLASH_LEVEL = 4
@@ -1021,24 +1465,335 @@ Game3.MAX_FLASH_LEVEL = 4
 Game3.FLASH_RADII = { [0] = 200, [1] = 72, [2] = 56, [3] = 40, [4] = 24 }
 -- UpdateFlashLevelEffect: radius += delta every other frame, delta 1.
 Game3.FLASH_ANIM_DELTA = 1
+-- sub_80818A4: flash 1→160, delta 2, plus 2 setup frames and 1 clear.
+Game3.ORB_OPEN_FROM_R = 1
+Game3.ORB_OPEN_DEST_R = 160
+Game3.ORB_OPEN_DELTA = 2
+Game3.ORB_OPEN_SETUP_FRAMES = 3
+-- sub_8081658: BLDALPHA 1804 (lo 12 / hi 7) × 8-frame steps → case 5.
+Game3.ORB_CLOSE_FRAMES = 186
+-- sub_808161C loads 0x1F (red) or 0x7C00 (blue) into OBJ pal 15. There
+-- are no orb tiles; the overlay is WIN0 plus this wash.
+Game3.ORB_PAL_RED = 0x1F
+Game3.ORB_PAL_BLUE = 0x7C00
+Game3.ORB_WASH_ALPHA = 0.22
+function Game3.rgb555(c)
+  c = tonumber(c) or 0
+  return (c % 32) * 8 / 255,
+    (math.floor(c / 32) % 32) * 8 / 255,
+    (math.floor(c / 1024) % 32) * 8 / 255
+end
+
+-- field_effect.c MultiplyInvertedPaletteRGBComponents. r,g,b are 0..16.
+function Game3.multiplyInvertedPaletteRgb(c, r, g, b)
+  c = math.floor(tonumber(c) or 0)
+  r = math.floor(tonumber(r) or 0)
+  g = math.floor(tonumber(g) or 0)
+  b = math.floor(tonumber(b) or 0)
+  local cr = c % 32
+  local cg = math.floor(c / 32) % 32
+  local cb = math.floor(c / 1024) % 32
+  cr = cr + math.floor(((31 - cr) * r) / 16)
+  cg = cg + math.floor(((31 - cg) * g) / 16)
+  cb = cb + math.floor(((31 - cb) * b) / 16)
+  if cr > 31 then cr = 31 end
+  if cg > 31 then cg = 31 end
+  if cb > 31 then cb = 31 end
+  return cr + cg * 32 + cb * 1024
+end
+
+-- glowT is frames since the last ball spawned. nil phase = pal at rest.
+function Game3.glowPulsePhase(glowT)
+  glowT = math.floor(tonumber(glowT) or 0)
+  if glowT < Game3.HOF_STAGE1_FRAMES then return nil, false end
+  local t = glowT - Game3.HOF_STAGE1_FRAMES
+  if t < Game3.GLOW_STAGE2_FRAMES then
+    return math.floor(t / Game3.GLOW_PULSE_PERIOD) % 4, true
+  end
+  t = t - Game3.GLOW_STAGE2_FRAMES
+  if t < Game3.GLOW_STAGE3_FRAMES then
+    return math.floor(t / Game3.GLOW_PULSE_PERIOD) % 4, false
+  end
+  return nil, false
+end
+
+function Game3.glowPulseFactor(phase)
+  phase = math.floor(tonumber(phase) or 0)
+  if phase < 0 or phase > 3 then return 0 end
+  return Game3.GLOW_PULSE_R[phase + 1] or 0
+end
+-- Task_WaitWeather runs next vblank; Drought_Finish / None_Finish are 0.
+Game3.WAIT_WEATHER_FRAMES = 1
+-- Overworld_FadeOutMapMusic: FadeOutBGM(4); 16 vol steps × speed 4.
+Game3.OVERWORLD_FADE_MUSIC_SPEED = 4
+Game3.OVERWORLD_FADE_MUSIC_FRAMES = 64
+-- ShakeCamera: 8 pans, one every 5 frames; SE_M_STRENGTH.
+Game3.CAMERA_SHAKE_PERIOD = 5
+Game3.CAMERA_SHAKE_HITS = 8
+Game3.SE_M_STRENGTH = 214
+-- SealedChamberShakingEffect: period 5; effect1 pan 2 × 50, effect2 pan 3 × 2.
+Game3.SEALED_SHAKE_PERIOD = 5
+Game3.SEALED_SHAKE1_PAN = 2
+Game3.SEALED_SHAKE1_HITS = 50
+Game3.SEALED_SHAKE2_PAN = 3
+Game3.SEALED_SHAKE2_HITS = 2
+-- ShakeScreenInElevator: 23 pans every 3 frames; SE_ELEVATOR then SE_DING_DONG.
+Game3.ELEVATOR_SHAKE_PERIOD = 3
+Game3.ELEVATOR_SHAKE_HITS = 23
+Game3.SE_ELEVATOR = 89
+Game3.SE_DING_DONG = 73
+-- Walk-in-place normal is 16 frames; Task_2 runs it 11 times (data[1] 0..10).
+Game3.WATERING_STEP_FRAMES = 16
+Game3.WATERING_STEPS = 11
+Game3.WATERING_FRAMES = 176
+-- sub_807E25C: BLDY +3 to 16, then -1 every 10 frames, then 1 clear frame.
+Game3.ROUTE128_FADE_RISE = 6
+Game3.ROUTE128_FADE_FALL = 160
+Game3.ROUTE128_FADE_CLEAR = 1
+Game3.ROUTE128_FADE_FRAMES = 167
+-- field_effects.h. Sparkle anim 3+5+5 then data[1] > 34. NPCFLY data[2]+=4
+-- until >= 0x80. Unknown ids get a short default so waitfieldeffect cannot hang.
+Game3.FLDEFF_USE_CUT_ON_TREE = 2
+Game3.FLDEFF_POKECENTER_HEAL = 25
+Game3.FLDEFF_NPCFLY_OUT = 30
+Game3.FLDEFF_USE_ROCK_SMASH = 37
+Game3.FLDEFF_USE_STRENGTH = 40
+Game3.FLDEFF_SPARKLE = 54
+Game3.FLDEFF_SECRET_BASE_PC_TURN_ON = 61
+Game3.FLDEFF_HALL_OF_FAME_RECORD = 62
+Game3.SE_M_ROCK_THROW = 131
+Game3.FLDEFF_SPARKLE_FRAMES = 48
+Game3.FLDEFF_NPCFLY_FRAMES = 32
+Game3.FLDEFF_SECRET_BASE_PC_FRAMES = 21
+Game3.FLDEFF_POKECENTER_BALL_GAP = 25
+Game3.FLDEFF_POKECENTER_GLOW = 80
+Game3.FLDEFF_DEFAULT_FRAMES = 16
+Game3.DOOR_ANIM_FRAMES = 8
+Game3.MB_ANIMATED_DOOR = 0x69
+Game3.MB_BERRY_TREE_SOIL = 0xA0
+Game3.MT_BUILDING_TV_OFF = 0x002
+Game3.MT_BUILDING_TV_ON = 0x003
+Game3.MT_SECRET_BASE_PC_OFF = 0x220
+Game3.MT_SECRET_BASE_PC_ON = 0x224
+Game3.MT_SECRET_BASE_PC_OFF_OTHER = 0x221
+Game3.MAP_LILYCOVE_MOTEL_1F_NUM = 0
+-- PokeballGlowEffect stages 1-6 after the last ball.
+Game3.HOF_RECORD_GLOW_FRAMES = 184
+Game3.HOF_RECORD_BALL_GAP = 25
+-- CreatePokeballGlowSprite: balls free when glow data[0] > 4 (stage 5).
+Game3.HOF_BALL_LIVE = 182
+Game3.HOF_STAGE1_FRAMES = 32
+Game3.HOF_MONITOR_BLINK = 16
+Game3.HOF_MONITOR_LIFE = 127
+-- PokeballGlowEffect_2/3: 8-frame phase, 96 then 24 frames.
+Game3.GLOW_PULSE_PERIOD = 8
+Game3.GLOW_STAGE2_FRAMES = 96
+Game3.GLOW_STAGE3_FRAMES = 24
+-- gUnknown_0839F2C0 / C4 / C8. B stays 0 so the wash is yellow.
+Game3.GLOW_PULSE_R = { 16, 12, 8, 0 }
+Game3.GLOW_PULSE_G = { 16, 12, 8, 0 }
+Game3.GLOW_PULSE_B = { 0, 0, 0, 0 }
+-- gUnknown_0839F2A8 + FldEff_HallOfFameRecord / FldEff_PokecenterHeal.
+Game3.POKEBALL_GLOW_DELTA = {
+  { 0, 0 }, { 6, 0 }, { 0, 4 }, { 6, 4 }, { 0, 8 }, { 6, 8 },
+}
+Game3.HOF_BALL_X = 0x75
+Game3.HOF_BALL_Y = 0x34
+Game3.POKECENTER_BALL_X = 0x5D
+Game3.POKECENTER_BALL_Y = 0x24
+Game3.POKECENTER_MONITOR_X = 0x7C
+Game3.POKECENTER_MONITOR_Y = 0x18
+Game3.HOF_MONITOR_BIG = { 0x78, 0x18 }
+Game3.HOF_MONITOR_SMALL = {
+  { 0x28, 0x08 }, { 0x48, 0x08 }, { 0xA8, 0x08 }, { 0xC8, 0x08 },
+}
+Game3.SE_M_FLY = 158
+Game3.SE_SELECT = 5
+Game3.SE_BANG = 20
+Game3.SE_PIN = 21
+Game3.SE_FAILURE = 32
+-- Task_BrailleWait: 7200 frames, then 30 after a natural timeout.
+Game3.BRAILLE_WAIT_FRAMES = 7200
+Game3.BRAILLE_WAIT_CLEAR_FRAMES = 30
+-- LotteryCornerComputerEffect: every 7 frames, 5 toggles. MapGrid 18,8/9.
+Game3.MT_SHOP_LAPTOP1_FLASH = 0x258
+Game3.MT_SHOP_LAPTOP1_NORMAL = 0x29D
+Game3.MT_SHOP_LAPTOP2_FLASH = 0x260
+Game3.MT_SHOP_LAPTOP2_NORMAL = 0x2A5
+Game3.LOTTERY_LAPTOP_GX = 18
+Game3.LOTTERY_LAPTOP_GY = 8
+Game3.LOTTERY_BLINK_PERIOD = 7
+Game3.LOTTERY_BLINK_TOGGLES = 5
+Game3.SE_PC_OFF = 3
+Game3.SE_PC_ON = 4
+Game3.SE_DEX_SCROLL = 108
+Game3.SE_DEX_PAGE = 109
+Game3.SE_EXIT = 9
+Game3.MT_BUILDING_PC_OFF = 0x004
+Game3.MT_BUILDING_PC_ON = 0x005
+Game3.MT_BRENDAN_PC_OFF = 0x25A
+Game3.MT_BRENDAN_PC_ON = 0x27F
+Game3.MT_MAY_PC_OFF = 0x259
+Game3.MT_MAY_PC_ON = 0x27E
+Game3.LINK_BATTLE_RECORD_SLOTS = 5
+-- EndTrainerApproach: Task_DestroyTrainerApproachTask next vblank.
+Game3.END_APPROACH_FRAMES = 1
 Game3.FLAG_SYS_USE_STRENGTH = 0x829
+Game3.FLAG_SYS_WEATHER_CTRL = 0x82A
+-- SYSTEM_FLAGS + 0x4D / 0x4E. White/Black Flute; LoadMap FlagClears.
+Game3.FLAG_SYS_ENC_UP_ITEM = 0x84D
+Game3.FLAG_SYS_ENC_DOWN_ITEM = 0x84E
+Game3.MAX_ENCOUNTER_RATE = 2880
+Game3.FLAG_LEGENDARY_BATTLE_COMPLETED = 0x71
+Game3.FLAG_LEGEND_ESCAPED_SEAFLOOR_CAVERN = 0x81
+Game3.VAR_SOOTOPOLIS_STATE = 0x405E
+Game3.VAR_CAVE_OF_ORIGIN_B4F_STATE = 0x409B
 Game3.FLAG_SYS_TV_HOME = 0x830
 Game3.FLAG_SYS_TV_WATCH = 0x831
+Game3.FLAG_SYS_TV_START = 0x832
+-- SYSTEM_FLAGS + 0x5D. Hall of Fame sets this; the house TV returns 1.
+Game3.FLAG_SYS_TV_LATI = 0x85D
+Game3.FLAG_LATIOS_OR_LATIAS_ROAMING = 0xFF
+Game3.FLAG_RECEIVED_SS_TICKET = 0x123
+Game3.ITEM_SS_TICKET = 265
+Game3.MAP_LITTLEROOT_INDOOR_GROUP = 1
+Game3.MAP_BRENDANS_HOUSE_1F_NUM = 0
+Game3.MAP_MAYS_HOUSE_1F_NUM = 2
+Game3.MAP_ROUTE110_NUM = 0x19
+Game3.ROAMER_MAP_NONE = 0xFF
+-- roamer.c sRoamerLocations: 20 sets, first column is the set id
+-- (group-0 map num). Random() % 5 + 1 picks a neighbor; 0xFF is empty.
+Game3.ROAMER_LOCATIONS = {
+  { 0x19, 0x1A, 0x20, 0x21, 0x31, 0xFF },
+  { 0x1A, 0x19, 0x20, 0x21, 0xFF, 0xFF },
+  { 0x20, 0x1A, 0x19, 0x21, 0xFF, 0xFF },
+  { 0x21, 0x20, 0x19, 0x1A, 0x22, 0x26 },
+  { 0x22, 0x21, 0x23, 0xFF, 0xFF, 0xFF },
+  { 0x23, 0x22, 0x24, 0xFF, 0xFF, 0xFF },
+  { 0x24, 0x23, 0x25, 0x26, 0xFF, 0xFF },
+  { 0x25, 0x24, 0x26, 0xFF, 0xFF, 0xFF },
+  { 0x26, 0x25, 0x21, 0xFF, 0xFF, 0xFF },
+  { 0x27, 0x24, 0x28, 0x29, 0xFF, 0xFF },
+  { 0x28, 0x27, 0x2A, 0xFF, 0xFF, 0xFF },
+  { 0x29, 0x27, 0x2A, 0xFF, 0xFF, 0xFF },
+  { 0x2A, 0x28, 0x29, 0x2B, 0xFF, 0xFF },
+  { 0x2B, 0x2A, 0x2C, 0xFF, 0xFF, 0xFF },
+  { 0x2C, 0x2B, 0x2D, 0xFF, 0xFF, 0xFF },
+  { 0x2D, 0x2C, 0x2E, 0xFF, 0xFF, 0xFF },
+  { 0x2E, 0x2D, 0x2F, 0xFF, 0xFF, 0xFF },
+  { 0x2F, 0x2E, 0x30, 0xFF, 0xFF, 0xFF },
+  { 0x30, 0x2F, 0x31, 0xFF, 0xFF, 0xFF },
+  { 0x31, 0x30, 0x19, 0xFF, 0xFF, 0xFF },
+}
 Game3.FLAG_SYS_B_DASH = 0x860
+Game3.FLAG_SYS_CTRL_OBJ_DELETE = 0x861
+Game3.FLAG_SYS_POKEMON_LEAGUE_FLY = 0x854
+Game3.FLAG_LANDMARK_BATTLE_TOWER = Game3RegionMap.FLAG_LANDMARK_BATTLE_TOWER
+Game3.FLAG_LANDMARK_SOUTHERN_ISLAND = Game3RegionMap.FLAG_LANDMARK_SOUTHERN_ISLAND
+Game3.FLAG_ENTERED_ELITE_FOUR = 0x107
+Game3.FLAG_DEFEATED_ELITE_4_SIDNEY = 0x4DD
+Game3.FLAG_DEFEATED_ELITE_4_PHOEBE = 0x4DE
+Game3.FLAG_DEFEATED_ELITE_4_GLACIA = 0x4DF
+Game3.FLAG_DEFEATED_ELITE_4_DRAKE = 0x4E0
+Game3.VAR_ELITE_4_STATE = 0x409C
+Game3.VAR_FANCLUB_UNKNOWN_1 = 0x4041
+Game3.VAR_FANCLUB_UNKNOWN_2 = 0x4042
+Game3.VAR_LILYCOVE_FAN_CLUB_STATE = 0x4095
+Game3.FLAG_HIDE_FANCLUB_OLD_LADY = 0x315
+Game3.FLAG_HIDE_FANCLUB_BOY = 0x316
+Game3.FLAG_HIDE_FANCLUB_LITTLE_BOY = 0x317
+Game3.FLAG_HIDE_FANCLUB_LADY = 0x318
+Game3.MAP_EVER_GRANDE_INDOOR_GROUP = 16
+Game3.MAP_SIDNEYS_ROOM_NUM = 0
+Game3.MAP_HALL_OF_FAME_NUM = 11
+Game3.TRAINER_SIDNEY = 261
+Game3.TRAINER_STEVEN = 335
+Game3.TRAINER_WALLY_VICTORY_ROAD = 519
+Game3.MT_ELITE_FOUR_OPEN_DOOR_FRAME = 0x344
+Game3.MT_ELITE_FOUR_OPEN_DOOR_OPENING = 0x345
 Game3.FLAG_SYS_NATIONAL_DEX = 0x836
 Game3.VAR_NATIONAL_DEX = 0x4046
 Game3.VAR_SHROOMISH_SIZE_RECORD = 0x4047
 Game3.VAR_ASH_GATHER_COUNT = 0x4048
 Game3.VAR_BARBOACH_SIZE_RECORD = 0x404F
+Game3.VAR_PACIFIDLOG_TM_RECEIVED_DAY = 0x40C2
 Game3.SIZE_RECORD_DEFAULT = 0x8100
+Game3.SPECIES_SHROOMISH = 306
+Game3.SPECIES_BARBOACH = 323
+-- pokedex_entries_en.h: height in decimeters.
+Game3.DEX_HEIGHT = {
+  [306] = 4,
+  [323] = 4,
+}
+-- pokemon_size_record.c sBigMonSizeTable.
+Game3.BIG_MON_SIZE_TABLE = {
+  { 290, 1, 0 },
+  { 300, 1, 10 },
+  { 400, 2, 110 },
+  { 500, 4, 310 },
+  { 600, 20, 710 },
+  { 700, 50, 2710 },
+  { 800, 100, 7710 },
+  { 900, 150, 17710 },
+  { 1000, 150, 32710 },
+  { 1100, 100, 47710 },
+  { 1200, 50, 57710 },
+  { 1300, 20, 62710 },
+  { 1400, 5, 64710 },
+  { 1500, 2, 65210 },
+  { 1600, 1, 65410 },
+  { 1700, 1, 65510 },
+}
+Game3.TEXT_MARCO = "MARCO"
+Game3.FAN_STREAK_NAMES = {
+  [0] = "WALLACE", [1] = "STEVEN", [2] = "BRAWLY",
+  [3] = "WINONA", [4] = "PHOEBE", [5] = "GLACIA",
+}
+Game3.FANCLUB_MOVE_BITS = { 8, 9, 10, 11, 12, 13, 14, 15 }
+Game3.FANCLUB_UNMOVE_BITS = { 8, 13, 14, 11, 10, 12, 15, 9 }
+Game3.FANCLUB_SCORE_ADD = { 2, 1, 2, 1 }
 Game3.NATIONAL_DEX_ENABLED = 0x302
 Game3.HOENN_DEX_COUNT = 202
 Game3.NATIONAL_DEX_COUNT = 386
 Game3.HOENN_DEX_COMPLETE = 200
 Game3.SPECIAL_HEAL_PARTY = 0
+Game3.SPECIAL_SET_CABLE_CLUB_WARP = 1
+Game3.SPECIAL_DO_CABLE_CLUB_WARP = 2
+Game3.SPECIAL_SUB_80810DC = 3
+Game3.SPECIAL_SUB_80839A4 = 4
+Game3.SPECIAL_SUB_80839D0 = 5
+Game3.SPECIAL_SUB_80BB8CC = 6
 Game3.SPECIAL_CHECK_PLAYER_HAS_SECRET_BASE = 7
+Game3.SPECIAL_SUB_80BBAF0 = 8
+Game3.SPECIAL_SUB_80BC440 = 9
 Game3.SPECIAL_MOVE_OUT_OF_SECRET_BASE = 10
+Game3.SPECIAL_SUB_80BC114 = 11
+Game3.SPECIAL_GET_CUR_SECRET_BASE_REGISTRATION_VALIDITY = 12
+Game3.SPECIAL_TOGGLE_CUR_SECRET_BASE_REGISTRY = 13
+Game3.SPECIAL_SECRET_BASE_PC_DECORATION = 14
+Game3.SPECIAL_SECRET_BASE_PC_REGISTRY = 15
+Game3.SPECIAL_SET_SECRET_BASE_OWNER_GFX_ID = 22
+Game3.SPECIAL_DO_SECRET_BASE_PC_TURN_OFF_EFFECT = 26
+Game3.SPECIAL_RECORD_MIXING_PLAYER_SPOT_TRIGGERED = 27
+Game3.SPECIAL_SUB_808347C = 28
+Game3.SPECIAL_SUB_80834E4 = 29
+Game3.SPECIAL_SUB_808350C = 30
+Game3.SPECIAL_CLOSE_LINK = 31
+Game3.SPECIAL_SUB_8083B90 = 32
+Game3.SPECIAL_SUB_8083B5C = 33
+Game3.SPECIAL_SUB_8083B80 = 34
+Game3.SPECIAL_SUB_8083820 = 35
+Game3.SPECIAL_SUB_8083614 = 36
+Game3.SPECIAL_GET_LINK_PARTNER_NAMES = 37
+Game3.SPECIAL_SPAWN_BERRY_BLENDER_LINK_PLAYER_SPRITES = 38
+-- cable_club.c sub_80833EC: B / no partner. RESULT 0 falls through
+-- into the Trade Center / Colosseum warp.
+Game3.CABLE_CLUB_NO_LINK = 5
 Game3.SPECIAL_TURN_OFF_TV_SCREEN = 62
+-- specials.inc 84 − 11. House TV: 1 = Lati news, 2 = movie, 0 = not home.
+Game3.SPECIAL_CHECK_FOR_BIG_MOVIE_OR_EMERGENCY_NEWS_ON_TV = 73
+-- specials.inc 308 − 11. CreateInitialRoamerMon: Ruby Latios lv40.
+Game3.SPECIAL_INIT_ROAMER = 297
 Game3.SPECIAL_GET_RIVAL_SON_DAUGHTER_STRING = 149
 Game3.TEXT_SON = "son"
 Game3.TEXT_DAUGHTER = "daughter"
@@ -1058,6 +1813,20 @@ Game3.SPECIAL_GET_LEAD_MON_FRIENDSHIP = 230
 Game3.SPECIAL_TV_NAME_RATER_SHOW = 123
 Game3.SPECIAL_TV_COPY_NICKNAME = 124
 Game3.SPECIAL_TV_CHECK_MON_OT_ID = 125
+-- specials.inc 230 / 235 − 11. Fallarbor Move Relearner.
+-- SelectMoveTutorMon: PARTY_MENU_TYPE_MOVE_TUTOR. A writes 0x8004 =
+-- 0-based index and 0x8005 = sub_8040574 count. B writes 0x8004 = 0xFF.
+-- DisplayMoveTutorMenu: GetMoveTutorMoves + EXIT. Taught → 0x8004 = 1;
+-- give up → 0x8004 = 0. 0 is valid — do not treat it as failure.
+Game3.SPECIAL_SELECT_MOVE_TUTOR_MON = 219
+Game3.SPECIAL_SELECT_MOVE = 220
+Game3.SPECIAL_DELETE_MON_MOVE = 221
+Game3.SPECIAL_GET_POKEMON_NICKNAME_AND_MOVE_NAME = 222
+Game3.SPECIAL_COUNT_POKEMON_MOVES = 223
+Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU = 224
+Game3.MAX_MOVE_TUTOR_MOVES = 20
+-- summary screen cancel / empty 5th slot.
+Game3.MOVE_DELETER_CANCEL = 4
 Game3.SPECIAL_GET_RECORDED_CYCLING_ROAD = 225
 Game3.SPECIAL_BEGIN_CYCLING_ROAD = 226
 Game3.SPECIAL_GET_PLAYER_AVATAR_BIKE = 227
@@ -1117,16 +1886,222 @@ Game3.SPECIAL_PUT_ZIGZAGOON = 301
 Game3.SPECIAL_IS_STARTER_IN_PARTY = 302
 Game3.SPECIAL_SHOULD_TRY_REMATCH = 57
 Game3.SPECIAL_IS_TRAINER_READY_REMATCH = 58
+Game3.SPECIAL_START_REMATCH_BATTLE = 59
 Game3.SPECIAL_CALCULATE_PARTY_COUNT = 131
 Game3.SPECIAL_SHOW_EASY_CHAT = 95
+Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN = 97
+Game3.SPECIAL_HAS_BARD_SONG_CHANGED = 98
+Game3.SPECIAL_SAVE_BARD_SONG = 99
+Game3.SPECIAL_GET_HIPSTER_SPOKEN = 100
+Game3.SPECIAL_SET_HIPSTER_SPOKEN = 101
+Game3.SPECIAL_HIPSTER_TEACH_WORD = 102
+Game3.SPECIAL_PLAY_BARD_SONG = 103
+Game3.SPECIAL_SET_MAUVILLE_OLD_MAN_GFX = 104
+Game3.SPECIAL_GENERATE_GIDDY_LINE = 105
+Game3.SPECIAL_GIDDY_SHOULD_TELL_ANOTHER = 106
+Game3.SPECIAL_STORYTELLER_FREE_SLOT = 107
+Game3.SPECIAL_STORYTELLER_DISPLAY = 108
+Game3.SPECIAL_STORYTELLER_LIST_MENU = 109
+Game3.SPECIAL_STORYTELLER_UPDATE_STAT = 110
+Game3.SPECIAL_STORYTELLER_INIT_STAT = 111
+Game3.SPECIAL_STORYTELLER_ALREADY_RECORDED = 112
+Game3.SPECIAL_TRADER_MENU_GET = 113
+Game3.SPECIAL_GET_TRADER_TRADED = 114
+Game3.SPECIAL_PLAYER_HAS_NO_DECORATIONS = 115
+Game3.SPECIAL_IS_DECORATION_FULL = 116
+Game3.SPECIAL_TRADER_MENU_GIVE = 117
+Game3.SPECIAL_TRADER_DO_TRADE = 118
 Game3.SPECIAL_BUFFER_TRENDY_PHRASE = 126
 Game3.SPECIAL_IS_TRENDY_PHRASE_BORING = 127
 Game3.SPECIAL_BUFFER_RANDOM_HOBBY = 128
 Game3.SPECIAL_DEWFORD_HALL_PAINTING = 129
+Game3.EC_TYPE_BARD_SONG = 6
 Game3.EC_TYPE_TRENDY_PHRASE = 9
+-- easy_chat_1.c ShowEasyChatScreen case 10: one word into gabbyAndTyData.quote.
+Game3.EC_TYPE_GABBY_INTERVIEW = 10
+Game3.EC_EMPTY_WORD = 0xFFFF
+Game3.EC_GROUP_PEOPLE = 5
+Game3.EC_GROUP_SPEECH = 7
 Game3.EC_GROUP_CONDITIONS = 10
+Game3.EC_GROUP_ACTIONS = 11
 Game3.EC_GROUP_LIFESTYLE = 12
 Game3.EC_GROUP_HOBBIES = 13
+Game3.EC_GROUP_ADJECTIVES = 16
+Game3.EC_GROUP_TRENDY_SAYING = 20
+Game3.MAUVILLE_MAN_BARD = 0
+Game3.MAUVILLE_MAN_HIPSTER = 1
+Game3.MAUVILLE_MAN_TRADER = 2
+Game3.MAUVILLE_MAN_STORYTELLER = 3
+Game3.MAUVILLE_MAN_GIDDY = 4
+Game3.GFX_BARD = 69
+Game3.FLAG_SYS_GAME_CLEAR = 0x804
+Game3.FLAG_SYS_HIPSTER_MEET = 0x806
+Game3.NUM_GAME_STATS = 50
+Game3.GAME_STAT_SAVED_GAME = 0
+Game3.GAME_STAT_FIRST_HOF_PLAY_TIME = 1
+Game3.GAME_STAT_ENTERED_HOF = 10
+Game3.HALL_OF_FAME_MAX_TEAMS = 50
+Game3.HALL_OF_FAME_STAT_CAP = 999
+Game3.GAME_STAT_STARTED_TRENDS = 2
+Game3.GAME_STAT_PLANTED_BERRIES = 3
+Game3.GAME_STAT_GOT_INTERVIEWED = 6
+Game3.GAME_STAT_STEPS = 5
+Game3.GAME_STAT_TOTAL_BATTLES = 7
+Game3.GAME_STAT_WILD_BATTLES = 8
+Game3.GAME_STAT_LINK_BATTLE_WINS = 23
+Game3.GAME_STAT_LINK_BATTLE_LOSSES = 24
+Game3.GAME_STAT_LINK_BATTLE_DRAWS = 25
+Game3.GAME_STAT_USED_POKECENTER = 15
+Game3.GAME_STAT_RESTED_AT_HOME = 16
+Game3.GAME_STAT_ENTERED_SAFARI_ZONE = 17
+Game3.GAME_STAT_USED_ROCK_SMASH = 19
+Game3.GAME_STAT_GOT_RAINED_ON = 40
+Game3.GAME_STAT_HATCHED_EGGS = 13
+Game3.GAME_STAT_EVOLVED_POKEMON = 14
+Game3.GAME_STAT_RODE_CABLE_CAR = 48
+Game3.GAME_STAT_ENTERED_HOT_SPRINGS = 49
+Game3.TRENDY_SAYING_COUNT = 33
+Game3.DECOR_PRETTY_DESK = 6
+Game3.DECOR_PRETTY_CHAIR = 13
+Game3.DECOR_PRETTY_FLOWERS = 21
+Game3.DECOR_TIRE = 37
+Game3.DECOR_DUSKULL_DOLL = 91
+Game3.DECOR_BALL_CUSHION = 107
+-- decorations.h gDecorations[].price. Index is the DECOR_* id.
+Game3.DECOR_PRICES = {
+  [1] = 3000, [2] = 3000, [3] = 6000, [4] = 6000, [5] = 6000,
+  [6] = 9000, [7] = 9000, [8] = 9000, [9] = 9000,
+  [10] = 2000, [11] = 2000, [12] = 2000, [13] = 2000, [14] = 2000,
+  [15] = 2000, [16] = 2000, [17] = 2000, [18] = 2000,
+  [19] = 3000, [20] = 3000, [21] = 3000, [22] = 5000, [23] = 5000,
+  [24] = 5000, [25] = 500, [26] = 500, [27] = 500, [28] = 500,
+  [29] = 500, [30] = 500, [31] = 10000, [32] = 10000, [33] = 3000,
+  [34] = 8000, [35] = 500, [36] = 500, [37] = 800, [38] = 7000,
+  [39] = 200, [40] = 3000, [41] = 3000, [45] = 3000, [46] = 4000,
+  [47] = 4000, [48] = 2000, [49] = 2000, [50] = 2000,
+  [51] = 500, [52] = 500, [53] = 500, [54] = 500, [55] = 500,
+  [56] = 500, [57] = 500, [58] = 500, [59] = 4000, [60] = 4000,
+  [61] = 4000, [62] = 4000, [63] = 4000, [64] = 4000, [65] = 4000,
+  [66] = 1000, [67] = 1000, [68] = 1000, [69] = 1000, [70] = 1000,
+  [71] = 1500, [72] = 1500, [73] = 1500, [74] = 1500, [75] = 1500,
+  [76] = 3000, [77] = 3000, [78] = 3000, [79] = 3000, [80] = 3000,
+  [81] = 3000, [82] = 3000, [83] = 3000, [84] = 3000, [85] = 3000,
+  [86] = 3000, [87] = 3000, [88] = 3000, [89] = 3000, [90] = 3000,
+  [91] = 3000, [92] = 3000, [93] = 3000, [94] = 3000, [95] = 3000,
+  [96] = 3000, [97] = 3000, [98] = 3000, [99] = 3000, [100] = 3000,
+  [101] = 2000, [102] = 2000, [103] = 2000, [104] = 2000, [105] = 2000,
+  [106] = 2000, [107] = 2000, [108] = 2000, [109] = 2000, [110] = 2000,
+  [111] = 10000, [112] = 10000, [113] = 10000, [114] = 10000,
+  [115] = 10000, [116] = 10000, [117] = 10000, [118] = 10000,
+  [119] = 10000, [120] = 10000,
+}
+Game3.DECOR_NAMES = {
+  [1] = "SMALL DESK", [2] = "POKEMON DESK", [3] = "HEAVY DESK",
+  [4] = "RAGGED DESK", [5] = "COMFORT DESK", [6] = "PRETTY DESK",
+  [7] = "BRICK DESK", [8] = "CAMP DESK", [9] = "HARD DESK",
+  [10] = "SMALL CHAIR", [11] = "POKEMON CHAIR", [12] = "HEAVY CHAIR",
+  [13] = "PRETTY CHAIR", [14] = "COMFORT CHAIR", [15] = "RAGGED CHAIR",
+  [16] = "BRICK CHAIR", [17] = "CAMP CHAIR", [18] = "HARD CHAIR",
+  [21] = "PRETTY FLOWERS",
+  [37] = "TIRE",
+  [76] = "PICHU DOLL", [77] = "PIKACHU DOLL", [91] = "DUSKULL DOLL",
+  [107] = "BALL CUSHION",
+}
+Game3.TRADER_DECORATIONS = { 91, 107, 37, 21 }
+Game3.TRADER_OWNERS = { "TRISTAN", "PHILIP", "DENNIS", "ROBERTO" }
+Game3.DEFAULT_BARD_LYRICS = {
+  5 * 512 + 15, 11 * 512 + 41, 13 * 512 + 4,
+  16 * 512 + 21, 7 * 512 + 21, 16 * 512 + 14,
+}
+Game3.GIDDY_ADJECTIVES = {
+  " so pretty!", " so darling!", " so relaxed!", " so sunny!",
+  " so desirable!", " so exciting!", " so amusing!", " so magical!",
+}
+Game3.GIDDY_QUESTIONS = {
+  "I so want to go on a vacation.\nWould you happen to know a nice place?",
+  "I bought crayons with 120 colors!\nDon't you think that's nice?",
+  "Wouldn't it be nice if we could float\naway on a cloud of bubbles?",
+  "When you write on a sandy beach,\nthey wash away. It makes me sad.",
+  "What's the bottom of the sea like?\nJust once I would so love to go!",
+  "When you see the setting sun, does it\nmake you want to go home?",
+  "Lying back in the green grass...\nOh, it's so, so nice!",
+  "SECRET BASES are so wonderful!\nCan't you feel the excitement?",
+}
+
+Game3.STORYTELLER_STORIES = {
+  { stat = 50, min = 1, title = "The Save-Happy TRAINER$", action = "Saved the game$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER saved the game\n{STR_VAR_1} times!\nA more cautious TRAINER than\n{STR_VAR_3} one will never find!$" },
+  { stat = 2, min = 1, title = "The Trendsetter TRAINER$", action = "Started trends$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER started new trends\n{STR_VAR_1} times!\n{STR_VAR_3} is setting trends for all\nthe HOENN region!$" },
+  { stat = 3, min = 1, title = "The BERRY-Planting TRAINER$", action = "Planted BERRIES$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER planted BERRIES\n{STR_VAR_1} times!\n{STR_VAR_3} is a legendary lover of\nBERRIES!$" },
+  { stat = 4, min = 1, title = "The BIKE-Loving TRAINER$", action = "Traded BIKES$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER swapped BIKES\n{STR_VAR_1} times!\n{STR_VAR_3} must love BIKES deeply\nand passionately!$" },
+  { stat = 6, min = 1, title = "The Interviewed TRAINER$", action = "Got interviewed$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER got interviewed\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who's\nattracting much attention!$" },
+  { stat = 9, min = 1, title = "The Battle-Happy TRAINER$", action = "Battled$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER battled {STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who can\nnever refuse a chance to battle!$" },
+  { stat = 11, min = 1, title = "The POKéMON-Catching TRAINER$", action = "Caught POKéMON$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER caught\n{STR_VAR_1} POKéMON!\n{STR_VAR_3} is a legendary catcher of\nwild POKéMON!$" },
+  { stat = 12, min = 1, title = "The Fishing TRAINER$", action = "Caught POKéMON with a ROD$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER caught\n{STR_VAR_1} POKéMON while fishing!\n{STR_VAR_3} is a legendary fishing\nexpert!$" },
+  { stat = 13, min = 1, title = "The EGG-Warming TRAINER$", action = "Hatched EGGS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER hatched {STR_VAR_1} POKéMON\nfrom EGGS!\n{STR_VAR_3} is a legendary warmer\nof EGGS!$" },
+  { stat = 14, min = 1, title = "The Evolver TRAINER$", action = "Evolved POKéMON$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER made {STR_VAR_1} POKéMON\nevolve!\n{STR_VAR_3} is the ultimate evolver\nof POKéMON!$" },
+  { stat = 15, min = 1, title = "The POKéMON CENTER-Loving TRAINER$", action = "Used POKéMON CENTERS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER healed POKéMON\n{STR_VAR_1} times at POKéMON CENTERS!\nThere could be no greater lover of\nPOKéMON CENTERS than {STR_VAR_3}!$" },
+  { stat = 16, min = 1, title = "The Homebody TRAINER$", action = "Rested POKéMON at home$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER healed POKéMON\n{STR_VAR_1} times at home!\nThere could be no more of a homebody\nthan {STR_VAR_3}!$" },
+  { stat = 17, min = 1, title = "The SAFARI-Loving TRAINER$", action = "Entered the SAFARI ZONE$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER went into the SAFARI ZONE\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER whose wild side\nmust come out in the SAFARI ZONE!$" },
+  { stat = 18, min = 1, title = "The CUT-Frenzy TRAINER$", action = "Used CUT$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used CUT\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who just must\nlove to CUT!$" },
+  { stat = 19, min = 1, title = "The ROCK-SMASHING TRAINER$", action = "Smashed rocks$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used ROCK SMASH\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who\ncan't leave a stone unsmashed!$" },
+  { stat = 20, min = 1, title = "The Move-Loving TRAINER$", action = "Moved the SECRET BASE$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER moved the SECRET BASE\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who loves\nto move houses often!$" },
+  { stat = 26, min = 1, title = "The SPLASH-Happy TRAINER$", action = "Used SPLASH$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used SPLASH\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who must love\nSPLASHING around!$" },
+  { stat = 27, min = 1, title = "The Tenacious TRAINER$", action = "Resorted to using STRUGGLE$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER had to rely on STRUGGLE\n{STR_VAR_1} times!\n{STR_VAR_3} is a tenacious TRAINER\nwho never gives in to adversity!$" },
+  { stat = 28, min = 1, title = "The SLOT Champ$", action = "Won the jackpot on the SLOTS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won the jackpot on\nthe SLOTS {STR_VAR_1} times.\n{STR_VAR_3} is a TRAINER who was lucky\non the SLOTS!$" },
+  { stat = 29, min = 2, title = "The ROULETTE Champ$", action = "Had consecutive ROULETTE wins of$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won in ROULETTE\n{STR_VAR_1} times in a row.\n{STR_VAR_3} was lucky when the ball\nbounced in ROULETTE!$" },
+  { stat = 30, min = 1, title = "The BATTLE TOWER Challenger$", action = "Took the BATTLE TOWER challenge$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER took the BATTLE TOWER\nchallenge {STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who aspires\nfor excellence in the BATTLE TOWER!$" },
+  { stat = 33, min = 1, title = "The Blend-Loving TRAINER$", action = "Made {POKEBLOCK}S$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER made {POKEBLOCK}S\n{STR_VAR_1} times!\nThere is none better at using a BERRY\nBLENDER than {STR_VAR_3}!$" },
+  { stat = 36, min = 1, title = "The CONTEST-Loving TRAINER$", action = "Entered CONTESTS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER entered CONTESTS\n{STR_VAR_1} times!\n{STR_VAR_3} must love showing off\nPOKéMON to others!$" },
+  { stat = 37, min = 1, title = "The CONTEST Master$", action = "Won CONTESTS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won CONTESTS\n{STR_VAR_1} times!\n{STR_VAR_3} must be an incredible\nCONTEST master!$" },
+  { stat = 38, min = 1, title = "The Happy Shopper$", action = "Shopped$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER bought items in shops\n{STR_VAR_1} times!\n{STR_VAR_3} must be one of those\npeople who are born to shop.$" },
+  { stat = 39, min = 1, title = "The Item-Finding TRAINER$", action = "Used an ITEMFINDER$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used an ITEMFINDER\n{STR_VAR_1} times!\n{STR_VAR_3} must enjoy scouring the\nground for hidden items!$" },
+  { stat = 40, min = 1, title = "The Rain-Soaked TRAINER$", action = "Got rained on$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER got soaked by rain\n{STR_VAR_1} times!\n{STR_VAR_3}'s charisma must even\nattract rain!$" },
+  { stat = 41, min = 1, title = "The Avid POKéDEX Reader$", action = "Checked a POKéDEX$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER checked a POKéDEX\n{STR_VAR_1} times!\n{STR_VAR_3} must love inspecting\nPOKéMON in a POKéDEX!$" },
+  { stat = 42, min = 1, title = "The RIBBON Collector$", action = "Received RIBBONS$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER received RIBBONS\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who\nloves to collect RIBBONS!$" },
+  { stat = 43, min = 1, title = "The Ledge-Jumping TRAINER$", action = "Jumped down ledges$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER jumped down ledges\n{STR_VAR_1} times!\nIf there's a ledge to be jumped,\n{STR_VAR_3} can't ignore it!$" },
+  { stat = 44, min = 1, title = "The Legendary TV Viewer$", action = "Watched TV$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER watched TV\n{STR_VAR_1} times!\n{STR_VAR_3} must love watching TV!$" },
+  { stat = 45, min = 1, title = "The Time-Conscious TRAINER$", action = "Checked the time$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER checked the time\n{STR_VAR_1} times!\n{STR_VAR_3} must be a punctual TRAINER\nwho's conscious of the time.$" },
+  { stat = 46, min = 1, title = "The POKéMON LOTTERY Wizard$", action = "Won POKéMON LOTTERIES$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won POKéMON LOTTERIES\n{STR_VAR_1} times!\n{STR_VAR_3} must have many friends\nto trade POKéMON with!$" },
+  { stat = 47, min = 1, title = "The DAY CARE-Using Trainer$", action = "Left POKéMON at the DAY CARE$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER left POKéMON with the\nDAY CARE {STR_VAR_1} times!\n{STR_VAR_3} must be a real go-getter\nwho raises POKéMON aggressively!$" },
+  { stat = 48, min = 1, title = "The CABLE CAR-Loving TRAINER$", action = "Rode the CABLE CAR$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER rode the CABLE CAR\n{STR_VAR_1} times!\n{STR_VAR_3} must be a busy TRAINER\nwho's up and down all the time!$" },
+  { stat = 49, min = 1, title = "The Hot Spring-Loving TRAINER$", action = "Bathed in hot springs$",
+    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER bathed in hot springs\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER with\nbaby-smooth skin!$" },
+}
 -- pokeruby easy_chat.h groups used by InitDewfordTrend.
 Game3.EC_WORDS = {
   [10] = {
@@ -1163,6 +2138,57 @@ Game3.EC_WORDS = {
     "BOARD", "BALL", "BOOK", "FESTIVAL", "COMICS", "HOLIDAY", "PLANS",
     "TRENDY", "VACATION", "LOOK",
   },
+  [5] = {
+    "OPPONENT", "I", "YOU", "YOURS", "SON", "YOUR", "YOU'RE", "YOU'VE",
+    "MOTHER", "GRANDFATHER", "UNCLE", "FATHER", "BOY", "ADULT", "BROTHER",
+    "SISTER", "GRANDMOTHER", "AUNT", "PARENT", "MAN", "ME", "GIRL", "BABE",
+    "FAMILY", "HER", "HIM", "HE", "PLACE", "DAUGHTER", "HIS", "HE'S",
+    "AREN'T", "SIBLINGS", "KID", "CHILDREN", "MR.", "MRS.", "MYSELF",
+    "I WAS", "TO ME", "MY", "I AM", "I'VE", "WHO", "SOMEONE", "WHO WAS",
+    "TO WHOM", "WHOSE", "WHO IS", "IT'S", "LADY", "FRIEND", "ALLY",
+    "PERSON", "DUDE", "THEY", "THEY WERE", "TO THEM", "THEIR", "THEY'RE",
+    "THEY'VE", "WE", "BEEN", "TO US", "OUR", "WE'RE", "RIVAL", "WE'VE",
+    "WOMAN", "SHE", "SHE WAS", "TO HER", "HER'S", "SHE IS", "SOME",
+  },
+  [7] = {
+    "LISTEN", "NOT VERY", "MEAN", "LIE", "LAY", "RECOMMEND", "NITWIT",
+    "QUITE", "FROM", "FEELING", "BUT", "HOWEVER", "CASE", "THE", "MISS",
+    "HOW", "HIT", "ENOUGH", "A LOT", "A LITTLE", "ABSOLUTELY", "AND",
+    "ONLY", "AROUND", "PROBABLY", "IF", "VERY", "A TINY BIT", "WILD",
+    "THAT'S", "JUST", "EVEN SO,", "MUST BE", "NATURALLY", "FOR NOW,",
+    "UNDERSTOOD", "JOKING", "READY", "SOMETHING", "SOMEHOW", "ALTHOUGH",
+    "ALSO", "PERFECT", "AS MUCH AS", "REALLY", "TRULY", "SERIOUSLY",
+    "TOTALLY", "UNTIL", "AS IF", "MOOD", "RATHER", "AWFULLY", "MODE",
+    "MORE", "TOO LATE", "FINALLY", "ANY", "INSTEAD", "FANTASTIC",
+  },
+  [11] = {
+    "MEETS", "CONCEDE", "GIVE", "GIVES", "PLAYED", "PLAYS", "COLLECT",
+    "WALKING", "WALKS", "SAYS", "WENT", "SAID", "WAKE UP", "WAKES UP",
+    "ANGERS", "TEACH", "TEACHES", "PLEASE", "LEARN", "CHANGE", "STORY",
+    "TRUST", "LAVISH", "LISTENS", "HEARING", "TRAINS", "CHOOSE", "COME",
+    "CAME", "SEARCH", "MAKE", "CAUSE", "KNOW", "KNOWS", "REFUSE", "STORES",
+    "BRAG", "IGNORANT", "THINKS", "BELIEVE", "SLIDE", "EATS", "USE",
+    "USES", "USING", "COULDN'T", "CAPABLE", "DISAPPEAR", "APPEAR", "THROW",
+    "WORRY", "SLEPT", "SLEEP", "RELEASE", "DRINKS", "RUNS", "RUN", "WORKS",
+    "WORKING", "TALKING", "TALK", "SINK", "SMACK", "PRETEND", "PRAISE",
+    "OVERDO", "SHOW", "LOOKS", "SEES", "SEEK", "OWN", "TAKE", "ALLOW",
+    "FORGET", "FORGETS", "APPEARS", "FAINT", "FAINTED",
+  },
+  [16] = {
+    "WANDERING", "RICKETY", "ROCK-SOLID", "HUNGRY", "TIGHT", "TICKLISH",
+    "TWIRLING", "SPIRALING", "THIRSTY", "LOLLING", "SILKY", "SADLY",
+    "HOPELESS", "USELESS", "DROOLING", "EXCITING", "THICK", "SMOOTH",
+    "SLIMY", "THIN", "BREAK", "VORACIOUS", "SCATTER", "AWESOME", "WIMPY",
+    "WOBBLY", "SHAKY", "RIPPED", "SHREDDED", "INCREASING", "YET",
+    "DESTROYED", "FIERY", "LOVEY-DOVEY", "HAPPILY", "ANTICIPATION",
+  },
+  [20] = {
+    "KTHX, BYE.", "YES, SIR!", "AVANT GARDE", "COUPLE", "MUCH OBLIGED",
+    "YEEHAW!", "MEGA", "1-HIT KO!", "DESTINY", "CANCEL", "NEW", "FLATTEN",
+    "KIDDING", "LOSER", "LOSING", "HAPPENING", "HIP AND", "SHAKE", "SHADY",
+    "UPBEAT", "MODERN", "SMELL YA", "BANG", "KNOCKOUT", "HASSLE", "WINNER",
+    "FEVER", "WANNABE", "BABY", "HEART", "OLD", "YOUNG", "UGLY",
+  },
 }
 Game3.SPECIAL_MAUVILLE_GYM_2 = 139
 Game3.SPECIAL_MAUVILLE_GYM_1 = 140
@@ -1182,6 +2208,29 @@ Game3.FLAG_TRICK_HOUSE_END_ROOM = 0x259
 Game3.MAP_INDOOR_ROUTE112_GROUP = 19
 Game3.MAP_ROUTE112_CABLE_CAR_NUM = 0
 Game3.MAP_MT_CHIMNEY_CABLE_CAR_NUM = 1
+-- cable_car.c unk_0004. Going up (0x8004 == 0) is 0x15e frames;
+-- going down is 0x109. MUS_CABLE_CAR is songs.h 425.
+Game3.MUS_CABLE_CAR = 425
+Game3.CABLE_CAR_FRAMES_UP = 0x15E
+Game3.CABLE_CAR_FRAMES_DOWN = 0x109
+-- LoadSprites + sub_8123FBC starting HOFS/VOFS. Car OBJ x/y is data[0/1].
+Game3.CABLE_CAR_UP_BG3_X = 0xB0
+Game3.CABLE_CAR_UP_BG3_Y = 0x10
+Game3.CABLE_CAR_UP_BG1_Y = 0x50
+Game3.CABLE_CAR_DOWN_BG3_X = 0x60
+Game3.CABLE_CAR_DOWN_BG3_Y = 0xE8
+Game3.CABLE_CAR_DOWN_BG1_Y = 0x04
+Game3.CABLE_CAR_UP_CAR_X = 0xB0
+Game3.CABLE_CAR_UP_CAR_Y = 0x2B
+Game3.CABLE_CAR_UP_DOOR_X = 0xC8
+Game3.CABLE_CAR_UP_DOOR_Y = 0x63
+Game3.CABLE_CAR_DOWN_CAR_X = 0x68
+Game3.CABLE_CAR_DOWN_CAR_Y = 0x09
+Game3.CABLE_CAR_DOWN_DOOR_X = 0x80
+Game3.CABLE_CAR_DOWN_DOOR_Y = 0x41
+-- sub_8123CB8: (u8)(0.14 * t) / (u8)(0.067 * t)
+Game3.CABLE_CAR_DX = 0.14
+Game3.CABLE_CAR_DY = 0.067
 Game3.MT_PETALBURG_DOOR_OPEN = 0x21C
 Game3.TEXT_NO_REGISTERED_ITEM =
   "An item in the BAG can be registered\non SELECT for convenience."
@@ -1189,12 +2238,321 @@ Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR = 197
 Game3.SPECIAL_PAY_MONEY_FOR = 198
 Game3.SPECIAL_ROTATING_GATE_INIT = 201
 Game3.SPECIAL_ROTATING_GATE_GFX = 202
+-- specials.inc 214/215 − 11. Corridor ON_FRAME starts the 205-step cruise.
+Game3.SPECIAL_SET_SS_TIDAL_FLAG = 203
+Game3.SPECIAL_RESET_SS_TIDAL_FLAG = 204
+Game3.SPECIAL_ENTER_SAFARI_MODE = 205
+Game3.SPECIAL_EXIT_SAFARI_MODE = 206
+Game3.SPECIAL_SAFARI_ZONE_GET_POKEBLOCK_NAME = 207
+Game3.SPECIAL_OPEN_POKEBLOCK_CASE_ON_FEEDER = 208
+Game3.SPECIAL_SET_DEPARTMENT_STORE_FLOOR = 216
+-- specials.inc 180 / 283 − 11. Fan club unlocks on first Hall of Fame;
+-- GameClear heals, sets FLAG_SYS_GAME_CLEAR, ribbons, then warps home.
+-- Do not beginScriptWait (credits / HoF cinema skip).
+Game3.SPECIAL_GET_SHROOMISH_SIZE_RECORD = 119
+Game3.SPECIAL_COMPARE_SHROOMISH_SIZE = 120
+Game3.SPECIAL_GET_BARBOACH_SIZE_RECORD = 121
+Game3.SPECIAL_COMPARE_BARBOACH_SIZE = 122
+Game3.SPECIAL_IS_ENIGMA_BERRY_VALID = 50
+Game3.SPECIAL_SHOULD_MOVE_LILYCOVE_FAN_CLUB_MEMBER = 163
+Game3.SPECIAL_GET_NUM_MOVED_LILYCOVE_FAN_CLUB_MEMBERS = 164
+Game3.SPECIAL_BUFFER_STREAK_TRAINER_TEXT = 165
+Game3.SPECIAL_SUB_810FA74 = 166
+Game3.SPECIAL_UPDATE_MOVED_LILYCOVE_FAN_CLUB_MEMBERS = 167
+Game3.SPECIAL_SUB_810FF48 = 168
+Game3.SPECIAL_UPDATE_TRAINER_FAN_CLUB_GAME_CLEAR = 169
+Game3.SPECIAL_SUB_810FF60 = 170
+Game3.SPECIAL_SHOW_DIPLOMA = 264
+Game3.SPECIAL_ACCESS_HALL_OF_FAME_PC = 263
+Game3.SPECIAL_DO_WATERING_BERRY_TREE_ANIM = 94
+Game3.SPECIAL_SPAWN_CAMERA_DUMMY = 275
+Game3.SPECIAL_REMOVE_CAMERA_DUMMY = 276
+Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_1 = 305
+Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_2 = 315
+Game3.SPECIAL_SUB_807E25C = 317
+Game3.ITEM_ORANGE_MAIL = 121
+Game3.ITEM_RETRO_MAIL = 132
+Game3.SPECIAL_START_SOUTHERN_ISLAND_BATTLE = 323
+Game3.SPECIAL_SET_PACIFIDLOG_TM_RECEIVED_DAY = 333
+Game3.SPECIAL_GET_DAYS_UNTIL_PACIFIDLOG_TM = 334
+Game3.SPECIAL_GET_NAME_OF_ENIGMA_BERRY_IN_PARTY = 339
+Game3.SPECIAL_GAME_CLEAR = 272
+Game3.SPECIAL_SHAKE_SCREEN_IN_ELEVATOR = 273
+-- specials.inc 285 − 11. Route 113 glass workshop; RESULT 0–7 / 127.
+Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU = 274
+-- specials.inc 204 / 205 − 11. Party egg: 0x8004 is the slot. EggHatch
+-- is the cinema waitstate; ScriptHatchMon is AddHatchedMonToParty only.
+Game3.SPECIAL_SCRIPT_HATCH_MON = 193
+Game3.SPECIAL_EGG_HATCH = 194
+Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL = 195
+-- specials.inc 327 − 11. Route 116 glasses man. 0 is valid (not found).
+Game3.SPECIAL_FOUND_BLACK_GLASSES = 316
+Game3.FLAG_HIDDEN_ITEM_BLACK_GLASSES = 0x2B8
+-- specials.inc 281 − 11. Porthole: FlagSet cruise, ocean warp, waitstate.
+Game3.SPECIAL_SUB_80C7958 = 270
+Game3.SPECIAL_CHECK_FREE_POKEMON_STORAGE = 304
+-- specials.inc 220/221 − 11. Route 130 / Pacifidlog house 5; Shoal Cave
+-- ON_TRANSITION. Do not beginScriptWait.
+Game3.SPECIAL_IS_MIRAGE_ISLAND_PRESENT = 209
+Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG = 210
+Game3.FLAG_SYS_SHOAL_TIDE = 0x83A
+-- time_events.c tide[gLocalTime.hours]: 1 = high tide.
+Game3.SHOAL_TIDE_BY_HOUR = {
+  1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1,
+  1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1,
+}
+Game3.LAYOUT_ROUTE130_MIRAGE = 46
+Game3.LAYOUT_ROUTE130_OCEAN = 264
+Game3.LAYOUT_SHOAL_LOW_ENTRANCE = 165
+Game3.LAYOUT_SHOAL_HIGH_ENTRANCE = 169
+Game3.LAYOUT_SHOAL_LOW_INNER = 166
+Game3.LAYOUT_SHOAL_HIGH_INNER = 170
+Game3.LAYOUT_CAVE_OF_ORIGIN_B4F_RUBY = 313
+Game3.LAYOUT_ROUTE131_SKY_PILLAR = 320
+Game3.LAYOUT_SEAFLOOR_ROOM9_RUBY = 327
+Game3.SPECIAL_DISPLAY_CURRENT_ELEVATOR_FLOOR = 306
+-- specials.inc 320 − 11. Restores cracked ice from VAR_TEMP_1..A bits.
+Game3.SPECIAL_SET_SOOTOPOLIS_GYM_CRACKED_ICE = 309
+-- specials.inc 292/293/295/322-324/343 − 11. Orb / WaitWeather /
+-- fade-out-music wait for their tasks (phase 226).
+-- Groudon/Kyogre/Rayquaza/Regi are scripted wild + BATTLE_TYPE_*.
+Game3.SPECIAL_ORB_CUTSCENE = 281
+Game3.SPECIAL_ORB_CUTSCENE_ADVANCE = 282
+Game3.SPECIAL_WAIT_WEATHER = 284
+Game3.SPECIAL_START_GROUDON_KYOGRE_BATTLE = 311
+Game3.SPECIAL_START_RAYQUAZA_BATTLE = 312
+Game3.SPECIAL_START_REGI_BATTLE = 313
+Game3.SPECIAL_FADE_OUT_MAP_MUSIC = 332
+-- specials.inc 329/330/335/336 − 11. sp13E fades to gWarpDestination
+-- (already set); DoFallWarp is that fade plus the fall callback.
+Game3.SPECIAL_WARP_TO_LAST_WARP = 318
+Game3.SPECIAL_DO_FALL_WARP = 319
+Game3.SPECIAL_SET_ROUTE_119_WEATHER = 324
+Game3.SPECIAL_SET_ROUTE_123_WEATHER = 325
 Game3.SPECIAL_GET_SLOT_MACHINE_ID = 286
+Game3.SPECIAL_START_WALL_CLOCK = 154
+Game3.SPECIAL_VIEW_WALL_CLOCK = 155
+Game3.FLAG_SET_WALL_CLOCK = 0x51
+Game3.FLAG_SYS_CLOCK_SET = 0x835
+Game3.VAR_DAYS = 0x4040
+Game3.VAR_BIRCH_STATE = 0x4049
+Game3.FLAG_SYS_SHOAL_ITEM = 0x85F
+Game3.DAILY_FLAGS_START = 0x8C0
+Game3.DAILY_FLAGS_COUNT = 64
+Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE114 = 0x8CB
+Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111 = 0x8CC
+Game3.FLAG_DAILY_PICKED_LOTTO_TICKET = 0x8CA
+Game3.LCG32_MUL = 1103515245
+Game3.LCG32_ADD = 12345
+Game3.U32 = 4294967296
+Game3.VAR_LOTTERY_PRIZE = 0x4045
+Game3.VAR_LOTTERY_RND_L = 0x404B
+Game3.VAR_LOTTERY_RND_H = 0x404C
+Game3.VAR_MIRAGE_RND_H = 0x4024
+Game3.VAR_MIRAGE_RND_L = 0x4025
+Game3.VAR_DEPT_STORE_FLOOR = 0x4043
+Game3.VAR_CRUISE_STEP_COUNT = 0x404A
+Game3.VAR_SAFARI_ZONE_STATE = 0x40A4
+Game3.VAR_PORTHOLE_STATE = 0x40B4
+-- CountSSTidalStep: (*count += 1) <= 0xCC is still sailing.
+Game3.CRUISE_STEP_ARRIVE = 0xCC
+Game3.PORTHOLE_SAILING_TO_LILYCOVE = 2
+Game3.PORTHOLE_ARRIVED_LILYCOVE = 3
+Game3.PORTHOLE_SAILING_TO_SLATEPORT = 7
+Game3.PORTHOLE_ARRIVED_SLATEPORT = 8
+-- Task_HandlePorthole arrive-from-view; corridor ON_FRAME 9→3 / 10→8.
+Game3.PORTHOLE_ARRIVED_VIA_VIEW_LILYCOVE = 9
+Game3.PORTHOLE_ARRIVED_VIA_VIEW_SLATEPORT = 10
+-- map_groups.json gMapGroup_TownsAndRoutes: Route 101 is 16.
+Game3.MAP_ROUTE132_NUM = 47
+Game3.MAP_ROUTE133_NUM = 48
+Game3.MAP_ROUTE134_NUM = 49
+Game3.PORTHOLE_OCEAN_Y = 20
+Game3.FLAG_TEMP_1F = 0x1F
+Game3.FLAG_TEMP_20 = 0x20
+Game3.ITEM_COIN_CASE = 260
+Game3.ITEM_NONE = 0
+Game3.ITEM_BASEMENT_KEY = 271
+Game3.ITEM_POKEBLOCK_CASE = 273
+Game3.ITEM_RED_ORB = 276
+Game3.MAX_COINS = 9999
+Game3.TEXT_CLOCK_ASK = "Is this the correct time?"
+Game3.SLOT_TAG_7_RED = 0
+Game3.SLOT_TAG_7_BLUE = 1
+Game3.SLOT_TAG_AZURILL = 2
+Game3.SLOT_TAG_LOTAD = 3
+Game3.SLOT_TAG_CHERRY = 4
+Game3.SLOT_TAG_POWER = 5
+Game3.SLOT_TAG_REPLAY = 6
+Game3.SLOT_MATCH_1CHERRY = 0
+Game3.SLOT_MATCH_2CHERRY = 1
+Game3.SLOT_MATCH_REPLAY = 2
+Game3.SLOT_MATCH_LOTAD = 3
+Game3.SLOT_MATCH_AZURILL = 4
+Game3.SLOT_MATCH_POWER = 5
+Game3.SLOT_MATCH_777_MIXED = 6
+Game3.SLOT_MATCH_777_RED = 7
+Game3.SLOT_MATCH_777_BLUE = 8
+Game3.SLOT_MATCH_NONE = 9
+-- slot_machine.c sSym2Match / sSlotPayouts / sReelSymbols.
+Game3.SLOT_SYM_TO_MATCH = { 7, 8, 4, 3, 0, 5, 2 }
+Game3.SLOT_PAYOUTS = { 2, 4, 0, 6, 12, 3, 90, 300, 300 }
+Game3.SLOT_SYM_NAME = {
+  "7R", "7B", "AZU", "LOT", "CHY", "PWR", "RPL",
+}
+Game3.SLOT_REELS = {
+  { 0, 4, 2, 6, 5, 3, 1, 3, 4, 5, 6, 2, 0, 5, 3, 6, 2, 1, 5, 3, 6 },
+  { 0, 4, 6, 3, 2, 4, 6, 5, 5, 3, 1, 3, 6, 4, 2, 3, 6, 4, 3, 6, 4 },
+  { 0, 5, 1, 6, 3, 2, 6, 3, 5, 2, 6, 3, 2, 5, 6, 3, 2, 5, 6, 3, 4 },
+}
+Game3.SPECIAL_PLAY_ROULETTE = 162
+-- specials.inc 182 − 11 = 171; 309 − 11 = 298.
+Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER = 171
+-- specials.inc 183-191 − 11.
+Game3.SPECIAL_GABBY_AND_TY_GET_BATTLE_NUM = 172
+Game3.SPECIAL_GABBY_AND_TY_AFTER_INTERVIEW = 173
+Game3.SPECIAL_GABBY_AND_TY_BEFORE_INTERVIEW = 174
+Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS = 175
+Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING = 176
+Game3.SPECIAL_GABBY_AND_TY_GET_LAST_QUOTE = 177
+Game3.SPECIAL_GABBY_AND_TY_GET_LAST_BATTLE_TRIVIA = 178
+Game3.SPECIAL_GET_GABBY_AND_TY_LOCAL_IDS = 179
+Game3.SPECIAL_GET_BATTLE_OUTCOME = 180
+Game3.SPECIAL_TRY_UPDATE_RUSTURF_TUNNEL_STATE = 298
+-- battle.h B_OUTCOME_*. GetBattleOutcome returns gBattleOutcome.
+Game3.B_OUTCOME_WON = 1
+Game3.B_OUTCOME_LOST = 2
+Game3.B_OUTCOME_DREW = 3
+Game3.B_OUTCOME_RAN = 4
+Game3.B_OUTCOME_PLAYER_TELEPORTED = 5
+Game3.B_OUTCOME_MON_FLED = 6
+Game3.B_OUTCOME_CAUGHT = 7
+Game3.B_OUTCOME_NO_SAFARI_BALLS = 8
+-- tv.c GetGabbyAndTyLocalIds: 1-based object_events on those maps.
+Game3.GABBY_TY_LOCAL_IDS = {
+  [1] = { gabby = 14, ty = 13 },
+  [2] = { gabby = 5, ty = 6 },
+  [3] = { gabby = 18, ty = 17 },
+  [4] = { gabby = 21, ty = 22 },
+  [5] = { gabby = 8, ty = 9 },
+  [6] = { gabby = 19, ty = 20 },
+  [7] = { gabby = 23, ty = 24 },
+  [8] = { gabby = 10, ty = 11 },
+}
+Game3.GAME_STAT_MOVED_SECRET_BASE = 20
+Game3.GAME_STAT_ENTERED_BATTLE_TOWER = 30
+Game3.GAME_STAT_BATTLE_TOWER_BEST_STREAK = 32
+Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS = 29
+Game3.ROULETTE_BALLS = 6
+Game3.ROULETTE_MAX_MULT = 12
+-- sTableMinBets: table 0/1, then the same with PokéNews rate (0x80).
+Game3.ROULETTE_MIN_BETS = { 1, 3, 1, 6 }
+Game3.ROULETTE_MULTS = { 0, 3, 4, 6, 12 }
+-- Wheel order sRouletteSlots[].gridSquare (pokeemerald names).
+Game3.ROULETTE_SLOTS = { 6, 12, 18, 9, 11, 17, 8, 14, 16, 7, 13, 19 }
+Game3.ROULETTE_LABELS = {
+  "WYNAUT", "AZURILL", "SKITTY", "MAKUHITA",
+  "ORANGE", "O-WY", "O-AZ", "O-SK", "O-MA",
+  "GREEN", "G-WY", "G-AZ", "G-SK", "G-MA",
+  "PURPLE", "P-WY", "P-AZ", "P-SK", "P-MA",
+}
 -- map_groups.json: IndoorFortree gym is index 1; IndoorRoute110 puzzle 6 is 8.
 Game3.MAP_FORTREE_GYM_GROUP = 12
 Game3.MAP_FORTREE_GYM_NUM = 1
+-- map_groups.json gMapGroup_Dungeons is group 24; RusturfTunnel is index 4.
+Game3.MAP_RUSTURF_TUNNEL_GROUP = 24
+Game3.MAP_RUSTURF_TUNNEL_NUM = 4
+Game3.MAP_SOOTOPOLIS_CITY_GROUP = 0
+Game3.MAP_SOOTOPOLIS_CITY_NUM = 7
+Game3.MAP_UNDERWATER_SOOTOPOLIS_GROUP = 24
+Game3.MAP_UNDERWATER_SOOTOPOLIS_NUM = 5
+Game3.MAP_CAVE_OF_ORIGIN_B4F_NUM = 42
+Game3.MAP_SEAFLOOR_CAVERN_ROOM9_NUM = 36
+-- map_groups.json IndoorRoute121 is group 23; SpecialArea SE is 26/3.
+Game3.MAP_SAFARI_ENTRANCE_GROUP = 23
+Game3.MAP_SAFARI_ENTRANCE_NUM = 0
+Game3.MAP_SAFARI_SOUTHEAST_GROUP = 26
+Game3.MAP_SAFARI_SOUTHEAST_NUM = 3
+-- gMapGroup_Dungeons (24): MtPyre_1F is index 15, MagmaHideout_1F 74.
+Game3.MAP_MT_PYRE_1F_GROUP = 24
+Game3.MAP_MT_PYRE_1F_NUM = 15
+Game3.MAP_MT_PYRE_SUMMIT_NUM = 22
+Game3.MAP_MAGMA_HIDEOUT_1F_GROUP = 24
+Game3.MAP_MAGMA_HIDEOUT_1F_NUM = 74
+Game3.MAP_MAGMA_HIDEOUT_B1F_NUM = 75
+Game3.MAP_MAGMA_HIDEOUT_B2F_NUM = 76
+-- IndoorSlateport group 9; Harbor is index 8.
+Game3.MAP_SLATEPORT_HARBOR_GROUP = 9
+Game3.MAP_SLATEPORT_HARBOR_NUM = 8
+Game3.SAFARI_EXIT_X = 2
+Game3.SAFARI_EXIT_Y = 5
+Game3.SAFARI_BALLS = 30
+Game3.SAFARI_STEPS = 500
+Game3.SAFARI_CATCH_FACTOR_MAX = 20
+Game3.SAFARI_FLEE_RATE_MAX = 20
+Game3.SAFARI_GO_NEAR_CATCH = { 4, 3, 2, 1 }
+Game3.SAFARI_GO_NEAR_FLEE = { 4, 4, 4, 4 }
+-- btl_attrs.s gUnknown_081FA70C; row 0 is unused (counter increments first).
+Game3.SAFARI_POKEBLOCK_FLEE = {
+  { 0, 0, 0 },
+  { 3, 5, 0 },
+  { 2, 3, 0 },
+  { 1, 2, 0 },
+  { 1, 1, 0 },
+}
+Game3.TEXT_SAFARI_TIME_UP =
+  "Ding-dong! Time's up!\nYour SAFARI Game is over."
+Game3.TEXT_SAFARI_OUT_OF_BALLS =
+  "You've run out of SAFARI BALLS.\nYour SAFARI Game is over."
+-- SSTidalCorridor_Text_199088 / 1990B4. Walking 0xCD steps while
+-- FLAG_SYS_CRUISE_MODE runs gUnknown_0815FD0D.
+Game3.TEXT_SS_TIDAL_VOYAGE =
+  "We hope you enjoy your voyage on\nour ferry."
+Game3.TEXT_SS_TIDAL_LAND_SLATEPORT =
+  "We have made land in SLATEPORT CITY.\nThank you for sailing with us."
+Game3.TEXT_FELL_THROUGH = "You fell through!"
+Game3.TEXT_SAFARI_RETIRE =
+  "Would you like to exit the SAFARI ZONE\nright now?"
+Game3.TEXT_SAFARI_OVER =
+  "ANNOUNCER: You're out of\nSAFARI BALLS! Game over!"
+-- BattleText_AddedToDex / gDexText_RegisterComplete (pokedex.c catch overlay).
+Game3.TEXT_DEX_REGISTERED = "POKeDEX registration completed."
+Game3.TEXT_DEX_CRY_OF = "CRY OF"
+Game3.TEXT_DEX_SIZE_COMPARED = "SIZE COMPARED TO "
+Game3.TEXT_GIVE_CAUGHT_NICK = "Give a nickname to the\ncaptured %s?"
+Game3.DEX_LIST_ROWS = 7
+Game3.DEX_PIC_X = 0x30
+Game3.DEX_PIC_Y = 0x38
+Game3.DEX_SCREEN_INFO = 0
+Game3.DEX_SCREEN_AREA = 1
+Game3.DEX_SCREEN_CRY = 2
+Game3.DEX_SCREEN_SIZE = 3
+Game3.DEX_SCREEN_NAMES = { "INFO", "AREA", "CRY", "SIZE" }
+Game3.DEX_AFFINE_ONE = 256
+Game3.DEX_SIZE_MON_X = 88
+Game3.DEX_SIZE_MON_Y = 56
+Game3.DEX_SIZE_TRAINER_X = 152
+Game3.DEX_SIZE_TRAINER_Y = 56
 Game3.MAP_TRICK_HOUSE_PUZZLE6_GROUP = 29
 Game3.MAP_TRICK_HOUSE_PUZZLE6_NUM = 8
+-- map_groups.json gMapGroup_IndoorLilycove is group 13.
+Game3.MAP_LILYCOVE_INDOOR_GROUP = 13
+Game3.MAP_DEPT_STORE_1F_NUM = 17
+Game3.MAP_DEPT_STORE_2F_NUM = 18
+Game3.MAP_DEPT_STORE_3F_NUM = 19
+Game3.MAP_DEPT_STORE_4F_NUM = 20
+Game3.MAP_DEPT_STORE_5F_NUM = 21
+Game3.MAP_DEPT_STORE_ROOFTOP_NUM = 22
+Game3.MAP_DEPT_STORE_ELEVATOR_NUM = 23
+-- field_specials.c SetDepartmentStoreFloorVar: mapNum → VAR_DEPT_STORE_FLOOR.
+-- Rooftop is 15 so gUnknown_083F8380 prints "ROOFTOP".
+Game3.DEPT_STORE_FLOOR = {
+  [17] = 0, [18] = 1, [19] = 2, [20] = 3, [21] = 4, [22] = 15,
+}
+Game3.ELEVATOR_FLOOR_NAMES = {
+  [0] = "1F", "2F", "3F", "4F", "5F", "6F", "7F", "8F", "9F", "10F",
+  "11F", "B1F", "B2F", "B3F", "B4F", "ROOFTOP",
+}
 Game3.GATE_ROT_NONE = 255
 Game3.ROTATE_NONE = 0
 Game3.ROTATE_ACW = 1
@@ -1329,12 +2687,112 @@ Game3.MAUVILLE_GYM_OFF = {
   [0x248] = 0x21A, [0x249] = 0x21A, [0x250] = 0x251,
 }
 Game3.SPECIAL_IS_POKERUS_IN_PARTY = 308
+Game3.SPECIAL_DO_TV_SHOW = 63
+Game3.SPECIAL_DO_POKE_NEWS = 64
+Game3.SPECIAL_0X44 = 65
+Game3.SPECIAL_GET_TV_SHOW_TYPE = 66
+Game3.SPECIAL_GET_NON_MASS_OUTBREAK_TV_SHOW = 71
+Game3.SPECIAL_GET_MOM_OR_DAD_TV = 74
+Game3.SPECIAL_RESET_TV_SHOW_STATE = 75
+Game3.SPECIAL_GET_WEEK_COUNT = 256
+Game3.SPECIAL_RETRIEVE_LOTTERY_NUMBER = 257
+Game3.SPECIAL_PICK_LOTTERY_CORNER_TICKET = 258
+Game3.SPECIAL_DO_LOTTERY_CORNER_COMPUTER_EFFECT = 217
+Game3.SPECIAL_END_LOTTERY_CORNER_COMPUTER_EFFECT = 218
+Game3.SPECIAL_BUFFER_LOTTO_TICKET_NUMBER = 337
+Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM1_KEY = 288
+Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM2_KEY = 289
+Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM4_KEY = 290
+Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM6_KEY = 291
+Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY = 299
+Game3.SPECIAL_CHECK_RELICANTH_WAILORD = 279
+Game3.SPECIAL_DO_BRAILLE_WAIT = 280
+Game3.SPECIAL_SHAKE_CAMERA = 310
+Game3.SPECIAL_GET_TRAINER_BATTLE_MODE = 51
+Game3.SPECIAL_SHOW_TRAINER_INTRO_SPEECH = 52
+Game3.SPECIAL_SHOW_TRAINER_NON_BATTLING_SPEECH = 53
+Game3.SPECIAL_GET_TRAINER_FLAG = 54
+Game3.SPECIAL_END_TRAINER_APPROACH = 55
+Game3.SPECIAL_PLAY_TRAINER_ENCOUNTER_MUSIC = 56
+Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE = 61
+Game3.SPECIAL_INTERVIEW_BEFORE = 67
+Game3.SPECIAL_INTERVIEW_AFTER = 68
+Game3.SPECIAL_LEAD_MON_NICKNAMED = 69
+Game3.SPECIAL_SET_CONTEST_CATEGORY_STRING_VAR_FOR_INTERVIEW = 70
+Game3.SPECIAL_TV_IS_SCRIPT_SHOW_KIND_ALREADY_IN_QUEUE = 72
+Game3.SPECIAL_SAVE_GAME = 93
+Game3.SPECIAL_COUNT_ALIVE_PARTY_MONS_EXCEPT_SELECTED_ONE = 133
+Game3.SPECIAL_EXECUTE_WHITE_OUT = 199
+Game3.SPECIAL_SP0C8_WHITEOUT_MAYBE = 200
+Game3.SPECIAL_SET_UP_TRAINER_MOVEMENT = 314
+Game3.SPECIAL_SHOW_LINK_BATTLE_RECORDS = 196
+Game3.SPECIAL_SUB_8134548 = 231
+Game3.SPECIAL_CHOOSE_NEXT_BATTLE_TOWER_TRAINER = 232
+Game3.SPECIAL_CHECK_PARTY_BATTLE_TOWER_BANLIST = 233
+Game3.SPECIAL_PRINT_BATTLE_TOWER_TRAINER_GREETING = 234
+Game3.SPECIAL_PRINT_E_READER_TRAINER_GREETING = 235
+Game3.SPECIAL_START_SPECIAL_BATTLE = 236
+Game3.SPECIAL_SET_BATTLE_TOWER_PROPERTY = 237
+Game3.SPECIAL_BATTLE_TOWER_UTIL = 238
+Game3.SPECIAL_SET_BATTLE_TOWER_PARTY = 239
+Game3.SPECIAL_SAVE_BATTLE_TOWER_PROGRESS = 240
+Game3.SPECIAL_BATTLE_TOWER_SOFT_RESET = 241
+Game3.SPECIAL_DETERMINE_BATTLE_TOWER_PRIZE = 242
+Game3.SPECIAL_GIVE_BATTLE_TOWER_PRIZE = 243
+Game3.SPECIAL_AWARD_BATTLE_TOWER_RIBBONS = 244
+Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY = 245
+Game3.SPECIAL_VALIDATE_E_READER_TRAINER = 246
+Game3.SPECIAL_GET_BEST_BATTLE_TOWER_STREAK = 247
+Game3.SPECIAL_REDUCE_PLAYER_PARTY_TO_THREE = 248
+Game3.SPECIAL_DO_SOFT_RESET = 271
+Game3.SPECIAL_GET_SECRET_BASE_NEARBY_MAP_NAME = 278
+Game3.SPECIAL_SHOW_BATTLE_TOWER_RECORDS = 283
+Game3.SPECIAL_BUFFER_E_READER_TRAINER_NAME = 285
+Game3.SPECIAL_BUFFER_SECRET_BASE_OWNER_NAME = 303
+Game3.SPECIAL_SET_E_READER_TRAINER_GFX_ID = 322
+Game3.SPECIAL_SCRIPT_GET_MULTIPLAYER_ID = 326
+Game3.SPECIAL_TRY_INIT_BATTLE_TOWER_AWARD_MAN_OBJECT_EVENT = 329
+Game3.SPECIAL_MOVE_SECRET_BASE = 330
+Game3.SPECIAL_TRY_ENABLE_BRAVO_TRAINER_BATTLE_TOWER = 338
+Game3.SPECIAL_SCRIPT_RANDOM = 340
+Game3.SPECIAL_SUB_80835D8 = 341
+Game3.BATTLE_TOWER_IDLE = 5
+Game3.E_READER_TRAINER_INVALID = 1
+Game3.VAR_POISON_STEP_COUNTER = 0x402B
+Game3.VAR_LAVARIDGE_RIVAL_STATE = 0x4053
+Game3.FLAG_RECEIVED_GO_GOGGLES = 0xDD
+Game3.FLAG_DEFEATED_LAVARIDGE_GYM = 0x4BD
+Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1 = 0x3A1
+Game3.FLAG_HIDE_MR_BRINEY_ROUTE104 = 0x2E2
+Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE = 0x2E3
+Game3.FLAG_HIDE_MR_BRINEY_DEWFORD_TOWN = 0x2E4
+Game3.FLAG_HIDE_MR_BRINEY_ROUTE109 = 0x2E5
+Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE104 = 0x2E6
+Game3.FLAG_HIDE_MR_BRINEY_BOAT_DEWFORD = 0x2E7
+Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE109 = 0x2E8
+Game3.FLAG_HIDE_PEEKO_BRINEY_HOUSE = 0x371
+Game3.TVSHOW_FAN_CLUB_LETTER = 1
+Game3.SAVE_SUCCESS = 1
+Game3.TEXT_POKEMON_FAINTED = "{STR_VAR_1} fainted..."
+Game3.TEXT_WHITED_OUT = "{PLAYER} is out of useable POKeMON!\n{PLAYER} whited out!"
+Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_1_KEY = 0x277
+Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_2_KEY = 0x278
+Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_4_KEY = 0x279
+Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_6_KEY = 0x27A
+Game3.FLAG_SYS_BRAILLE_WAIT = 0x851
+Game3.SPECIES_WAILORD = 321
+Game3.SPECIES_RELICANTH = 369
+Game3.LOTTERY_PRIZES = { 69, 182, 25, 1 }
+Game3.TV_NO_SHOW = 255
+Game3.TEXT_MOM = "MOM"
+Game3.TEXT_DAD = "DAD"
 Game3.SPECIAL_INIT_BIRCH_STATE = 211
 Game3.SPECIAL_GET_DAYCARE_MON_NICKNAMES = 181
 Game3.SPECIAL_GET_DAYCARE_STATE = 182
 Game3.SPECIAL_REJECT_EGG_FROM_DAYCARE = 183
 Game3.SPECIAL_GIVE_EGG_FROM_DAYCARE = 184
 Game3.SPECIAL_SET_DAYCARE_COMPAT_STRING = 185
+Game3.SPECIAL_GET_SELECTED_DAYCARE_MON_NICKNAME = 186
 Game3.SPECIAL_STORE_SELECTED_IN_DAYCARE = 187
 Game3.SPECIAL_CHOOSE_SEND_DAYCARE_MON = 188
 Game3.SPECIAL_SHOW_DAYCARE_LEVEL_MENU = 189
@@ -1343,13 +2801,40 @@ Game3.SPECIAL_GET_DAYCARE_COST = 191
 Game3.SPECIAL_TAKE_POKEMON_FROM_DAYCARE = 192
 Game3.SPECIAL_GET_POKEDEX_INFO = 212
 Game3.SPECIAL_SHOW_POKEDEX_RATING = 213
+Game3.SPECIAL_SHOW_POKEMON_STORAGE = 60
 Game3.SPECIAL_GET_CONTEST_WINNER_IDX = 76
 Game3.SPECIAL_GET_CONTEST_PLAYER_MON_IDX = 77
+Game3.SPECIAL_GET_NPC_CONTESTANT_LOCAL_ID = 78
+Game3.SPECIAL_GET_CONTEST_WINNER_TRAINER_NAME = 79
+Game3.SPECIAL_GET_CONTEST_WINNER_NICK = 80
+Game3.SPECIAL_BUFFER_CONTEST_TRAINER_AND_MON = 81
+Game3.SPECIAL_COUNT_CONTEST_MONS_BETTER = 82
+Game3.SPECIAL_SET_CONTEST_TRAINER_GFX_IDS = 83
 Game3.SPECIAL_CHECK_SELECTED_MON_CONTEST = 84
+Game3.SPECIAL_GET_CONTESTANT_NAMES_AT_RANK = 85
+Game3.SPECIAL_SET_LINK_CONTEST_TRAINER_GFX = 86
 Game3.SPECIAL_GET_MON_CONDITION = 87
+Game3.SPECIAL_CAN_MON_PARTICIPATE_LINK_CONTEST = 88
 Game3.SPECIAL_GIVE_CONTEST_RIBBON = 89
-Game3.SPECIAL_HAS_MON_WON_THIS_CONTEST = 90
+-- specials.inc 101 − 11. sub_80C5044 returns gUnknown_0203856C (link contest).
+Game3.SPECIAL_SUB_80C5044 = 90
+Game3.SPECIAL_GIVE_MON_ARTIST_RIBBON = 91
+Game3.SPECIAL_SHOULD_READY_CONTEST_ARTIST = 134
+Game3.SPECIAL_SAVE_MUSEUM_CONTEST_PAINTING = 135
+Game3.SPECIAL_DOES_CONTEST_CATEGORY_HAVE_MUSEUM = 136
+Game3.SPECIAL_COUNT_PLAYER_MUSEUM_PAINTINGS = 137
 Game3.SPECIAL_SHOW_CONTEST_WINNER = 138
+Game3.SPECIAL_GET_FIRST_FREE_POKEBLOCK_SLOT = 160
+Game3.SPECIAL_DO_BERRY_BLENDING = 161
+Game3.SPECIAL_DO_PC_TURN_ON = 214
+Game3.SPECIAL_DO_PC_TURN_OFF = 215
+Game3.SPECIAL_BEDROOM_PC = 249
+Game3.SPECIAL_PLAYER_PC = 250
+Game3.SPECIAL_FIELD_SHOW_REGION_MAP = 251
+Game3.SPECIAL_SHOW_BERRY_BLENDER_RECORD = 259
+Game3.SPECIAL_SCRIPT_MENU_CREATE_PC_MULTICHOICE = 262
+Game3.SPECIAL_GET_POKEBLOCK_NAME_BY_NATURE = 277
+Game3.SPECIAL_SHOW_CONTEST_ENTRY_MON_PIC = 320
 Game3.SPECIAL_COMPLETED_HOENN_POKEDEX = 335
 Game3.SPECIAL_CHECK_LEAD_MON_COOL = 265
 Game3.SPECIAL_CHECK_LEAD_MON_BEAUTY = 266
@@ -1365,6 +2850,8 @@ Game3.EGG_GROUP_DITTO = 13
 Game3.EGG_GROUP_UNDISCOVERED = 15
 Game3.EGG_HATCH_LEVEL = 5
 Game3.EGG_CYCLE_STEPS = 255
+-- daycare.c CreateEgg: met location 253 is the hot springs memo.
+Game3.EGG_MET_HOT_SPRINGS = 253
 Game3.SPECIES_DITTO = 132
 Game3.MON_MALE = 0
 Game3.MON_FEMALE = 1
@@ -1377,6 +2864,19 @@ Game3.DAYCARE_COMPAT_TEXT = {
 }
 Game3.VAR_CONTEST_RANK = 0x8010
 Game3.VAR_CONTEST_CATEGORY = 0x8011
+-- vars.h. Lobby sets state 1 then warps to LinkContestRoom1 (group 25
+-- num 28). 15FB64 warps back by VAR_CONTEST_LOCATION.
+Game3.VAR_LINK_CONTEST_ROOM_STATE = 0x4086
+Game3.VAR_CONTEST_LOCATION = 0x4088
+Game3.MAP_GROUP_INDOOR_DYNAMIC = 25
+Game3.MAP_NUM_LINK_CONTEST_ROOM1 = 28
+Game3.CONTEST_LOBBY_WARPS = {
+  [1] = { group = 6, num = 0, x = 5, y = 4 },
+  [2] = { group = 5, num = 1, x = 5, y = 4 },
+  [3] = { group = 9, num = 2, x = 5, y = 4 },
+  [4] = { group = 13, num = 4, x = 6, y = 4 },
+  [5] = { group = 13, num = 4, x = 7, y = 4 },
+}
 Game3.CONTEST_CATEGORY_COOL = 0
 Game3.CONTEST_CATEGORY_BEAUTY = 1
 Game3.CONTEST_CATEGORY_CUTE = 2
@@ -1391,13 +2891,18 @@ Game3.CONTEST_DEFAULT_APPEAL = 20
 -- field_specials.c CheckLeadMonCool: MON_DATA_COOL >= 200.
 Game3.CONTEST_LEAD_STAT = 200
 Game3.MAX_TOTAL_EVS = 510
+Game3.VITAMIN_EV_CAP = 100
+Game3.VITAMIN_EV = 10
+Game3.MAX_LEVEL = 100
+Game3.SPECIES_SHEDINJA = 303
 Game3.GAME_STAT_RECEIVED_RIBBONS = 42
 Game3.VAR_CYCLING_ROAD_RECORD_COLLISIONS = 0x4027
 Game3.VAR_CYCLING_ROAD_RECORD_TIME_L = 0x4028
 Game3.VAR_CYCLING_ROAD_RECORD_TIME_H = 0x4029
 Game3.VAR_CYCLING_CHALLENGE_STATE = 0x40A9
--- map_groups.json gMapGroup_IndoorRoute110 index 12.
+-- map_groups.json gMapGroup_IndoorRoute110: south entrance 11, north 12.
 Game3.MAP_ROUTE110_CYCLING_NORTH_GROUP = 29
+Game3.MAP_ROUTE110_CYCLING_SOUTH_NUM = 11
 Game3.MAP_ROUTE110_CYCLING_NORTH_NUM = 12
 Game3.CYCLING_ROAD_MAX_COLLISIONS = 100
 Game3.TEXT_TIMES = " times"
@@ -1441,6 +2946,78 @@ Game3.EV_YIELD_KEYS = {
 Game3.CONTEST_CAT_NAMES = { "COOL", "BEAUTY", "CUTE", "SMART", "TOUGH" }
 Game3.CONTEST_RANK_NAMES = { "NORMAL", "SUPER", "HYPER", "MASTER" }
 Game3.CONTEST_NPC_SCORES = { 50, 55, 60 }
+Game3.CONTEST_PLAYER_MON_INDEX = 3
+Game3.ITEM_RED_SCARF = 254
+Game3.ITEM_BLUE_SCARF = 255
+Game3.ITEM_PINK_SCARF = 256
+Game3.ITEM_GREEN_SCARF = 257
+Game3.ITEM_YELLOW_SCARF = 258
+-- LinkContestRoom1 object events 3/4/5 (LOCALID_CONTESTANT_1/2/3).
+Game3.LOCALID_CONTESTANT_1 = 3
+Game3.GAME_STAT_POKEBLOCKS = 33
+Game3.GAME_STAT_ENTERED_CONTEST = 36
+Game3.GAME_STAT_WON_CONTEST = 37
+Game3.GAME_STAT_WON_LINK_CONTEST = 35
+Game3.GAME_STAT_USED_ITEMFINDER = 39
+Game3.POKEBLOCK_MAX = 40
+Game3.PBLOCK_CLR_RED = 1
+Game3.PBLOCK_CLR_BLUE = 2
+Game3.PBLOCK_CLR_PINK = 3
+Game3.PBLOCK_CLR_GREEN = 4
+Game3.PBLOCK_CLR_YELLOW = 5
+Game3.PBLOCK_CLR_PURPLE = 6
+Game3.PBLOCK_CLR_INDIGO = 7
+Game3.PBLOCK_CLR_BROWN = 8
+Game3.PBLOCK_CLR_LITEBLUE = 9
+Game3.PBLOCK_CLR_OLIVE = 10
+Game3.PBLOCK_CLR_GRAY = 11
+Game3.PBLOCK_CLR_BLACK = 12
+Game3.PBLOCK_CLR_WHITE = 13
+Game3.PBLOCK_CLR_GOLD = 14
+Game3.POKEBLOCK_NAMES = {
+  [0] = "",
+  "RED POKeBLOCK", "BLUE POKeBLOCK", "PINK POKeBLOCK", "GREEN POKeBLOCK",
+  "YELLOW POKeBLOCK", "PURPLE POKeBLOCK", "INDIGO POKeBLOCK",
+  "BROWN POKeBLOCK", "LITEBLUE POKeBLOCK", "OLIVE POKeBLOCK",
+  "GRAY POKeBLOCK", "BLACK POKeBLOCK", "WHITE POKeBLOCK", "GOLD POKeBLOCK",
+}
+-- berry.c gBerries spicy/dry/sweet/bitter/sour/smoothness. Index is berry type.
+Game3.BERRY_FLAVORS = {
+  { 10, 0, 0, 0, 0, 25 }, { 0, 10, 0, 0, 0, 25 }, { 0, 0, 10, 0, 0, 25 },
+  { 0, 0, 0, 10, 0, 25 }, { 0, 0, 0, 0, 10, 25 }, { 10, 0, 10, 10, 10, 20 },
+  { 10, 10, 10, 10, 10, 20 }, { 10, 10, 10, 10, 10, 20 },
+  { 10, 10, 10, 10, 10, 20 }, { 10, 10, 10, 10, 10, 20 },
+  { 10, 0, 0, 0, 0, 25 }, { 0, 10, 0, 0, 0, 25 }, { 0, 0, 10, 0, 0, 25 },
+  { 0, 0, 0, 10, 0, 25 }, { 0, 0, 0, 0, 10, 25 },
+}
+-- Nature liked flavor 0-4 (spicy..sour). Neutral natures have none.
+Game3.NATURE_LIKED_FLAVOR = {
+  [1] = 0, [2] = 0, [3] = 0, [4] = 0,
+  [5] = 4, [7] = 4, [8] = 4, [9] = 4,
+  [10] = 2, [11] = 2, [13] = 2, [14] = 2,
+  [15] = 1, [16] = 1, [17] = 1, [19] = 1,
+  [20] = 3, [21] = 3, [22] = 3, [23] = 3,
+}
+Game3.FLAG_SYS_PC_LANETTE = 0x84B
+-- contest_opponents.h: first three of Normal / Super (Fallarbor rank 1).
+Game3.CONTEST_OPPONENTS = {
+  [0] = {
+    { gfx = 7, trainer = "JIMMY", nick = "POOCHY", species = 261,
+      cool = 10, beauty = 4, cute = 10, smart = 3, tough = 4 },
+    { gfx = 8, trainer = "EDITH", nick = "ZIGOON", species = 263,
+      cool = 10, beauty = 10, cute = 6, smart = 1, tough = 2 },
+    { gfx = 11, trainer = "EVAN", nick = "DUSTER", species = 269,
+      cool = 2, beauty = 10, cute = 10, smart = 12, tough = 4 },
+  },
+  [1] = {
+    { gfx = 32, trainer = "KARINA", nick = "RELIA", species = 315,
+      cool = 50, beauty = 15, cute = 75, smart = 10, tough = 20 },
+    { gfx = 51, trainer = "BOBBY", nick = "DUODO", species = 84,
+      cool = 15, beauty = 21, cute = 15, smart = 85, tough = 35 },
+    { gfx = 8, trainer = "CLAIRE", nick = "PINCHIN", species = 328,
+      cool = 75, beauty = 25, cute = 25, smart = 10, tough = 25 },
+  },
+}
 -- Move type → contest category when ROM contest tables are missing.
 Game3.CONTEST_TYPE_CATEGORY = {
   [0] = 4, [1] = 4, [2] = 0, [3] = 3, [4] = 4, [5] = 4, [6] = 3, [7] = 3,
@@ -1448,6 +3025,7 @@ Game3.CONTEST_TYPE_CATEGORY = {
   [16] = 0, [17] = 3,
 }
 Game3.LOCALID_PLAYER = 0xFF
+Game3.LOCALID_CAMERA = 127
 Game3.LOCALID_MOM_LITTLEROOT = 4
 Game3.LOCALID_PLAYERS_HOUSE_1F_MOM = 1
 Game3.LOCALID_RIVAL_MOM = 4
@@ -1501,9 +3079,59 @@ Game3.MOVEMENT_TYPE_FACE_UP = 7
 Game3.MOVEMENT_TYPE_FACE_DOWN = 8
 Game3.MOVEMENT_TYPE_FACE_LEFT = 9
 Game3.MOVEMENT_TYPE_FACE_RIGHT = 10
--- pokeruby MOVEMENT_TYPE_INVISIBLE. Dummy objects (Devon 3F's second
--- Mr. Stone on the conference table) must not draw or collide.
+-- Stay put; random facing from the ROM table after gMovementDelaysMedium.
+-- Mt. Pyre trainers are FACE_DOWN_AND_LEFT / _RIGHT (0x11 / 0x12).
+Game3.MOVEMENT_TYPE_FACE_DOWN_AND_UP = 0x0D
+Game3.MOVEMENT_TYPE_FACE_LEFT_AND_RIGHT = 0x0E
+Game3.MOVEMENT_TYPE_FACE_UP_AND_LEFT = 0x0F
+Game3.MOVEMENT_TYPE_FACE_UP_AND_RIGHT = 0x10
+Game3.MOVEMENT_TYPE_FACE_DOWN_AND_LEFT = 0x11
+Game3.MOVEMENT_TYPE_FACE_DOWN_AND_RIGHT = 0x12
+Game3.MOVEMENT_TYPE_FACE_DOWN_UP_AND_LEFT = 0x13
+Game3.MOVEMENT_TYPE_FACE_DOWN_UP_AND_RIGHT = 0x14
+Game3.MOVEMENT_TYPE_FACE_UP_LEFT_AND_RIGHT = 0x15
+Game3.MOVEMENT_TYPE_FACE_DOWN_LEFT_AND_RIGHT = 0x16
+-- gMovementDelaysMedium {32, 64, 96, 128} frames at 60 fps.
+Game3.MOVEMENT_DELAYS_MEDIUM = { 32 / 60, 64 / 60, 96 / 60, 128 / 60 }
+-- tileset_mossdeep_gym.json. pair_35 behaviors are walk pads 0x40–0x43.
+Game3.MT_MOSSDEEP_ARROW_RIGHT = 0x204
+Game3.MT_MOSSDEEP_ARROW_DOWN = 0x205
+Game3.MT_MOSSDEEP_ARROW_LEFT = 0x20C
+Game3.MT_MOSSDEEP_ARROW_UP = 0x20D
+-- tileset_sootopolis_gym.json. Thin 0x20D (MB 0x26) cracks to 0x20E
+-- (MB 0x27). Stepping on cracked ice writes Broken 0x206 (MB 0x66).
+Game3.MT_SOOTOPOLIS_ICE_BROKEN = 0x206
+Game3.MT_SOOTOPOLIS_ICE_STAIRS = 0x207
+Game3.MT_SOOTOPOLIS_ICE_THIN = 0x20D
+Game3.MT_SOOTOPOLIS_ICE_CRACKED = 0x20E
+Game3.MAP_SOOTOPOLIS_GYM_GROUP = 15
+Game3.MAP_SOOTOPOLIS_GYM_1F_NUM = 0
+Game3.MAP_SOOTOPOLIS_GYM_B1F_NUM = 1
+-- gUnknown_083763E4[y] for map-local y. x in 3..13, y in 6..19, and
+-- the row must have a var. Bit is 1 << (x - 3).
+Game3.SOOTOPOLIS_ICE_ROW_VAR = {
+  [6] = 0x4001, [7] = 0x4002, [8] = 0x4003, [9] = 0x4004,
+  [12] = 0x4005, [13] = 0x4006, [14] = 0x4007,
+  [17] = 0x4008, [18] = 0x4009, [19] = 0x400A,
+}
+-- pokeruby MOVEMENT_TYPE_TREE_DISGUISE / MOUNTAIN_DISGUISE. Route 119
+-- ninja boys. Sprite hidden so the tree/rock metatile shows through;
+-- they still occupy the tile and spot as TRAINER_TYPE_NORMAL.
+Game3.MOVEMENT_TYPE_TREE_DISGUISE = 0x39
+Game3.MOVEMENT_TYPE_MOUNTAIN_DISGUISE = 0x3A
+-- pokeruby MOVEMENT_TYPE_HIDDEN. Lavaridge gym / Route 113 ash pits:
+-- ON_TRANSITION setobjectmovementtype localId, 63. Occupies the tile
+-- but does not draw until spotted.
+Game3.MOVEMENT_TYPE_HIDDEN = 0x3F
+-- pokeruby MOVEMENT_TYPE_INVISIBLE. Sprite is not drawn. GetObjectEventIdByXY
+-- still returns them: Fortree / Route 119 Kecleon occupy and are talkable.
+-- Devon 3F's dummy gentleman is the same (table metatile is already solid).
 Game3.MOVEMENT_TYPE_INVISIBLE = 0x4C
+-- Magma Hideout / Mt. Pyre trainers. Stay put; face the next dir every
+-- 48 frames (gClockwiseDirections / gCounterclockwiseDirections).
+Game3.MOVEMENT_TYPE_ROTATE_COUNTERCLOCKWISE = 0x17
+Game3.MOVEMENT_TYPE_ROTATE_CLOCKWISE = 0x18
+Game3.ROTATE_NPC_DELAY = 48 / 60
 Game3.GRASS_RUSTLE = 0.32
 Game3.EVOLVE_ANIM = 1.4
 Game3.FONT_MALE = 0xB5
@@ -1514,6 +3142,13 @@ Game3.DIR_WEST = 3
 Game3.DIR_EAST = 4
 Game3.DIR_FACING = { "south", "north", "west", "east" }
 Game3.TRAINER_FLAG_START = 0x500
+Game3.FLAG_HIDE_VICTOR_WINSTRATE = 0x300
+Game3.FLAG_HIDE_VICTORIA_WINSTRATE = 0x301
+Game3.FLAG_HIDE_VIVI_WINSTRATE = 0x302
+Game3.FLAG_HIDE_VICKI_WINSTRATE = 0x303
+Game3.FLAG_REGI_DOORS_OPENED = 0xE4
+Game3.MT_GENERAL_ROCK_WALL_ROCK_BASE = 0x07C
+Game3.MT_GENERAL_ROCK_WALL_SAND_BASE = 0x091
 -- EventScript_ResetAllMapFlags (data/scripts/new_game.inc): these start SET
 -- so story NPCs stay hidden until a later script clears them. Game3.new()
 -- stays empty for tests. A ROM import overwrites this via constants.resetMapFlags.
@@ -1571,6 +3206,8 @@ Game3.NATURE_NAMES = {
 Game3.BG_HIDDEN_ITEM = 7
 Game3.BG_SECRET_BASE = 8
 Game3.FLAG_HIDDEN_ITEMS_START = 0x258
+Game3.VAR_OBJ_GFX_ID_F = 0x401F
+Game3.VAR_SECRET_BASE_MAP = 0x4026
 Game3.VAR_CURRENT_SECRET_BASE = 0x4054
 Game3.SECRET_BASE_MAP_ID = "secret_base"
 Game3.MB_SECRET_BASE_SPOT_MIN = 0x90
@@ -1585,8 +3222,67 @@ Game3.HEAL_AMOUNT = {
   [27] = 60,   -- Soda Pop (Seashore House)
   [28] = 80,   -- Lemonade
   [29] = 100,  -- Moomoo Milk
+  [30] = 50,   -- Energy Powder
+  [31] = 200,  -- Energy Root
   [139] = 10,  -- Oran Berry
   [142] = 30,  -- Sitrus Berry
+}
+-- pokemon_item_effect.c ITEM4_REVIVE: 0xFE half, 0xFF full.
+Game3.REVIVE_FRACTION = {
+  [24] = 0.5,  -- Revive
+  [25] = 1,    -- Max Revive
+  [33] = 0.5,  -- Revival Herb (0xFE)
+}
+-- item_effects.h ITEM5_FRIENDSHIP_* signed bytes after a successful use.
+Game3.ITEM_FRIENDSHIP = {
+  [30] = { -5, -5, -10 },
+  [31] = { -10, -10, -15 },
+  [32] = { -5, -5, -10 },
+  [33] = { -15, -15, -20 },
+  [63] = { 5, 3, 2 },
+  [64] = { 5, 3, 2 },
+  [65] = { 5, 3, 2 },
+  [66] = { 5, 3, 2 },
+  [67] = { 5, 3, 2 },
+  [68] = { 5, 3, 2 },
+  [69] = { 5, 3, 2 },
+  [70] = { 5, 3, 2 },
+  [71] = { 5, 3, 2 },
+}
+-- item_effects.h ITEM4_EV_* / ITEM5_EV_*. Cap 100, +10.
+Game3.VITAMIN_STAT = {
+  [63] = { key = "hpEv", name = "HP" },
+  [64] = { key = "atkEv", name = "ATTACK" },
+  [65] = { key = "defEv", name = "DEFENSE" },
+  [66] = { key = "speEv", name = "SPEED" },
+  [67] = { key = "spaEv", name = "SP. ATK" },
+  [70] = { key = "spdEv", name = "SP. DEF" },
+}
+-- ITEM4_HEAL_PP / HEAL_PP_ONE. 0x7F is ITEM6_HEAL_PP_FULL.
+Game3.PP_HEAL = {
+  [34] = { amount = 10, one = true },
+  [35] = { amount = 127, one = true },
+  [36] = { amount = 10, one = false },
+  [37] = { amount = 127, one = false },
+  [138] = { amount = 10, one = true },
+}
+-- ITEM4_PP_UP / ITEM5_PP_MAX. Value is the target ppUps (PP Max writes 3).
+Game3.PP_UP = {
+  [69] = 1,
+  [71] = 3,
+}
+Game3.EVO_STONE = {
+  [93] = true, [94] = true, [95] = true,
+  [96] = true, [97] = true, [98] = true,
+}
+-- ItemUseInBattle_StatIncrease on the menu battler. Stages are -6..+6
+-- (ROM 0-12 with 6 as neutral); X items add 1.
+Game3.X_ITEM_STAT = {
+  [75] = { "atk", "ATTACK" },
+  [76] = { "def", "DEFENSE" },
+  [77] = { "spe", "SPEED" },
+  [78] = { "acc", "ACCURACY" },
+  [79] = { "spa", "SP. ATK" },
 }
 Game3.STATUS_HEAL = {
   [14] = "psn",  -- Antidote
@@ -1596,6 +3292,11 @@ Game3.STATUS_HEAL = {
   [18] = "par",  -- Parlyz Heal
   [19] = true,   -- Full Restore
   [23] = true,   -- Full Heal
+  [32] = true,   -- Heal Powder
+  [38] = true,   -- Lava Cookie
+  [39] = "slp",      -- Blue Flute (reusable)
+  [40] = "confuse",  -- Yellow Flute (reusable)
+  [41] = "love",     -- Red Flute (reusable)
   [133] = "par", -- Cheri Berry
   [134] = "slp", -- Chesto Berry
   [135] = "psn", -- Pecha Berry
@@ -1617,8 +3318,25 @@ Game3.MB_TELEVISION = 0x86
 Game3.MB_SECRET_BASE_PC = 0xB0
 Game3.MB_PLAYER_ROOM_PC = 0xC5
 Game3.MB_CRACKED_FLOOR_HOLE = 0x66
+Game3.MB_MT_PYRE_HOLE = 0x0F
+Game3.MB_STAIRS_OUTSIDE_ABANDONED_SHIP = 0x1B
+Game3.MB_SHOAL_CAVE_ENTRANCE = 0x1C
+Game3.MB_EAST_ARROW_WARP = 0x62
+Game3.MB_WEST_ARROW_WARP = 0x63
+Game3.MB_NORTH_ARROW_WARP = 0x64
+Game3.MB_SOUTH_ARROW_WARP = 0x65
+Game3.MB_AQUA_HIDEOUT_WARP = 0x67
+Game3.MB_WATER_DOOR = 0x6C
+Game3.MB_WATER_SOUTH_ARROW_WARP = 0x6D
+Game3.MB_WARP_OR_BRIDGE = 0x70
+-- metatile_behavior.c IsDoor. Sliding doors are signs, not bump warps.
+Game3.MB_PETALBURG_GYM_DOOR = 0x8D
 Game3.MB_THIN_ICE = 0x26
 Game3.MB_CRACKED_ICE = 0x27
+Game3.MB_HOT_SPRINGS = 0x28
+Game3.MB_LAVARIDGE_GYM_B1F_WARP = 0x29
+Game3.MB_SEAWEED_NO_SURFACING = 0x2A
+Game3.MB_LAVARIDGE_GYM_1F_WARP = 0x68
 Game3.MB_ASHGRASS = 0x24
 Game3.MB_PACIFIDLOG_VERTICAL_LOG_1 = 0x74
 Game3.MB_PACIFIDLOG_VERTICAL_LOG_2 = 0x75
@@ -1626,6 +3344,23 @@ Game3.MB_PACIFIDLOG_HORIZONTAL_LOG_1 = 0x76
 Game3.MB_PACIFIDLOG_HORIZONTAL_LOG_2 = 0x77
 Game3.MB_FORTREE_BRIDGE = 0x78
 Game3.MB_CRACKED_FLOOR = 0xD2
+Game3.MB_MUDDY_SLOPE = 0xD0
+Game3.MB_BUMPY_SLOPE = 0xD1
+Game3.MB_ICE = 0x20
+Game3.MB_WALK_EAST = 0x40
+Game3.MB_WALK_WEST = 0x41
+Game3.MB_WALK_NORTH = 0x42
+Game3.MB_WALK_SOUTH = 0x43
+Game3.MB_SLIDE_EAST = 0x44
+Game3.MB_SLIDE_WEST = 0x45
+Game3.MB_SLIDE_NORTH = 0x46
+Game3.MB_SLIDE_SOUTH = 0x47
+Game3.MB_TRICK_HOUSE_PUZZLE_8_FLOOR = 0x48
+-- field_player_avatar.c: 0x50 is unused-named but IsEastwardCurrent.
+Game3.MB_EASTWARD_CURRENT = 0x50
+Game3.MB_WESTWARD_CURRENT = 0x51
+Game3.MB_NORTHWARD_CURRENT = 0x52
+Game3.MB_SOUTHWARD_CURRENT = 0x53
 Game3.STEP_CB_ASH = 1
 Game3.STEP_CB_FORTREE = 2
 Game3.STEP_CB_PACIFIDLOG = 3
@@ -1683,22 +3418,51 @@ Game3.FLY_DESTINATIONS = {
   { mapId = "g0_8",  name = "EVER GRANDE CITY", flag = 0x81E },
 }
 Game3.FLY_BY_ID = {}
+-- sMapHealLocations heal ids in FLAG_VISITED / MAPSEC town order.
+-- Littleroot outdoor house (12) swaps to May's (13) for female.
+Game3.FLY_HEAL_IDS = { 12, 14, 15, 16, 17, 18, 19, 3, 4, 5, 6, 7, 8, 9, 10, 11 }
+Game3.HEAL_LITTLEROOT_TOWN_MAY = 13
+Game3.HEAL_EVER_GRANDE_LEAGUE = 20
+Game3.HEAL_BATTLE_TOWER_OUTSIDE = 21
 for i = 1, #Game3.FLY_DESTINATIONS do
   local d = Game3.FLY_DESTINATIONS[i]
+  d.mapsec = i - 1
+  d.healId = Game3.FLY_HEAL_IDS[i]
   Game3.FLY_BY_ID[d.mapId] = d
 end
+Game3.FLY_BATTLE_TOWER = {
+  mapId = "g26_4", name = "BATTLE TOWER",
+  flag = Game3RegionMap.FLAG_LANDMARK_BATTLE_TOWER,
+  mapsec = Game3RegionMap.MAPSEC_BATTLE_TOWER,
+  healId = 21, special = true,
+}
+Game3.MAPSEC_NONE = Game3RegionMap.MAPSEC_NONE
+Game3.MAPSEC_BATTLE_TOWER = Game3RegionMap.MAPSEC_BATTLE_TOWER
+Game3.MAPSEC_SOUTHERN_ISLAND = Game3RegionMap.MAPSEC_SOUTHERN_ISLAND
+Game3.MAPSEC_EVER_GRANDE = Game3RegionMap.MAPSEC_EVER_GRANDE
+Game3.REGION_MAP_CURSOR_FRAMES = 20
+Game3.regionMapSectionAt = Game3RegionMap.sectionAt
+Game3.regionMapName = Game3RegionMap.name
+Game3.regionMapCursorForSection = Game3RegionMap.cursorForSection
+Game3.regionMapLandmarks = Game3RegionMap.landmarkNames
 Game3.MB_POND_WATER = 0x10
 Game3.MB_INTERIOR_DEEP_WATER = 0x11
 Game3.MB_DEEP_WATER = 0x12
 Game3.MB_WATERFALL = 0x13
 Game3.MB_SOOTOPOLIS_DEEP_WATER = 0x14
 Game3.MB_OCEAN_WATER = 0x15
-Game3.MB_NO_SURFACING = 0x18
+Game3.MB_PUDDLE = 0x16
+Game3.MB_NO_SURFACING = 0x19
+Game3.MB_UNUSED_SOOTOPOLIS_DEEP_WATER_2 = 0x1A
+Game3.MB_REFLECTION_UNDER_BRIDGE = 0x2B
 Game3.MB_SEAWEED = 0x22
-Game3.MB_SEAWEED_NO_SURFACING = 0x28
 Game3.TRAINER_TYPE_NORMAL = 1
 Game3.TRAINER_TYPE_SEE_ALL = 2
+Game3.TRAINER_TYPE_BURIED = 3
 Game3.EVO_LEVEL = 4
+Game3.EVO_TRADE = 5
+Game3.EVO_TRADE_ITEM = 6
+Game3.EVO_ITEM = 7
 Game3.EVO_LEVEL_ATK_GT_DEF = 8
 Game3.EVO_LEVEL_ATK_EQ_DEF = 9
 Game3.EVO_LEVEL_ATK_LT_DEF = 10
@@ -1718,6 +3482,11 @@ Game3.FALLBACK_EVOS = {
   },
   [291] = { { method = 4, param = 10, target = 293 } },
   [292] = { { method = 4, param = 10, target = 294 } },
+  [64] = { { method = 5, param = 0, target = 65 } },
+  [67] = { { method = 5, param = 0, target = 68 } },
+  [75] = { { method = 5, param = 0, target = 76 } },
+  [93] = { { method = 5, param = 0, target = 94 } },
+  [117] = { { method = 6, param = 201, target = 230 } },
 }
 
 function Game3.snapPixel(n)
@@ -1776,11 +3545,93 @@ function Game3.metatileOf(cell)
   return (cell or 0) % 1024
 end
 
+-- fieldmap.c MAPGRID_ELEVATION_MASK: bits 12-15. MapGridSetMetatileIdAt
+-- keeps them so a setmetatile wall still draws at the cave's height.
+function Game3.elevationBits(cell)
+  return math.floor((cell or 0) / 4096) * 4096
+end
+
+function Game3.elevationOf(cell)
+  return math.floor((cell or 0) / 4096) % 16
+end
+
+-- event_object_movement.c sObjectEventPriorities_08376060. Field BG1 is
+-- OAM-pri 1; lower sprite pri draws in front (elevation 4 = cycling road).
+Game3.Z_OAM_PRIORITY = {
+  [0] = 2, 2, 2, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 0, 0, 2,
+}
+
+function Game3.oamPriorityForZ(z)
+  z = math.floor(tonumber(z) or 0)
+  if z < 0 then z = 0 elseif z > 15 then z = 15 end
+  return Game3.Z_OAM_PRIORITY[z] or 2
+end
+
+function Game3.spriteDrawsOverOverlay(z)
+  return Game3.oamPriorityForZ(z) < 2
+end
+
+-- event_object_movement.c ObjectEventUpdateZCoord. 0xF on either tile
+-- skips; map Z 0 does not overwrite previousElevation (draw Z).
+function Game3:updateActorZCoord(actor, map, x, y, prevX, prevY)
+  map = map or self.map
+  if not (actor and map and map.grid) then return end
+  local i = self:gridIndex(map, x, y)
+  if not i then return end
+  local pi = self:gridIndex(map, prevX or x, prevY or y) or i
+  local z = Game3.elevationOf(map.grid[i])
+  local z2 = Game3.elevationOf(map.grid[pi])
+  if z == 15 or z2 == 15 then return end
+  actor.currentElevation = z
+  if z ~= 0 then
+    actor.previousElevation = z
+  end
+end
+
+function Game3:updatePlayerZCoord()
+  self:updateActorZCoord(self, self.map, self.playerX, self.playerY,
+    self.walkFromX, self.walkFromY)
+end
+
+function Game3:updateNpcZCoord(npc, map)
+  if not npc then return end
+  self:updateActorZCoord(npc, map or self.map, npc.x, npc.y,
+    npc.fromX, npc.fromY)
+  if npc.currentElevation ~= nil then
+    npc.elevation = npc.currentElevation
+  end
+end
+
+function Game3:actorDrawElevation(a)
+  if not a or a.kind == "player" then
+    if self.previousElevation ~= nil then return self.previousElevation end
+    return self.currentElevation or 0
+  end
+  local o = a.obj
+  if not o then return 0 end
+  if o.previousElevation ~= nil then return o.previousElevation end
+  return o.elevation or 0
+end
+
+-- event_object_movement.c IsZCoordMismatchAt. 0 / 0xF on the map means
+-- "any height"; object elevation 0 skips the check.
+function Game3.zMismatch(z, mapZ)
+  z = z or 0
+  mapZ = mapZ or 0
+  if z == 0 then return false end
+  if mapZ == 0 or mapZ == 15 then return false end
+  return mapZ ~= z
+end
+
 function Game3.walkable(map, x, y)
   if type(map) ~= "table" or type(map.grid) ~= "table" then return false end
+  x = math.floor(tonumber(x) or 0)
+  y = math.floor(tonumber(y) or 0)
   local w, h = map.width or 0, map.height or 0
   if x < 0 or y < 0 or x >= w or y >= h then return false end
-  return Game3.collisionOf(map.grid[y * w + x + 1]) == 0
+  local cell = map.grid[y * w + x + 1]
+  if cell == nil then return false end
+  return Game3.collisionOf(cell) == 0
 end
 
 function Game3.warpAt(map, x, y)
@@ -1822,6 +3673,21 @@ function Game3.bgFacingOk(kind, facing)
   return need == facing
 end
 
+-- Petalburg gym sliding doors sit on warp events and collision, but
+-- field_control_avatar.c only bump-warps MB_ANIMATED_DOOR. The lock /
+-- "go through?" scripts are bg signs: A-press, never walk-in.
+function Game3.signBgAt(map, x, y)
+  local ev = Game3.bgAt(map, x, y)
+  if not ev then return nil end
+  local kind = ev.kind or 0
+  if kind == Game3.BG_HIDDEN_ITEM or kind == 5 or kind == 6
+      or kind == Game3.BG_SECRET_BASE then
+    return nil
+  end
+  if kind > 4 then return nil end
+  return ev
+end
+
 function Game3.new()
   local self = setmetatable({
     speedOverride = nil,
@@ -1846,9 +3712,11 @@ function Game3.new()
     spriteCache = {},
     npcByMap = {},
     tileBatches = {},
+    tileWindows = {},
+    borderFillCache = nil,
     gbaCanvas = nil,
     quads = {},
-    balls = Game3.START_BALLS,
+    balls = 0,
     bag = {},
     money = Game3.START_MONEY,
     party = {},
@@ -1860,7 +3728,11 @@ function Game3.new()
     saveExists = false,
     playSeconds = 0,
     customName = nil,
-    options = { textSpeed = 2, battleScene = true, battleStyle = "shift", stereo = false },
+    options = { textSpeed = 2, battleScene = true, battleStyle = "shift",
+      stereo = false, windowFrame = 0, zoom = 0, tilt = 0,
+      speedOverworld = 1, speedBattle = 1, speedMenu = 1 },
+    viewW = Game3.SCREEN_W,
+    viewH = Game3.SCREEN_H,
   }, Game3)
   self:applyGender(Game3.GENDER_MALE)
   self:ensureTrainerId()
@@ -1981,20 +3853,27 @@ end
 
 function Game3:setHealLocation(id)
   id = tonumber(id) or 0
-  local room
-  if id == Game3.HEAL_LITTLEROOT_BRENDAN_2F then
-    room = self:bedroomMap(true)
-  elseif id == Game3.HEAL_LITTLEROOT_MAY_2F then
-    room = self:bedroomMap(false)
+  local loc = Game3.HEAL_LOCATIONS[id]
+  if not loc then return false end
+  local dest = self:lookupMap(loc.group, loc.num)
+  if not dest then
+    if id == Game3.HEAL_LITTLEROOT_BRENDAN_2F then
+      dest = self:bedroomMap(true)
+    elseif id == Game3.HEAL_LITTLEROOT_MAY_2F then
+      dest = self:bedroomMap(false)
+    end
   end
-  if not room then return false end
-  local x, y = Game3.HEAL_BEDROOM_X, Game3.HEAL_BEDROOM_Y
-  if not Game3.walkable(room, x, y) then
-    local spawn = room.spawn or {}
-    x, y = spawn.x or x, spawn.y or y
+  if not dest then return false end
+  local x, y = loc.x, loc.y
+  if id == Game3.HEAL_LITTLEROOT_BRENDAN_2F
+      or id == Game3.HEAL_LITTLEROOT_MAY_2F then
+    if not Game3.walkable(dest, x, y) then
+      local spawn = dest.spawn or {}
+      x, y = spawn.x or x, spawn.y or y
+    end
   end
   self.lastHeal = {
-    mapId = room.id,
+    mapId = dest.id,
     x = x,
     y = y,
   }
@@ -2004,6 +3883,54 @@ end
 function Game3:setBedroomHeal()
   return self:setHealLocation(self:isFemale()
     and Game3.HEAL_LITTLEROOT_MAY_2F or Game3.HEAL_LITTLEROOT_BRENDAN_2F)
+end
+
+function Game3:lastHealIsBedroom()
+  local heal = self.lastHeal
+  if not (heal and heal.mapId) then return false end
+  local id = heal.mapId
+  if id == "g1_1" or id == "g1_3" then return true end
+  local m = self:lookupMapById(id)
+  return m ~= nil and Game3.isBedroomMap(m)
+end
+
+function Game3:isLittlerootCatchment(map)
+  map = map or self.map
+  if not map then return false end
+  if Game3.isBedroomMap(map) then return true end
+  local g, n = tonumber(map.group), tonumber(map.index)
+  if g == nil then
+    local gs, ns = tostring(map.id or ""):match("^g(%d+)_(%d+)$")
+    g, n = tonumber(gs), tonumber(ns)
+  end
+  if g == Game3.MAP_LITTLEROOT_INDOOR_GROUP then return true end
+  return g == 0 and n == 9
+end
+
+function Game3:furthestVisitedHealId()
+  local flags = self.flags
+  if type(flags) ~= "table" then return nil end
+  local rows = Game3.HEAL_FROM_VISITS
+  local id
+  local i = 1
+  while i <= #rows do
+    local row = rows[i]
+    if flags[row.flag] then id = row.id end
+    i = i + 1
+  end
+  return id
+end
+
+-- Bedroom lastHeal after a Center town was visited is the truck id-1/2
+-- bug, not a real setrespawn. Hall of Fame really does write the bedroom.
+function Game3:repairStaleBedroomHeal()
+  if self.flags and self.flags[Game3.FLAG_SYS_GAME_CLEAR] then
+    return false
+  end
+  if not self:lastHealIsBedroom() then return false end
+  local id = self:furthestVisitedHealId()
+  if not id then return false end
+  return self:setHealLocation(id)
 end
 
 function Game3:setDynamicWarp(group, num, warpId, x, y)
@@ -2017,8 +3944,1918 @@ function Game3:setDynamicWarp(group, num, warpId, x, y)
   return true
 end
 
+-- field_control_avatar.c sub_8068C30: if the landing warp's dest is
+-- MAP_DYNAMIC, saved_warp2_set the current map / source warp index /
+-- player xy so stepping off an elevator can return. warpId 0 is a real
+-- dest (Lilycove 1F → elevator warp 0); skip only NONE / DYNAMIC.
+function Game3:maybeSetDynamicWarpFromDest(dest, destWarpId, srcWarp)
+  destWarpId = tonumber(destWarpId) or 0
+  if destWarpId == Game3.WARP_ID_NONE
+      or destWarpId == Game3.WARP_ID_DYNAMIC then
+    return
+  end
+  local landing = type(dest) == "table" and dest.warps
+      and dest.warps[destWarpId + 1]
+  if not landing then return end
+  if (landing.mapGroup or 0) ~= Game3.MAP_DYNAMIC_GROUP then return end
+  if (landing.mapNum or 0) ~= Game3.MAP_DYNAMIC_NUM then return end
+  local m = self.map
+  if type(m) ~= "table" then return end
+  local srcId = 0
+  if srcWarp and m.warps then
+    for i = 1, #m.warps do
+      if m.warps[i] == srcWarp then
+        srcId = i - 1
+        break
+      end
+    end
+  end
+  local group, num = tonumber(m.group), tonumber(m.index)
+  if group == nil or num == nil then
+    local gs, ns = tostring(m.id or ""):match("^g(%d+)_(%d+)$")
+    group, num = tonumber(gs) or 0, tonumber(ns) or 0
+  end
+  self:setDynamicWarp(group, num, srcId, self.playerX, self.playerY)
+end
+
+-- event_data.c ClearTempFieldEventData: first 4 flag bytes (0x0–0x1F)
+-- and first 0x20 var bytes (VAR_TEMP_0..F). FLAG_TEMP_20 (Victory Road
+-- rock) is not temp. Indoor re-entry must drop FLAG_TEMP_2 or the
+-- Lilycove elevator skips SetFloor. Sootopolis ice bits live in
+-- VAR_TEMP_1..A and reset on warp the same way. Also FlagClear the
+-- White/Black Flute rate flags, Strength, and CTRL_OBJ_DELETE.
+function Game3:clearTempFlags()
+  local flags = self.flags
+  if type(flags) == "table" then
+    for i = 0, Game3.FLAG_TEMP_1F do
+      flags[i] = nil
+    end
+    flags[Game3.FLAG_SYS_ENC_UP_ITEM] = nil
+    flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = nil
+    flags[Game3.FLAG_SYS_USE_STRENGTH] = nil
+    flags[Game3.FLAG_SYS_CTRL_OBJ_DELETE] = nil
+  end
+  local vars = self.scriptVars
+  if type(vars) == "table" then
+    for i = 0, 15 do
+      vars[Game3.VARS_START + i] = nil
+    end
+  end
+end
+
+-- field_specials.c SetDepartmentStoreFloorVar: dynamicWarp.mapNum only.
+-- 1F is 0 (Lua 0 is a valid floor). Rooftop is 15, not 5.
+function Game3:setDepartmentStoreFloorVar()
+  local d = self.dynamicWarp
+  local num = d and tonumber(d.mapNum) or 0
+  local floor = Game3.DEPT_STORE_FLOOR[num]
+  if floor == nil then floor = 0 end
+  self:setScriptVar(Game3.VAR_DEPT_STORE_FLOOR, floor)
+end
+
+function Game3:displayCurrentElevatorFloor()
+  local floor = self:varGet(0x8005)
+  local name = Game3.ELEVATOR_FLOOR_NAMES[floor]
+  if not name then name = "1F" end
+  if self.sayScript then
+    self:sayScript("Now on: " .. name)
+  end
+end
+
+-- ShakeScreenInElevator CreateTask then ScriptContext_Enable after 23
+-- pans. Scripts follow with waitstate.
+function Game3:shakeScreenInElevator()
+  self:startCameraShake(0, 1, Game3.ELEVATOR_SHAKE_PERIOD,
+    Game3.ELEVATOR_SHAKE_HITS, Game3.SE_ELEVATOR, Game3.SE_DING_DONG)
+end
+
+-- WaitWeather / sub_80818A4 / sub_80818FC / sub_8081924 / ShakeCamera.
+-- Each CreateTask then ScriptContext_Enable on the next vblank or when
+-- the effect finishes. Scripts follow with waitstate.
+function Game3:waitWeather()
+  self.waitWeatherLeft = Game3.WAIT_WEATHER_FRAMES
+  self:beginScriptWait()
+end
+
+function Game3:orbOpenFrames()
+  return Game3.ORB_OPEN_SETUP_FRAMES
+    + Game3.flashAnimFrames(Game3.ORB_OPEN_FROM_R, Game3.ORB_OPEN_DEST_R,
+      Game3.ORB_OPEN_DELTA)
+end
+
+function Game3:orbCutscene()
+  local result = self:varGet(Gen3Script.VAR_RESULT)
+  local pal, cx = 0, 104
+  if result == 1 then
+    pal, cx = 1, 104
+  elseif result == 2 then
+    pal, cx = 0, 120
+  elseif result ~= 0 then
+    pal, cx = 1, 120
+  end
+  self.orb = {
+    stage = "open",
+    pal = pal,
+    cx = cx,
+    cy = 80,
+    r = Game3.ORB_OPEN_FROM_R,
+    dest = Game3.ORB_OPEN_DEST_R,
+    delta = Game3.ORB_OPEN_DELTA,
+    phase = 0,
+    left = self:orbOpenFrames(),
+  }
+  self:beginScriptWait()
+end
+
+function Game3:advanceOrbCutscene()
+  local o = self.orb
+  if not o then return end
+  o.stage = "close"
+  o.left = Game3.ORB_CLOSE_FRAMES
+  o.r = Game3.ORB_OPEN_DEST_R
+  self:beginScriptWait()
+end
+
+function Game3:startCameraShake(x, y, period, hits, se, dingSe)
+  period = period or Game3.CAMERA_SHAKE_PERIOD
+  hits = hits or Game3.CAMERA_SHAKE_HITS
+  self.shake = {
+    x = x or 0, y = y or 0, t = 0, hits = 0, sign = 1,
+    period = period, maxHits = hits,
+    left = period * hits,
+    dingSe = dingSe,
+  }
+  self.cameraPanX, self.cameraPanY = 0, 0
+  if se then self:playSe(se) end
+  self:beginScriptWait()
+end
+
+function Game3:shakeCamera()
+  self:startCameraShake(self:varGet(0x8004), self:varGet(0x8005),
+    Game3.CAMERA_SHAKE_PERIOD, Game3.CAMERA_SHAKE_HITS, Game3.SE_M_STRENGTH)
+end
+
+function Game3:fadeOutMapMusicWait()
+  local playing = Mp2kAudio.isPlaying()
+  local frames = playing and Game3.OVERWORLD_FADE_MUSIC_FRAMES
+    or Game3.WAIT_WEATHER_FRAMES
+  if playing then self:fadeOutMapMusic(Game3.OVERWORLD_FADE_MUSIC_FRAMES) end
+  self.fadeMusicLeft = frames
+  self:beginScriptWait()
+end
+
+-- trainer_see.c EndTrainerApproach: replace the approach task, next
+-- vblank DestroyTask + ScriptContext_Enable. Scripts follow with waitstate.
+function Game3:endTrainerApproach()
+  self.endApproachLeft = Game3.END_APPROACH_FRAMES
+  self:beginScriptWait()
+end
+
+-- scrcmd.c gFieldEffectArguments[argNum] = (s16)VarGet(value).
+function Game3:setFieldEffectArgument(index, value)
+  self.fieldEffectArgs = self.fieldEffectArgs or {}
+  self.fieldEffectArgs[tonumber(index) or 0] = tonumber(value) or 0
+end
+
+function Game3:fieldEffectArg(index)
+  local args = self.fieldEffectArgs
+  if not args then return 0 end
+  return args[tonumber(index) or 0] or 0
+end
+
+-- PokeballGlowEffect_0 is 25 frames between balls (first is immediate),
+-- then 184 frames of stages 1-6.
+function Game3:hofRecordFrames()
+  local n = #(self.party or {})
+  if n < 1 then n = 1 end
+  return Game3.HOF_RECORD_BALL_GAP * (n - 1) + 1 + Game3.HOF_RECORD_GLOW_FRAMES
+end
+
+function Game3.pokeballGlowPose(elapsed, n, ox, oy)
+  elapsed = math.floor(tonumber(elapsed) or 0)
+  n = tonumber(n) or 1
+  if n < 1 then n = 1 elseif n > 6 then n = 6 end
+  ox = ox or Game3.HOF_BALL_X
+  oy = oy or Game3.HOF_BALL_Y
+  local spawned = 0
+  if elapsed >= 0 then
+    spawned = math.floor(elapsed / Game3.HOF_RECORD_BALL_GAP) + 1
+    if spawned > n then spawned = n end
+  end
+  local lastT = Game3.HOF_RECORD_BALL_GAP * (n - 1)
+  local glowT = elapsed - lastT
+  local balls = {}
+  if glowT < Game3.HOF_BALL_LIVE then
+    for i = 1, spawned do
+      local d = Game3.POKEBALL_GLOW_DELTA[i]
+      balls[i] = { ox + d[1], oy + d[2] }
+    end
+  end
+  local monitorT = glowT - Game3.HOF_STAGE1_FRAMES
+  local inMonitor = monitorT >= 0 and monitorT <= Game3.HOF_MONITOR_LIFE
+  local blink = inMonitor
+    and (math.floor(monitorT / Game3.HOF_MONITOR_BLINK) % 2 == 0)
+  local pcFrame = 0
+  if inMonitor then
+    pcFrame = math.floor(monitorT / Game3.HOF_MONITOR_BLINK) % 2
+  end
+  local phase, stagger = Game3.glowPulsePhase(glowT)
+  local pulse = 0
+  if phase ~= nil then pulse = Game3.glowPulseFactor(phase) end
+  return {
+    balls = balls,
+    spawned = spawned,
+    monitors = blink,
+    pcMonitor = inMonitor,
+    pcFrame = pcFrame,
+    glowT = glowT,
+    pulse = pulse,
+    pulsePhase = phase,
+    pulseStagger = stagger and true or false,
+  }
+end
+
+function Game3:pokecenterHealFrames()
+  local n = #(self.party or {})
+  if n < 1 then n = 1 end
+  return Game3.FLDEFF_POKECENTER_BALL_GAP * (n - 1) + 1
+    + Game3.FLDEFF_POKECENTER_GLOW
+end
+
+function Game3:fieldEffectDuration(id)
+  id = tonumber(id) or 0
+  if id == Game3.FLDEFF_SPARKLE then return Game3.FLDEFF_SPARKLE_FRAMES end
+  if id == Game3.FLDEFF_NPCFLY_OUT then return Game3.FLDEFF_NPCFLY_FRAMES end
+  if id == Game3.FLDEFF_HALL_OF_FAME_RECORD then
+    return self:hofRecordFrames()
+  end
+  if id == Game3.FLDEFF_SECRET_BASE_PC_TURN_ON then
+    return Game3.FLDEFF_SECRET_BASE_PC_FRAMES
+  end
+  if id == Game3.FLDEFF_POKECENTER_HEAL then
+    return self:pokecenterHealFrames()
+  end
+  return Game3.FLDEFF_DEFAULT_FRAMES
+end
+
+function Game3:fieldEffectActive(id)
+  id = tonumber(id) or 0
+  local list = self.fieldEffects
+  if not list then return false end
+  for i = 1, #list do
+    if list[i].id == id then return true end
+  end
+  return false
+end
+
+-- FieldEffectStart. Does not wait (ScrCmd_dofieldeffect returns FALSE).
+function Game3:doFieldEffect(id)
+  id = tonumber(id) or 0
+  local left = self:fieldEffectDuration(id)
+  local fx = {
+    id = id,
+    left = left,
+    dur = left,
+    x = self:fieldEffectArg(0),
+    y = self:fieldEffectArg(1),
+  }
+  self.fieldEffects = self.fieldEffects or {}
+  self.fieldEffects[#self.fieldEffects + 1] = fx
+  if id == Game3.FLDEFF_NPCFLY_OUT then
+    self:playSe(Game3.SE_M_FLY)
+  end
+  if id == Game3.FLDEFF_SECRET_BASE_PC_TURN_ON then
+    local gx, gy = self:mapGridInFront()
+    fx.gx, fx.gy, fx.t = gx, gy, 0
+    self:beginScriptWait()
+  end
+  if id == Game3.FLDEFF_POKECENTER_HEAL then
+    self:playFanfare(Game3.MUS_HEAL)
+  end
+  -- rom6.c FldEff_RockSmash: oei_task_add, then SE + Enable. Cut/Strength
+  -- use the same waitstate. releaseWait lets stepFieldEffects Enable.
+  if Game3.fieldEffectFollowedByWaitstate(id) then
+    if id == Game3.FLDEFF_USE_ROCK_SMASH then
+      self:incrementGameStat(Game3.GAME_STAT_USED_ROCK_SMASH)
+      self:playSe(Game3.SE_M_ROCK_THROW)
+    end
+    fx.releaseWait = true
+    self:beginScriptWait()
+  end
+end
+
+-- field_move_scripts.inc: dofieldeffect then waitstate (not waitfieldeffect).
+function Game3.fieldEffectFollowedByWaitstate(id)
+  id = tonumber(id) or 0
+  return id == Game3.FLDEFF_USE_ROCK_SMASH
+    or id == Game3.FLDEFF_USE_CUT_ON_TREE
+    or id == Game3.FLDEFF_USE_STRENGTH
+end
+
+-- SetupNativeScript until !FieldEffectActiveListContains. A missing
+-- effect is already inactive, so the script continues (no hang).
+function Game3:waitFieldEffect(id)
+  id = tonumber(id) or 0
+  if self:fieldEffectActive(id) then
+    self._waitFieldEffect = id
+    self:beginScriptWait()
+  end
+end
+
+function Game3:tickSecretBasePcOn(fx, frames)
+  if not fx then return end
+  local n = 1
+  while n <= frames do
+    local t = fx.t or 0
+    if t == 4 or t == 12 or t == 20 then
+      self:mapGridSetMetatileId(fx.gx, fx.gy,
+        Game3.MT_SECRET_BASE_PC_ON + Game3.MAPGRID_COLLISION_MASK)
+    elseif t == 8 or t == 16 then
+      self:mapGridSetMetatileId(fx.gx, fx.gy,
+        Game3.MT_SECRET_BASE_PC_OFF + Game3.MAPGRID_COLLISION_MASK)
+    end
+    fx.t = t + 1
+    n = n + 1
+  end
+end
+
+function Game3:stepFieldEffects(frames)
+  local list = self.fieldEffects
+  local pcDone = false
+  local releasedWait = false
+  if list then
+    local i = 1
+    while i <= #list do
+      if list[i].id == Game3.FLDEFF_SECRET_BASE_PC_TURN_ON then
+        self:tickSecretBasePcOn(list[i], frames)
+      end
+      list[i].left = (list[i].left or 0) - frames
+      if list[i].left <= 0 then
+        if list[i].id == Game3.FLDEFF_SECRET_BASE_PC_TURN_ON then
+          pcDone = true
+        end
+        if list[i].releaseWait then releasedWait = true end
+        table.remove(list, i)
+      else
+        i = i + 1
+      end
+    end
+    if #list < 1 then self.fieldEffects = nil end
+  end
+  local waitId = self._waitFieldEffect
+  if waitId ~= nil and not self:fieldEffectActive(waitId) then
+    self._waitFieldEffect = nil
+    self:endCinemaWait()
+  end
+  if pcDone then self:endCinemaWait() end
+  if releasedWait then self:endCinemaWait() end
+end
+
+function Game3:cinemaHolding()
+  if self.waitWeatherLeft then return true end
+  if self.fadeMusicLeft then return true end
+  if self.shake then return true end
+  if self.endApproachLeft then return true end
+  if self.wateringLeft then return true end
+  if self.route128Fade then return true end
+  if self._waitFieldEffect ~= nil then return true end
+  if self.brailleWait then return true end
+  if self.cableClubWarpLeft then return true end
+  if self.waitButton then return true end
+  if self:fieldEffectActive(Game3.FLDEFF_SECRET_BASE_PC_TURN_ON) then
+    return true
+  end
+  if self.field and self.field.kind == "porthole" then return true end
+  local o = self.orb
+  return o ~= nil and (o.stage == "open" or o.stage == "close")
+end
+
+function Game3:endCinemaWait()
+  if not self:cinemaHolding() then self:endScriptWait() end
+end
+
+function Game3:stepCinemaWaits(dt)
+  local frames = math.floor((dt or 0) * 60 + 0.0001)
+  if frames < 1 then return end
+  self:stepFieldEffects(frames)
+  self:stepLotteryLaptop(frames)
+  self:stepBrailleWait(frames)
+  self:stepPcBlink(frames)
+  if self.waitButton then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self.waitButton = nil
+      self._waitButtonDone = true
+      self:endCinemaWait()
+    end
+  end
+  if self.cableClubWarpLeft then
+    self.cableClubWarpLeft = self.cableClubWarpLeft - frames
+    if self.cableClubWarpLeft <= 0 then
+      self.cableClubWarpLeft = nil
+      self:warpToWarpDestination()
+      self:endCinemaWait()
+    end
+  end
+  if self.endApproachLeft then
+    self.endApproachLeft = self.endApproachLeft - frames
+    if self.endApproachLeft <= 0 then
+      self.endApproachLeft = nil
+      self:endCinemaWait()
+    end
+  end
+  if self.waitWeatherLeft then
+    self.waitWeatherLeft = self.waitWeatherLeft - frames
+    if self.waitWeatherLeft <= 0 then
+      self.waitWeatherLeft = nil
+      self:endCinemaWait()
+    end
+  end
+  if self.fadeMusicLeft then
+    self.fadeMusicLeft = self.fadeMusicLeft - frames
+    if self.fadeMusicLeft <= 0 or not Mp2kAudio.isPlaying() then
+      self.fadeMusicLeft = nil
+      self:endCinemaWait()
+    end
+  end
+  local shake = self.shake
+  if shake then
+    shake.t = (shake.t or 0) + frames
+    local period = shake.period or Game3.CAMERA_SHAKE_PERIOD
+    local maxHits = shake.maxHits or Game3.CAMERA_SHAKE_HITS
+    while (shake.t or 0) >= period and (shake.hits or 0) < maxHits do
+      shake.t = shake.t - period
+      shake.hits = (shake.hits or 0) + 1
+      shake.sign = -(shake.sign or 1)
+      self.cameraPanX = (shake.x or 0) * shake.sign
+      self.cameraPanY = (shake.y or 0) * shake.sign
+    end
+    shake.left = (shake.left or 0) - frames
+    if (shake.hits or 0) >= maxHits or shake.left <= 0 then
+      if shake.dingSe then self:playSe(shake.dingSe) end
+      self.cameraPanX, self.cameraPanY = 0, 0
+      self.shake = nil
+      self:endCinemaWait()
+    end
+  end
+  if self.wateringLeft then
+    self.wateringLeft = self.wateringLeft - frames
+    local step = Game3.WATERING_STEP_FRAMES
+    self.walkCooldown = ((self.wateringLeft % step) + 1) / 60
+    if self.wateringLeft <= 0 then
+      self.wateringLeft = nil
+      self.walkCooldown = 0
+      self:endCinemaWait()
+    end
+  end
+  local fade = self.route128Fade
+  if fade then
+    fade.t = (fade.t or 0) + frames
+    fade.left = (fade.left or 0) - frames
+    if fade.left <= 0 then
+      self.route128Fade = nil
+      self:endCinemaWait()
+    end
+  end
+  local o = self.orb
+  if o and o.stage == "open" then
+    local n = frames
+    while n > 0 do
+      if (o.phase or 0) == 0 then
+        o.phase = 1
+      else
+        o.phase = 0
+        o.r = (o.r or 0) + (o.delta or Game3.ORB_OPEN_DELTA)
+        if o.r > (o.dest or Game3.ORB_OPEN_DEST_R) then
+          o.r = o.dest or Game3.ORB_OPEN_DEST_R
+          o.stage = "hold"
+          o.left = nil
+          self:endCinemaWait()
+          break
+        end
+      end
+      n = n - 1
+    end
+  elseif o and o.stage == "close" then
+    o.left = (o.left or 0) - frames
+    if o.left <= 0 then
+      self.orb = nil
+      self:endCinemaWait()
+    end
+  end
+end
+
+-- ------------------------------------------------------------------
+-- Music (MP2K). Mp2kAudio owns the source; Game3 only decides what plays.
+
+-- overworld.c GetCurrLocationDefaultMusic: most maps name a song outright,
+-- but 0x7FFF marks the ones whose theme depends on where you are standing
+-- (the Route 111 desert, the underwater routes), and those keep playing
+-- whatever is already going rather than restarting.
+Game3.MUS_NONE = 0
+Game3.MUS_POSITION_DEPENDENT = 0x7FFF
+Game3.MUS_HEAL = 368
+Game3.MUS_OBTAIN_ITEM = 370
+Game3.MUS_EVOLVED = 371
+Game3.MUS_OBTAIN_TMHM = 372
+Game3.MUS_OBTAIN_BERRY = 387
+Game3.MUS_EVOLUTION_INTRO = 376
+Game3.MUS_EVOLUTION = 377
+Game3.SE_USE_ITEM = 1
+Game3.SE_SHOP = 95
+Game3.MAP_MUSIC_FADE_FRAMES = 30
+-- SpriteCB_Egg_0..5 plus the 31-frame pal wait before the wobble.
+Game3.EGG_HATCH_SHAKE_FRAMES = 280
+Game3.EGG_HATCH_X = 0x78
+Game3.EGG_HATCH_Y = 0x4B
+Game3.EGG_HATCH_MON_X = 120
+Game3.EGG_HATCH_MON_Y = 70
+Game3.EGG_HATCH_WAIT = 31
+Game3.EGG_HATCH_SIZE = 32
+Game3.EGG_HATCH_FADE = 16
+Game3.EGG_SHARD_X = 120
+Game3.EGG_SHARD_Y = 60
+Game3.EGG_SHARD_SIZE = 8
+Game3.EGG_SHARD_GRAVITY = 100
+Game3.EGG_SHARD_DIE = 20
+-- sEggShardVelocities Q_8_8 pairs.
+Game3.EGG_SHARD_VEL = {
+  { -384, -960 }, { -1280, -768 }, { 896, -768 }, { -1024, -960 },
+  { 512, -384 }, { -128, -1728 }, { 1280, -576 }, { -384, -960 },
+  { 1152, -384 }, { -256, -1728 }, { 1024, -576 }, { -896, -960 },
+  { 256, -384 }, { -900, -1728 }, { 1152, -576 }, { -128, -1920 },
+  { 256, -1152 }, { -640, -576 }, { 640, -1920 },
+}
+
+-- DoTradeAnim_Cable. Slide is bg2hofs 0xB4 -= 3. Swap is case 72 after A.
+Game3.TRADE_SLIDE = 60
+Game3.TRADE_SEND_MSG = 80
+Game3.TRADE_BYE = 80
+Game3.TRADE_GBA_SEND = 40
+Game3.TRADE_CABLE_OUT = 80
+Game3.TRADE_CROSS = 80
+Game3.TRADE_CABLE_IN = 80
+Game3.TRADE_GBA_RECV = 40
+Game3.TRADE_NEW_MON = 40
+Game3.TRADE_SENT_MSG = 0xF0
+Game3.TRADE_CARE_WAIT = 60
+Game3.TRADE_WAIT_A = 60 + 80 + 80 + 40 + 80 + 80 + 80 + 40 + 40 + 0xF0 + 60
+Game3.TRADE_BG2HOFS = 0xB4
+Game3.TRADE_MON_X = 0x78
+Game3.TRADE_MON_Y = 0x3C
+-- TradeEvolutionScene CreateSprite(pre/post, 120, 64, 30).
+Game3.TRADE_EVO_X = 120
+Game3.TRADE_EVO_Y = 64
+Game3.TRADE_BALL_Y = 0x20
+Game3.TRADE_GLOW_X = 0x80
+Game3.TRADE_CROSS_SENT_X = 0x3C
+Game3.TRADE_CROSS_GOT_X = 0xB4
+Game3.TRADE_BALL_SIZE = 16
+Game3.TRADE_GLOW1_SIZE = 32
+Game3.TRADE_GLOW2_W = 16
+Game3.TRADE_GLOW2_H = 32
+Game3.TRADE_CABLE_END_W = 16
+Game3.TRADE_CABLE_END_H = 32
+Game3.TRADE_GBA_SCREEN_W = 64
+Game3.TRADE_GBA_SCREEN_H = 32
+
+-- The pump has to tick at a steady 60 Hz no matter what the field logic is
+-- doing, so it runs before update's boot-phase early return.
+function Game3:updateMusic(dt)
+  local step = 1 / 60
+  self.audioAccum = math.min((self.audioAccum or 0) + (tonumber(dt) or 0), 0.25)
+  while self.audioAccum >= step do
+    self.audioAccum = self.audioAccum - step
+    -- Sprite animation counts VBlanks on hardware, the same interrupt that
+    -- drives the sound engine, so the two share this pump and cannot drift.
+    self.vblank = ((self.vblank or 0) + 1) % 3600
+    Mp2kAudio.update()
+  end
+end
+
+function Game3:playSong(songId, loop)
+  songId = tonumber(songId)
+  if not songId then return nil end
+  if songId == Game3.MUS_NONE then
+    Mp2kAudio.stop()
+    return nil
+  end
+  if songId == Game3.MUS_POSITION_DEPENDENT then return Mp2kAudio.currentSong() end
+  return Mp2kAudio.playSong(self.data, songId, loop)
+end
+
+function Game3:mapMusic(map)
+  map = map or self.map
+  return tonumber(map and map.music) or Game3.MUS_NONE
+end
+
+-- Restarting the same song on every warp would retrigger the theme when
+-- you step between two maps that share one, so this is a no-op then.
+function Game3:playMapMusic(map)
+  local song = self:mapMusic(map)
+  if song == Game3.MUS_POSITION_DEPENDENT then return end
+  if song ~= Game3.MUS_NONE and Mp2kAudio.currentSong() == song then return end
+  self.savedBgm = nil
+  self:playSong(song, true)
+end
+
+function Game3:fadeOutMapMusic(frames)
+  Mp2kAudio.fadeOut(tonumber(frames) or Game3.MAP_MUSIC_FADE_FRAMES)
+end
+
+-- savebgm remembers a song so a later fadedefaultbgm can put it back.
+function Game3:saveBgm(songId)
+  self.savedBgm = tonumber(songId) or Mp2kAudio.currentSong()
+end
+
+-- Battle themes come from the registry's named ids rather than the map, and
+-- deliberately do not touch savedBgm: the map theme is restored from the
+-- header when the battle ends.
+Game3.BATTLE_SONGS = { wild = "vsWild", trainer = "vsTrainer" }
+
+function Game3:namedSong(name)
+  local audio = self.data and self.data.audio
+  local named = audio and audio.named
+  return named and named[name]
+end
+
+function Game3:playBattleMusic(kind)
+  local song = self:namedSong(Game3.BATTLE_SONGS[kind] or "vsWild")
+  if song then self:playSong(song, true) end
+end
+
+-- Sound effects and fanfares are not a separate sound system in Ruby: they
+-- are ordinary songs in the same table, just played on a different music
+-- player. So playse and playfanfare take a song id exactly like playbgm,
+-- and only differ in which voice they land on and whether they loop.
+function Game3:playSe(songId)
+  songId = tonumber(songId)
+  if not songId or songId == Game3.MUS_NONE then return nil end
+  return Mp2kAudio.playEffect(self.data, songId, "se")
+end
+
+function Game3:sePlaying()
+  return Mp2kAudio.voicePlaying("se")
+end
+
+function Game3:waitSe()
+  if not self:sePlaying() then return end
+  self.waitingSe = true
+  self:beginScriptWait()
+end
+
+function Game3:playFanfare(songId)
+  songId = tonumber(songId)
+  if not songId or songId == Game3.MUS_NONE then return nil end
+  self.fanfareWaitAcc = 0
+  return Mp2kAudio.playEffect(self.data, songId, "fanfare")
+end
+
+function Game3:playObtainFanfare(itemId)
+  local pocket = self:itemPocket(itemId)
+  if pocket == Game3.POCKET_TMHM then
+    return self:playFanfare(Game3.MUS_OBTAIN_TMHM)
+  end
+  if pocket == Game3.POCKET_BERRIES then
+    return self:playFanfare(Game3.MUS_OBTAIN_BERRY)
+  end
+  return self:playFanfare(Game3.MUS_OBTAIN_ITEM)
+end
+
+function Game3:fanfarePlaying()
+  return Mp2kAudio.voicePlaying("fanfare")
+end
+
+function Game3:waitFanfare()
+  if not self:fanfarePlaying() then return end
+  self.waitingFanfare = true
+  self.fanfareWaitAcc = 0
+  self:beginScriptWait()
+end
+
+function Game3:beginScreenFade(mode)
+  mode = tonumber(mode) or Game3.FADE_FROM_BLACK
+  self.screenFade = {
+    mode = mode,
+    t = 0,
+    dur = (self.FADE_FRAMES or 16) / 60,
+    hold = mode == Game3.FADE_TO_BLACK,
+  }
+end
+
+-- pokeruby CB2s (wall clock, berry bag, slots) FadeScreen FROM_BLACK after
+-- the script's FADE_TO_BLACK. A held TO_BLACK veil is drawn over the whole
+-- window, so skipping this leaves a permanent black screen.
+function Game3:fadeInFromBlack()
+  if self.screenFade then
+    self:beginScreenFade(Game3.FADE_FROM_BLACK)
+  end
+end
+
+-- A script's FADE_TO_BLACK holds until a CB2 fades back in. Most object
+-- scripts never do that here (PC, wall clock, TV, item fanfares), so the
+-- overworld stayed black while START / SAVE still drew on top.
+--
+-- Do NOT require !scriptWaiting(): waitstate stays armed for the whole
+-- CB2 (clock, PC, bag), and leftover scriptWait after a broken special
+-- used to pin the veil forever even when the player could open START.
+function Game3:heldFadeShouldLift()
+  local fade = self.screenFade
+  if not fade or fade.mode ~= Game3.FADE_TO_BLACK then return false end
+  if self.phase ~= "play" then return false end
+  -- Still animating the fade-out; keep covering until opaque.
+  if (fade.t or 0) < (fade.dur or 0) then return false end
+  if self:scriptDelaying() then return false end
+  local jobs = self.moveJobs
+  if type(jobs) == "table" and #jobs > 0 then return false end
+  local f = self.field
+  if not f then
+    -- Free roam. A stuck scriptWait with no field used to keep black;
+    -- lift anyway so walking / START are visible.
+    return true
+  end
+  local k = f.kind
+  -- Script transition placeholders: keep black through the warp/CB2 gap.
+  if k == "delay" or k == "wait" or k == "move" then return false end
+  -- Any other field (talk, menu, clock, bag, PC, yes/no, …) is on-screen
+  -- content the player must see.
+  return true
+end
+
+function Game3:releaseHeldFade()
+  if not self:heldFadeShouldLift() then return false end
+  self:fadeInFromBlack()
+  return true
+end
+
+function Game3:softResetToBoot()
+  self:clearTransientOverlay()
+  self.battle = nil
+  self.phase = "boot"
+  self:resetBoot()
+end
+
+function Game3:screenFadeAlpha()
+  local f = self.screenFade
+  if not f then return 0 end
+  local dur = f.dur or 0
+  local u = 1
+  if dur > 0 then u = (f.t or 0) / dur end
+  if u < 0 then u = 0 elseif u > 1 then u = 1 end
+  if f.mode == Game3.FADE_TO_BLACK then return u end
+  return 1 - u
+end
+
+function Game3:stepScreenFade(dt)
+  local f = self.screenFade
+  if not f then return end
+  f.t = (f.t or 0) + (dt or 0)
+  if f.mode == Game3.FADE_FROM_BLACK and f.t >= (f.dur or 0) then
+    self.screenFade = nil
+  end
+end
+
+function Game3:drawScreenFade(w, h)
+  local a = self:screenFadeAlpha()
+  if a <= 0 then return end
+  w = w or Game3.SCREEN_W
+  h = h or Game3.SCREEN_H
+  love.graphics.setColor(0, 0, 0, a)
+  love.graphics.rectangle("fill", 0, 0, w, h)
+  love.graphics.setColor(1, 1, 1, 1)
+end
+
+function Game3:stepFanfareWait(dt)
+  if not self.waitingFanfare then return end
+  self.fanfareWaitAcc = (self.fanfareWaitAcc or 0) + (dt or 0)
+  if not self:fanfarePlaying()
+      or self.fanfareWaitAcc >= Game3.FANFARE_WAIT_MAX then
+    self.waitingFanfare = nil
+    self.fanfareWaitAcc = nil
+    self:endScriptWait()
+  end
+end
+
+-- Survey zoom / tilt live in Zoom.lua / Tilt.lua (same modules Gen 1/2 use).
+-- Launcher options.lua supplies them when a save has not stored a value yet.
+function Game3:applyDisplayOptions(opts)
+  if type(opts) ~= "table" then
+    opts = self.options or {}
+    local ok, SaveData = pcall(require, "src.core.SaveData")
+    if ok and type(SaveData) == "table" and SaveData.loadOptions then
+      local got
+      ok, got = pcall(SaveData.loadOptions)
+      if ok and type(got) == "table" then
+        if opts.zoom == nil then opts.zoom = got.zoom end
+        if opts.tilt == nil then opts.tilt = got.tilt end
+        if opts.speedOverworld == nil then opts.speedOverworld = got.speedOverworld end
+        if opts.speedBattle == nil then opts.speedBattle = got.speedBattle end
+        if opts.speedMenu == nil then opts.speedMenu = got.speedMenu end
+      end
+    end
+  end
+  local Zoom = require("src.render.Zoom")
+  local Tilt = require("src.render.Tilt")
+  if opts.zoom ~= nil then Zoom.applyOptions(opts) end
+  if opts.tilt ~= nil then Tilt.applyOptions(opts) end
+  self.options = self.options or {}
+  self.options.zoom = Zoom.offset
+  self.options.tilt = Tilt.level
+  self.options.speedOverworld = GameSpeed.clamp(self.options.speedOverworld)
+  self.options.speedBattle = GameSpeed.clamp(self.options.speedBattle)
+  self.options.speedMenu = GameSpeed.clamp(self.options.speedMenu)
+  -- Cart OPTION rows do not carry the overlay; pull it from options.lua so a
+  -- CONTINUE cannot drop the layout the launcher editor saved.
+  self:applyTouchOptions()
+end
+
+-- Shared on-screen pad (src/core/TouchControls.lua).  Same module Gen 1/2
+-- use; layouts and haptics live in options.lua, not the cart OPTION screen.
+function Game3:applyTouchOptions(opts)
+  if type(opts) ~= "table" then
+    opts = {}
+    local ok, SaveData = pcall(require, "src.core.SaveData")
+    if ok and type(SaveData) == "table" and SaveData.loadOptions then
+      local got
+      ok, got = pcall(SaveData.loadOptions)
+      if ok and type(got) == "table" then opts = got end
+    end
+  end
+  if Input.applyBindings then Input:applyBindings(opts.bindings) end
+  TouchControls:applyOptions({
+    touchControls = opts.touchControls,
+    haptics = opts.haptics,
+  })
+end
+
+function Game3:persistDisplayOptions()
+  local options = self.options or {}
+  options.zoom = require("src.render.Zoom").offset
+  options.tilt = require("src.render.Tilt").level
+  self.options = options
+  pcall(function()
+    require("src.core.SaveData").saveOptions({
+      zoom = options.zoom, tilt = options.tilt,
+      speedOverworld = options.speedOverworld,
+      speedBattle = options.speedBattle,
+      speedMenu = options.speedMenu,
+    })
+  end)
+end
+
+-- Same descriptors stepOptionMenu and drawOptionMenu share. Cart rows
+-- first, then the port's per-category GAME SPEED (RFC 0007 / Gen 1),
+-- then ZOOM / TILT in the unused BUTTON MODE / FRAME slots.
+Game3.OPTION_VISIBLE = 7
+
+function Game3:optionMenuSpec()
+  local opt = self.options or {}
+  local Zoom = require("src.render.Zoom")
+  local Tilt = require("src.render.Tilt")
+  return {
+    { "TEXT SPEED", ({ "SLOW", "MID", "FAST" })[opt.textSpeed or 2] or "FAST",
+      "textSpeed" },
+    { "BATTLE SCENE", opt.battleScene == false and "OFF" or "ON", "battleScene" },
+    { "BATTLE STYLE", opt.battleStyle == "set" and "SET" or "SHIFT", "battleStyle" },
+    { "SOUND", opt.stereo == false and "MONO" or "STEREO", "sound" },
+    { "OVERWORLD SPEED", GameSpeed.levelLabel(opt.speedOverworld), "speedOverworld" },
+    { "BATTLE SPEED", GameSpeed.levelLabel(opt.speedBattle), "speedBattle" },
+    { "MENU SPEED", GameSpeed.levelLabel(opt.speedMenu), "speedMenu" },
+    { "ZOOM", Zoom.offsetLabel(opt.zoom or Zoom.offset or 0), "zoom" },
+    { "TILT", Tilt.levelLabel(opt.tilt or Tilt.level or 0), "tilt" },
+    { "CANCEL", "", "cancel" },
+  }
+end
+
+-- Gen 1 stack walk: a battle is battle, the overworld (including START /
+-- talk overlays) is overworld, boot/title is menu.
+function Game3:speedCategory()
+  if self.phase == "battle" then return "battle" end
+  if self.phase == "play" then return "overworld" end
+  return "menu"
+end
+
+function Game3:logicSpeed()
+  if self.speedOverride then return GameSpeed.clamp(self.speedOverride) end
+  local key = GameSpeed.optionKey(self:speedCategory())
+  local opts = self.options or {}
+  return GameSpeed.clamp(opts[key] or GameSpeed.DEFAULT)
+end
+
+function Game3:_cycleSpeed(dir)
+  self.options = self.options or {}
+  local key = GameSpeed.optionKey(self:speedCategory())
+  self.options[key] = GameSpeed.cycle(self.options[key], dir)
+  self:persistDisplayOptions()
+end
+
+-- Ruby's OPTION screen has no volume rows, because the ROM has none, so the
+-- levels come from the launcher's shared settings rather than from
+-- self.options like TEXT SPEED and FRAME do.
+function Game3:applyAudioOptions(opts)
+  if type(opts) ~= "table" then
+    local ok, SaveData = pcall(require, "src.core.SaveData")
+    if not (ok and type(SaveData) == "table" and SaveData.loadOptions) then return end
+    local got
+    ok, got = pcall(SaveData.loadOptions)
+    if not (ok and type(got) == "table") then return end
+    opts = got
+  end
+  Mp2kAudio.setVolumeLevel(tonumber(opts.musicVol) or 7)
+  Mp2kAudio.setEffectVolumeLevel(tonumber(opts.sfxVol) or 7)
+end
+
+function Game3:fadeDefaultBgm()
+  local song = self.savedBgm or self:mapMusic()
+  self.savedBgm = nil
+  if song and song ~= Game3.MUS_NONE and Mp2kAudio.currentSong() == song then
+    return
+  end
+  self:playSong(song, true)
+end
+
+-- field_specials.c UpdateTrainerFanClubGameClear. Bit 7 of
+-- VAR_FANCLUB_UNKNOWN_1 is "already ran". First Hall of Fame ORs
+-- 0x80 / 0x100 / 0x400 / 0x2000, unhides the four NPCs, state 1.
+function Game3:updateTrainerFanClubGameClear()
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  if math.floor(v / 0x80) % 2 ~= 0 then return end
+  self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1,
+    v + 0x80 + 0x100 + 0x400 + 0x2000)
+  self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_2,
+    math.floor((self.playSeconds or 0) / 3600))
+  self:setScriptVar(Game3.VAR_LILYCOVE_FAN_CLUB_STATE, 1)
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_HIDE_FANCLUB_OLD_LADY] = nil
+  self.flags[Game3.FLAG_HIDE_FANCLUB_BOY] = nil
+  self.flags[Game3.FLAG_HIDE_FANCLUB_LITTLE_BOY] = nil
+  self.flags[Game3.FLAG_HIDE_FANCLUB_LADY] = nil
+end
+
+function Game3.xorInt(a, b)
+  a = math.floor(tonumber(a) or 0)
+  b = math.floor(tonumber(b) or 0)
+  local n, p = 0, 1
+  while a > 0 or b > 0 do
+    if (a % 2) ~= (b % 2) then n = n + p end
+    a = math.floor(a / 2)
+    b = math.floor(b / 2)
+    p = p * 2
+  end
+  return n
+end
+
+function Game3:playTimeHours()
+  return math.floor((self.playSeconds or 0) / 3600)
+end
+
+function Game3:shouldMoveLilycoveFanClubMember()
+  local bitn = self:varGet(0x8004)
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  local n = math.floor(v / (2 ^ bitn)) % 2
+  return n
+end
+
+function Game3:getNumMovedLilycoveFanClubMembers()
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  local n = 0
+  for i = 8, 15 do
+    if math.floor(v / (2 ^ i)) % 2 ~= 0 then n = n + 1 end
+  end
+  return n
+end
+
+function Game3:bufferStreakTrainerText()
+  local which = self:varGet(0x8004)
+  local a, b = 0, 0
+  if which == 10 then a, b = 0, 3
+  elseif which == 11 then a, b = 0, 1
+  elseif which == 12 then a, b = 1, 0
+  elseif which == 13 then a, b = 0, 4
+  elseif which == 14 then a, b = 1, 5
+  end
+  local name = Game3.FAN_STREAK_NAMES[b] or Game3.FAN_STREAK_NAMES[0]
+  self:setStringVar(1, name)
+  return a
+end
+
+function Game3:sub810FF48()
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v + (math.floor(v / 0x80) % 2 == 0 and 0x80 or 0))
+end
+
+function Game3:unmoveLilycoveFanClubMember()
+  if self:getNumMovedLilycoveFanClubMembers() == 1 then return 0 end
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  local bits = Game3.FANCLUB_UNMOVE_BITS
+  local retval = 0
+  for i = 1, 8 do
+    local bitn = bits[i]
+    if math.floor(v / (2 ^ bitn)) % 2 ~= 0 then
+      retval = i - 1
+      if (self:gbaRandom() % 2) ~= 0 then
+        self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v - (2 ^ bitn))
+        return retval
+      end
+    end
+  end
+  local bitn = bits[retval + 1]
+  if math.floor(v / (2 ^ bitn)) % 2 ~= 0 then
+    self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v - (2 ^ bitn))
+  end
+  return retval
+end
+
+function Game3:moveLilycoveFanClubMember()
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  local bits = Game3.FANCLUB_MOVE_BITS
+  local retval = 0
+  for i = 1, 8 do
+    local bitn = bits[i]
+    if math.floor(v / (2 ^ bitn)) % 2 == 0 then
+      retval = i - 1
+      if (self:gbaRandom() % 2) ~= 0 then
+        self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v + (2 ^ bitn))
+        return retval
+      end
+    end
+  end
+  local bitn = bits[retval + 1]
+  if math.floor(v / (2 ^ bitn)) % 2 == 0 then
+    self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v + (2 ^ bitn))
+  end
+  return retval
+end
+
+function Game3:updateMovedLilycoveFanClubMembers()
+  local hours = self:playTimeHours()
+  if hours >= 999 then return end
+  local i = 0
+  while true do
+    if self:getNumMovedLilycoveFanClubMembers() < 5 then
+      self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_2, hours)
+      return
+    end
+    if i == 8 then return end
+    local last = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_2)
+    if hours - last < 12 then return end
+    self:unmoveLilycoveFanClubMember()
+    self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_2, last + 12)
+    i = i + 1
+  end
+end
+
+function Game3:sub810FA74()
+  if math.floor(self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1) / 0x80) % 2 == 0 then
+    return
+  end
+  self:updateMovedLilycoveFanClubMembers()
+  self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_2, self:playTimeHours())
+end
+
+-- field_specials.c sub_810FB10 / sub_810FF60. 0x8004 0-3 add 2/1/2/1.
+function Game3:fanClubScoreSpecial()
+  local a0 = self:varGet(0x8004)
+  local add = Game3.FANCLUB_SCORE_ADD[(a0 % 4) + 1] or 2
+  local v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+  if self:varGet(Game3.VAR_LILYCOVE_FAN_CLUB_STATE) == 2 then
+    local low = v % 0x80
+    if low + add >= 20 then
+      if self:getNumMovedLilycoveFanClubMembers() < 3 then
+        self:moveLilycoveFanClubMember()
+        v = self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1)
+        v = v - (v % 0x80)
+        self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v)
+      else
+        v = (v - (v % 0x80)) + 20
+        self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v)
+      end
+    else
+      self:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, v + add)
+    end
+  end
+  return self:varGet(Game3.VAR_FANCLUB_UNKNOWN_1) % 0x80
+end
+
+function Game3:isEnigmaBerryValid()
+  return 0
+end
+
+function Game3:getNameOfEnigmaBerryInParty()
+  local party = self.party or {}
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and not mon.isEgg
+        and (tonumber(mon.item) or 0) == Game3.ITEM_ENIGMA_BERRY then
+      self:setStringVar(1, Game3.BERRY_NAMES[#Game3.BERRY_NAMES] or "ENIGMA")
+      return 1
+    end
+  end
+  return 0
+end
+
+function Game3:showDiploma()
+  self:beginScriptWait()
+  self.field = { kind = "diploma", scripted = true }
+end
+
+function Game3:closeDiploma()
+  self.field = nil
+  self:endScriptWait()
+end
+
+function Game3.isMailItem(id)
+  id = tonumber(id) or 0
+  return id >= Game3.ITEM_ORANGE_MAIL and id <= Game3.ITEM_RETRO_MAIL
+end
+
+function Game3:wateringBerryTreeAnim()
+  self.wateringLeft = Game3.WATERING_FRAMES
+  self:beginScriptWait()
+end
+
+function Game3:spawnCameraDummy()
+  self:removeCameraDummy()
+  local x = self.playerX or 0
+  local y = self.playerY or 0
+  local dummy = {
+    x = x, y = y,
+    fromX = x, fromY = y,
+    homeX = x, homeY = y,
+    facing = "south",
+    graphicsId = 7,
+    movementType = 8,
+    localId = Game3.LOCALID_CAMERA,
+    cooldown = 0,
+    wait = 0,
+    placeT = 0,
+    invisible = true,
+  }
+  self.cameraDummy = dummy
+  local map = self.map
+  if not map then return end
+  if not self.npcByMap then self.npcByMap = {} end
+  local list = self:npcsFor(map)
+  if not list then
+    local key = map.id or map
+    self.npcByMap[key] = {}
+    list = self.npcByMap[key]
+  end
+  list[#list + 1] = dummy
+end
+
+function Game3:removeCameraDummy()
+  local dummy = self.cameraDummy
+  self.cameraDummy = nil
+  if not dummy then return end
+  local list = self:npcsFor(self.map)
+  if not list then return end
+  local i = #list
+  while i >= 1 do
+    if list[i] == dummy or (list[i] and list[i].localId == Game3.LOCALID_CAMERA) then
+      table.remove(list, i)
+    end
+    i = i - 1
+  end
+end
+
+function Game3:doSealedChamberShakingEffect1()
+  self:startCameraShake(0, Game3.SEALED_SHAKE1_PAN,
+    Game3.SEALED_SHAKE_PERIOD, Game3.SEALED_SHAKE1_HITS)
+end
+
+function Game3:doSealedChamberShakingEffect2()
+  self:startCameraShake(0, Game3.SEALED_SHAKE2_PAN,
+    Game3.SEALED_SHAKE_PERIOD, Game3.SEALED_SHAKE2_HITS)
+end
+
+function Game3:sub807E25C()
+  self.route128Fade = { t = 0, left = Game3.ROUTE128_FADE_FRAMES }
+  self:beginScriptWait()
+end
+
+function Game3:route128FadeAlpha()
+  local f = self.route128Fade
+  if not f then return 0 end
+  local t = f.t or 0
+  local rise = Game3.ROUTE128_FADE_RISE
+  if t < rise then
+    return math.min(1, (t * 3) / 16)
+  end
+  t = t - rise
+  if t < Game3.ROUTE128_FADE_FALL then
+    local y = 16 - math.floor(t / 10)
+    if y < 0 then y = 0 end
+    return y / 16
+  end
+  return 0
+end
+
+function Game3:snapshotHallOfFame()
+  local out = {}
+  local teams = self.hallOfFameTeams or {}
+  for i = 1, #teams do
+    local team = teams[i] or {}
+    local row = {}
+    for j = 1, #team do
+      local mon = team[j]
+      if mon then
+        row[#row + 1] = {
+          species = tonumber(mon.species) or 0,
+          level = tonumber(mon.level) or 1,
+          nick = mon.nick or "",
+          tid = tonumber(mon.tid) or 0,
+          pid = tonumber(mon.pid) or 0,
+        }
+      end
+    end
+    out[i] = row
+  end
+  return out
+end
+
+function Game3:loadHallOfFame(data)
+  self.hallOfFameTeams = {}
+  if type(data) ~= "table" then return end
+  for i = 1, Game3.HALL_OF_FAME_MAX_TEAMS do
+    local team = data[i]
+    if type(team) ~= "table" then break end
+    local row = {}
+    for j = 1, 6 do
+      local mon = team[j]
+      if type(mon) == "table" and (tonumber(mon.species) or 0) ~= 0 then
+        row[#row + 1] = {
+          species = tonumber(mon.species) or 0,
+          level = tonumber(mon.level) or 1,
+          nick = mon.nick or "",
+          tid = tonumber(mon.tid) or 0,
+          pid = tonumber(mon.pid) or 0,
+        }
+      end
+    end
+    self.hallOfFameTeams[#self.hallOfFameTeams + 1] = row
+  end
+end
+
+-- hall_of_fame.c Task_Hof_InitTeamSaveData. SPECIES2 so eggs are
+-- SPECIES_EGG. SAVE_HALL_OF_FAME increments GAME_STAT_ENTERED_HOF
+-- (cap 999). 50 teams; a full list drops the oldest.
+function Game3:recordHallOfFameTeam()
+  local team = {}
+  local party = self.party or {}
+  for i = 1, 6 do
+    local mon = party[i]
+    if mon and (tonumber(mon.species) or 0) ~= 0 then
+      team[#team + 1] = {
+        species = self:partyMonSpecies2(mon),
+        level = mon.level or 1,
+        nick = mon.name or "",
+        tid = mon.otId or 0,
+        pid = mon.pid or 0,
+      }
+    end
+  end
+  self.hallOfFameTeams = self.hallOfFameTeams or {}
+  if #self.hallOfFameTeams >= Game3.HALL_OF_FAME_MAX_TEAMS then
+    table.remove(self.hallOfFameTeams, 1)
+  end
+  self.hallOfFameTeams[#self.hallOfFameTeams + 1] = team
+  local n = self:getGameStat(Game3.GAME_STAT_ENTERED_HOF)
+  if n < Game3.HALL_OF_FAME_STAT_CAP then
+    self.gameStats = self.gameStats or {}
+    self.gameStats[Game3.GAME_STAT_ENTERED_HOF] = n + 1
+  end
+end
+
+function Game3:accessHallOfFamePC()
+  self:beginScriptWait()
+  local teams = self.hallOfFameTeams or {}
+  local n = #teams
+  local page = self:getGameStat(Game3.GAME_STAT_ENTERED_HOF)
+  if page < 1 then page = n end
+  self.field = {
+    kind = "hof_pc",
+    scripted = true,
+    teamIndex = n,
+    pageNo = page,
+  }
+end
+
+function Game3:closeHofPc()
+  self.field = nil
+  self:endScriptWait()
+end
+
+function Game3:drawHofPc(f)
+  local G = love.graphics
+  G.setColor(0.10, 0.10, 0.12, 1)
+  local teams = self.hallOfFameTeams or {}
+  local idx = tonumber(f and f.teamIndex) or 0
+  local page = tonumber(f and f.pageNo) or idx
+  self:drawText(("HALL OF FAME No. %d"):format(page), 10, 100)
+  local team = teams[idx] or {}
+  if #team < 1 then
+    self:drawText("No records.", 10, 114)
+  else
+    for i = 1, #team do
+      local mon = team[i]
+      local nick = (mon and mon.nick) or ""
+      local sp = self:speciesName(mon and mon.species)
+      self:drawText(("%s / %s  Lv%d"):format(nick, sp, (mon and mon.level) or 1),
+        10, 110 + (i - 1) * 8)
+    end
+  end
+  self:drawText("A next  B close", 8, 148)
+end
+
+function Game3:hofPcAdvance()
+  local f = self.field
+  if not f then return self:closeHofPc() end
+  local idx = tonumber(f.teamIndex) or 0
+  if idx > 1 then
+    f.teamIndex = idx - 1
+    local page = tonumber(f.pageNo) or 1
+    if page > 1 then f.pageNo = page - 1 end
+    return
+  end
+  self:closeHofPc()
+end
+
+function Game3:setPacifidlogTMReceivedDay()
+  local n = (self:localTime() or {}).days or 0
+  self:setScriptVar(Game3.VAR_PACIFIDLOG_TM_RECEIVED_DAY, n)
+  return n
+end
+
+function Game3:getDaysUntilPacifidlogTMAvailable()
+  local t = self:localTime() or {}
+  local days = t.days or 0
+  local received = self:varGet(Game3.VAR_PACIFIDLOG_TM_RECEIVED_DAY)
+  if days < 0 then return 8 end
+  if days - received >= 7 then return 0 end
+  return 7 - (days - received)
+end
+
+function Game3:monSizeHash(mon)
+  if not mon then return 0 end
+  local pid = math.floor(tonumber(mon.pid) or 0) % 65536
+  local ivs = mon.ivs or Game3.zeroIvs()
+  local hp = math.floor(tonumber(ivs.hp) or 0) % 16
+  local atk = math.floor(tonumber(ivs.atk) or 0) % 16
+  local def = math.floor(tonumber(ivs.def) or 0) % 16
+  local spe = math.floor(tonumber(ivs.spe) or 0) % 16
+  local spa = math.floor(tonumber(ivs.spa) or 0) % 16
+  local spd = math.floor(tonumber(ivs.spd) or 0) % 16
+  local hibyte = Game3.xorInt(Game3.xorInt(atk, def) * hp, pid % 256)
+  local lobyte = Game3.xorInt(Game3.xorInt(spa, spd) * spe, math.floor(pid / 256))
+  return hibyte * 256 + lobyte
+end
+
+function Game3.translateBigMonSizeIndex(hash)
+  hash = tonumber(hash) or 0
+  local t = Game3.BIG_MON_SIZE_TABLE
+  for i = 2, 15 do
+    if hash < t[i][3] then return i - 1 end
+  end
+  return 16
+end
+
+function Game3.getMonSize(species, hash)
+  local height = Game3.DEX_HEIGHT[tonumber(species) or 0] or 0
+  local i = Game3.translateBigMonSizeIndex(hash)
+  local row = Game3.BIG_MON_SIZE_TABLE[i]
+  if not row then row = Game3.BIG_MON_SIZE_TABLE[#Game3.BIG_MON_SIZE_TABLE] end
+  local unk0 = row[1] + math.floor(((tonumber(hash) or 0) - row[3]) / row[2])
+  return math.floor(height * unk0 / 10)
+end
+
+function Game3.formatMonSizeRecord(size)
+  size = math.floor((tonumber(size) or 0) * 10 / 25.4)
+  return ("%d.%d"):format(math.floor(size / 10), size % 10)
+end
+
+function Game3:getMonSizeRecordInfo(species, varId)
+  local rec = self:varGet(varId)
+  local size = Game3.formatMonSizeRecord(Game3.getMonSize(species, rec))
+  self:setStringVar(3, size)
+  self:setStringVar(1, self:speciesName(species))
+  if rec == Game3.SIZE_RECORD_DEFAULT then
+    self:setStringVar(2, Game3.TEXT_MARCO)
+  else
+    self:setStringVar(2, self:playerName())
+  end
+end
+
+function Game3:compareMonSize(species, varId)
+  local slot = self:varGet(Gen3Script.VAR_RESULT)
+  if slot == 0xFF then return 0 end
+  local mon = self.party and self.party[slot + 1]
+  if not mon or mon.isEgg or (tonumber(mon.species) or 0) ~= species then
+    return 1
+  end
+  local rec = self:varGet(varId)
+  local hash = self:monSizeHash(mon)
+  local newSize = Game3.getMonSize(species, hash)
+  local oldSize = Game3.getMonSize(species, rec)
+  self:setStringVar(2, Game3.formatMonSizeRecord(newSize))
+  if newSize <= oldSize then return 2 end
+  self:setScriptVar(varId, hash % 65536)
+  return 3
+end
+
+function Game3:doTimeBasedEvents()
+  -- clock.c DoTimeBasedEvents: only after FLAG_SYS_CLOCK_SET.
+  if not (self.flags and self.flags[Game3.FLAG_SYS_CLOCK_SET]) then return end
+  local t = self:localTime() or {}
+  self:updatePerDay(t)
+  self:updatePerMinute(t)
+end
+
+function Game3.u32(n)
+  n = tonumber(n) or 0
+  n = n % Game3.U32
+  if n < 0 then n = n + Game3.U32 end
+  return math.floor(n)
+end
+
+-- 16-bit split: Lua doubles lose low bits of u32 * 1103515245.
+function Game3.mulu32(a, b)
+  a, b = Game3.u32(a), Game3.u32(b)
+  local a1, a2 = a % 65536, math.floor(a / 65536)
+  local b1, b2 = b % 65536, math.floor(b / 65536)
+  return Game3.u32(a1 * b1 + (a1 * b2 + a2 * b1) * 65536)
+end
+
+function Game3.lcg32(n)
+  return Game3.u32(Game3.mulu32(n, Game3.LCG32_MUL) + Game3.LCG32_ADD)
+end
+
+-- event_data.c ClearDailyFlags: 64 flags from DAILY_FLAGS_START.
+function Game3:clearDailyFlags()
+  self.flags = self.flags or {}
+  local start = Game3.DAILY_FLAGS_START
+  for i = 0, Game3.DAILY_FLAGS_COUNT - 1 do
+    self.flags[start + i] = nil
+  end
+end
+
+-- dewford_trend.c UpdateDewfordTrendPerDay. 5 pairs; falling then
+-- rising against maxPop; then sort by pop / maxPop.
+function Game3:updateDewfordTrendPerDay(days)
+  days = tonumber(days) or 0
+  if days == 0 then return end
+  local pairs = self:ensureDewfordTrend()
+  local step = days * 5
+  for i = 1, 5 do
+    local p = pairs[i]
+    if type(p) == "table" then
+      local pop = tonumber(p.pop) or 0
+      local maxp = tonumber(p.maxPop) or 0
+      local add = step
+      if not p.rising then
+        if pop >= add then
+          pop = pop - add
+          if pop == 0 then p.rising = true end
+          add = 0
+        else
+          add = add - pop
+          pop = 0
+          p.rising = true
+        end
+      end
+      if add ~= 0 then
+        local total = pop + add
+        if maxp > 0 and total > maxp then
+          local rem = total % maxp
+          local q = math.floor(total / maxp)
+          p.rising = (q % 2) == 0
+          if p.rising then
+            pop = rem
+          else
+            pop = maxp - rem
+            p.rising = nil
+          end
+        else
+          pop = total
+          if pop == maxp then p.rising = nil end
+        end
+      end
+      p.pop = pop
+    end
+  end
+  table.sort(pairs, function(a, b)
+    a, b = a or {}, b or {}
+    if (a.pop or 0) ~= (b.pop or 0) then
+      return (a.pop or 0) > (b.pop or 0)
+    end
+    return (a.maxPop or 0) > (b.maxPop or 0)
+  end)
+end
+
+function Game3:updateWeatherPerDay(days)
+  days = tonumber(days) or 0
+  self.weatherCycleStage = ((self.weatherCycleStage or 0) + days) % 4
+end
+
+function Game3:updateMirageRnd(days)
+  days = tonumber(days) or 0
+  local rnd = Game3.u32(self:varGet(Game3.VAR_MIRAGE_RND_H) * 65536
+    + self:varGet(Game3.VAR_MIRAGE_RND_L))
+  for _ = 1, days do
+    rnd = Game3.lcg32(rnd)
+  end
+  self:setScriptVar(Game3.VAR_MIRAGE_RND_L, rnd % 65536)
+  self:setScriptVar(Game3.VAR_MIRAGE_RND_H, math.floor(rnd / 65536) % 65536)
+end
+
+function Game3:updateBirchState(days)
+  days = tonumber(days) or 0
+  local n = (self:varGet(Game3.VAR_BIRCH_STATE) + days) % 7
+  self:setScriptVar(Game3.VAR_BIRCH_STATE, n)
+  return n
+end
+
+function Game3:initBirchState()
+  self:setScriptVar(Game3.VAR_BIRCH_STATE, 0)
+  return 0
+end
+
+-- field_specials.c SetShoalItemFlag ignores days and FlagSets 0x85F.
+function Game3:setShoalItemFlag()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_SHOAL_ITEM] = true
+end
+
+-- lottery_corner.c SetRandomLotteryNumber: Random then `days` LCG steps
+-- (`while (--i != 0xFFFF)` on a u16).
+function Game3:setRandomLotteryNumber(days)
+  days = math.floor(tonumber(days) or 0)
+  local var = self:gbaRandom()
+  local i = days % 65536
+  while true do
+    i = i - 1
+    if i < 0 then i = i + 65536 end
+    if i == 0xFFFF then break end
+    var = Game3.lcg32(var)
+  end
+  self:setLotteryNumber(var)
+end
+
+-- clock.c UpdatePerDay. Pokerus already ran here; daily berry flags,
+-- Dewford trends, Route 119/123 weather cycle, mirage, Birch, shoal
+-- item, and lottery all tick on the same day change.
+function Game3:updatePerDay(t)
+  t = t or self:localTime() or {}
+  local days = t.days or 0
+  local stored = self:varGet(Game3.VAR_DAYS)
+  if stored == days or stored > days then return end
+  local daysSince = days - stored
+  self:clearDailyFlags()
+  self:updateDewfordTrendPerDay(daysSince)
+  self:updateTVShowsPerDay(daysSince)
+  self:updateWeatherPerDay(daysSince)
+  self:updatePartyPokerusTime(daysSince)
+  self:updateMirageRnd(daysSince)
+  self:updateBirchState(daysSince)
+  self:setShoalItemFlag()
+  self:setRandomLotteryNumber(daysSince)
+  self:setScriptVar(Game3.VAR_DAYS, days)
+end
+
+-- tv.c UpdateTVShowsPerDay. Outbreak / show queues are later; a
+-- missing table is the empty-save case.
+function Game3:updateTVShowsPerDay(days)
+end
+
+-- clock.c UpdatePerMinute: berries already tick from tickBerryTrees.
+function Game3:updatePerMinute(t)
+end
+
+function Game3:pokerusDays(byte)
+  return math.floor(tonumber(byte) or 0) % 16
+end
+
+function Game3:updatePartyPokerusTime(days)
+  days = tonumber(days) or 0
+  local party = self.party or {}
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and (tonumber(mon.species) or 0) ~= 0 then
+      local pk = math.floor(tonumber(mon.pokerus) or 0) % 256
+      local left = pk % 16
+      if left ~= 0 then
+        if left < days or days > 4 then
+          pk = pk - left
+        else
+          pk = pk - days
+        end
+        mon.pokerus = pk
+      end
+    end
+  end
+end
+
+function Game3:randomlyGivePartyPokerus()
+  local rnd = self:gbaRandom()
+  if rnd ~= 0x4000 and rnd ~= 0x8000 and rnd ~= 0xC000 then return false end
+  local party = self.party or {}
+  local slot
+  for _ = 1, 64 do
+    slot = (self:gbaRandom() % 6) + 1
+    local mon = party[slot]
+    if mon and (tonumber(mon.species) or 0) ~= 0 and not mon.isEgg then
+      break
+    end
+    slot = nil
+  end
+  local mon = slot and party[slot]
+  if not mon then return false end
+  if (tonumber(mon.pokerus) or 0) ~= 0 then return false end
+  local rnd2 = 0
+  for _ = 1, 64 do
+    rnd2 = self:gbaRandom() % 256
+    if rnd2 ~= 0 then break end
+  end
+  if math.floor(rnd2 / 16) % 16 ~= 0 then rnd2 = rnd2 % 8 end
+  rnd2 = rnd2 + rnd2 * 16
+  rnd2 = rnd2 % 256
+  if math.floor(rnd2 / 4) % 2 == 1 then rnd2 = rnd2 - 4 end
+  if math.floor(rnd2 / 8) % 2 == 1 then rnd2 = rnd2 - 8 end
+  rnd2 = (rnd2 + 1) % 256
+  mon.pokerus = rnd2
+  return true
+end
+
+function Game3:partySpreadPokerus()
+  if (self:gbaRandom() % 3) ~= 0 then return end
+  local party = self.party or {}
+  local i = 1
+  while i <= 6 do
+    local mon = party[i]
+    if mon and (tonumber(mon.species) or 0) ~= 0 then
+      local pk = math.floor(tonumber(mon.pokerus) or 0) % 256
+      if pk ~= 0 and (pk % 16) ~= 0 then
+        if i > 1 then
+          local left = party[i - 1]
+          if left and (math.floor(tonumber(left.pokerus) or 0) % 256) < 16 then
+            left.pokerus = pk
+          end
+        end
+        if i < 6 then
+          local right = party[i + 1]
+          if right and (math.floor(tonumber(right.pokerus) or 0) % 256) < 16 then
+            right.pokerus = pk
+            i = i + 1
+          end
+        end
+      end
+    end
+    i = i + 1
+  end
+end
+
+-- safari_zone.c EnterSafariMode / ExitSafariMode. Do not beginScriptWait;
+-- the entrance script warps after the special. Balls are gNumSafariBalls,
+-- not the bag. Step 0 is valid remaining (Lua 0 is truthy).
+function Game3:inSafariMode()
+  return self.flags and self.flags[Game3.FLAG_SYS_SAFARI_MODE] == true
+end
+
+function Game3:enterSafariMode()
+  self:incrementGameStat(Game3.GAME_STAT_ENTERED_SAFARI_ZONE)
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_SAFARI_MODE] = true
+  self.safariBalls = Game3.SAFARI_BALLS
+  self.safariSteps = Game3.SAFARI_STEPS
+end
+
+function Game3:exitSafariMode()
+  if self.flags then self.flags[Game3.FLAG_SYS_SAFARI_MODE] = nil end
+  self.safariBalls = 0
+  self.safariSteps = 0
+end
+
+-- EventScript_1C341B: VAR_SAFARI_ZONE_STATE=1, ExitSafariMode, warp
+-- MAP_ROUTE121_SAFARI_ZONE_ENTRANCE (255, 2, 5).
+function Game3:leaveSafari()
+  self:setScriptVar(Game3.VAR_SAFARI_ZONE_STATE, 1)
+  self:exitSafariMode()
+  self.field = nil
+  return self:scriptWarp(
+    Game3.MAP_SAFARI_ENTRANCE_GROUP,
+    Game3.MAP_SAFARI_ENTRANCE_NUM,
+    Game3.WARP_ID_NONE,
+    Game3.SAFARI_EXIT_X,
+    Game3.SAFARI_EXIT_Y)
+end
+
+-- SafariZoneTakeStep: decrement, at 0 run gUnknown_081C3448.
+function Game3:safariZoneTakeStep()
+  if not self:inSafariMode() then return false end
+  local n = self.safariSteps or 0
+  n = n - 1
+  if n < 0 then n = 0 end
+  self.safariSteps = n
+  if n ~= 0 then return false end
+  if not self.field then
+    self.field = {
+      kind = "talk",
+      text = Game3.TEXT_SAFARI_TIME_UP,
+      thenSafariExit = true,
+    }
+  end
+  return true
+end
+
+function Game3:openSafariRetirePrompt()
+  self.field = {
+    kind = "safari_retire",
+    text = Game3.TEXT_SAFARI_RETIRE,
+    cursor = 0,
+  }
+  return true
+end
+
+function Game3:answerSafariRetire(yes)
+  if yes then return self:leaveSafari() end
+  self:closeField()
+  return false
+end
+
+-- field_specials.c CheckFreePokemonStorageSpace: any empty PC slot.
+-- Party full is a separate getpartysize check at the entrance.
+function Game3:checkFreePokemonStorageSpace()
+  return (self:pcFree() > 0) and 1 or 0
+end
+
+-- field_specials.c SetSSTidalFlag / ResetSSTidalFlag / CountSSTidalStep.
+-- Corridor ON_FRAME (state 1) starts the cruise; 0xCD steps run
+-- gUnknown_0815FD0D (state 2 → 3 Lilycove ding, state 7 → 8 Slateport).
+-- Porthole Task_HandlePorthole counts the same way but sets 9/10.
+-- Do not beginScriptWait. Lua 0 is a valid remaining count.
+function Game3:inCruiseMode()
+  return self.flags and self.flags[Game3.FLAG_SYS_CRUISE_MODE] == true
+end
+
+function Game3:setSSTidalFlag()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_CRUISE_MODE] = true
+  self:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 0)
+end
+
+function Game3:resetSSTidalFlag()
+  if self.flags then self.flags[Game3.FLAG_SYS_CRUISE_MODE] = nil end
+end
+
+function Game3:countSSTidalStep(delta)
+  if not self:inCruiseMode() then return false end
+  delta = tonumber(delta) or 1
+  local n = (self:varGet(Game3.VAR_CRUISE_STEP_COUNT) or 0) + delta
+  if n > 65535 then n = n % 65536 end
+  self:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, n)
+  return n > Game3.CRUISE_STEP_ARRIVE
+end
+
+-- field_specials.c GetSSTidalLocation. Non-sailing states return nil
+-- (C returns 1-4). Group is always TownsAndRoutes; y is 20.
+function Game3:getSSTidalLocation()
+  local state = self:varGet(Game3.VAR_PORTHOLE_STATE)
+  local steps = self:varGet(Game3.VAR_CRUISE_STEP_COUNT) or 0
+  local num, x
+  if state == Game3.PORTHOLE_SAILING_TO_LILYCOVE then
+    if steps < 60 then
+      num, x = Game3.MAP_ROUTE134_NUM, steps + 19
+    elseif steps < 140 then
+      num, x = Game3.MAP_ROUTE133_NUM, steps - 60
+    else
+      num, x = Game3.MAP_ROUTE132_NUM, steps - 140
+    end
+  elseif state == Game3.PORTHOLE_SAILING_TO_SLATEPORT then
+    if steps < 66 then
+      num, x = Game3.MAP_ROUTE132_NUM, 65 - steps
+    elseif steps < 146 then
+      num, x = Game3.MAP_ROUTE133_NUM, 145 - steps
+    else
+      num, x = Game3.MAP_ROUTE134_NUM, 224 - steps
+    end
+  else
+    return nil
+  end
+  return 0, num, x, Game3.PORTHOLE_OCEAN_Y
+end
+
+-- sub_80C7958: FlagSet cruise (does not zero steps), saved_warp2, fade
+-- to GetSSTidalLocation. Task_HandlePorthole then waitstate. Ship OBJ
+-- tiles are unextracted; the player is hidden.
+function Game3:ssTidalPorthole()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_CRUISE_MODE] = true
+  self.flags[Game3.FLAG_DONT_TRANSITION_MUSIC] = true
+  self.flags[Game3.FLAG_HIDE_MAP_NAME_POPUP] = true
+  local group, num = self:currentMapGroupNum()
+  self.portholeReturn = {
+    mapGroup = group,
+    mapNum = num,
+    x = self.playerX or 0,
+    y = self.playerY or 0,
+  }
+  self.field = { kind = "porthole", acc = 0 }
+  self:beginScriptWait()
+  local og, on, x, y = self:getSSTidalLocation()
+  if og ~= nil then
+    self:scriptWarp(og, on, Game3.WARP_ID_NONE, x, y)
+  end
+  self.invisible = true
+end
+
+function Game3:stepPorthole(dt)
+  local f = self.field
+  if not (f and f.kind == "porthole") then return end
+  f.acc = (f.acc or 0) + (dt or 0)
+  local period = Game3.WALK_PERIOD
+  while f.acc >= period do
+    f.acc = f.acc - period
+    if self:countSSTidalStep(1) then
+      local state = self:varGet(Game3.VAR_PORTHOLE_STATE)
+      if state == Game3.PORTHOLE_SAILING_TO_LILYCOVE then
+        self:setScriptVar(Game3.VAR_PORTHOLE_STATE,
+          Game3.PORTHOLE_ARRIVED_VIA_VIEW_LILYCOVE)
+      else
+        self:setScriptVar(Game3.VAR_PORTHOLE_STATE,
+          Game3.PORTHOLE_ARRIVED_VIA_VIEW_SLATEPORT)
+      end
+      self:exitPorthole()
+      return
+    end
+  end
+  if Input.pressed and Input:wasPressed("a") then
+    self:exitPorthole()
+  end
+end
+
+function Game3:exitPorthole()
+  self.field = nil
+  self.invisible = nil
+  if self.flags then
+    self.flags[Game3.FLAG_DONT_TRANSITION_MUSIC] = nil
+    self.flags[Game3.FLAG_HIDE_MAP_NAME_POPUP] = nil
+  end
+  local d = self.portholeReturn
+  self.portholeReturn = nil
+  if d then
+    self:scriptWarp(d.mapGroup, d.mapNum, Game3.WARP_ID_NONE, d.x, d.y)
+  end
+  self:endCinemaWait()
+end
+
+function Game3:ssTidalTakeStep()
+  if not self:countSSTidalStep(1) then return false end
+  local state = self:varGet(Game3.VAR_PORTHOLE_STATE)
+  if state == Game3.PORTHOLE_SAILING_TO_LILYCOVE then
+    self:resetSSTidalFlag()
+    self:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_ARRIVED_LILYCOVE)
+    if not self.field then
+      self.field = { kind = "talk", text = Game3.TEXT_SS_TIDAL_VOYAGE }
+    end
+  elseif state == Game3.PORTHOLE_SAILING_TO_SLATEPORT then
+    self:resetSSTidalFlag()
+    self:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_ARRIVED_SLATEPORT)
+    if not self.field then
+      self.field = { kind = "talk", text = Game3.TEXT_SS_TIDAL_LAND_SLATEPORT }
+    end
+  end
+  return true
+end
+
+-- sub_80C824C after a safari battle. Balls already decremented.
+function Game3:afterSafariBattle(outcome)
+  local n = self.safariBalls or 0
+  if n ~= 0 then return end
+  if outcome == Game3.B_OUTCOME_NO_SAFARI_BALLS then
+    self:leaveSafari()
+  elseif outcome == Game3.B_OUTCOME_CAUGHT then
+    self.field = {
+      kind = "talk",
+      text = Game3.TEXT_SAFARI_OUT_OF_BALLS,
+      thenSafariExit = true,
+    }
+  end
+end
+
 function Game3:setHoleWarp(group, num, warpId, x, y)
   self.holeWarp = {
+    mapGroup = tonumber(group) or 0,
+    mapNum = tonumber(num) or 0,
+    warpId = tonumber(warpId) or Game3.WARP_ID_NONE,
+    x = tonumber(x) or 0,
+    y = tonumber(y) or 0,
+  }
+  return true
+end
+
+-- scrcmd SetFixedDiveWarp / gFixedDiveWarp. Sootopolis ON_RESUME
+-- (and underwater emerge) store dest here; there is no dive connection.
+function Game3:setDiveWarp(group, num, warpId, x, y)
+  self.diveWarp = {
     mapGroup = tonumber(group) or 0,
     mapNum = tonumber(num) or 0,
     warpId = tonumber(warpId) or Game3.WARP_ID_NONE,
@@ -2083,7 +5920,7 @@ function Game3:warpHole(group, num)
   self.walkCooldown = 0
   self.moveJobs = {}
   if self:scriptWarp(group, num, Game3.WARP_ID_NONE, x, y) then
-    self.field = { kind = "talk", text = "You fell through!" }
+    self.field = { kind = "talk", text = Game3.TEXT_FELL_THROUGH }
     return true
   end
   return self:fallDownHole()
@@ -2273,7 +6110,16 @@ function Game3:tryWallyTutorialAction()
 end
 
 function Game3:saveFs()
-  return self._saveFs or (love and love.filesystem)
+  if self._saveFs then return self._saveFs end
+  if SaveData.persistenceFs then return SaveData.persistenceFs() end
+  return love and love.filesystem
+end
+
+function Game3:ensureSaveSlot()
+  if SaveData.activeSlot("ruby") then return true end
+  local id = SaveData.createSlot("ruby")
+  if id then SaveData.setActiveSlot("ruby", id) end
+  return SaveData.activeSlot("ruby") ~= nil
 end
 
 function Game3:snapshotMon(mon)
@@ -2298,6 +6144,8 @@ function Game3:snapshotMon(mon)
     name = mon.name,
     isEgg = mon.isEgg and true or nil,
     hatchLeft = mon.hatchLeft,
+    metLocation = mon.metLocation,
+    metLevel = mon.metLevel,
     cool = mon.cool,
     beauty = mon.beauty,
     cute = mon.cute,
@@ -2306,6 +6154,7 @@ function Game3:snapshotMon(mon)
     sheen = mon.sheen,
     item = mon.item,
     effortRibbon = mon.effortRibbon and true or nil,
+    championRibbon = mon.championRibbon and true or nil,
     hpEv = mon.hpEv,
     atkEv = mon.atkEv,
     defEv = mon.defEv,
@@ -2313,6 +6162,8 @@ function Game3:snapshotMon(mon)
     spaEv = mon.spaEv,
     spdEv = mon.spdEv,
     friendship = mon.friendship,
+    pokerus = mon.pokerus,
+    markings = tonumber(mon.markings) or nil,
     ribbons = type(mon.ribbons) == "table" and {
       cool = mon.ribbons.cool,
       beauty = mon.ribbons.beauty,
@@ -2360,12 +6211,17 @@ function Game3:restoreMon(row)
   elseif type(row.name) == "string" and row.name ~= "" then
     mon.name = row.name
   end
+  if type(row.metLocation) == "number" then mon.metLocation = row.metLocation end
+  if type(row.metLevel) == "number" then mon.metLevel = row.metLevel end
   for _, key in ipairs(Game3.CONTEST_KEYS) do
     if type(row[key]) == "number" then mon[key] = row[key] end
   end
   if type(row.sheen) == "number" then mon.sheen = row.sheen end
   if type(row.friendship) == "number" then mon.friendship = row.friendship end
+  if type(row.pokerus) == "number" then mon.pokerus = row.pokerus end
+  if type(row.markings) == "number" then mon.markings = row.markings end
   if row.effortRibbon then mon.effortRibbon = true end
+  if row.championRibbon then mon.championRibbon = true end
   for _, key in ipairs(Game3.EV_KEYS) do
     if type(row[key]) == "number" then mon[key] = row[key] end
   end
@@ -2428,8 +6284,8 @@ function Game3:snapshotSave()
   for b = 1, Game3.BOX_COUNT do
     local box = {}
     local src = self.pc[b] or {}
-    for i = 1, #src do
-      box[i] = self:snapshotMon(src[i])
+    for i = 1, Game3.BOX_SIZE do
+      if src[i] then box[i] = self:snapshotMon(src[i]) end
     end
     pc[b] = box
   end
@@ -2447,6 +6303,9 @@ function Game3:snapshotSave()
     bag = bag,
     party = party,
     pc = pc,
+    pcCurrentBox = self.pcCurrentBox or 1,
+    boxNames = self.boxNames,
+    boxWallpapers = self.boxWallpapers,
     caught = self:snapshotCaught(),
     seen = self:snapshotSeen(),
     gender = self.gender or Game3.GENDER_MALE,
@@ -2469,6 +6328,9 @@ function Game3:snapshotSave()
     secretBase = self:snapshotSecretBase(),
     berryTrees = self:snapshotBerryTrees(),
     berryMinuteAcc = self.berryMinuteAcc or 0,
+    pokeblocks = self.pokeblocks,
+    berryBlenderRecords = self.berryBlenderRecords,
+    museumPortraits = self.museumPortraits,
     easyChatPairs = self:snapshotEasyChatPairs(),
     playerName = self:playerName(),
     playSeconds = math.floor(self.playSeconds or 0),
@@ -2477,6 +6339,23 @@ function Game3:snapshotSave()
     options = self.options,
     trainerId = self:ensureTrainerId(),
     registeredItem = self.registeredItem or 0,
+    coins = self:getCoins(),
+    clockHour = self.clockHour,
+    clockMinute = self.clockMinute,
+    clockAnchor = self.clockAnchor,
+    mauvilleMan = self.mauvilleMan,
+    trendyUnlocked = self.trendyUnlocked,
+    decorations = self.decorations,
+    gameStats = self.gameStats,
+    gabbyAndTy = self:snapshotGabbyAndTy(),
+    trainerRematches = self:snapshotTrainerRematches(),
+    trainerRematchStepCounter = tonumber(self.trainerRematchStepCounter) or 0,
+    hallOfFameTeams = self:snapshotHallOfFame(),
+    roamer = self:snapshotRoamer(),
+    sav1Weather = self.sav1Weather or 0,
+    currWeather = self.currWeather or 0,
+    weatherCycleStage = self.weatherCycleStage or 0,
+    mapLayoutId = self.mapLayoutId or (self.map and self.map.layoutId) or 0,
   }
 end
 
@@ -2488,10 +6367,28 @@ end
 function Game3:readSave()
   local fs = self:saveFs()
   if not (fs and fs.read) then return nil, "no filesystem" end
-  local raw = fs.read(Game3.SAVE_FILE)
-  if type(raw) ~= "string" or raw == "" then return nil, "missing" end
-  local data, err = SaveSerializer.decode(raw)
-  if not data then return nil, err end
+  local main = SaveData.saveFilename("ruby")
+  local names = { main, main .. ".tmp", main .. ".bak" }
+  if main ~= Game3.SAVE_FILE then
+    names[#names + 1] = Game3.SAVE_FILE
+  end
+  local data, err
+  local i = 1
+  while i <= #names do
+    local path = names[i]
+    local raw
+    if fs.getInfo then
+      if fs.getInfo(path) then raw = fs.read(path) end
+    else
+      raw = fs.read(path)
+    end
+    if type(raw) == "string" and raw ~= "" then
+      data, err = SaveSerializer.decode(raw)
+      if data then break end
+    end
+    i = i + 1
+  end
+  if not data then return nil, err or "missing" end
   if data.format ~= Game3.SAVE_FORMAT or data.engine ~= "gen3" then
     return nil, "wrong format"
   end
@@ -2503,13 +6400,36 @@ end
 
 function Game3:writeSave()
   if self.phase == "battle" then return false, "Can't save now." end
+  if self:inSafariMode() then return false, "Can't save now." end
   local fs = self:saveFs()
   if not (fs and fs.write) then return false, "Save failed." end
+  self:ensureSaveSlot()
+  self:incrementGameStat(Game3.GAME_STAT_SAVED_GAME)
   local encoded = SaveSerializer.encode(self:snapshotSave())
-  local ok = fs.write(Game3.SAVE_FILE, encoded)
+  local main = SaveData.saveFilename("ruby")
+  local bak, tmp = main .. ".bak", main .. ".tmp"
+  local dir = main:match("^(.*)/[^/]+$")
+  if dir and fs.createDirectory then fs.createDirectory(dir) end
+  if fs.getInfo and fs.getInfo(main) and fs.read then
+    local prev = fs.read(main)
+    if prev then fs.write(bak, prev) end
+  end
+  fs.write(tmp, encoded)
+  if fs.remove then fs.remove(main) end
+  local ok = fs.write(main, encoded)
   if not ok then return false, "Save failed." end
+  if fs.remove then fs.remove(tmp) end
   self.saveExists = true
   return true
+end
+
+-- start_menu.c SaveGame: waitstate dialog; RESULT SAVE_SUCCESS (1) or 0.
+-- Cinema skip: write immediately, do not beginScriptWait.
+function Game3:saveGameSpecial()
+  local ok = self:writeSave()
+  local n = ok and Game3.SAVE_SUCCESS or 0
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
 end
 
 function Game3:applySave(data)
@@ -2543,16 +6463,33 @@ function Game3:applySave(data)
     for b = 1, Game3.BOX_COUNT do
       local src = data.pc[b]
       if type(src) == "table" then
-        for i = 1, #src do
+        for i = 1, Game3.BOX_SIZE do
           local mon = self:restoreMon(src[i])
-          if mon then
-            local box = self.pc[b]
-            box[#box + 1] = mon
-          end
+          if mon then self.pc[b][i] = mon end
         end
       end
     end
   end
+  self.pcCurrentBox = tonumber(data.pcCurrentBox) or 1
+  if self.pcCurrentBox < 1 then self.pcCurrentBox = 1 end
+  if self.pcCurrentBox > Game3.BOX_COUNT then self.pcCurrentBox = Game3.BOX_COUNT end
+  if type(data.boxNames) == "table" then
+    self.boxNames = {}
+    for b = 1, Game3.BOX_COUNT do
+      local name = data.boxNames[b]
+      if type(name) == "string" and name ~= "" then
+        self.boxNames[b] = name:sub(1, Game3.BOX_NAME_LEN)
+      end
+    end
+  end
+  if type(data.boxWallpapers) == "table" then
+    self.boxWallpapers = {}
+    for b = 1, Game3.BOX_COUNT do
+      local paper = tonumber(data.boxWallpapers[b])
+      if paper then self.boxWallpapers[b] = paper % #Game3.PC_WALLPAPERS end
+    end
+  end
+  self:ensurePc()
   self.caught = {}
   self.seen = {}
   if type(data.caught) == "table" then
@@ -2583,12 +6520,33 @@ function Game3:applySave(data)
   end
   self.playSeconds = tonumber(data.playSeconds) or 0
   if type(data.options) == "table" then self.options = data.options end
+  self:applyDisplayOptions(self.options)
   if tonumber(data.trainerId) then
     self.trainerId = math.floor(tonumber(data.trainerId))
   else
     self:ensureTrainerId()
   end
   self.registeredItem = tonumber(data.registeredItem) or 0
+  self.coins = tonumber(data.coins) or 0
+  self.clockHour = tonumber(data.clockHour)
+  self.clockMinute = tonumber(data.clockMinute)
+  self.clockAnchor = tonumber(data.clockAnchor)
+  self.mauvilleMan = data.mauvilleMan
+  self.trendyUnlocked = data.trendyUnlocked
+  self.decorations = data.decorations
+  self.pokeblocks = data.pokeblocks
+  self.berryBlenderRecords = data.berryBlenderRecords
+  self.museumPortraits = data.museumPortraits
+  if type(data.gameStats) == "table" then
+    self.gameStats = data.gameStats
+  else
+    self.gameStats = nil
+  end
+  if type(self.mauvilleMan) ~= "table" then self:setupMauvilleOldMan(true) end
+  self:applyGabbyAndTySave(data.gabbyAndTy)
+  self:applyTrainerRematchSave(data)
+  self:loadHallOfFame(data.hallOfFameTeams)
+  self:applyRoamerSave(data.roamer)
   self.rivalSpecies = tonumber(data.rivalSpecies)
   self.rivalTookStarter = data.rivalTookStarter and true or nil
   if data.healMapId then
@@ -2600,6 +6558,7 @@ function Game3:applySave(data)
   else
     self.lastHeal = nil
   end
+  self._recoveredStaleHeal = self:repairStaleBedroomHeal()
   if data.escapeMapId or data.escapeMapGroup then
     self.escapeWarp = {
       mapId = data.escapeMapId,
@@ -2630,13 +6589,39 @@ function Game3:applySave(data)
     map = self.map
   end
   if map then
+    -- sRoamerLocation is EWRAM on hardware; CONTINUE would snap to
+    -- Petalburg. Keep the saved map and skip RoamerMove on this load.
+    self._skipRoamerMove = true
     self:enterMap(map, data.x or 0, data.y or 0, true)
+    self._skipRoamerMove = nil
+    if self._recoveredStaleHeal and self:isLittlerootCatchment(map) then
+      self:warpToHeal()
+    end
+    -- LoadSaveblockMapHeader uses saved mapLayoutId; ON_TRANSITION does
+    -- not re-run. Shoal tide can differ from the clock after CONTINUE.
+    local savedLayout = tonumber(data.mapLayoutId)
+    if savedLayout and savedLayout ~= 0 then
+      self:setMapLayoutIndex(savedLayout)
+    end
   else
     self.playerX = data.x or 0
     self.playerY = data.y or 0
   end
+  self._recoveredStaleHeal = nil
+  -- CONTINUE keeps SaveBlock1.weather; LoadMap would overwrite from the
+  -- header (Route 111 is SUNNY) and drop a desert save.
+  local savW = tonumber(data.sav1Weather)
+  local curW = tonumber(data.currWeather)
+  local cycle = tonumber(data.weatherCycleStage)
+  if savW ~= nil then self.sav1Weather = savW end
+  if curW ~= nil then
+    self.currWeather = curW
+  elseif savW ~= nil then
+    self.currWeather = savW
+  end
+  if cycle ~= nil then self.weatherCycleStage = cycle end
   self.battle = nil
-  self.field = nil
+  self:clearTransientOverlay()
   return true
 end
 
@@ -2704,6 +6689,21 @@ Game3.WALK_SEQUENCES = {
   [0x34] = { "east", "south", "west", "north" },
 }
 
+-- pokeruby g*Directions + gGetVectorDirectionFuncs index. 4-entry tables
+-- weight a dir twice (Random() & 3). Stay put; only facing changes.
+Game3.FACE_LOOK = {
+  [0x0D] = { dirs = { "south", "north" }, vec = 1 },
+  [0x0E] = { dirs = { "west", "east" }, vec = 2 },
+  [0x0F] = { dirs = { "north", "west" }, vec = 3 },
+  [0x10] = { dirs = { "north", "east" }, vec = 4 },
+  [0x11] = { dirs = { "south", "west" }, vec = 5 },
+  [0x12] = { dirs = { "south", "east" }, vec = 6 },
+  [0x13] = { dirs = { "north", "south", "west", "south" }, vec = 7 },
+  [0x14] = { dirs = { "south", "north", "east", "south" }, vec = 8 },
+  [0x15] = { dirs = { "north", "west", "east", "north" }, vec = 9 },
+  [0x16] = { dirs = { "west", "east", "south", "south" }, vec = 10 },
+}
+
 function Game3.wanderDirs(movementType)
   local mt = movementType or 0
   if mt == 1 then return "look" end
@@ -2714,10 +6714,165 @@ function Game3.wanderDirs(movementType)
   if mt == 5 or mt == 6 or mt == 27 or mt == 28 then
     return { "west", "east" }
   end
+  if Game3.FACE_LOOK[mt] then return "face_look" end
+  if mt == Game3.MOVEMENT_TYPE_ROTATE_COUNTERCLOCKWISE then
+    return "rotate_ccw"
+  end
+  if mt == Game3.MOVEMENT_TYPE_ROTATE_CLOCKWISE then
+    return "rotate_cw"
+  end
   if Game3.WALK_SEQUENCES[mt] then return "seq" end
   if mt >= 64 and mt <= 75 then return "place" end
   if mt >= 84 and mt <= 87 then return "place" end
   return nil
+end
+
+-- GetVectorDirection / GetLimitedVectorDirection_* (event_object_movement.c).
+-- dx/dy are player minus NPC. Tie on |dx|==|dy| prefers south/north.
+function Game3.vectorDirection(dx, dy)
+  dx, dy = dx or 0, dy or 0
+  local ax, ay = dx, dy
+  if ax < 0 then ax = -ax end
+  if ay < 0 then ay = -ay end
+  if ax > ay then
+    if dx < 0 then return "west" end
+    return "east"
+  end
+  if dy < 0 then return "north" end
+  return "south"
+end
+
+function Game3.limitedSouthNorth(dx, dy)
+  if (dy or 0) < 0 then return "north" end
+  return "south"
+end
+
+function Game3.limitedWestEast(dx, dy)
+  if (dx or 0) < 0 then return "west" end
+  return "east"
+end
+
+function Game3.limitedVectorDir(vec, dx, dy)
+  dx, dy = dx or 0, dy or 0
+  vec = vec or 0
+  if vec == 1 then return Game3.limitedSouthNorth(dx, dy) end
+  if vec == 2 then return Game3.limitedWestEast(dx, dy) end
+  local dir = Game3.vectorDirection(dx, dy)
+  if vec == 0 then return dir end
+  if vec == 3 then
+    if dir == "south" then
+      dir = Game3.limitedWestEast(dx, dy)
+      if dir == "east" then dir = "north" end
+    elseif dir == "east" then
+      dir = Game3.limitedSouthNorth(dx, dy)
+      if dir == "south" then dir = "north" end
+    end
+    return dir
+  end
+  if vec == 4 then
+    if dir == "south" then
+      dir = Game3.limitedWestEast(dx, dy)
+      if dir == "west" then dir = "north" end
+    elseif dir == "west" then
+      dir = Game3.limitedSouthNorth(dx, dy)
+      if dir == "south" then dir = "north" end
+    end
+    return dir
+  end
+  if vec == 5 then
+    if dir == "north" then
+      dir = Game3.limitedWestEast(dx, dy)
+      if dir == "east" then dir = "south" end
+    elseif dir == "east" then
+      dir = Game3.limitedSouthNorth(dx, dy)
+      if dir == "north" then dir = "south" end
+    end
+    return dir
+  end
+  if vec == 6 then
+    if dir == "north" then
+      dir = Game3.limitedWestEast(dx, dy)
+      if dir == "west" then dir = "south" end
+    elseif dir == "west" then
+      dir = Game3.limitedSouthNorth(dx, dy)
+      if dir == "north" then dir = "south" end
+    end
+    return dir
+  end
+  if vec == 7 then
+    if dir == "east" then dir = Game3.limitedSouthNorth(dx, dy) end
+    return dir
+  end
+  if vec == 8 then
+    if dir == "west" then dir = Game3.limitedSouthNorth(dx, dy) end
+    return dir
+  end
+  if vec == 9 then
+    if dir == "south" then dir = Game3.limitedWestEast(dx, dy) end
+    return dir
+  end
+  if vec == 10 then
+    if dir == "north" then dir = Game3.limitedWestEast(dx, dy) end
+    return dir
+  end
+  return dir
+end
+
+-- gClockwiseDirections: S→W→N→E. gCounterclockwiseDirections: S→E→N→W.
+function Game3.nextRotateFacing(facing, clockwise)
+  if clockwise then
+    if facing == "south" then return "west" end
+    if facing == "west" then return "north" end
+    if facing == "north" then return "east" end
+    return "south"
+  end
+  if facing == "south" then return "east" end
+  if facing == "east" then return "north" end
+  if facing == "north" then return "west" end
+  return "south"
+end
+
+-- field_control_avatar.c IsArrowWarpMetatileBehavior. East 0x62 is
+-- unused-named; north also stairs-outside-ship, south also water-arrow
+-- and Shoal Cave entrance.
+function Game3.isArrowWarp(behavior)
+  local b = behavior or 0
+  return b == Game3.MB_EAST_ARROW_WARP
+      or b == Game3.MB_WEST_ARROW_WARP
+      or b == Game3.MB_NORTH_ARROW_WARP
+      or b == Game3.MB_SOUTH_ARROW_WARP
+      or b == Game3.MB_WATER_SOUTH_ARROW_WARP
+      or b == Game3.MB_STAIRS_OUTSIDE_ABANDONED_SHIP
+      or b == Game3.MB_SHOAL_CAVE_ENTRANCE
+end
+
+function Game3.arrowWarpMatches(behavior, dx, dy)
+  local b = behavior or 0
+  if b == Game3.MB_EAST_ARROW_WARP then return dx == 1 and dy == 0 end
+  if b == Game3.MB_WEST_ARROW_WARP then return dx == -1 and dy == 0 end
+  if b == Game3.MB_NORTH_ARROW_WARP
+      or b == Game3.MB_STAIRS_OUTSIDE_ABANDONED_SHIP then
+    return dx == 0 and dy == -1
+  end
+  if b == Game3.MB_SOUTH_ARROW_WARP
+      or b == Game3.MB_WATER_SOUTH_ARROW_WARP
+      or b == Game3.MB_SHOAL_CAVE_ENTRANCE then
+    return dx == 0 and dy == 1
+  end
+  return false
+end
+
+function Game3:eachNeighbor(map, fn)
+  map = map or self.map
+  if type(fn) ~= "function" or not map then return end
+  for i = 1, #(map.connections or {}) do
+    local c = map.connections[i]
+    local dest = c and self:lookupMap(c.mapGroup, c.mapNum)
+    if dest then
+      local ox, oy = Game3.neighborOrigin(c, map, dest)
+      if ox then fn(dest, ox, oy, c) end
+    end
+  end
 end
 
 function Game3.neighborOrigin(conn, src, dest)
@@ -2772,6 +6927,34 @@ function Game3.spriteDrawPos(tileX, tileY, width, height, lift)
   return px, py
 end
 
+-- 16x16 trainer-see icon. GBA objc_exclamation_mark_probably places it
+-- at object.y - 16, i.e. flush above a 32px OW sprite's head.
+function Game3.emoteDrawPos(tileX, tileY, lift)
+  return Game3.spriteDrawPos(
+    tileX, tileY, Game3.EMOTE_SIZE, Game3.EMOTE_SIZE,
+    (lift or 0) + Game3.TILE * 2)
+end
+
+function Game3.emoteSpec(sprites, emote)
+  if not emote then return nil end
+  local row = sprites and sprites.emotes and sprites.emotes[emote]
+  if type(row) == "table" and row.path then return row end
+  if not Game3.EMOTE_GLYPH[emote] then return nil end
+  return {
+    path = ("assets/generated/emotes/%s.png"):format(emote),
+    width = Game3.EMOTE_SIZE,
+    height = Game3.EMOTE_SIZE,
+  }
+end
+
+-- field_effect_helpers.c GetReflectionVerticalOffset: graphics height - 2.
+-- LÖVE sy=-1 pins local y=0 at the origin and grows upward, so the origin
+-- is the flipped sprite's head (the lowest pixel, in the water).
+function Game3.reflectionDrawY(py, height)
+  height = height or Game3.TILE
+  return (py or 0) + 2 * height - 2
+end
+
 function Game3:grabImage(path)
   if type(path) ~= "string" then return nil end
   local Assets = require("src.render.Assets")
@@ -2789,12 +6972,17 @@ end
 function Game3:layersFor(tilesetId)
   if not tilesetId then return nil, nil end
   local cached = self.atlasCache[tilesetId]
-  if cached then return cached.bottom, cached.top end
+  -- A nil top is not a successful load. COVERED fence/house tops live
+  -- only on that atlas; caching the miss left Route 111's picket fence
+  -- as dirt with collision (the "invisible wall" south of Winstrate).
+  if cached and cached.bottom and cached.top then
+    return cached.bottom, cached.top
+  end
   local spec = self.data.tilesets and self.data.tilesets.byId
     and self.data.tilesets.byId[tilesetId]
   if not spec then return nil, nil end
-  local bottom = self:grabImage(spec.bottom)
-  local top = self:grabImage(spec.top)
+  local bottom = self:grabImage(spec.bottom) or (cached and cached.bottom)
+  local top = self:grabImage(spec.top) or (cached and cached.top)
   self.atlasCache[tilesetId] = { bottom = bottom, top = top }
   return bottom, top
 end
@@ -2845,7 +7033,7 @@ function Game3:quadFor8(mid, corner, image)
   return q
 end
 
-function Game3:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior, mode)
+function Game3:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior, mode, collision)
   if Game3.ledgeDelta(behavior) then return end
   local spec = self.data.tilesets and self.data.tilesets.byId
     and map and self.data.tilesets.byId[map.tileset]
@@ -2857,7 +7045,7 @@ function Game3:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior
   if mode == "top8" then i1 = 1 elseif mode == "bottom8" then i0 = 2 end
   local G = love.graphics
   for i = i0, i1 do
-    if Game3.shouldAnimCorner(tiles[start + i], behavior, tiles, start) then
+    if Game3.shouldAnimCorner(tiles[start + i], behavior, tiles, start, collision) then
       local q = self:quadFor8(mid, i, image)
       local ox = (i % 2) * 8
       local oy = math.floor(i / 2) * 8
@@ -2895,32 +7083,53 @@ function Game3:flushPendingMapScripts()
   return self:tryCoordEvent(self.playerX, self.playerY)
 end
 
+-- Fades, script waits, and 240×160 field UIs live in EWRAM. Escape to the
+-- title and CONTINUE must drop them or a held TO_BLACK / HUD canvas plate
+-- sits over the zoomed map after load (berry plant bag, yes/no, talk).
+function Game3:clearTransientOverlay()
+  self.field = nil
+  self.screenFade = nil
+  self.scriptWait = nil
+  self._scriptPause = nil
+  self._scriptLoaded = nil
+  self._scriptSays = nil
+  self._scriptReturn = nil
+  self._scriptCmp = 0
+  self.delayLeft = nil
+  self.moneyBox = nil
+  self.coinsBox = nil
+  self.orb = nil
+  self.route128Fade = nil
+  self.fieldEffects = nil
+  self._waitFieldEffect = nil
+end
+
 function Game3:wipeNewGameState()
   self.party = {}
   self.pc = {}
+  self.pcCurrentBox = 1
+  self.boxNames = nil
+  self.boxWallpapers = nil
   self.caught = {}
   self.seen = {}
   self.bag = {}
   self.money = Game3.START_MONEY
+  self.coins = 0
+  self.clockHour = nil
+  self.clockMinute = nil
+  self.clockAnchor = nil
+  self.coinsBox = nil
   self.balls = 0
-  self:addItem(Game3.ITEM_POKE_BALL, Game3.START_BALLS)
   self.flags = {}
   self:applyNewGameHideFlags()
   self.scriptVars = {}
   -- pokemon_size_record.c InitShroomish/BarboachSizeRecord: 0x8100 is Marco.
   self.scriptVars[Game3.VAR_SHROOMISH_SIZE_RECORD] = Game3.SIZE_RECORD_DEFAULT
   self.scriptVars[Game3.VAR_BARBOACH_SIZE_RECORD] = Game3.SIZE_RECORD_DEFAULT
-  self.field = nil
+  self:clearTransientOverlay()
   self.battle = nil
-  self._scriptPause = nil
-  self._scriptReturn = nil
-  self._scriptSays = nil
-  self._scriptLoaded = nil
-  self._scriptCmp = 0
   self._scriptDepth = nil
   self._pendingMapFrame = nil
-  self.scriptWait = nil
-  self.delayLeft = nil
   self.moveJobs = {}
   self.stepCallback = nil
   self.dynamicWarp = nil
@@ -2943,13 +7152,29 @@ function Game3:wipeNewGameState()
   self.daycare = {}
   self.daycarePending = nil
   self.eggCycleSteps = 0
+  self.hallOfFameTeams = {}
   self.secretBase = nil
   self:initBerryTrees()
   self.berryMinuteAcc = 0
   self:initDewfordTrend()
+  self:setupMauvilleOldMan()
+  self.trendyUnlocked = {}
+  self:unlockRandomTrendySaying()
+  self.decorations = {}
   self.rivalSpecies = nil
   self.rivalTookStarter = nil
   self.gameStats = nil
+  self:resetGabbyAndTy()
+  self:resetTrainerRematches()
+  self:resetLotteryCorner()
+  self.tvShowState = 0
+  self:clearRoamerData()
+  self:clearRoamerLocationData()
+  self.battleResults = nil
+  self.battleOutcome = 0
+  self.sav1Weather = 0
+  self.currWeather = 0
+  self.weatherCycleStage = 0
   self.registeredItem = nil
   self.npcByMap = {}
   self.facing = "south"
@@ -2981,7 +7206,123 @@ function Game3:resetWorldForNewGame()
   self:spawnAtNewGame()
 end
 
-function Game3:enterMap(map, x, y, ignoreWarp)
+-- sub_8053D14 / LoadCurrentMapData. Freeze a copy of the header grid.
+-- Do not replace map.grid on a normal enter: gym tests hold that table.
+function Game3.copyGrid(src)
+  if type(src) ~= "table" then return {} end
+  local out = {}
+  for i = 1, #src do out[i] = src[i] end
+  return out
+end
+
+function Game3:ensureMapBase(map)
+  if not map or map.baseGrid then return end
+  map.baseGrid = Game3.copyGrid(map.grid)
+  map.baseWidth = map.width
+  map.baseHeight = map.height
+  map.baseTileset = map.tileset
+  map.baseBorder = map.border
+end
+
+function Game3.writeGrid(dst, src)
+  if type(src) ~= "table" then return dst end
+  if type(dst) ~= "table" then return Game3.copyGrid(src) end
+  local n = #src
+  if #dst > n then n = #dst end
+  for i = 1, n do dst[i] = src[i] end
+  return dst
+end
+
+function Game3:restoreMapLayout(map)
+  if not map or not map.baseGrid then return end
+  map.width = map.baseWidth
+  map.height = map.baseHeight
+  map.tileset = map.baseTileset
+  map.grid = Game3.writeGrid(map.grid, map.baseGrid)
+  map.border = map.baseBorder
+  map.layoutSwapped = nil
+  self:markTilesDirty()
+end
+
+function Game3:lookupLayout(id)
+  id = tonumber(id) or 0
+  if id == 0 then return nil end
+  local pack = self.data and self.data.maps or {}
+  local extra = pack.layouts
+  local row = extra and (extra[id] or extra[tostring(id)])
+  if type(row) == "table" then return row end
+  local maps = pack.maps
+  if type(maps) ~= "table" then return nil end
+  for _, m in pairs(maps) do
+    if m and tonumber(m.layoutId) == id then
+      return {
+        width = m.baseWidth or m.width,
+        height = m.baseHeight or m.height,
+        grid = m.baseGrid or m.grid,
+        tileset = m.baseTileset or m.tileset,
+        border = m.baseBorder or m.border,
+      }
+    end
+  end
+end
+
+-- ScrCmd_setmaplayoutindex → sub_8053D14. Same events; collision /
+-- tiles come from gMapLayouts[id - 1].
+function Game3:setMapLayoutIndex(id)
+  id = tonumber(id) or 0
+  if id == 0 then return end
+  self.mapLayoutId = id
+  local layout = self:lookupLayout(id)
+  local map = self.map
+  if not layout or not map then return end
+  self:ensureMapBase(map)
+  map.width = layout.width or map.width
+  map.height = layout.height or map.height
+  if layout.tileset then map.tileset = layout.tileset end
+  if type(layout.grid) == "table" then
+    map.grid = Game3.writeGrid(map.grid, layout.grid)
+  end
+  if layout.border then map.border = layout.border end
+  map.layoutSwapped = true
+  self:markTilesDirty()
+  if self.map == map then self:loadTileset() end
+end
+
+-- time_events.c IsMirageIslandPresent: high 16 of the 32-bit rnd
+-- (VAR_MIRAGE_RND_H) vs personality & 0xFFFF of a non-empty party slot.
+function Game3:isMirageIslandPresent()
+  local rnd = (tonumber(self:varGet(Game3.VAR_MIRAGE_RND_H)) or 0) % 65536
+  local party = self.party or {}
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and (tonumber(mon.species) or 0) ~= 0 then
+      local pid = tonumber(mon.pid) or 0
+      if (pid % 65536) == rnd then return 1 end
+    end
+  end
+  return 0
+end
+
+-- time_events.c UpdateShoalTideFlag. Only when lastUsedWarp is outdoor
+-- (is_map_type_1_2_3_5_or_6). hours 0-23 from RtcCalcLocalTime.
+function Game3:updateShoalTideFlag()
+  if not Game3.isOutdoorMapType(self:lastUsedWarpMapType()) then return end
+  local hour = (self:localTime().hours or 0) % 24
+  local high = Game3.SHOAL_TIDE_BY_HOUR[hour + 1]
+  self.flags = self.flags or {}
+  if high ~= 0 then
+    self.flags[Game3.FLAG_SYS_SHOAL_TIDE] = true
+  else
+    self.flags[Game3.FLAG_SYS_SHOAL_TIDE] = nil
+  end
+end
+
+function Game3:enterMap(map, x, y, ignoreWarp, connected)
+  self:ensureMapBase(map)
+  if map and map.layoutSwapped then
+    self:restoreMapLayout(map)
+  end
+  self.mapLayoutId = tonumber(map and map.layoutId) or 0
   self.map = map
   self.playerX = x
   self.playerY = y
@@ -2990,25 +7331,57 @@ function Game3:enterMap(map, x, y, ignoreWarp)
   self.walkCooldown = 0
   self.moveJobs = {}
   self.invisible = nil
+  self.cameraDummy = nil
   self.fixedPriority = nil
   self.objSubpriority = nil
+  self.rotatingGates = nil
+  self.rotatingGateOrients = nil
   self.ignoreWarp = ignoreWarp and true or false
   self.grassRustle = nil
+  self.fieldEffects = nil
+  self._waitFieldEffect = nil
+  self.doorAnim = nil
   -- ROM templates keep their extracted xy. ON_TRANSITION may park a
   -- blocker for this visit only; leftover perm from the last visit would
   -- leave the Littleroot twin / Oldale footprints man on the map edge.
-  self:clearObjectPerms(map)
+  -- A connection keeps the neighbor we were already drawing, including
+  -- those perms, so the seam does not respawn the map.
+  if not connected then
+    self:clearObjectPerms(map)
+  end
+  self:clearTempFlags()
   self:setDefaultFlashLevel(map)
+  -- overworld.c LoadMap: TryUpdateRandomTrainerRematches before
+  -- SetSav1WeatherFromCurrMapHeader. CONTINUE skips like RoamerMove.
+  if not self._skipRoamerMove then
+    self:tryUpdateRandomTrainerRematches()
+  end
+  self:doTimeBasedEvents()
+  -- overworld.c LoadMap: SetSav1WeatherFromCurrMapHeader, ON_TRANSITION,
+  -- then DoCurrentWeather. ON_TRANSITION may setweather (Route 111 sand).
+  self:setSav1WeatherFromCurrMapHeader()
   self:runMapScript("onTransition")
   self:runMapScript("onLoad")
+  -- overworld.c LoadMapFromLastWarp: after InitMap, before weather.
+  if not self._skipRoamerMove then
+    self:updateLocationHistoryForRoamer()
+    self:roamerMove()
+  end
+  self:doCurrentWeather()
   self:runMapScript("onResume")
   self:resetNpcs(map)
-  -- tv.c UpdateTVScreensOnMap FlagSet(FLAG_SYS_TV_WATCH) on every load.
-  self.flags = self.flags or {}
-  self.flags[Game3.FLAG_SYS_TV_WATCH] = true
+  self:updatePlayerZCoord()
+  -- tv.c UpdateTVScreensOnMap: default TVs off, then on if a show airs.
+  self:updateTVScreensOnMap()
   self:lightExitDoors()
   self:clampCamera()
+  -- Connection walks already drew this map as a neighbor. Tile batches
+  -- are map-local, so keep them; wiping here is the seam hitch.
+  if not connected then
+    self:markTilesDirty()
+  end
   self:loadTileset()
+  self:warmConnectedMaps(map)
   if self.surfing and not Game3.isSurfable(self:behaviorAt(map, x, y)) then
     self.surfing = nil
     self.climbing = nil
@@ -3018,6 +7391,7 @@ function Game3:enterMap(map, x, y, ignoreWarp)
     self.bike = nil
   end
   self:markFlyVisited(map)
+  self:playMapMusic(map)
   self:runMapScriptTable("onWarp", false)
   -- pokeruby runs the dest ON_FRAME after the warp script finishes, not
   -- nested inside warpsilent. Boot cinema also must not run field scripts
@@ -3032,12 +7406,20 @@ end
 
 function Game3:load()
   Input:init()
+  -- Before applyDisplayOptions, which is what pushes options.touchControls
+  -- into the overlay: init() decides whether the platform wants it at all and
+  -- loads the art, applyTouchOptions then lays it out (src/core/Game.lua and
+  -- Game2.lua do the same pair).
   TouchControls:init()
   self.touchControls = TouchControls
   self.data.header = loadGenerated("data/generated/header.lua") or {}
   self.data.constants = loadGenerated("data/generated/constants.lua") or {}
   self.data.pokemon = loadGenerated("data/generated/pokemon.lua") or {}
   self.data.maps = require("src.import.Gen3MapPack").load() or {}
+  local layouts = loadGenerated("data/generated/layouts.lua")
+  if type(layouts) == "table" then
+    self.data.maps.layouts = layouts.byId or layouts
+  end
   self.data.tilesets = loadGenerated("data/generated/tilesets.lua") or {}
   self.data.sprites = loadGenerated("data/generated/sprites.lua") or {}
   self.data.encounters = loadGenerated("data/generated/encounters.lua") or {}
@@ -3046,12 +7428,18 @@ function Game3:load()
   self.data.items = loadGenerated("data/generated/items.lua") or {}
   self.data.font = loadGenerated("data/generated/font.lua") or {}
   self.data.title = loadGenerated("data/generated/title.lua") or {}
+  self.data.ui = loadGenerated("data/generated/ui.lua") or {}
+  self.data.audio = loadGenerated("data/generated/audio.lua") or {}
+  self.data.menus = loadGenerated("data/generated/menus.lua") or {}
+  self:applyAudioOptions()
   self.named = namedList(self.data.pokemon)
   self.atlasCache = {}
   self.spriteCache = {}
   self.battlePicCache = {}
   self.npcByMap = {}
   self.tileBatches = {}
+  self.tileWindows = {}
+  self.borderFillCache = nil
   self.quads = {}
   self:resetWorldForNewGame()
   self.gender = nil
@@ -3064,13 +7452,30 @@ function Game3:load()
   self.customName = nil
   self.options = {
     textSpeed = 2, battleScene = true, battleStyle = "shift", stereo = false,
+    windowFrame = 0, zoom = 0, tilt = 0,
+    speedOverworld = 1, speedBattle = 1, speedMenu = 1,
   }
+  self.viewW, self.viewH = Game3.SCREEN_W, Game3.SCREEN_H
+  self:applyDisplayOptions()
   self.trainerId = nil
   self:ensureTrainerId()
   self:resetBoot()
 end
 
 function Game3:visualTile()
+  local follow = self.cameraDummy
+  if follow then
+    local x, y = follow.x, follow.y
+    if (follow.cooldown or 0) > 0 then
+      local dur = follow.walkDuration or Game3.WALK_PERIOD
+      local t = 1
+      if dur > 0 then t = 1 - follow.cooldown / dur end
+      if t < 0 then t = 0 elseif t > 1 then t = 1 end
+      x = (follow.fromX or x) + (follow.x - (follow.fromX or x)) * t
+      y = (follow.fromY or y) + (follow.y - (follow.fromY or y)) * t
+    end
+    return x, y
+  end
   local x, y = self.playerX, self.playerY
   if (self.walkCooldown or 0) > 0 then
     local t = self:walkProgress()
@@ -3115,6 +7520,118 @@ function Game3:worldBounds()
   return x0, y0, x1, y1
 end
 
+function Game3:windowSize()
+  local ok, w, h = pcall(function()
+    return GameViewport.dimensions()
+  end)
+  if not ok then return Game3.SCREEN_W, Game3.SCREEN_H end
+  w, h = tonumber(w) or 0, tonumber(h) or 0
+  if w < 1 or h < 1 then return Game3.SCREEN_W, Game3.SCREEN_H end
+  return w, h
+end
+
+function Game3:fitScale()
+  local w, h = self:windowSize()
+  return math.max(1, math.floor(math.min(w / Game3.SCREEN_W, h / Game3.SCREEN_H)))
+end
+
+function Game3:zoomScale()
+  return require("src.render.Zoom").scale(self:fitScale())
+end
+
+function Game3:viewSize()
+  local vw = tonumber(self.viewW) or Game3.SCREEN_W
+  local vh = tonumber(self.viewH) or Game3.SCREEN_H
+  if vw < 1 then vw = Game3.SCREEN_W end
+  if vh < 1 then vh = Game3.SCREEN_H end
+  return vw, vh
+end
+
+-- World pixels covered by the window at the current zoom, grown when tilt
+-- is on so the perspective capture still fills the screen (World:draw).
+function Game3:syncWorldView()
+  local Tilt = require("src.render.Tilt")
+  local w, h = self:windowSize()
+  local s = self:zoomScale()
+  local gw, gh = w, h
+  if Tilt.active() then
+    local g = Tilt.viewGrowth()
+    gw, gh = math.ceil(w * g), math.ceil(h * g)
+  end
+  local vw = math.ceil(gw / s)
+  local vh = math.ceil(gh / s)
+  if vw % 2 ~= 0 then vw = vw + 1 end
+  if vh % 2 ~= 0 then vh = vh + 1 end
+  if vw < 2 then vw = 2 end
+  if vh < 2 then vh = 2 end
+  self.viewW, self.viewH = vw, vh
+  self._zoomS = s
+  self._tiltGw, self._tiltGh = gw, gh
+  return vw, vh, s, gw, gh
+end
+
+-- Dialogue / START stay over the map. Full-screen UIs (party, bag, card,
+-- minigames) keep the 240×160 letterbox. yesnobox is script_yesno (Std
+-- MsgboxYesNo); a bare "yesno" kind is never opened.
+Game3.WORLD_FIELD = {
+  talk = true,
+  menu = true,
+  yesno = true,
+  script_yesno = true,
+  script_choice = true,
+  safari_retire = true,
+  wait = true,
+  move = true,
+  delay = true,
+  fishing = true,
+  trainer_approach = true,
+  link_records = true,
+  tower_records = true,
+  tm_yesno = true,
+  learn_yesno = true,
+  learn_stop = true,
+  tutor_confirm = true,
+  tutor_giveup = true,
+  -- Wall clock is a CB2 in the ROM. Here it is a HUD over the bedroom so
+  -- a held FADE_TO_BLACK cannot bury it on the 240×160 canvas path (that
+  -- path blit as an opaque black plate on some GLES / GL drivers).
+  clock_set = true,
+  clock_yesno = true,
+  clock_view = true,
+}
+
+function Game3:fieldShowsWorld()
+  local f = self.field
+  if not f then return true end
+  -- StorageSystemCreatePrimaryMenu sits on the field; the box screen is
+  -- a full 240×160 letterbox like the party/bag.
+  if f.kind == "pc" then return (f.mode or "root") == "root" end
+  return Game3.WORLD_FIELD[f.kind] == true
+end
+
+-- The HUD letterbox is a 240×160 overlay on the zoomed world. Blitting it
+-- when nothing is in it left a solid black rectangle in the window centre.
+function Game3:playHudActive()
+  local f = self.field
+  if f then
+    local k = f.kind
+    if k ~= "move" and k ~= "delay" and k ~= "wait" then
+      return true
+    end
+  end
+  if self.orb then return true end
+  if self.route128Fade then return true end
+  if self.moneyBox or self.coinsBox then return true end
+  return false
+end
+
+function Game3:displayGateOK()
+  if self.phase ~= "play" or not self.map then return false end
+  if self.field then return false end
+  if self:scriptDelaying() or self:scriptWaiting() then return false end
+  return true
+end
+
 function Game3:clampCamera()
   local map = self.map
   if not map then
@@ -3128,25 +7645,71 @@ function Game3:clampCamera()
   local px, py = Game3.spriteDrawPos(vx, vy, sw, sh, self.levitate or 0)
   local focusX = px + sw / 2
   local focusY = py + sh / 2
-  local camX = focusX - Game3.SCREEN_W / 2
-  local camY = focusY - Game3.SCREEN_H / 2
-  -- fieldmap.h MAP_OFFSET 7: the GBA camera can look into the border, so
-  -- the player stays at 120,80. Our layouts have no border. Clamping to
-  -- the grid puts Granite B1F's 24px Flash hole on empty floor. Briney's
-  -- sail walks the hidden player off Dewford; keep them centered too.
-  local jobs = self.moveJobs
-  local scriptWalk = type(jobs) == "table" and #jobs > 0
-  if self:flashRadius() < 1 and not scriptWalk then
-    local x0, y0, x1, y1 = self:worldBounds()
-    local maxX = math.max(x0, x1 - Game3.SCREEN_W)
-    local maxY = math.max(y0, y1 - Game3.SCREEN_H)
-    if camX < x0 then camX = x0 elseif camX > maxX then camX = maxX end
-    if camY < y0 then camY = y0 elseif camY > maxY then camY = maxY end
-  end
+  local vw, vh = self:viewSize()
+  local camX = focusX - vw / 2
+  local camY = focusY - vh / 2
+  -- fieldmap.h MAP_OFFSET 7: the GBA camera looks into the border, so the
+  -- player stays at screen centre. We draw connected maps and the 2x2
+  -- border fill in that extra space, so clamping to this map's grid would
+  -- hide them and jump the camera at every connection. Flash and scripted
+  -- walks already kept the sprite centred; free roam does too.
   -- Integer SCX/SCY.  Fractional cameras put nearest-neighbour tiles on
-  -- half-pixels and the seams flash while walking a map bigger than the
-  -- 240×160 window.
-  self.camX, self.camY = Game3.snapPixel(camX), Game3.snapPixel(camY)
+  -- half-pixels and the seams flash while walking. Draw uses scale(s) onto
+  -- the window, so follow the drawable (gw x gh) not the even-padded view
+  -- or zoom leaves the sprite a few pixels off window centre.
+  local s = tonumber(self._zoomS)
+  local gw, gh = tonumber(self._tiltGw), tonumber(self._tiltGh)
+  if s and s > 0 and gw and gh and gw > 0 and gh > 0 then
+    camX = focusX - gw / (2 * s)
+    camY = focusY - gh / (2 * s)
+  end
+  self.camX, self.camY = Game3.snapPixel(camX + (self.cameraPanX or 0)),
+    Game3.snapPixel(camY + (self.cameraPanY or 0))
+end
+
+-- FldEff_PokecenterHeal / HallOfFameRecord OBJs are authored in 240×160
+-- screen space. Zoomed overworld uses a larger view, so HUD letterbox
+-- coords land in the void; map these through the GBA camera instead.
+function Game3:gbaCamOrigin()
+  local vx, vy = self:visualTile()
+  local spec = Game3.spriteSpec(self.data and self.data.sprites, self:playerGraphicsId())
+  local sw = spec and spec.width or Game3.TILE
+  local sh = spec and spec.height or Game3.TILE
+  local px, py = Game3.spriteDrawPos(vx, vy, sw, sh, self.levitate or 0)
+  local focusX = px + sw / 2 + (self.cameraPanX or 0)
+  local focusY = py + sh / 2 + (self.cameraPanY or 0)
+  return focusX - Game3.SCREEN_W / 2, focusY - Game3.SCREEN_H / 2
+end
+
+function Game3:gbaScreenToWorld(sx, sy)
+  local ox, oy = self:gbaCamOrigin()
+  return ox + (tonumber(sx) or 0), oy + (tonumber(sy) or 0)
+end
+
+-- fieldmap.c IsCoordInIncomingConnectingMap: dest size + offset is the
+-- span on this map. Route 111 lists 113 (offset 0, 20 tall) then 112
+-- (offset 20, 60 tall). First-match-by-dir sent every west step to 113.
+function Game3.connectionCoordInRange(conn, src, dest, dir, x, y)
+  if type(conn) ~= "table" or type(src) ~= "table" or type(dest) ~= "table" then
+    return false
+  end
+  local off = tonumber(conn.offset) or 0
+  local coord, srcMax, destMax
+  if dir == "north" or dir == "south" then
+    coord = tonumber(x) or 0
+    srcMax = src.width or 0
+    destMax = dest.width or 0
+  else
+    coord = tonumber(y) or 0
+    srcMax = src.height or 0
+    destMax = dest.height or 0
+  end
+  local lo = off
+  if lo < 0 then lo = 0 end
+  if destMax + off < srcMax then
+    srcMax = destMax + off
+  end
+  return lo <= coord and coord <= srcMax
 end
 
 function Game3:connectionDest(map, x, y, dx, dy)
@@ -3160,12 +7723,13 @@ function Game3:connectionDest(map, x, y, dx, dy)
     local c = map.connections[i]
     if c and c.dir == dir then
       local dest = self:lookupMap(c.mapGroup, c.mapNum)
-      if not dest then return nil end
-      local ox = c.offset or 0
-      if dir == "north" then return dest, x - ox, dest.height - 1 end
-      if dir == "south" then return dest, x - ox, 0 end
-      if dir == "west" then return dest, dest.width - 1, y - ox end
-      return dest, 0, y - ox
+      if dest and Game3.connectionCoordInRange(c, map, dest, dir, x, y) then
+        local ox = c.offset or 0
+        if dir == "north" then return dest, x - ox, dest.height - 1 end
+        if dir == "south" then return dest, x - ox, 0 end
+        if dir == "west" then return dest, dest.width - 1, y - ox end
+        return dest, 0, y - ox
+      end
     end
   end
   return nil
@@ -3182,7 +7746,18 @@ function Game3:rememberLastWarp()
   self.lastUsedWarp = {
     mapGroup = tonumber(m.group) or 0,
     mapNum = tonumber(m.index) or 0,
+    mapType = tonumber(m.mapType) or 0,
+    x = self.playerX or 0,
+    y = self.playerY or 0,
   }
+end
+
+function Game3:lastUsedWarpMapType()
+  local last = self.lastUsedWarp
+  if not last then return 0 end
+  if last.mapType ~= nil then return tonumber(last.mapType) or 0 end
+  local m = self:lookupMap(last.mapGroup, last.mapNum)
+  return (m and tonumber(m.mapType)) or 0
 end
 
 function Game3:followWarp(w)
@@ -3199,6 +7774,7 @@ function Game3:followWarp(w)
   end
   local dest = self:lookupMap(w.mapGroup, w.mapNum)
   if not dest then return true end
+  self:maybeSetDynamicWarpFromDest(dest, w.warpId, w)
   self:maybeSetEscapeWarp(dest, w.x or self.playerX, w.y or self.playerY)
   local dw = dest.warps and dest.warps[w.warpId + 1]
   local x = dw and dw.x or (dest.spawn and dest.spawn.x) or 0
@@ -3254,7 +7830,9 @@ end
 function Game3:tryWalk(dx, dy)
   local map = self.map
   if not map then return false end
-  self.facing = Game3.facingFromDelta(dx, dy)
+  if not self.slopeFaceLock then
+    self.facing = Game3.facingFromDelta(dx, dy)
+  end
   local nx = self.playerX + dx
   local ny = self.playerY + dy
   if Game3.isTruckMap(map) and nx >= 3 then
@@ -3270,8 +7848,19 @@ function Game3:tryWalk(dx, dy)
     local dest, dx_, dy_ = self:connectionDest(map, self.playerX, self.playerY, dx, dy)
     if dest and self:canStep(dest, dx_, dy_) and not self:npcAt(dest, dx_, dy_) then
       self:maybeSetEscapeWarp(dest, self.playerX, self.playerY)
-      self:enterMap(dest, dx_, dy_, false)
+      self:enterMap(dest, dx_, dy_, false, true)
+      -- World:tryConnection: land on the dest tile but lerp from one step
+      -- behind so the camera and sprite keep moving. walkFrom can sit
+      -- outside this map; the map we left is already drawn as a neighbor.
+      self.walkFromX = dx_ - dx
+      self.walkFromY = dy_ - dy
+      self.playerX, self.playerY = dx_, dy_
+      self:updatePlayerZCoord()
+      self.walkDuration = self:walkPeriod()
+      self.walkCooldown = self.walkDuration
+      self:clampCamera()
       self:tickWalkCounters()
+      self:beginGrassRustle(dx_, dy_)
       return true
     end
     self:tryAdvanceCyclingRoadCollisions()
@@ -3280,9 +7869,23 @@ function Game3:tryWalk(dx, dy)
   -- Gen 3 doors sit on collision.  Walking into that tile is the warp.
   -- pokeruby TryStartStepBasedScript runs coord events first, so the
   -- house doormat's GoSeeRoom (intro 4) beats the door warp to town.
+  -- Arrow warps only fire from the matching walk direction. Mt. Pyre
+  -- holes (0x0F) land first, then DoFallWarp — not a door-style bump.
+  -- Norman gym sliding doors (MB_PETALBURG_GYM_DOOR / sign bg) are
+  -- A-press only. Bump-warping them skips "appears locked" and can
+  -- land on the paired warp inside a wall.
   local warp = Game3.warpAt(map, nx, ny)
   if warp and not self.ignoreWarp and not self:coordEventWouldRun(nx, ny) then
-    return self:followWarp(warp)
+    local b = self:behaviorAt(map, nx, ny)
+    if Game3.isArrowWarp(b) then
+      if Game3.arrowWarpMatches(b, dx, dy) then
+        return self:followWarp(warp)
+      end
+    elseif b ~= Game3.MB_MT_PYRE_HOLE
+        and b ~= Game3.MB_PETALBURG_GYM_DOOR
+        and not Game3.signBgAt(map, nx, ny) then
+      return self:followWarp(warp)
+    end
   end
   if self:isOwnedSecretBaseTile(map, nx, ny) then
     return self:enterSecretBase()
@@ -3317,11 +7920,19 @@ function Game3:tryWalk(dx, dy)
   local ox, oy = self.playerX, self.playerY
   self.walkFromX, self.walkFromY = ox, oy
   self.playerX, self.playerY = nx, ny
+  self:updatePlayerZCoord()
   self.walkDuration = self:walkPeriod()
   self.walkCooldown = self.walkDuration
   self:clampCamera()
   if self.ignoreWarp and not Game3.warpAt(map, nx, ny) then
     self.ignoreWarp = false
+  end
+  -- TryStartWarpEventScript: standing on MB_MT_PYRE_HOLE with a warp
+  -- event runs EventScript_FallDownHoleMtPyre → special DoFallWarp.
+  if not self.ignoreWarp
+      and self:behaviorAt(map, nx, ny) == Game3.MB_MT_PYRE_HOLE
+      and Game3.warpAt(map, nx, ny) then
+    return self:doFallWarp()
   end
   self:runStepCallback(ox, oy)
   self:tickWalkCounters()
@@ -3331,6 +7942,8 @@ function Game3:tryWalk(dx, dy)
 end
 
 function Game3:gridIndex(map, x, y)
+  x = math.floor(tonumber(x) or 0)
+  y = math.floor(tonumber(y) or 0)
   local w, h = map and map.width or 0, map and map.height or 0
   if not map or x < 0 or y < 0 or x >= w or y >= h then return nil end
   return y * w + x + 1
@@ -3340,8 +7953,10 @@ function Game3:setMetatile(x, y, tile, collision)
   local map = self.map
   local i = self:gridIndex(map, x, y)
   if not i or type(map.grid) ~= "table" then return false end
-  local col = (collision and collision ~= 0) and 1 or 0
-  map.grid[i] = (tonumber(tile) or 0) % 1024 + col * 1024
+  local col = (collision and collision ~= 0) and 1024 or 0
+  local elev = Game3.elevationBits(map.grid[i])
+  map.grid[i] = elev + (tonumber(tile) or 0) % 1024 + col
+  self:markTilesDirty()
   return true
 end
 
@@ -3371,6 +7986,7 @@ function Game3:mapGridSetMetatileId(gx, gy, metatile)
   if not i or type(map.grid) ~= "table" then return false end
   local elev = math.floor((map.grid[i] or 0) / 4096) * 4096
   map.grid[i] = elev + ((tonumber(metatile) or 0) % 4096)
+  self:markTilesDirty()
   return true
 end
 
@@ -3497,10 +8113,851 @@ function Game3:cableCarWarp()
 end
 
 function Game3:cableCar()
+  -- CableCar: LockPlayerFieldControls, fade, then the ride callback.
+  -- unk_0004 is 0x15e going up (0x8004 == 0) and 0x109 going down.
   local d = self.cableCarDest
-  self.cableCarDest = nil
   if not d then return end
-  self:scriptWarp(d.group, d.num, Game3.WARP_ID_NONE, d.x, d.y)
+  local down = (tonumber(self:varGet(0x8004)) or 0) ~= 0
+  self.field = {
+    kind = "cable_car",
+    dest = d,
+    down = down,
+    left = down and Game3.CABLE_CAR_FRAMES_DOWN or Game3.CABLE_CAR_FRAMES_UP,
+    t = 0,
+  }
+  self:beginScriptWait()
+  self:playSong(Game3.MUS_CABLE_CAR, true)
+end
+
+function Game3:stepCableCar(dt)
+  local f = self.field
+  if not (f and f.kind == "cable_car") then return end
+  local frames = math.floor((dt or 0) * 60 + 0.0001)
+  if frames < 1 then frames = 0 end
+  f.t = (f.t or 0) + frames
+  f.left = (f.left or 0) - frames
+  if f.left <= 0 then
+    self:finishCableCar()
+  end
+end
+
+function Game3:finishCableCar()
+  local f = self.field
+  local d = f and f.dest
+  self.field = nil
+  self.cableCarDest = nil
+  if d then
+    self:scriptWarp(d.group, d.num, Game3.WARP_ID_NONE, d.x, d.y)
+  end
+  self:playMapMusic()
+  self:endScriptWait()
+end
+
+-- sub_81239E4 / sub_8123AF8 + sub_8123CB8.
+function Game3.cableCarScroll(t, down)
+  t = math.floor(t or 0)
+  if t < 0 then t = 0 end
+  local dx = math.floor(Game3.CABLE_CAR_DX * t)
+  local dy = math.floor(Game3.CABLE_CAR_DY * t)
+  if down then
+    return {
+      bg3h = Game3.CABLE_CAR_DOWN_BG3_X + t,
+      bg3v = Game3.CABLE_CAR_DOWN_BG3_Y + math.floor(t / 2),
+      bg1h = math.floor(t / 8),
+      bg1v = Game3.CABLE_CAR_DOWN_BG1_Y + math.floor(t / 8),
+      carX = Game3.CABLE_CAR_DOWN_CAR_X + dx,
+      carY = Game3.CABLE_CAR_DOWN_CAR_Y + dy,
+      doorX = Game3.CABLE_CAR_DOWN_DOOR_X + dx,
+      doorY = Game3.CABLE_CAR_DOWN_DOOR_Y + dy,
+    }
+  end
+  return {
+    bg3h = Game3.CABLE_CAR_UP_BG3_X - t,
+    bg3v = Game3.CABLE_CAR_UP_BG3_Y - math.floor(t / 2),
+    bg1h = -math.floor(t / 8),
+    bg1v = Game3.CABLE_CAR_UP_BG1_Y - math.floor(t / 8),
+    carX = Game3.CABLE_CAR_UP_CAR_X - dx,
+    carY = Game3.CABLE_CAR_UP_CAR_Y - dy,
+    doorX = Game3.CABLE_CAR_UP_DOOR_X - dx,
+    doorY = Game3.CABLE_CAR_UP_DOOR_Y - dy,
+  }
+end
+
+function Game3:drawWrap256(img, hofs, vofs)
+  if not img then return end
+  local G = love.graphics
+  local ox = math.floor(hofs or 0) % 256
+  local oy = math.floor(vofs or 0) % 256
+  if ox < 0 then ox = ox + 256 end
+  if oy < 0 then oy = oy + 256 end
+  G.setColor(1, 1, 1, 1)
+  for dx = 0, 1 do
+    for dy = 0, 1 do
+      G.draw(img, dx * 256 - ox, dy * 256 - oy)
+    end
+  end
+end
+
+function Game3:drawCableCar(f)
+  local G = love.graphics
+  local down = f and f.down
+  local mountain = self:cinemaPic("cableCarMountain")
+  if not mountain then
+    if down then
+      G.setColor(0.42, 0.40, 0.38, 1)
+    else
+      G.setColor(0.45, 0.62, 0.88, 1)
+    end
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    local t = f and f.t or 0
+    local dir = down and 1 or -1
+    G.setColor(0.28, 0.38, 0.22, 1)
+    for i = 0, 8 do
+      local y = ((i * 28 + t * dir) % 224) - 32
+      G.rectangle("fill", 0, y, Game3.SCREEN_W, 18)
+    end
+    G.setColor(0.55, 0.22, 0.18, 1)
+    local cx, cy = down and 128 or 176, down and 39 or 73
+    G.rectangle("fill", cx - 24, cy - 16, 56, 40)
+    G.setColor(0.85, 0.78, 0.55, 1)
+    G.rectangle("fill", cx - 14, cy - 8, 20, 14)
+    return
+  end
+  -- BG2 pri 3, BG1 pri 2, OBJ pri 2, BG0 pri 1, BG3 pri 0.
+  local s = Game3.cableCarScroll(f and f.t, down)
+  G.setColor(1, 1, 1, 1)
+  G.draw(mountain, 0, 0)
+  self:drawWrap256(self:cinemaPic("cableCarTrees"), s.bg1h, s.bg1v)
+  local cord = self:cinemaPic("cableCarCord")
+  if cord then
+    for i = 0, 8 do
+      G.draw(cord, 16 * i + 0x60, 8 * i - 8)
+    end
+  end
+  local car = self:cinemaPic("cableCarCar")
+  if car then
+    -- affine-double identity: the 64x64 sheet sits at sprite x/y.
+    G.draw(car, s.carX, s.carY)
+  end
+  local door = self:cinemaPic("cableCarDoor")
+  if door then
+    G.draw(door, s.doorX, s.doorY)
+  end
+  self:drawWrap256(self:cinemaPic("cableCarChimney"), 0, 0)
+  self:drawWrap256(self:cinemaPic("cableCarPylon"), s.bg3h, s.bg3v)
+  if down then
+    G.setColor(0.45, 0.42, 0.40, 0.22)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+end
+
+-- egg_hatch.c sprite at (0x78, 0x4B). Four 32x32 crack frames.
+function Game3.gbaSin(index, amp)
+  index = math.floor(index or 0) % 256
+  if index < 0 then index = index + 256 end
+  local v = math.sin(index * math.pi / 128) * 256
+  if v >= 0 then v = math.floor(v + 0.5) else v = math.ceil(v - 0.5) end
+  if amp == nil then return v end
+  local p = v * amp
+  if p >= 0 then return math.floor(p / 256) else return math.ceil(p / 256) end
+end
+
+-- CB2 pal wait 31, Egg_0 20, Egg_1 freeze 30 + 20, Egg_2 freeze 30 + 38,
+-- Egg_3 51, Egg_4 white fade, Egg_5 reveal.
+function Game3.eggHatchPose(t)
+  t = math.floor(t or 0)
+  if t < Game3.EGG_HATCH_WAIT then
+    return { frame = 0, x2 = 0, egg = true, mon = false, flash = 0, scale = 1 }
+  end
+  local s = t - Game3.EGG_HATCH_WAIT
+  local data1, frame = 0, 0
+  if s < 20 then
+    local d0 = s + 1
+    data1 = (20 * d0) % 256
+    if d0 >= 15 then frame = 1 end
+    return { frame = frame, x2 = Game3.gbaSin(data1, 1), egg = true, mon = false,
+      flash = 0, scale = 1 }
+  end
+  s = s - 20
+  if s < 30 then
+    return { frame = 1, x2 = 0, egg = true, mon = false, flash = 0, scale = 1 }
+  end
+  s = s - 30
+  if s < 20 then
+    local d0 = s + 1
+    data1 = (20 * d0) % 256
+    if d0 >= 15 then frame = 2 else frame = 1 end
+    return { frame = frame, x2 = Game3.gbaSin(data1, 2), egg = true, mon = false,
+      flash = 0, scale = 1 }
+  end
+  s = s - 20
+  if s < 30 then
+    return { frame = 2, x2 = 0, egg = true, mon = false, flash = 0, scale = 1 }
+  end
+  s = s - 30
+  if s < 38 then
+    local d0 = s + 1
+    data1 = (20 * d0) % 256
+    return { frame = 2, x2 = Game3.gbaSin(data1, 2), egg = true, mon = false,
+      flash = 0, scale = 1 }
+  end
+  s = s - 38
+  if s < 51 then
+    return { frame = 2, x2 = 0, egg = true, mon = false, flash = 0, scale = 1 }
+  end
+  s = s - 51
+  local fade = Game3.EGG_HATCH_FADE
+  if s < fade then
+    return { frame = 2, x2 = 0, egg = true, mon = false,
+      flash = (s + 1) / fade, scale = 1 }
+  end
+  s = s - fade
+  -- SpriteCB_Egg_5: y -= 1 while data[0] <= 9 (10 px). Affine anim 1
+  -- is gSpriteAffineAnim_81E7AC0: set 0x28, then +0x12 for 12 frames.
+  local lift = s + 1
+  if lift > 10 then lift = 10 end
+  local scale = (0x28 + s * 0x12) / 0x100
+  if scale > 1 then scale = 1 end
+  local flash = 1
+  if s >= 8 then
+    flash = 1 - (s - 8) / fade
+    if flash < 0 then flash = 0 end
+  end
+  return {
+    frame = 2, x2 = 0, egg = false, mon = true, flash = flash,
+    scale = scale, monY = Game3.EGG_HATCH_MON_Y - lift,
+  }
+end
+
+-- SpriteCB_EggShard. Spawns at Egg_0/2 cracks and the first 4 Egg_4 frames.
+function Game3.eggHatchShards(t)
+  t = math.floor(t or 0)
+  local wait = Game3.EGG_HATCH_WAIT
+  local t1 = wait + 14
+  local t2 = wait + 20 + 30 + 20 + 30 + 14
+  local t4 = wait + 20 + 30 + 20 + 30 + 38 + 51
+  local vel = Game3.EGG_SHARD_VEL
+  local out, vid = {}, 0
+  local function spawn(at, n)
+    if t < at then return end
+    for _ = 1, n do
+      vid = vid + 1
+      local v = vel[vid]
+      if v then
+        local age = t - at
+        local accx, accy, vy = 0, 0, v[2]
+        local dead = false
+        for _ = 1, age do
+          accx = accx + v[1]
+          accy = accy + vy
+          vy = vy + Game3.EGG_SHARD_GRAVITY
+          local y2
+          if accy >= 0 then
+            y2 = math.floor(accy / 256)
+          else
+            y2 = math.ceil(accy / 256)
+          end
+          if y2 > Game3.EGG_SHARD_DIE and vy > 0 then
+            dead = true
+            break
+          end
+        end
+        if not dead then
+          local x2, y2
+          if accx >= 0 then
+            x2 = math.floor(accx / 256)
+          else
+            x2 = math.ceil(accx / 256)
+          end
+          if accy >= 0 then
+            y2 = math.floor(accy / 256)
+          else
+            y2 = math.ceil(accy / 256)
+          end
+          out[#out + 1] = {
+            x = Game3.EGG_SHARD_X + x2,
+            y = Game3.EGG_SHARD_Y + y2,
+            frame = (vid - 1) % 4,
+          }
+        end
+      end
+    end
+  end
+  spawn(t1, 1)
+  spawn(t2, 2)
+  spawn(t4, 4)
+  spawn(t4 + 1, 4)
+  spawn(t4 + 2, 4)
+  spawn(t4 + 3, 4)
+  return out
+end
+
+function Game3:drawEggHatch(f)
+  local G = love.graphics
+  local egg = self:cinemaPic("eggHatch")
+  if not egg then
+    G.setColor(0.08, 0.08, 0.10, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    local t = f and f.t or 0
+    local wobble = math.sin(t * 0.35) * 6
+    local cx, cy = Game3.EGG_HATCH_X, Game3.EGG_HATCH_Y
+    G.setColor(0.92, 0.88, 0.78, 1)
+    G.rectangle("fill", cx - 12 + wobble, cy - 16, 24, 32)
+    G.setColor(0.55, 0.48, 0.38, 1)
+    G.rectangle("line", cx - 12 + wobble, cy - 16, 24, 32)
+    return
+  end
+  local bg = self:cinemaPic("hatchBg")
+  if bg then
+    G.setColor(1, 1, 1, 1)
+    G.draw(bg, 0, 0)
+  else
+    G.setColor(0.08, 0.08, 0.10, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+  local pose = Game3.eggHatchPose(f and f.t)
+  if pose.egg then
+    self:drawSpriteCenter(egg, Game3.EGG_HATCH_X + pose.x2, Game3.EGG_HATCH_Y,
+      pose.frame * Game3.EGG_HATCH_SIZE, 0,
+      Game3.EGG_HATCH_SIZE, Game3.EGG_HATCH_SIZE)
+  end
+  if pose.mon then
+    local slot = f and f.slot
+    local mon = slot and self.party and self.party[slot]
+    local pic = mon and self:battlePic(mon.species, "front")
+    if pic then
+      self:drawSpriteCenter(pic, Game3.EGG_HATCH_MON_X,
+        pose.monY or Game3.EGG_HATCH_MON_Y,
+        0, 0, nil, nil, pose.scale or 1)
+    end
+  end
+  local shard = self:cinemaPic("eggShard")
+  if shard then
+    local bits = Game3.eggHatchShards(f and f.t)
+    for i = 1, #bits do
+      local b = bits[i]
+      self:drawSpriteCenter(shard, b.x, b.y,
+        b.frame * Game3.EGG_SHARD_SIZE, 0,
+        Game3.EGG_SHARD_SIZE, Game3.EGG_SHARD_SIZE)
+    end
+  end
+  local flash = pose.flash or 0
+  if flash > 0 then
+    G.setColor(1, 1, 1, flash)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+end
+
+-- DoTradeAnim_Cable states. t is vblanks from SetMainCallback2(sub_804BBCC).
+function Game3.tradeScenePose(t)
+  t = math.floor(t or 0)
+  local hofs = Game3.TRADE_BG2HOFS
+  if t < Game3.TRADE_SLIDE then
+    local left = hofs - t * 3
+    if left < 0 then left = 0 end
+    return {
+      bg = "platform", bg2hofs = left, sent = true, got = false,
+      sentX = Game3.TRADE_MON_X - left, sentY = Game3.TRADE_MON_Y,
+      line = 1, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_SLIDE
+  if t < Game3.TRADE_SEND_MSG then
+    return {
+      bg = "platform", bg2hofs = 0, sent = true, got = false,
+      sentX = Game3.TRADE_MON_X, sentY = Game3.TRADE_MON_Y,
+      line = 1, text = true, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_SEND_MSG
+  if t < Game3.TRADE_BYE then
+    return {
+      bg = "platform", bg2hofs = 0, sent = t < 20, got = false,
+      sentX = Game3.TRADE_MON_X, sentY = Game3.TRADE_MON_Y,
+      ball = true, ballFrame = math.floor(t / 3) % 12,
+      ballX = Game3.TRADE_MON_X, ballY = Game3.TRADE_BALL_Y,
+      line = 2, text = true, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_BYE
+  if t < Game3.TRADE_GBA_SEND then
+    local sxy = 32 + math.floor(t * (128 - 32) / Game3.TRADE_GBA_SEND)
+    return {
+      bg = "affine", affineScale = sxy / 256, sent = false, got = false,
+      line = 2, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_GBA_SEND
+  if t < Game3.TRADE_CABLE_OUT then
+    local vofs = 0x15C - t * 2
+    local glowY = 0x50 - t * 2
+    return {
+      bg = "gba", bg1vofs = vofs, sent = false, got = false,
+      glow = true, glowY = glowY, cableEnd = t > 8,
+      gbaScreen = t < 16, screenFrame = math.floor(t / 2) % 4,
+      line = 2, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_CABLE_OUT
+  if t < Game3.TRADE_CROSS then
+    return {
+      bg = "cable", sent = true, got = true,
+      sentX = Game3.TRADE_CROSS_SENT_X, sentY = 0xC0 - t * 3,
+      gotX = Game3.TRADE_CROSS_GOT_X, gotY = -0x20 + t * 3,
+      line = 2, text = false, waitA = false, flash = (t % 12) < 3,
+    }
+  end
+  t = t - Game3.TRADE_CROSS
+  if t < Game3.TRADE_CABLE_IN then
+    local glowY = -0x14 + t * 3
+    return {
+      bg = "gba", bg1vofs = 0xA6 + t * 2, sent = false, got = false,
+      glow = true, glowY = glowY, cableEnd = true,
+      line = 2, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_CABLE_IN
+  if t < Game3.TRADE_GBA_RECV then
+    local sxy = 128 - math.floor(t * (128 - 32) / Game3.TRADE_GBA_RECV)
+    return {
+      bg = "affine", affineScale = sxy / 256, sent = false, got = false,
+      line = 2, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_GBA_RECV
+  if t < Game3.TRADE_NEW_MON then
+    return {
+      bg = "platform", bg2hofs = 0, sent = false, got = t > 8,
+      gotX = Game3.TRADE_MON_X, gotY = Game3.TRADE_MON_Y,
+      ball = t <= 24, ballFrame = math.floor(t / 3) % 12,
+      ballX = Game3.TRADE_MON_X, ballY = 0x54,
+      line = 2, text = false, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_NEW_MON
+  if t < Game3.TRADE_SENT_MSG then
+    return {
+      bg = "platform", bg2hofs = 0, sent = false, got = true,
+      gotX = Game3.TRADE_MON_X, gotY = Game3.TRADE_MON_Y,
+      line = 3, text = true, waitA = false,
+    }
+  end
+  t = t - Game3.TRADE_SENT_MSG
+  return {
+    bg = "platform", bg2hofs = 0, sent = false, got = true,
+    gotX = Game3.TRADE_MON_X, gotY = Game3.TRADE_MON_Y,
+    line = 4, text = true, waitA = t >= Game3.TRADE_CARE_WAIT,
+  }
+end
+
+function Game3:drawTradeScene(f)
+  local G = love.graphics
+  local pose = Game3.tradeScenePose(f and f.t)
+  local bg
+  if pose.bg == "cable" then
+    bg = self:cinemaPic("tradeCable")
+  elseif pose.bg == "affine" then
+    bg = self:cinemaPic("tradeAffine") or self:cinemaPic("tradeGba")
+  elseif pose.bg == "gba" then
+    bg = self:cinemaPic("tradeGba")
+  else
+    bg = self:cinemaPic("hatchBg") or self:cinemaPic("tradeGba")
+  end
+  G.setColor(0.08, 0.08, 0.10, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  if bg then
+    G.setColor(1, 1, 1, 1)
+    if pose.bg == "affine" then
+      local scale = pose.affineScale or 0.5
+      local iw, ih = bg:getDimensions()
+      G.draw(bg, 120, 80, 0, scale, scale, iw / 2, ih / 2)
+    elseif pose.bg == "gba" then
+      self:drawWrap256(bg, 0, pose.bg1vofs or 0)
+    else
+      self:drawWrap256(bg, pose.bg2hofs or 0, 0)
+    end
+  end
+  local function drawMon(species, x, y)
+    if not species or not x then return end
+    local pic = self:battlePic(species, "front")
+    if pic then
+      self:drawSpriteCenter(pic, x, y)
+    end
+  end
+  if pose.sent then
+    drawMon(f and f.sentSpecies, pose.sentX, pose.sentY)
+  end
+  if pose.got then
+    drawMon(f and f.gotSpecies, pose.gotX, pose.gotY)
+  end
+  if pose.ball then
+    local ball = self:cinemaPic("tradeBall")
+    if ball then
+      self:drawSpriteCenter(ball, pose.ballX, pose.ballY,
+        (pose.ballFrame or 0) * Game3.TRADE_BALL_SIZE, 0,
+        Game3.TRADE_BALL_SIZE, Game3.TRADE_BALL_SIZE)
+    end
+  end
+  if pose.gbaScreen then
+    local scr = self:cinemaPic("tradeGbaScreen")
+    if scr then
+      self:drawSpriteCenter(scr, Game3.TRADE_GLOW_X, 0x50,
+        (pose.screenFrame or 0) * Game3.TRADE_GBA_SCREEN_W, 0,
+        Game3.TRADE_GBA_SCREEN_W, Game3.TRADE_GBA_SCREEN_H)
+    end
+  end
+  if pose.glow then
+    local g1 = self:cinemaPic("tradeGlow1")
+    local g2 = self:cinemaPic("tradeGlow2")
+    local gy = pose.glowY or 0x50
+    if g1 then
+      self:drawSpriteCenter(g1, Game3.TRADE_GLOW_X, gy)
+    end
+    if g2 then
+      self:drawSpriteCenter(g2, Game3.TRADE_GLOW_X, gy, 0, 0,
+        Game3.TRADE_GLOW2_W, Game3.TRADE_GLOW2_H)
+    end
+  end
+  if pose.cableEnd then
+    local cord = self:cinemaPic("tradeCableEnd")
+    if cord then
+      self:drawSpriteCenter(cord, Game3.TRADE_GLOW_X, 0x41)
+    end
+  end
+  if (pose.flash or 0) > 0 then
+    G.setColor(1, 1, 1, 0.55)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+end
+
+-- TradeEvolutionScene: platform + front pic at (120, 64). Sparkle
+-- tasks stay colored rects (no Nintendo gfx in git).
+function Game3:drawTradeEvolution(f)
+  local G = love.graphics
+  local bg = self:cinemaPic("hatchBg") or self:cinemaPic("tradeGba")
+  G.setColor(0.08, 0.08, 0.10, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  if bg then
+    G.setColor(1, 1, 1, 1)
+    self:drawWrap256(bg, 0, 0)
+  end
+  local evo = self.evolve
+  local scale, flash, species = self:evolveDraw()
+  if not species then
+    species = evo and evo.mon and evo.mon.species
+  end
+  local pic = species and self:battlePic(species, "front")
+  local cx, cy = Game3.TRADE_EVO_X, Game3.TRADE_EVO_Y
+  if pic then
+    self:drawSpriteCenter(pic, cx, cy, nil, nil, nil, nil, scale)
+    if flash then
+      G.setColor(1, 1, 1, 0.45)
+      G.rectangle("fill", cx - 32, cy - 32, 64, 64)
+    end
+  else
+    local w = math.floor(48 * (scale or 1))
+    G.setColor(0.25, 0.18, 0.22, flash and 0.45 or 1)
+    G.rectangle("fill", cx - w / 2, cy - w / 2, w, w)
+  end
+  if evo and evo.stage == "anim" then
+    local t = evo.t or 0
+    for i = 0, 5 do
+      local a = t * 6 + i * (math.pi / 3)
+      local r = 18 + 10 * math.sin(t * 10 + i)
+      local sx = cx + math.cos(a) * r
+      local sy = cy + math.sin(a) * r
+      local pulse = 0.4 + 0.6 * (0.5 + 0.5 * math.sin(t * 14 + i))
+      G.setColor(1, 1, 0.7, pulse)
+      G.rectangle("fill", sx - 1, sy - 1, 3, 3)
+    end
+  end
+  self:drawDialogueFrame()
+  self:drawDialogue(f)
+end
+
+-- field_control_avatar.c SetCableClubWarp: dest is the warp under
+-- the player's feet (after the receptionist walks them through the
+-- door). C returns 0. Do not beginScriptWait.
+function Game3:setCableClubWarp()
+  local w = Game3.warpAt(self.map, self.playerX, self.playerY)
+  if w then
+    self.warpDestination = {
+      mapGroup = w.mapGroup or 0,
+      mapNum = w.mapNum or 0,
+      warpId = w.warpId or Game3.WARP_ID_NONE,
+      x = w.x or 0,
+      y = w.y or 0,
+    }
+  end
+  return 0
+end
+
+-- DoCableClubWarp / sub_80810DC: SE_EXIT, fade, then WarpIntoMap.
+-- WaitCableClubWarp waits !PaletteFadeActive. Scripts follow with waitstate.
+function Game3:doCableClubWarp()
+  self:playSe(Game3.SE_EXIT)
+  self.cableClubWarpLeft = Game3.FADE_FRAMES
+  self:beginScriptWait()
+end
+
+-- cable_club.c sub_80839A4: LoadPlayerParty / copy saved warp. No wait.
+function Game3:sub80839A4()
+end
+
+-- sub_80833EC: no GBA partner. RESULT 0 falls into the Colosseum
+-- warp (1A4166). 5 is the receptionist goodbye. Do not beginScriptWait.
+function Game3:cableClubNoLink()
+  self:setScriptVar(Gen3Script.VAR_RESULT, Game3.CABLE_CLUB_NO_LINK)
+  return Game3.CABLE_CLUB_NO_LINK
+end
+
+function Game3:ensureLinkBattleRecords()
+  local rows = self.linkBattleRecords
+  if type(rows) == "table" then return rows end
+  rows = {}
+  local i = 1
+  while i <= Game3.LINK_BATTLE_RECORD_SLOTS do
+    rows[i] = { name = "", wins = 0, losses = 0, draws = 0 }
+    i = i + 1
+  end
+  self.linkBattleRecords = rows
+  return rows
+end
+
+-- battle_records.c ShowLinkBattleRecords. Script is special +
+-- waitbuttonpress (still a decoder nop). Do not beginScriptWait.
+function Game3:showLinkBattleRecords()
+  self:ensureLinkBattleRecords()
+  self.field = { kind = "link_records" }
+end
+
+function Game3:towerStreakLabel(level)
+  local t = self:ensureBattleTower()
+  local state = (t.var4AE and t.var4AE[level]) or 0
+  if state == 2 or state == 3 or state == 6 then return "Current" end
+  return "Prev"
+end
+
+-- battle_records.c ShowBattleTowerRecords. Same waitbuttonpress script.
+function Game3:showBattleTowerRecords()
+  self:ensureBattleTower()
+  self.field = { kind = "tower_records" }
+end
+
+function Game3:drawLinkBattleRecords()
+  local G = love.graphics
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("BATTLE RESULTS", 10, 8)
+  self:drawText(("TOTAL  %dW  %dL  %dD"):format(
+    self:getGameStat(Game3.GAME_STAT_LINK_BATTLE_WINS),
+    self:getGameStat(Game3.GAME_STAT_LINK_BATTLE_LOSSES),
+    self:getGameStat(Game3.GAME_STAT_LINK_BATTLE_DRAWS)), 10, 22)
+  self:drawText("W/L/D", 80, 36)
+  local rows = self:ensureLinkBattleRecords()
+  local i = 1
+  while i <= Game3.LINK_BATTLE_RECORD_SLOTS do
+    local rec = rows[i] or {}
+    local y = 46 + (i - 1) * 12
+    local wins = tonumber(rec.wins) or 0
+    local losses = tonumber(rec.losses) or 0
+    local draws = tonumber(rec.draws) or 0
+    if wins == 0 and losses == 0 and draws == 0 then
+      self:drawText("-------   ----  ----  ----", 10, y)
+    else
+      self:drawText(("%s  %d  %d  %d"):format(
+        rec.name or "", wins, losses, draws), 10, y)
+    end
+    i = i + 1
+  end
+  self:drawText("A/B close", 8, 148)
+end
+
+function Game3:drawBattleTowerRecords()
+  local G = love.graphics
+  local t = self:ensureBattleTower()
+  local function streak(n)
+    n = tonumber(n) or 0
+    if n > 9999 then n = 9999 end
+    return n
+  end
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("BATTLE TOWER RESULTS", 10, 8)
+  self:drawText("Lv. 50", 10, 28)
+  self:drawText(("%s  %d Win Streak"):format(
+    self:towerStreakLabel(0), streak(t.currentWinStreaks[0])), 18, 40)
+  self:drawText(("Record  %d Win Streak"):format(
+    streak(t.recordWinStreaks[0])), 18, 52)
+  self:drawText("Lv. 100", 10, 76)
+  self:drawText(("%s  %d Win Streak"):format(
+    self:towerStreakLabel(1), streak(t.currentWinStreaks[1])), 18, 88)
+  self:drawText(("Record  %d Win Streak"):format(
+    streak(t.recordWinStreaks[1])), 18, 100)
+  self:drawText("A/B close", 8, 148)
+end
+
+-- battle_tower.c sub_8134548. ON_FRAME VAR_TEMP_0==0. Default
+-- var_4AE is 0 → ResetBattleTowerStreak and VAR_TEMP_0 = 5 so the
+-- table does not re-fire. Do not beginScriptWait.
+function Game3:initBattleTowerOnFrame()
+  self:setScriptVar(Game3.VAR_TEMP_0, Game3.BATTLE_TOWER_IDLE)
+  return 0
+end
+
+function Game3:ensureBattleTower()
+  local t = self.battleTower
+  if type(t) == "table" then
+    t.recordWinStreaks = t.recordWinStreaks or { [0] = 0, [1] = 0 }
+    t.currentWinStreaks = t.currentWinStreaks or { [0] = 0, [1] = 0 }
+    return t
+  end
+  t = {
+    levelType = 0,
+    var4AE = { [0] = 0, [1] = 0 },
+    curChallengeBattleNum = { [0] = 0, [1] = 0 },
+    curStreakChallengesNum = { [0] = 0, [1] = 0 },
+    trainerId = 0,
+    unk554 = 0,
+    selectedPartyMons = { 0, 0, 0 },
+    currentWinStreaks = { [0] = 0, [1] = 0 },
+    recordWinStreaks = { [0] = 0, [1] = 0 },
+    bestStreak = 0,
+    prizeItem = 0,
+  }
+  self.battleTower = t
+  return t
+end
+
+-- 0x8004 selects the field. Case 0 is var_4AE[levelType]; 0 is a
+-- valid idle streak. Must return. Do not beginScriptWait.
+function Game3:battleTowerUtil()
+  local t = self:ensureBattleTower()
+  local which = self:varGet(0x8004)
+  local level = t.levelType or 0
+  local n = 0
+  if which == 0 then
+    n = (t.var4AE and t.var4AE[level]) or 0
+  elseif which == 1 then
+    n = level
+  elseif which == 2 then
+    n = (t.curChallengeBattleNum and t.curChallengeBattleNum[level]) or 0
+  elseif which == 3 then
+    n = (t.curStreakChallengesNum and t.curStreakChallengesNum[level]) or 0
+  elseif which == 4 then
+    n = t.trainerId or 0
+  elseif which == 8 then
+    n = t.unk554 or 0
+  elseif which == 9 then
+    n = (t.currentWinStreaks and t.currentWinStreaks[level]) or 0
+  elseif which == 10 then
+    self.gameStats = self.gameStats or {}
+    self.gameStats[Game3.GAME_STAT_BATTLE_TOWER_BEST_STREAK] = t.bestStreak or 0
+  elseif which == 11 then
+    if t.var4AE then t.var4AE[level] = 0 end
+  end
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:setBattleTowerProperty()
+  local t = self:ensureBattleTower()
+  local which = self:varGet(0x8004)
+  local val = self:varGet(0x8005)
+  local level = t.levelType or 0
+  if which == 0 then
+    t.var4AE = t.var4AE or {}
+    t.var4AE[level] = val
+  elseif which == 1 then
+    t.levelType = val
+  elseif which == 2 then
+    t.curChallengeBattleNum = t.curChallengeBattleNum or {}
+    t.curChallengeBattleNum[level] = val
+  elseif which == 3 then
+    t.curStreakChallengesNum = t.curStreakChallengesNum or {}
+    t.curStreakChallengesNum[level] = val
+  elseif which == 4 then
+    t.trainerId = val
+  elseif which == 8 then
+    t.unk554 = val
+  elseif which == 10 then
+    self.gameStats = self.gameStats or {}
+    self.gameStats[Game3.GAME_STAT_BATTLE_TOWER_BEST_STREAK] = t.bestStreak or 0
+  elseif which == 11 then
+    if (t.var4AE and t.var4AE[level]) ~= 3 then
+      t.var4AE = t.var4AE or {}
+      t.var4AE[level] = 0
+    end
+  end
+end
+
+-- CheckMonBattleTowerBanlist: 0x8004 = 1 means too few / banned.
+-- Allow so the lobby script reaches party pick, which cancels.
+function Game3:checkPartyBattleTowerBanlist()
+  self:setScriptVar(0x8004, 0)
+  return 0
+end
+
+-- ChooseBattleTowerPlayerParty waitstate. RESULT 0 is cancel
+-- (contest_util.c case 0). Do not beginScriptWait.
+function Game3:chooseBattleTowerPlayerParty()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+-- Empty e-reader checksum is 0 → RESULT 1 (door stays closed).
+function Game3:validateEReaderTrainer()
+  self:setScriptVar(Gen3Script.VAR_RESULT, Game3.E_READER_TRAINER_INVALID)
+  return Game3.E_READER_TRAINER_INVALID
+end
+
+function Game3:getBestBattleTowerStreak()
+  return self:getGameStat(Game3.GAME_STAT_BATTLE_TOWER_BEST_STREAK)
+end
+
+function Game3:giveBattleTowerPrize()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+function Game3:awardBattleTowerRibbons()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+function Game3:getSecretBaseNearbyMapName()
+  local sec = self:varGet(Game3.VAR_SECRET_BASE_MAP)
+  self:setStringVar(1, self:mapSectionName(sec))
+end
+
+function Game3:bufferSecretBaseOwnerName()
+  self:setStringVar(1, self:playerName())
+end
+
+function Game3:getCurSecretBaseRegistrationValidity()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+-- Own base is slot 0. RESULT 0 is "this is yours".
+function Game3:isNotPlayersSecretBase()
+  local n = 0
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:recordPlayerSecretBase()
+  self:setScriptVar(Game3.VAR_CURRENT_SECRET_BASE, 0)
+  local m = self.map
+  self:setScriptVar(Game3.VAR_SECRET_BASE_MAP,
+    (m and m.regionMapSectionId) or 0)
+  return 0
+end
+
+function Game3:warpIntoSecretBaseFromSpecial()
+  if self:hasSecretBase() then self:enterSecretBase() end
+end
+
+function Game3:moveSecretBaseSpecial()
+  self:incrementGameStat(Game3.GAME_STAT_MOVED_SECRET_BASE)
 end
 
 function Game3:canRegisterItem(id)
@@ -3610,12 +9067,14 @@ function Game3:rotatingGateHasArm(gateId, arm, isLong)
   local layout = Game3.ROTATING_GATE_ARMS[(gate[3] or 0) + 1]
   if not layout then return false end
   local face = ((tonumber(arm) or 0) - self:rotatingGateOrient(gateId) + 4) % 4
-  local idx = face * 2 + (isLong and 1 or 0) + 1
+  local longBit = 0
+  if isLong == true or isLong == 1 then longBit = 1 end
+  local idx = face * 2 + longBit + 1
   return layout[idx] == 1
 end
 
 function Game3:rotatingGateCanRotate(gateId, dir)
-  local cfg = self.rotatingGateConfig
+  local cfg = self.rotatingGates
   local gate = cfg and cfg[gateId]
   if not gate then return false end
   local armPos
@@ -3681,9 +9140,10 @@ end
 -- field_player_avatar.c: dest is MapGrid. Returns true when the step is
 -- blocked (collision 8). A successful spin still lets the player through.
 function Game3:checkRotatingGateCollision(x, y, direction)
-  local cfg = self.rotatingGateConfig or self:rotatingGateConfig()
+  if self:rotatingGatePuzzleType() == 0 then return false end
+  local cfg = self.rotatingGates or self:rotatingGateConfig()
   if not cfg then return false end
-  if not self.rotatingGateConfig then self.rotatingGateConfig = cfg end
+  if not self.rotatingGates then self.rotatingGates = cfg end
   local gx = (tonumber(x) or 0) + Game3.MAP_OFFSET
   local gy = (tonumber(y) or 0) + Game3.MAP_OFFSET
   for i = 1, #cfg do
@@ -3711,33 +9171,39 @@ function Game3:checkRotatingGateCollision(x, y, direction)
   return false
 end
 
+Game3.GATE_SHAPE_L1 = 0
+Game3.GATE_SHAPE_T1 = 4
+-- StartSpriteAffineAnim: 0 / -64 / -128 / +64. 256 units = 360°.
+Game3.ROTATING_GATE_AFFINE = { [0] = 0, [1] = -64, [2] = -128, [3] = 64 }
+function Game3.rotatingGateSize(shape)
+  shape = tonumber(shape) or 0
+  if shape == Game3.GATE_SHAPE_L1 or shape == Game3.GATE_SHAPE_T1 then
+    return 32
+  end
+  return 64
+end
+function Game3.rotatingGateAngle(ori)
+  local a = Game3.ROTATING_GATE_AFFINE[(tonumber(ori) or 0) % 4]
+  return a * math.pi / 128
+end
+
 function Game3:drawRotatingGates()
-  local cfg = self.rotatingGateConfig
+  local cfg = self.rotatingGates
   if not cfg or not love or not love.graphics then return end
   local G = love.graphics
   local t = Game3.TILE
-  local deltas = Game3.ROTATING_GATE_ARM_DELTA
+  G.setColor(1, 1, 1, 1)
   for i = 1, #cfg do
-    local gx, gy = cfg[i][1], cfg[i][2]
-    G.setColor(0.42, 0.28, 0.14, 1)
-    G.rectangle("fill", gx * t + 5, gy * t + 5, 6, 6)
-    for arm = 0, 3 do
-      for long = 0, 1 do
-        if self:rotatingGateHasArm(i, arm, long) then
-          local d = deltas[arm * 2 + long + 1]
-          local px = (gx + d[1]) * t
-          local py = (gy + d[2]) * t
-          G.setColor(0.55, 0.38, 0.18, 1)
-          if arm == 0 or arm == 2 then
-            G.rectangle("fill", px + 5, py + 1, 6, t - 2)
-          else
-            G.rectangle("fill", px + 1, py + 5, t - 2, 6)
-          end
-        end
-      end
+    local gx, gy, shape = cfg[i][1], cfg[i][2], cfg[i][3] or 0
+    local img = self:cinemaPic("rotatingGate" .. shape)
+    if img then
+      local iw, ih = img:getDimensions()
+      -- sub_8060388 puts sprite xy at the tile top-left; affine rotates
+      -- around that corner (centerToCornerVec is -size/2).
+      G.draw(img, gx * t, gy * t, Game3.rotatingGateAngle(self:rotatingGateOrient(i)),
+        1, 1, iw / 2, ih / 2)
     end
   end
-  G.setColor(1, 1, 1, 1)
 end
 
 function Game3:hasEnoughMoneyFor()
@@ -3753,7 +9219,9 @@ function Game3:payMoneyFor()
   self.money = n
 end
 
-function Game3:getPriceReduction()
+function Game3:getPriceReduction(kind)
+  kind = tonumber(kind) or 0
+  if kind == 0 then return false end
   return false
 end
 
@@ -3773,20 +9241,519 @@ function Game3:getSlotMachineId()
   return table_[(v0 % 12) + 1] or 0
 end
 
-function Game3:openDoor(x, y)
-  local map = self.map
-  local i = self:gridIndex(map, x, y)
-  if not i or type(map.grid) ~= "table" then return false end
-  map.grid[i] = Game3.metatileOf(map.grid[i])
+function Game3:getCoins()
+  local n = tonumber(self.coins) or 0
+  if n < 0 then n = 0 end
+  if n > Game3.MAX_COINS then n = Game3.MAX_COINS end
+  return n
+end
+
+function Game3:addCoins(n)
+  n = tonumber(n) or 0
+  if n < 0 then n = 0 end
+  if self:getCoins() >= Game3.MAX_COINS then return false end
+  local sum = self:getCoins() + n
+  if sum > Game3.MAX_COINS then sum = Game3.MAX_COINS end
+  self.coins = sum
   return true
 end
 
-function Game3:closeDoor(x, y)
+function Game3:removeCoins(n)
+  n = tonumber(n) or 0
+  if n < 0 then n = 0 end
+  if self:getCoins() < n then return false end
+  self.coins = self:getCoins() - n
+  return true
+end
+
+function Game3:showCoinsBox(x, y)
+  self.coinsBox = { x = tonumber(x) or 0, y = tonumber(y) or 0 }
+end
+
+function Game3:hideCoinsBox()
+  self.coinsBox = nil
+end
+
+function Game3:updateCoinsBox()
+  if self.coinsBox then return true end
+end
+
+function Game3:checkCoinsVar(varId)
+  self:setScriptVar(varId, self:getCoins())
+  return self:getCoins()
+end
+
+function Game3:addCoinsScript(n)
+  if self:addCoins(n) then return 0 end
+  return 1
+end
+
+function Game3:removeCoinsScript(n)
+  if self:removeCoins(n) then return 0 end
+  return 1
+end
+
+function Game3:initTimeBasedEvents()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_CLOCK_SET] = true
+  local t = self:localTime()
+  self:setScriptVar(Game3.VAR_DAYS, t.days)
+  self.lastBerryTreeUpdate = {
+    days = t.days, hours = t.hours, minutes = t.minutes,
+  }
+end
+
+function Game3:rtcInitLocalTimeOffset(hours, minutes)
+  hours = tonumber(hours) or 0
+  minutes = tonumber(minutes) or 0
+  if hours < 0 then hours = 0 elseif hours > 23 then hours = 23 end
+  if minutes < 0 then minutes = 0 elseif minutes > 59 then minutes = 59 end
+  self.clockHour = hours
+  self.clockMinute = minutes
+  self.clockAnchor = os.time()
+end
+
+function Game3:localTime()
+  local hours = tonumber(self.clockHour) or 0
+  local minutes = tonumber(self.clockMinute) or 0
+  local anchor = tonumber(self.clockAnchor)
+  local elapsed = 0
+  if anchor then
+    elapsed = os.time() - anchor
+    if elapsed < 0 then elapsed = 0 end
+  end
+  local total = hours * 60 + minutes + math.floor(elapsed / 60)
+  local days = math.floor(total / (24 * 60))
+  total = total % (24 * 60)
+  return {
+    days = days,
+    hours = math.floor(total / 60),
+    minutes = total % 60,
+  }
+end
+
+function Game3:clockString(t)
+  t = t or self:localTime()
+  local h = t.hours or 0
+  local period = "AM"
+  if h >= 12 then period = "PM" end
+  local h12 = h % 12
+  if h12 == 0 then h12 = 12 end
+  return ("%d:%02d %s"):format(h12, t.minutes or 0, period)
+end
+
+function Game3:startWallClock()
+  self:beginScriptWait()
+  -- WallClockInit: BeginNormalPaletteFade(..., 16, 0, RGB_BLACK).
+  self:fadeInFromBlack()
+  self.field = {
+    kind = "clock_set",
+    hours = 10,
+    minutes = 0,
+  }
+end
+
+function Game3:viewWallClock()
+  self:beginScriptWait()
+  self:fadeInFromBlack()
+  self.field = { kind = "clock_view" }
+end
+
+function Game3:confirmWallClock()
+  local f = self.field
+  local hours = (f and f.hours) or 10
+  local minutes = (f and f.minutes) or 0
+  self:rtcInitLocalTimeOffset(hours, minutes)
+  self:initTimeBasedEvents()
+  -- The setter froze the leftover step into the clock; that lerp is not
+  -- script movement. Drop it so waitstate can resume.
+  self.walkCooldown = 0
+  self.field = nil
+  -- CB2_ReturnToFieldContinueScriptPlayMapMusic fades the bedroom back in.
+  -- Without this the script's FADE_TO_BLACK holds forever.
+  self:fadeInFromBlack()
+  self:endScriptWait()
+end
+
+function Game3:closeWallClock()
+  self.field = nil
+  self:fadeInFromBlack()
+  self:endScriptWait()
+end
+
+function Game3:advanceClock(dir)
+  local f = self.field
+  if not f then return end
+  local h = f.hours or 0
+  local m = f.minutes or 0
+  if dir < 0 then
+    if m > 0 then
+      m = m - 1
+    else
+      m = 59
+      if h > 0 then h = h - 1 else h = 23 end
+    end
+  else
+    if m < 59 then
+      m = m + 1
+    else
+      m = 0
+      if h < 23 then h = h + 1 else h = 0 end
+    end
+  end
+  f.hours, f.minutes = h, m
+end
+
+function Game3.slotMatch(c1, c2, c3)
+  c1, c2, c3 = tonumber(c1) or 0, tonumber(c2) or 0, tonumber(c3) or 0
+  if c1 == c2 and c1 == c3 then
+    return Game3.SLOT_SYM_TO_MATCH[c1 + 1] or Game3.SLOT_MATCH_NONE
+  end
+  if c1 == Game3.SLOT_TAG_7_RED and c2 == Game3.SLOT_TAG_7_RED
+      and c3 == Game3.SLOT_TAG_7_BLUE then
+    return Game3.SLOT_MATCH_777_MIXED
+  end
+  if c1 == Game3.SLOT_TAG_7_BLUE and c2 == Game3.SLOT_TAG_7_BLUE
+      and c3 == Game3.SLOT_TAG_7_RED then
+    return Game3.SLOT_MATCH_777_MIXED
+  end
+  if c1 == Game3.SLOT_TAG_CHERRY then return Game3.SLOT_MATCH_1CHERRY end
+  return Game3.SLOT_MATCH_NONE
+end
+
+function Game3.slotPayout(match)
+  match = tonumber(match)
+  if not match or match == Game3.SLOT_MATCH_NONE then return 0 end
+  return Game3.SLOT_PAYOUTS[match + 1] or 0
+end
+
+function Game3:slotReelWindow(reel, start)
+  local strip = Game3.SLOT_REELS[reel]
+  start = (tonumber(start) or 0) % 21
+  local top = strip[start + 1]
+  local mid = strip[(start + 1) % 21 + 1]
+  local bot = strip[(start + 2) % 21 + 1]
+  return { top, mid, bot }
+end
+
+function Game3:slotScore(windows, bet)
+  bet = tonumber(bet) or 1
+  local pay = 0
+  local replay = false
+  local function take(match, mode)
+    if match == Game3.SLOT_MATCH_NONE then return end
+    if mode == "tb" and match == Game3.SLOT_MATCH_1CHERRY then
+      match = Game3.SLOT_MATCH_2CHERRY
+    end
+    if mode == "diag" and match == Game3.SLOT_MATCH_1CHERRY then return end
+    pay = pay + Game3.slotPayout(match)
+    if match == Game3.SLOT_MATCH_REPLAY then replay = true end
+  end
+  local w1, w2, w3 = windows[1], windows[2], windows[3]
+  take(Game3.slotMatch(w1[2], w2[2], w3[2]), "center")
+  if bet > 1 then
+    take(Game3.slotMatch(w1[1], w2[1], w3[1]), "tb")
+    take(Game3.slotMatch(w1[3], w2[3], w3[3]), "tb")
+  end
+  if bet > 2 then
+    take(Game3.slotMatch(w1[1], w2[2], w3[3]), "diag")
+    take(Game3.slotMatch(w1[3], w2[2], w3[1]), "diag")
+  end
+  return pay, replay
+end
+
+function Game3:playSlotMachine(id)
+  id = tonumber(id) or 0
+  self:beginScriptWait()
+  self.field = {
+    kind = "slots",
+    machine = id,
+    bet = 1,
+    replay = false,
+  }
+end
+
+function Game3:closeSlots()
+  self.field = nil
+  self:endScriptWait()
+end
+
+function Game3.rouletteFlag(id)
+  id = tonumber(id) or 0
+  if id < 1 then return 0 end
+  return 2 ^ id
+end
+
+function Game3.rouletteMinBet(var)
+  var = tonumber(var) or 0
+  local idx = (var % 2) + math.floor(var / 128) * 2
+  return Game3.ROULETTE_MIN_BETS[idx + 1] or 1
+end
+
+function Game3:resetRouletteHits(f)
+  f = f or (self.field)
+  if not f then return end
+  f.hitFlags = 0
+  f.pokeHits = { 0, 0, 0, 0 }
+  f.colorHits = { 0, 0, 0 }
+  f.balls = 0
+  f.landed = nil
+  f.won = nil
+  f.payout = nil
+end
+
+function Game3:rouletteMultiplier(sel, f)
+  sel = tonumber(sel) or 0
+  f = f or self.field
+  if sel < 1 or sel > 19 then return 0 end
+  local hits = f and f.colorHits or { 0, 0, 0 }
+  local pokes = f and f.pokeHits or { 0, 0, 0, 0 }
+  local flags = (f and f.hitFlags) or 0
+  local m = Game3.ROULETTE_MULTS
+  if sel == 5 or sel == 10 or sel == 15 then
+    local row = math.floor(sel / 5) - 1
+    if (hits[row + 1] or 0) >= 4 then return 0 end
+    return m[(hits[row + 1] or 0) + 2] or 0
+  end
+  if sel >= 1 and sel <= 4 then
+    if (pokes[sel] or 0) >= 3 then return 0 end
+    return m[(pokes[sel] or 0) + 3] or 0
+  end
+  if math.floor(flags / Game3.rouletteFlag(sel)) % 2 == 1 then return 0 end
+  return Game3.ROULETTE_MAX_MULT
+end
+
+function Game3.rouletteHitInBet(square, bet)
+  square, bet = tonumber(square) or 0, tonumber(bet) or 0
+  if bet >= 1 and bet <= 4 then
+    return square == bet + 5 or square == bet + 10 or square == bet + 15
+  end
+  if bet == 5 or bet == 10 or bet == 15 then
+    return square >= bet + 1 and square <= bet + 4
+  end
+  return square == bet
+end
+
+function Game3:playRoulette()
+  local var = self:varGet(0x8004) or 0
+  self:beginScriptWait()
+  local f = {
+    kind = "roulette",
+    minBet = Game3.rouletteMinBet(var),
+    cursor = 6,
+    streak = 0,
+  }
+  self.field = f
+  self:resetRouletteHits(f)
+end
+
+function Game3:closeRoulette()
+  local f = self.field
+  local minBet = (f and f.minBet) or 1
+  self.field = nil
+  self:setScriptVar(0x8004, (self:getCoins() < minBet) and 1 or 0)
+  self:endScriptWait()
+end
+
+function Game3:moveRouletteCursor(dir)
+  local f = self.field
+  if not f or f.kind ~= "roulette" then return end
+  local sel = f.cursor or 6
+  local col = sel % 5
+  local row = math.floor(sel / 5)
+  if dir == 0 then
+    row = row - 1
+  elseif dir == 1 then
+    row = row + 1
+  elseif dir == 2 then
+    col = col - 1
+  else
+    col = col + 1
+  end
+  if row < 0 then row = 3 elseif row > 3 then row = 0 end
+  if col < 0 then col = 4 elseif col > 4 then col = 0 end
+  local nxt = row * 5 + col
+  if nxt == 0 then
+    if dir == 2 then nxt = 4 else nxt = 1 end
+  end
+  f.cursor = nxt
+end
+
+function Game3:recordRouletteHit(slot)
+  local f = self.field
+  if not f then return 0 end
+  slot = tonumber(slot) or 0
+  local square = Game3.ROULETTE_SLOTS[slot + 1]
+  if not square then return 0 end
+  local sqFlag = Game3.rouletteFlag(square)
+  if math.floor((f.hitFlags or 0) / sqFlag) % 2 ~= 1 then
+    f.hitFlags = (f.hitFlags or 0) + sqFlag
+  end
+  local col = square % 5
+  local row = math.floor(square / 5)
+  if col >= 1 and col <= 4 then
+    f.pokeHits = f.pokeHits or { 0, 0, 0, 0 }
+    f.pokeHits[col] = (f.pokeHits[col] or 0) + 1
+    if f.pokeHits[col] >= 3 then
+      local fl = Game3.rouletteFlag(col)
+      if math.floor(f.hitFlags / fl) % 2 ~= 1 then
+        f.hitFlags = f.hitFlags + fl
+      end
+    end
+  end
+  if row >= 1 and row <= 3 then
+    f.colorHits = f.colorHits or { 0, 0, 0 }
+    f.colorHits[row] = (f.colorHits[row] or 0) + 1
+    if f.colorHits[row] >= 4 then
+      local fl = Game3.rouletteFlag(row * 5)
+      if math.floor(f.hitFlags / fl) % 2 ~= 1 then
+        f.hitFlags = f.hitFlags + fl
+      end
+    end
+  end
+  return square
+end
+
+function Game3:pickRouletteSlot()
+  local f = self.field
+  local flags = (f and f.hitFlags) or 0
+  local open = {}
+  for i = 0, 11 do
+    local sq = Game3.ROULETTE_SLOTS[i + 1]
+    if math.floor(flags / Game3.rouletteFlag(sq)) % 2 ~= 1 then
+      open[#open + 1] = i
+    end
+  end
+  if #open < 1 then return 0 end
+  return open[self:rand(#open) or 1]
+end
+
+function Game3:spinRoulette()
+  local f = self.field
+  if not f or f.kind ~= "roulette" then return false end
+  local bet = f.cursor or 6
+  local mult = self:rouletteMultiplier(bet, f)
+  if mult < 1 then return false end
+  local cost = f.minBet or 1
+  if not self:removeCoins(cost) then return false end
+  local slot = self:pickRouletteSlot()
+  local square = self:recordRouletteHit(slot)
+  local won = Game3.rouletteHitInBet(square, bet)
+  f.landed = square
+  f.won = won and true or false
+  f.mult = mult
+  f.balls = (f.balls or 0) + 1
+  local pay = 0
+  if won then
+    pay = cost * mult
+    self:addCoins(pay)
+    f.streak = (f.streak or 0) + 1
+    if f.streak > self:getGameStat(Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS) then
+      self.gameStats = self.gameStats or {}
+      self.gameStats[Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS] = f.streak
+    end
+  else
+    f.streak = 0
+  end
+  f.payout = pay
+  if (f.balls or 0) >= Game3.ROULETTE_BALLS then
+    f.hitFlags = 0
+    f.pokeHits = { 0, 0, 0, 0 }
+    f.colorHits = { 0, 0, 0 }
+    f.balls = 0
+    f.cleared = true
+  else
+    f.cleared = nil
+  end
+  return true
+end
+
+function Game3:spinSlots()
+  local f = self.field
+  if not f or f.kind ~= "slots" then return end
+  local bet = f.bet or 1
+  if not f.replay then
+    if not self:removeCoins(bet) then return false end
+  end
+  f.replay = false
+  local wins = {}
+  for r = 1, 3 do
+    wins[r] = self:slotReelWindow(r, (self:rand(21) or 1) - 1)
+  end
+  f.windows = wins
+  local pay, replay = self:slotScore(wins, bet)
+  f.payout = pay
+  f.replay = replay and true or false
+  if pay > 0 then self:addCoins(pay) end
+  return true
+end
+
+function Game3:openDoor(x, y, animate)
   local map = self.map
   local i = self:gridIndex(map, x, y)
   if not i or type(map.grid) ~= "table" then return false end
-  map.grid[i] = Game3.metatileOf(map.grid[i]) + 1024
+  local cell = map.grid[i] or 0
+  map.grid[i] = Game3.elevationBits(cell) + Game3.metatileOf(cell)
+  self:markTilesDirty()
+  -- lightExitDoors opens the mat you landed on; that is collision only.
+  if animate ~= false then
+    self.doorAnim = {
+      x = x, y = y, t = 0,
+      dur = Game3.DOOR_ANIM_FRAMES / 60,
+      opening = true,
+    }
+  end
   return true
+end
+
+function Game3:closeDoor(x, y, animate)
+  local map = self.map
+  local i = self:gridIndex(map, x, y)
+  if not i or type(map.grid) ~= "table" then return false end
+  local cell = map.grid[i] or 0
+  map.grid[i] = Game3.elevationBits(cell) + Game3.metatileOf(cell) + 1024
+  self:markTilesDirty()
+  if animate ~= false then
+    self.doorAnim = {
+      x = x, y = y, t = 0,
+      dur = Game3.DOOR_ANIM_FRAMES / 60,
+      opening = false,
+    }
+  else
+    self.doorAnim = nil
+  end
+  return true
+end
+
+function Game3:doorAnimating()
+  local d = self.doorAnim
+  return d ~= nil and (d.t or 0) < (d.dur or 0)
+end
+
+function Game3:stepDoorAnim(dt)
+  local d = self.doorAnim
+  if not d then return end
+  d.t = (d.t or 0) + (dt or 0)
+  if d.t >= (d.dur or 0) then
+    self.doorAnim = nil
+  end
+end
+
+function Game3:drawDoorAnim()
+  local d = self.doorAnim
+  if not d then return end
+  local dur = d.dur or (Game3.DOOR_ANIM_FRAMES / 60)
+  local u = 1
+  if dur > 0 then u = (d.t or 0) / dur end
+  if u < 0 then u = 0 elseif u > 1 then u = 1 end
+  if not d.opening then u = 1 - u end
+  local t = Game3.TILE
+  local h = math.floor(t * u)
+  if h < 1 then return end
+  love.graphics.setColor(0.06, 0.06, 0.08, 0.92)
+  love.graphics.rectangle("fill",
+    (d.x or 0) * t + 2, (d.y or 0) * t + (t - h), t - 4, h)
+  love.graphics.setColor(1, 1, 1, 1)
 end
 
 function Game3:lightExitDoors()
@@ -3799,7 +9766,13 @@ function Game3:lightExitDoors()
   }
   for i = 1, #spots do
     local w = Game3.warpAt(map, spots[i][1], spots[i][2])
-    if w then self:openDoor(w.x, w.y) end
+    if w then
+      local bx, by = w.x, w.y
+      if self:behaviorAt(map, bx, by) ~= Game3.MB_PETALBURG_GYM_DOOR
+          and not Game3.signBgAt(map, bx, by) then
+        self:openDoor(bx, by, false)
+      end
+    end
   end
 end
 
@@ -3841,9 +9814,13 @@ function Game3:npcFromTemplate(o, i)
   if y == nil then y = o.y end
   local movementType = o.permMovementType or o.movementType or 0
   local npc = {
+    templateIndex = i,
     x = x, y = y,
     fromX = x, fromY = y,
     homeX = x, homeY = y,
+    elevation = o.elevation or 0,
+    currentElevation = o.elevation or 0,
+    previousElevation = o.elevation or 0,
     facing = Game3.facingFromMovementType(movementType),
     graphicsId = self:resolveGraphicsId(o.graphicsId or 0),
     movementType = movementType,
@@ -3867,7 +9844,7 @@ function Game3:npcFromTemplate(o, i)
     cooldown = 0,
     wait = ((i * 37) % 90) / 60,
     placeT = 0,
-    invisible = movementType == Game3.MOVEMENT_TYPE_INVISIBLE or nil,
+    invisible = Game3.movementTypeHidesSprite(movementType) or nil,
   }
   self:applyBerryTreeSprite(npc)
   return npc
@@ -3938,7 +9915,9 @@ function Game3:addObject(localId)
     list = {}
     self.npcByMap[map.id or map] = list
   end
-  list[#list + 1] = self:npcFromTemplate(o, #list + 1)
+  local npc = self:npcFromTemplate(o, #list + 1)
+  self:updateNpcZCoord(npc, map)
+  list[#list + 1] = npc
   return true
 end
 
@@ -4029,6 +10008,41 @@ function Game3:setObjectXYPerm(localId, x, y)
   return self:setObjectXY(localId, x, y) or o ~= nil
 end
 
+function Game3.movementTypeHidesSprite(movementType)
+  return movementType == Game3.MOVEMENT_TYPE_HIDDEN
+      or movementType == Game3.MOVEMENT_TYPE_INVISIBLE
+      or movementType == Game3.MOVEMENT_TYPE_TREE_DISGUISE
+      or movementType == Game3.MOVEMENT_TYPE_MOUNTAIN_DISGUISE
+end
+
+function Game3.faceMovementType(facing)
+  if facing == "north" then return Game3.MOVEMENT_TYPE_FACE_UP end
+  if facing == "west" then return Game3.MOVEMENT_TYPE_FACE_LEFT end
+  if facing == "east" then return Game3.MOVEMENT_TYPE_FACE_RIGHT end
+  return Game3.MOVEMENT_TYPE_FACE_DOWN
+end
+
+-- trainer_see.c SetTrainerMovementType + OverrideMovementTypeForObjectEvent
+-- after the ash pop / tree-rock pop. Skip FLDEFF_POP_OUT_OF_ASH and
+-- FLDEFF_TREE/MOUNTAIN_DISGUISE cinema; persist FACE_* so a later
+-- ON_TRANSITION that skips bury (already defeated) does not respawn HIDDEN
+-- from leftover permMovementType 63 on the Lua map object.
+function Game3:revealHiddenTrainer(npc)
+  if not npc then return false end
+  local mt = npc.movementType or 0
+  if mt ~= Game3.MOVEMENT_TYPE_HIDDEN
+      and mt ~= Game3.MOVEMENT_TYPE_TREE_DISGUISE
+      and mt ~= Game3.MOVEMENT_TYPE_MOUNTAIN_DISGUISE then
+    return false
+  end
+  npc.invisible = nil
+  local face = Game3.faceMovementType(npc.facing)
+  npc.movementType = face
+  local o = npc.localId and self:objectTemplate(npc.localId)
+  if o then o.permMovementType = face end
+  return true
+end
+
 function Game3:setObjectMovementType(localId, movementType)
   movementType = tonumber(movementType) or 0
   local o = self:objectTemplate(localId)
@@ -4037,8 +10051,22 @@ function Game3:setObjectMovementType(localId, movementType)
   if npc then
     npc.movementType = movementType
     npc.facing = Game3.facingFromMovementType(movementType)
+    if Game3.movementTypeHidesSprite(movementType) then
+      npc.invisible = true
+    else
+      npc.invisible = nil
+    end
   end
   return o ~= nil or npc ~= nil
+end
+
+function Game3:currentMapGroupNum()
+  local map = self.map
+  if not map then return 0, 0 end
+  local g, n = tonumber(map.group), tonumber(map.index)
+  if g ~= nil and n ~= nil then return g, n end
+  local gs, ns = tostring(map.id or ""):match("^g(%d+)_(%d+)$")
+  return tonumber(gs) or 0, tonumber(ns) or 0
 end
 
 function Game3:mapMatches(mapGroup, mapNum)
@@ -4115,10 +10143,11 @@ function Game3:faceScriptNpc()
 end
 
 function Game3:lockScriptNpcs(all)
+  -- ROM lock / lockall freeze wandering, not facing. lockfacing is a
+  -- movement action. Pinning facing here made Wally moonwalk.
   local function lockOne(npc)
     if npc and npc ~= "player" then
       npc.talkLock = true
-      npc.facingLocked = true
     end
   end
   if all then
@@ -4313,6 +10342,7 @@ function Game3:scriptMoveDelta(actor, dx, dy, tiles, animated, period)
       self.walkCooldown = 0
     end
     self.playerX, self.playerY = x, y
+    self:updatePlayerZCoord()
   else
     if animated then
       actor.fromX, actor.fromY = fromX, fromY
@@ -4323,6 +10353,7 @@ function Game3:scriptMoveDelta(actor, dx, dy, tiles, animated, period)
       actor.cooldown = 0
     end
     actor.x, actor.y = x, y
+    self:updateNpcZCoord(actor)
   end
 end
 
@@ -4344,9 +10375,10 @@ function Game3:playScriptStep(actor, step)
   if not (actor and step) then return end
   local kind = step.kind
   if kind == "delay" then
-    if not self.invisible then
-      self:holdActor(actor, (step.frames or 1) / 60)
-    end
+    -- ROM delay_8/16 always occupies the object. Skipping when the
+    -- player sprite is hidden made every NPC delay instant in the
+    -- contest hall (ON_WARP hideobjectat LOCALID_PLAYER).
+    self:holdActor(actor, (step.frames or 1) / 60)
     return
   end
   if kind == "emote" then
@@ -4396,8 +10428,12 @@ function Game3:playScriptStep(actor, step)
     return
   end
   if kind == "reveal" then
-    self:setActorInvisible(actor, false)
-    if actor ~= "player" then actor.revealed = true end
+    if actor ~= "player" and self:revealHiddenTrainer(actor) then
+      actor.revealed = true
+    else
+      self:setActorInvisible(actor, false)
+      if actor ~= "player" then actor.revealed = true end
+    end
     self:holdActor(actor, Game3.WALK_PERIOD)
     return
   end
@@ -4572,14 +10608,37 @@ function Game3:resumeMoveScript()
   local fromMsg = self.field and self.field.thenContinue
   local jobs = self.moveJobs
   local hasJobs = type(jobs) == "table" and #jobs > 0
-  if fromMsg then
-    if hasJobs or self:scriptDelaying() or self:scriptWaiting() then
+  -- StartWallClock nils field then resumes. A leftover D-pad lerp is
+  -- scriptMoving() but not an applymovement job; wait only on jobs or
+  -- the field stays nil and FLAG_SET_WALL_CLOCK never sets.
+  local function hold(kind)
+    local f = self.field
+    if f and f.kind == kind then return true end
+    if f and f.kind ~= "talk" and f.kind ~= "wait"
+        and f.kind ~= "move" and f.kind ~= "delay" then
       return true
     end
+    self.field = { kind = kind }
+    return true
+  end
+  -- scriptMoving() is also true for a leftover D-pad lerp. Wait only on
+  -- applymovement jobs; that lerp is not waitmovement. fromMsg keeps the
+  -- talk line up (Route 101 shove).
+  if fromMsg then
+    if hasJobs or self:scriptDelaying() then
+      return true
+    end
+    if self:scriptWaiting() then
+      -- Keep the line up only while a live cinema/effect owns the wait.
+      -- A leftover scriptWait (heal, unused waitstate) used to pin
+      -- "ZIGZAGOON used ROCK SMASH." forever.
+      if self:cinemaHolding() then return true end
+      self.scriptWait = nil
+    end
   else
-    if self:scriptMoving() then return true end
-    if self:scriptDelaying() then return true end
-    if self:scriptWaiting() then return true end
+    if hasJobs then return hold("move") end
+    if self:scriptDelaying() then return hold("delay") end
+    if self:scriptWaiting() then return hold("wait") end
   end
   self._scriptPause = nil
   self._scriptSays = {}
@@ -4594,7 +10653,7 @@ function Game3:fallDownHole()
     self.walkCooldown = 0
     self.moveJobs = {}
     self:scriptWarp(h.mapGroup, h.mapNum, Game3.WARP_ID_NONE, x, y)
-    self.field = { kind = "talk", text = "You fell through!" }
+    self.field = { kind = "talk", text = Game3.TEXT_FELL_THROUGH }
     return true
   end
   local map = self.map
@@ -4605,17 +10664,48 @@ function Game3:fallDownHole()
     self.moveJobs = {}
     self:scriptWarp(Game3.GRANITE_CAVE_GROUP, Game3.GRANITE_CAVE_B2F_NUM,
       Game3.WARP_ID_NONE, x, y)
-    self.field = { kind = "talk", text = "You fell through!" }
+    self.field = { kind = "talk", text = Game3.TEXT_FELL_THROUGH }
     return true
   end
   local spawn = map and map.spawn or {}
   self.playerX = spawn.x or 0
   self.playerY = spawn.y or 0
   self.walkFromX, self.walkFromY = self.playerX, self.playerY
+  self:updatePlayerZCoord()
   self.walkCooldown = 0
   self.moveJobs = {}
-  self.field = { kind = "talk", text = "You fell through!" }
+  self.field = { kind = "talk", text = Game3.TEXT_FELL_THROUGH }
   return true
+end
+
+-- field_fadetransition.c sp13E_warp_to_last_warp. The name is a
+-- misnomer: dest is gWarpDestination (already set by sub_8068C30 or
+-- warpsilent), not gLastUsedWarp. Do not beginScriptWait.
+function Game3:warpToWarpDestination()
+  local d = self.warpDestination
+  if d then
+    self.walkCooldown = 0
+    self.moveJobs = {}
+    return self:scriptWarp(d.mapGroup, d.mapNum,
+      d.warpId or Game3.WARP_ID_NONE, d.x, d.y)
+  end
+  local w = Game3.warpAt(self.map, self.playerX, self.playerY)
+  if w then
+    self.walkCooldown = 0
+    self.moveJobs = {}
+    return self:followWarp(w)
+  end
+  return false
+end
+
+-- EventScript_FallDownHoleMtPyre → special DoFallWarp. Dest is the
+-- hole's warp event (sub_8068C30), then the fall field callback.
+function Game3:doFallWarp()
+  if self:warpToWarpDestination() then
+    self.field = { kind = "talk", text = Game3.TEXT_FELL_THROUGH }
+    return true
+  end
+  return self:fallDownHole()
 end
 
 function Game3:writeMetatile(x, y, mid)
@@ -4623,7 +10713,10 @@ function Game3:writeMetatile(x, y, mid)
   local i = self:gridIndex(map, x, y)
   if not i or type(map.grid) ~= "table" then return false end
   local cell = map.grid[i] or 0
-  map.grid[i] = (tonumber(mid) or 0) % 1024 + Game3.collisionOf(cell) * 1024
+  map.grid[i] = Game3.elevationBits(cell)
+    + (tonumber(mid) or 0) % 1024
+    + Game3.collisionOf(cell) * 1024
+  self:markTilesDirty()
   return true
 end
 
@@ -4632,6 +10725,67 @@ function Game3:crackTileAt(x, y)
   local i = self:gridIndex(map, x, y)
   if not i or type(map.grid) ~= "table" then return false end
   return self:writeMetatile(x, y, Game3.metatileOf(map.grid[i]) + 1)
+end
+
+-- field_tasks.c sub_8069CB8: map-local x in 3..13, y in 6..19, and
+-- gUnknown_083763E4[y] nonzero. C casts (x-3) to u16.
+function Game3.sootopolisIceBit(x, y)
+  x, y = x or 0, y or 0
+  if x < 3 or x > 13 then return nil end
+  if y < 6 or y > 19 then return nil end
+  local id = Game3.SOOTOPOLIS_ICE_ROW_VAR[y]
+  if not id or id == 0 then return nil end
+  return id, x - 3
+end
+
+function Game3:markSootopolisIceCracked(x, y)
+  local id, bit = Game3.sootopolisIceBit(x, y)
+  if not id then return false end
+  local n = self:varGet(id)
+  local mask = 2 ^ bit
+  if math.floor(n / mask) % 2 == 0 then
+    n = n + mask
+    if n > 65535 then n = n - 65536 end
+    self:setScriptVar(id, n)
+  end
+  return true
+end
+
+function Game3:sootopolisIceWasCracked(x, y)
+  local id, bit = Game3.sootopolisIceBit(x, y)
+  if not id then return false end
+  local mask = 2 ^ bit
+  return math.floor(self:varGet(id) / mask) % 2 == 1
+end
+
+-- special 309. MapGridSetMetatileIdAt(x+7, y+7, Ice_Cracked).
+function Game3:setSootopolisGymCrackedIceMetatiles()
+  local map = self.map
+  if not (map and map.grid) then return false end
+  local w, h = map.width or 0, map.height or 0
+  local any = false
+  for y = 0, h - 1 do
+    for x = 0, w - 1 do
+      if self:sootopolisIceWasCracked(x, y) then
+        self:writeMetatile(x, y, Game3.MT_SOOTOPOLIS_ICE_CRACKED)
+        any = true
+      end
+    end
+  end
+  return any
+end
+
+function Game3:iceFrameFallsToHole()
+  local rows = self.map and self.map.mapScripts and self.map.mapScripts.onFrame
+  if type(rows) ~= "table" then return false end
+  for i = 1, #rows do
+    local row = rows[i]
+    if row and (row.var or 0) == Game3.VAR_ICE_STEP_COUNT
+        and (row.value or 0) == 0 then
+      return true
+    end
+  end
+  return false
 end
 
 function Game3:behaviorOf(mid)
@@ -4728,8 +10882,27 @@ function Game3:runStepCallback(prevX, prevY)
       return self:fallDownHole()
     end
   elseif id == Game3.STEP_CB_ICE then
-    if b == Game3.MB_CRACKED_ICE then return self:fallDownHole() end
-    if b == Game3.MB_THIN_ICE then return self:crackTileAt(x, y) end
+    if b == Game3.MB_CRACKED_ICE then
+      self:setScriptVar(Game3.VAR_ICE_STEP_COUNT, 0)
+      local i = self:gridIndex(self.map, x, y)
+      if i and self.map and self.map.grid then
+        local mid = Game3.metatileOf(self.map.grid[i])
+        if mid == Game3.MT_SOOTOPOLIS_ICE_CRACKED then
+          self:writeMetatile(x, y, Game3.MT_SOOTOPOLIS_ICE_BROKEN)
+        end
+      end
+      -- Sootopolis ON_FRAME warphole MAP_SOOTOPOLIS_CITY_GYM_B1F.
+      -- Do not snap to spawn first; dest xy is the hole the player is on.
+      if self:iceFrameFallsToHole() then return true end
+      return self:fallDownHole()
+    end
+    if b == Game3.MB_THIN_ICE then
+      local n = self:varGet(Game3.VAR_ICE_STEP_COUNT) + 1
+      if n > 65535 then n = n - 65536 end
+      self:setScriptVar(Game3.VAR_ICE_STEP_COUNT, n)
+      self:markSootopolisIceCracked(x, y)
+      return self:crackTileAt(x, y)
+    end
   end
   return false
 end
@@ -4773,9 +10946,16 @@ local SURFABLE = {
   [0x13] = true, -- MB_WATERFALL
   [0x14] = true, -- MB_SOOTOPOLIS_DEEP_WATER
   [0x15] = true, -- MB_OCEAN_WATER
-  [0x18] = true, -- MB_NO_SURFACING
+  [0x19] = true, -- MB_NO_SURFACING
   [0x22] = true, -- MB_SEAWEED
-  [0x28] = true, -- MB_SEAWEED_NO_SURFACING
+  [0x2A] = true, -- MB_SEAWEED_NO_SURFACING
+  [0x50] = true, -- MB_EASTWARD_CURRENT
+  [0x51] = true, -- MB_WESTWARD_CURRENT
+  [0x52] = true, -- MB_NORTHWARD_CURRENT
+  [0x53] = true, -- MB_SOUTHWARD_CURRENT
+  [0x6C] = true, -- MB_WATER_DOOR
+  [0x6D] = true, -- MB_WATER_SOUTH_ARROW_WARP
+  [0x6F] = true, -- MB_UNUSED_6F
 }
 
 function Game3.isLandGrass(behavior)
@@ -4827,6 +11007,21 @@ function Game3.isSurfable(behavior)
   return SURFABLE[behavior or 0] == true
 end
 
+-- metatile_behavior.c IsReflective. Ocean is surfable but does not
+-- spawn a character reflection; pond / ice / under-bridge do.
+local REFLECTIVE = {
+  [0x10] = true, -- MB_POND_WATER
+  [0x14] = true, -- MB_SOOTOPOLIS_DEEP_WATER
+  [0x16] = true, -- MB_PUDDLE
+  [0x1A] = true, -- MB_UNUSED_SOOTOPOLIS_DEEP_WATER_2
+  [0x20] = true, -- MB_ICE
+  [0x2B] = true, -- MB_REFLECTION_UNDER_BRIDGE
+}
+
+function Game3.isReflective(behavior)
+  return REFLECTIVE[behavior or 0] == true
+end
+
 function Game3.isSurfStart(behavior)
   return Game3.isSurfable(behavior) and not Game3.isWaterfall(behavior)
 end
@@ -4868,7 +11063,13 @@ function Game3:metatileTopEmpty(map, mid)
 end
 
 function Game3:topIsOverlayAt(map, x, y)
-  if Game3.isLandGrass(self:behaviorAt(map, x, y)) then return false end
+  local behavior = self:behaviorAt(map, x, y)
+  if Game3.isLandGrass(behavior) then return false end
+  if behavior == Game3.MB_BERRY_TREE_SOIL then return false end
+  -- Route 110's seaside cycling road sits next to LAYER_NORMAL ocean
+  -- (mid 786). BG1 overlay would paint that water over the 32px bike
+  -- sprites that hang 8px off the 2-tile road.
+  if Game3.isSurfable(behavior) then return false end
   if not Game3.topIsOverlay(self:layerTypeAt(map, x, y)) then return false end
   if not (map and map.grid) then return true end
   local mid = Game3.metatileOf(map.grid[(y or 0) * (map.width or 0) + (x or 0) + 1])
@@ -4881,7 +11082,15 @@ end
 -- buries a 16x32 OW sprite's head (tree trunks, Devon Corp door/sign).
 function Game3.metatileTopPassMode(layerType, topPass, overlay)
   if not topPass then return "full" end
-  if overlay and (layerType or 0) == Game3.LAYER_SPLIT then
+  local lt = layerType or 0
+  -- LAYER_COVERED is BG3 (bottom) + BG2 (middle), never BG1. Do not
+  -- consult `overlay`: if layerTypeAt is right and topIsOverlayAt is
+  -- wrong, the picket fence still has to land under sprites.
+  if lt == Game3.LAYER_COVERED then
+    if topPass == "overlay" then return "skip" end
+    return "full"
+  end
+  if overlay and lt == Game3.LAYER_SPLIT then
     if topPass == "overlay" then return "top8" end
     return "bottom8"
   end
@@ -4905,18 +11114,23 @@ function Game3.isFlowerAnimTile(tid)
   return tid >= 127 and tid <= 130
 end
 
--- Flower DMA is VRAM 127-130. Rock/cliff metatiles reuse those numbers
--- next to tiles 131+; flipping them makes mountain ledges shimmer.
+-- Flower DMA is VRAM 127-130. Water-edge / cliff metatiles mix those
+-- slots with water (108-126) or rock (131+); flipping them makes the
+-- white harbor cap blink instead of the water swaying.
 function Game3.blocksFlowerAnim(tid)
   tid = (tid or 0) % 1024
+  if tid >= 108 and tid <= 126 then return true end
   return tid > 130 and tid < 512
 end
 
-function Game3.shouldAnimCorner(tid, behavior, tiles, start)
+function Game3.shouldAnimCorner(tid, behavior, tiles, start, collision)
   if not Game3.isGeneralAnimTile(tid) then return false end
   if Game3.ledgeDelta(behavior) then return false end
   if Game3.isSurfable(behavior) then return true end
   if not Game3.isFlowerAnimTile(tid) then return false end
+  -- Solid (collision ~= 0) harbor walls share flower VRAM. Lua 0 is
+  -- walkable and must still flip.
+  if collision ~= nil and collision ~= 0 then return false end
   if type(tiles) == "table" then
     start = start or 1
     for i = 0, 3 do
@@ -5058,6 +11272,9 @@ end
 function Game3:attackType(attacker, move)
   if (move and move.effect or 0) == Game3.EFFECT_HIDDEN_POWER then
     return Game3.hiddenPowerType(attacker and attacker.ivs)
+  end
+  if (move and move.effect or 0) == Game3.EFFECT_WEATHER_BALL then
+    return self:weatherBallType()
   end
   return (move and move.type) or 0
 end
@@ -5213,25 +11430,33 @@ end
 
 function Game3.abilityName(id)
   local names = {
-    [7] = "LIMBER", [8] = "SAND VEIL", [2] = "DRIZZLE", [9] = "STATIC", [10] = "VOLT ABSORB",
-    [11] = "WATER ABSORB", [13] = "CLOUD NINE", [14] = "COMPOUND EYES",
-    [15] = "INSOMNIA",
+    [1] = "STENCH", [2] = "DRIZZLE", [3] = "SPEED BOOST",
+    [4] = "BATTLE ARMOR", [5] = "STURDY", [6] = "DAMP",
+    [7] = "LIMBER", [8] = "SAND VEIL", [9] = "STATIC", [10] = "VOLT ABSORB",
+    [11] = "WATER ABSORB", [12] = "OBLIVIOUS", [13] = "CLOUD NINE", [14] = "COMPOUND EYES",
+    [15] = "INSOMNIA", [16] = "COLOR CHANGE",
     [17] = "IMMUNITY", [18] = "FLASH FIRE", [19] = "SHIELD DUST",
-    [20] = "OWN TEMPO", [22] = "INTIMIDATE", [23] = "SHADOW TAG",
+    [20] = "OWN TEMPO", [21] = "SUCTION CUPS", [22] = "INTIMIDATE", [23] = "SHADOW TAG",
     [24] = "ROUGH SKIN",
-    [25] = "WONDER GUARD", [26] = "LEVITATE", [28] = "SYNCHRONIZE",
+    [25] = "WONDER GUARD", [26] = "LEVITATE", [27] = "EFFECT SPORE",
+    [28] = "SYNCHRONIZE",
     [29] = "CLEAR BODY", [30] = "NATURAL CURE", [31] = "LIGHTNINGROD",
     [32] = "SERENE GRACE", [33] = "SWIFT SWIM", [34] = "CHLOROPHYLL",
+    [35] = "ILLUMINATE",
     [36] = "TRACE", [37] = "HUGE POWER", [38] = "POISON POINT",
     [39] = "INNER FOCUS", [40] = "MAGMA ARMOR", [41] = "WATER VEIL",
-    [42] = "MAGNET PULL", [44] = "RAIN DISH", [45] = "SAND STREAM",
+    [42] = "MAGNET PULL", [43] = "SOUNDPROOF", [44] = "RAIN DISH",
+    [45] = "SAND STREAM", [46] = "PRESSURE",
     [47] = "THICK FAT", [48] = "EARLY BIRD", [49] = "FLAME BODY",
-    [50] = "RUN AWAY", [51] = "KEEN EYE", [52] = "HYPER CUTTER", [53] = "PICKUP", [54] = "TRUANT",
+    [50] = "RUN AWAY", [51] = "KEEN EYE", [52] = "HYPER CUTTER",
+    [53] = "PICKUP", [54] = "TRUANT", [55] = "HUSTLE",
+    [56] = "CUTE CHARM", [57] = "PLUS", [58] = "MINUS", [59] = "FORECAST",
     [60] = "STICKY HOLD", [61] = "SHED SKIN", [62] = "GUTS",
     [63] = "MARVEL SCALE", [64] = "LIQUID OOZE", [65] = "OVERGROW",
     [66] = "BLAZE", [67] = "TORRENT", [68] = "SWARM", [69] = "ROCK HEAD",
     [70] = "DROUGHT", [71] = "ARENA TRAP", [72] = "VITAL SPIRIT", [73] = "WHITE SMOKE",
-    [74] = "PURE POWER", [76] = "AIR LOCK",
+    [74] = "PURE POWER", [75] = "SHELL ARMOR", [76] = "CACOPHONY",
+    [77] = "AIR LOCK",
   }
   return names[id] or ("ABILITY %d"):format(id or 0)
 end
@@ -5307,6 +11532,14 @@ function Game3:copyMove(id)
   }
 end
 
+function Game3:moveEffect(move)
+  if type(move) ~= "table" then return 0 end
+  local spec = self.data and self.data.moves and self.data.moves.byId
+    and self.data.moves.byId[move.id]
+  if spec and spec.effect ~= nil then return spec.effect end
+  return tonumber(move.effect) or 0
+end
+
 function Game3:movesFor(species, level)
   level = level or 1
   local row = self:speciesRow(species)
@@ -5330,6 +11563,8 @@ end
 function Game3:behaviorAt(map, x, y)
   map = map or self.map
   if not (map and map.grid) then return 0 end
+  x = math.floor(tonumber(x) or 0)
+  y = math.floor(tonumber(y) or 0)
   local w, h = map.width or 0, map.height or 0
   if x < 0 or y < 0 or x >= w or y >= h then return 0 end
   local i = y * w + x + 1
@@ -5393,6 +11628,38 @@ function Game3.fishMinRounds(rod, randomValue)
   return (Game3.FISH_MIN_BASE[rod] or 1) + ((randomValue or 0) % span)
 end
 
+-- wild_encounter.c DoWildEncounterTest. Rate is the header encounterRate
+-- before *16. Bike, flutes, Cleanse Tag, then lead ability unless
+-- ignoreAbility (Rock Smash). Cap MAX_ENCOUNTER_RATE 2880.
+function Game3:wildEncounterRate(baseRate, ignoreAbility)
+  local rate = (tonumber(baseRate) or 0) * 16
+  if self.bike then
+    rate = math.floor(rate * 80 / 100)
+  end
+  local flags = self.flags
+  if flags and flags[Game3.FLAG_SYS_ENC_UP_ITEM] == true then
+    rate = rate + math.floor(rate / 2)
+  elseif flags and flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] == true then
+    rate = math.floor(rate / 2)
+  end
+  local lead = self.party and self.party[1]
+  if lead and (tonumber(lead.item) or 0) == Game3.ITEM_CLEANSE_TAG then
+    rate = math.floor(rate * 2 / 3)
+  end
+  if not ignoreAbility and lead and not lead.isEgg then
+    if self:hasAbility(lead, Game3.ABILITY_STENCH) then
+      rate = math.floor(rate / 2)
+    end
+    if self:hasAbility(lead, Game3.ABILITY_ILLUMINATE) then
+      rate = rate * 2
+    end
+  end
+  if rate > Game3.MAX_ENCOUNTER_RATE then
+    rate = Game3.MAX_ENCOUNTER_RATE
+  end
+  return rate
+end
+
 function Game3:tryWildEncounter()
   local map = self.map
   if not map then return false end
@@ -5407,9 +11674,18 @@ function Game3:tryWildEncounter()
     return false
   end
   if not (info and info.slots and #info.slots > 0) then return false end
-  local rate = info.rate or 0
-  if (self:rand(2880) - 1) >= rate * 16 then return false end
+  local rate = self:wildEncounterRate(info.rate or 0, false)
+  if (self:rand(Game3.MAX_ENCOUNTER_RATE) - 1) >= rate then return false end
   if not self:firstHealthy() then return false end
+  -- wild_encounter.c: TryStartRoamerEncounter after the rate roll. A
+  -- TRUE that Repel then blocks does not fall through to the slot table.
+  if self:tryStartRoamerEncounter() then
+    local roamer = self.roamer
+    if roamer and not self:repelBlocks(roamer.level) then
+      return self:startRoamerBattle()
+    end
+    return false
+  end
   return self:startWildFrom(info, picker(self:rand(100) - 1))
 end
 
@@ -5429,10 +11705,46 @@ function Game3:tryRockSmashEncounter()
   local enc = self:encountersFor(self.map)
   local rock = enc and enc.rock
   if not (rock and rock.slots and #rock.slots > 0) then return false end
-  local rate = rock.rate or 0
-  if (self:rand(2880) - 1) >= rate * 16 then return false end
+  local rate = self:wildEncounterRate(rock.rate or 0, true)
+  if (self:rand(Game3.MAX_ENCOUNTER_RATE) - 1) >= rate then return false end
   if not self:firstHealthy() then return false end
   return self:startWildFrom(rock, Game3.chooseWaterRockSlot(self:rand(100) - 1))
+end
+
+-- ScrSpecial_RockSmashWildEncounter: area 2, Repel on, ignoreAbility.
+-- BattleSetup_StartWildBattle increments stats 7/8 and ScriptContext_Stop.
+function Game3:rockSmashWildEncounter()
+  if self:tryRockSmashEncounter() then
+    self:incrementGameStat(Game3.GAME_STAT_TOTAL_BATTLES)
+    self:incrementGameStat(Game3.GAME_STAT_WILD_BATTLES)
+    self:beginScriptWait()
+    self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+    return 1
+  end
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+-- TryUpdateRusturfTunnelState. Exact g24_4 (mapMatches is permissive on
+-- stub ids that are not gN_M). FLAG_HIDE_ROCK_1 wins if both are set.
+function Game3:tryUpdateRusturfTunnelState()
+  if self.flags and self.flags[Game3.FLAG_RUSTURF_TUNNEL_OPENED] then
+    return 0
+  end
+  local id = self.map and self.map.id
+  if id ~= Game3.mapId(Game3.MAP_RUSTURF_TUNNEL_GROUP,
+      Game3.MAP_RUSTURF_TUNNEL_NUM) then
+    return 0
+  end
+  if self.flags and self.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1] then
+    self:setScriptVar(Game3.VAR_RUSTURF_TUNNEL_STATE, 4)
+    return 1
+  end
+  if self.flags and self.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_2] then
+    self:setScriptVar(Game3.VAR_RUSTURF_TUNNEL_STATE, 5)
+    return 1
+  end
+  return 0
 end
 
 function Game3:trySweetScentEncounter()
@@ -5450,7 +11762,252 @@ function Game3:trySweetScentEncounter()
   end
   if not (info and info.slots and #info.slots > 0) then return false end
   if not self:firstHealthy() then return false end
+  -- SweetScentWildEncounter: TryStartRoamerEncounter with no Repel check.
+  if self:tryStartRoamerEncounter() then
+    return self:startRoamerBattle()
+  end
   return self:startWildFrom(info, picker(self:rand(100) - 1), true)
+end
+
+-- roamer.c. Location RAM is EWRAM on hardware; CONTINUE keeps mapNum so
+-- Latios does not snap to Petalburg (group 0, num 0).
+function Game3:clearRoamerData()
+  self.roamer = {
+    species = 0,
+    level = 0,
+    active = false,
+    ivs = Game3.zeroIvs(),
+    personality = 0,
+    hp = 0,
+    cool = 0,
+    beauty = 0,
+    cute = 0,
+    smart = 0,
+    tough = 0,
+  }
+end
+
+function Game3:clearRoamerLocationData()
+  self.roamerLocationHistory = { { 0, 0 }, { 0, 0 }, { 0, 0 } }
+  self.roamerLocation = { 0, 0 }
+end
+
+function Game3:createInitialRoamerMon()
+  local mon = self:makeMon(Game3.ROAMER_SPECIES, Game3.ROAMER_LEVEL)
+  self.roamer = {
+    species = Game3.ROAMER_SPECIES,
+    level = Game3.ROAMER_LEVEL,
+    active = true,
+    ivs = Game3.copyIvs(mon.ivs),
+    personality = mon.pid or 0,
+    hp = mon.maxHp or 0,
+    cool = mon.cool or 0,
+    beauty = mon.beauty or 0,
+    cute = mon.cute or 0,
+    smart = mon.smart or 0,
+    tough = mon.tough or 0,
+  }
+  local sets = Game3.ROAMER_LOCATIONS
+  local loc = self.roamerLocation
+  if type(loc) ~= "table" then
+    self:clearRoamerLocationData()
+    loc = self.roamerLocation
+  end
+  loc[1] = 0
+  loc[2] = sets[(self:gbaRandom() % 20) + 1][1]
+end
+
+function Game3:initRoamer()
+  self:clearRoamerData()
+  self:clearRoamerLocationData()
+  self:createInitialRoamerMon()
+end
+
+function Game3:updateLocationHistoryForRoamer()
+  local hist = self.roamerLocationHistory
+  if type(hist) ~= "table" then
+    self:clearRoamerLocationData()
+    hist = self.roamerLocationHistory
+  end
+  local h2, h1 = hist[2], hist[1]
+  hist[3] = { h2[1] or 0, h2[2] or 0 }
+  hist[2] = { h1[1] or 0, h1[2] or 0 }
+  local g, n = self:currentMapGroupNum()
+  hist[1] = { g, n }
+end
+
+function Game3:roamerMoveToOtherLocationSet()
+  local r = self.roamer
+  if not (r and r.active) then return end
+  local loc = self.roamerLocation
+  if type(loc) ~= "table" then
+    self:clearRoamerLocationData()
+    loc = self.roamerLocation
+  end
+  loc[1] = 0
+  local sets = Game3.ROAMER_LOCATIONS
+  while true do
+    local val = sets[(self:gbaRandom() % 20) + 1][1]
+    if loc[2] ~= val then
+      loc[2] = val
+      return
+    end
+  end
+end
+
+function Game3:roamerMove()
+  if (self:gbaRandom() % 16) == 0 then
+    self:roamerMoveToOtherLocationSet()
+    return
+  end
+  local r = self.roamer
+  if not (r and r.active) then return end
+  local loc = self.roamerLocation
+  local hist = self.roamerLocationHistory
+  if type(loc) ~= "table" or type(hist) ~= "table" then return end
+  local current = loc[2]
+  local sets = Game3.ROAMER_LOCATIONS
+  for locSet = 1, 20 do
+    local row = sets[locSet]
+    if row[1] == current then
+      local old = hist[3]
+      while true do
+        local mapNum = row[(self:gbaRandom() % 5) + 2]
+        local skip = (old[1] or 0) == 0 and (old[2] or 0) == mapNum
+        if not skip and mapNum ~= Game3.ROAMER_MAP_NONE then
+          loc[2] = mapNum
+          return
+        end
+      end
+    end
+  end
+end
+
+function Game3:isRoamerAt(mapGroup, mapNum)
+  local r = self.roamer
+  local loc = self.roamerLocation
+  if not (r and r.active and type(loc) == "table") then return false end
+  return loc[1] == (tonumber(mapGroup) or 0)
+      and loc[2] == (tonumber(mapNum) or 0)
+end
+
+function Game3:tryStartRoamerEncounter()
+  local g, n = self:currentMapGroupNum()
+  if self:isRoamerAt(g, n) and (self:gbaRandom() % 4) == 0 then
+    return true
+  end
+  return false
+end
+
+function Game3:startRoamerBattle()
+  local r = self.roamer
+  if not (r and r.active) then return false end
+  if not self:startWildBattle(r.species, r.level) then return false end
+  local enemy = self.battle.enemy
+  if r.personality then enemy.pid = r.personality end
+  if type(r.ivs) == "table" then
+    enemy.ivs = Game3.copyIvs(r.ivs)
+    self:recalcStats(enemy)
+  end
+  local hp = tonumber(r.hp)
+  if hp ~= nil then
+    enemy.hp = math.max(0, math.min(enemy.maxHp or hp, hp))
+  end
+  enemy.status = r.status
+  enemy.sleepTurns = r.sleepTurns
+  enemy.cool = r.cool or 0
+  enemy.beauty = r.beauty or 0
+  enemy.cute = r.cute or 0
+  enemy.smart = r.smart or 0
+  enemy.tough = r.tough or 0
+  self.battle.roamer = true
+  self:incrementGameStat(Game3.GAME_STAT_TOTAL_BATTLES)
+  self:incrementGameStat(Game3.GAME_STAT_WILD_BATTLES)
+  return true
+end
+
+function Game3:updateRoamerHPStatus(mon)
+  local r = self.roamer
+  if not r then return end
+  r.hp = (mon and mon.hp) or 0
+  r.status = mon and mon.status
+  r.sleepTurns = mon and mon.sleepTurns
+  self:roamerMoveToOtherLocationSet()
+end
+
+function Game3:setRoamerInactive()
+  local r = self.roamer
+  if r then r.active = false end
+end
+
+function Game3:finishRoamerBattle(outcome)
+  if not (self.battle and self.battle.roamer) then return end
+  self:updateRoamerHPStatus(self.battle.enemy)
+  local o = tonumber(outcome) or 0
+  if o == Game3.B_OUTCOME_WON or o == Game3.B_OUTCOME_CAUGHT then
+    self:setRoamerInactive()
+  end
+end
+
+function Game3:snapshotRoamer()
+  local r = self.roamer
+  if type(r) ~= "table" then return nil end
+  local loc = self.roamerLocation or { 0, 0 }
+  return {
+    species = r.species or 0,
+    level = r.level or 0,
+    status = r.status,
+    sleepTurns = r.sleepTurns,
+    active = r.active and true or false,
+    ivs = Game3.copyIvs(r.ivs),
+    personality = r.personality or 0,
+    hp = r.hp or 0,
+    cool = r.cool or 0,
+    beauty = r.beauty or 0,
+    cute = r.cute or 0,
+    smart = r.smart or 0,
+    tough = r.tough or 0,
+    mapGroup = loc[1] or 0,
+    mapNum = loc[2] or 0,
+  }
+end
+
+function Game3:applyRoamerSave(data)
+  self:clearRoamerData()
+  self:clearRoamerLocationData()
+  if type(data) ~= "table" then return end
+  local r = self.roamer
+  r.species = tonumber(data.species) or 0
+  r.level = tonumber(data.level) or 0
+  r.status = data.status
+  r.sleepTurns = data.sleepTurns
+  r.active = data.active and true or false
+  if type(data.ivs) == "table" then r.ivs = Game3.copyIvs(data.ivs) end
+  r.personality = tonumber(data.personality) or 0
+  r.hp = tonumber(data.hp) or 0
+  r.cool = tonumber(data.cool) or 0
+  r.beauty = tonumber(data.beauty) or 0
+  r.cute = tonumber(data.cute) or 0
+  r.smart = tonumber(data.smart) or 0
+  r.tough = tonumber(data.tough) or 0
+  self.roamerLocation[1] = tonumber(data.mapGroup) or 0
+  self.roamerLocation[2] = tonumber(data.mapNum) or 0
+end
+
+-- tv.c CheckForBigMovieOrEmergencyNewsOnTV. Must be the matching
+-- gender's Littleroot 1F. FLAG_SYS_TV_LATI → 1; FLAG_SYS_TV_HOME → 2;
+-- else 1. 0 if the map is not that house.
+function Game3:checkForBigMovieOrEmergencyNewsOnTV()
+  local group, num = self:currentMapGroupNum()
+  if group ~= Game3.MAP_LITTLEROOT_INDOOR_GROUP then return 0 end
+  if self:isFemale() then
+    if num ~= Game3.MAP_MAYS_HOUSE_1F_NUM then return 0 end
+  else
+    if num ~= Game3.MAP_BRENDANS_HOUSE_1F_NUM then return 0 end
+  end
+  if self.flags and self.flags[Game3.FLAG_SYS_TV_LATI] then return 1 end
+  if self.flags and self.flags[Game3.FLAG_SYS_TV_HOME] then return 2 end
+  return 1
 end
 
 function Game3:trainerLabel(npc)
@@ -5479,13 +12036,18 @@ function Game3.aliveMon(mon)
   return mon ~= nil and (mon.hp or 0) > 0
 end
 
--- Living foes still to beat: the active battler(s) plus unsent party.
+-- Living foes still to beat: the active battler(s), roared-out bench,
+-- plus unsent party.
 function Game3:trainerMonsLeft()
   local b = self.battle
   if not b then return 0 end
   local n = 0
   if Game3.aliveMon(b.enemy) then n = n + 1 end
   if Game3.aliveMon(b.enemy2) then n = n + 1 end
+  local bench = b.phazed or {}
+  for i = 1, #bench do
+    if Game3.aliveMon(bench[i]) then n = n + 1 end
+  end
   local party = b.trainerParty or {}
   for i = (b.trainerIndex or 1) + 1, #party do n = n + 1 end
   return n
@@ -5537,6 +12099,10 @@ end
 function Game3:queueEnemyAction(queue)
   local b = self.battle
   if not b or not Game3.aliveMon(b.enemy) then return end
+  if b.safari then
+    self:queueSafariEnemy(queue)
+    return
+  end
   if b.player and (b.player.hp or 0) <= 0 then return end
   local item = self:takeTrainerHealItem(b.enemy)
   if item then
@@ -5547,6 +12113,86 @@ function Game3:queueEnemyAction(queue)
   local move = self:pickEnemyMove(b.enemy)
   local texts = self:useMove(b.enemy, b.player, move)
   for i = 1, #texts do queue[#queue + 1] = texts[i] end
+end
+
+-- battle_ai BattleAICmd_if_random_100: Random()%100 < safariFleeRate*5.
+function Game3:queueSafariEnemy(queue)
+  local b = self.battle
+  if not b or not Game3.aliveMon(b.enemy) then return end
+  local rate = (b.safariFleeRate or 3) * 5
+  local name = (b.enemy and b.enemy.name) or "POKeMON"
+  if (self:gbaRandom() % 100) < rate then
+    queue[#queue + 1] = ("Wild %s fled!"):format(name)
+    b.fled = true
+    return
+  end
+  queue[#queue + 1] = ("%s is watching\ncarefully!"):format(name)
+end
+
+function Game3:safariGoNear()
+  local b = self.battle
+  if not b or not b.safari then return end
+  local n = b.safariGoNearCounter or 0
+  local addCatch = Game3.SAFARI_GO_NEAR_CATCH[n + 1] or 1
+  local addFlee = Game3.SAFARI_GO_NEAR_FLEE[n + 1] or 4
+  b.safariCatchFactor = (b.safariCatchFactor or 0) + addCatch
+  if b.safariCatchFactor > Game3.SAFARI_CATCH_FACTOR_MAX then
+    b.safariCatchFactor = Game3.SAFARI_CATCH_FACTOR_MAX
+  end
+  b.safariFleeRate = (b.safariFleeRate or 3) + addFlee
+  if b.safariFleeRate > Game3.SAFARI_FLEE_RATE_MAX then
+    b.safariFleeRate = Game3.SAFARI_FLEE_RATE_MAX
+  end
+  local closer = n < 3
+  if closer then b.safariGoNearCounter = n + 1 end
+  local player = (b.player and b.player.name) or self:playerName()
+  local foe = (b.enemy and b.enemy.name) or "POKeMON"
+  local line
+  if closer then
+    line = ("%s crept closer to\n%s!"):format(player, foe)
+  else
+    line = ("%s can't get any closer!"):format(player)
+  end
+  local queue = { line }
+  self:queueEnemyAction(queue)
+  b.queue = queue
+  b.qi = 1
+  b.kind = "text"
+  b.text = queue[1]
+  b.turns = (b.turns or 0) + 1
+end
+
+function Game3:safariThrowPokeblock(flavor)
+  local b = self.battle
+  if not b or not b.safari then return end
+  flavor = math.floor(tonumber(flavor) or 0)
+  if flavor < 0 then flavor = 0 elseif flavor > 2 then flavor = 2 end
+  if (b.safariPkblThrowCounter or 0) < 3 then
+    b.safariPkblThrowCounter = (b.safariPkblThrowCounter or 0) + 1
+  end
+  local row = Game3.SAFARI_POKEBLOCK_FLEE[(b.safariPkblThrowCounter or 0) + 1]
+  local cut = row and row[flavor + 1] or 0
+  local flee = b.safariFleeRate or 3
+  if flee > 1 then
+    if flee < cut then
+      b.safariFleeRate = 1
+    else
+      b.safariFleeRate = flee - cut
+    end
+  end
+  local foe = (b.enemy and b.enemy.name) or "POKeMON"
+  local lines = {
+    [0] = ("%s is curious about\nthe POKeBLOCK!"):format(foe),
+    ("%s is enthralled by\nthe POKeBLOCK!"):format(foe),
+    ("%s completely ignored\nthe POKeBLOCK!"):format(foe),
+  }
+  local queue = { lines[flavor] or lines[0] }
+  self:queueEnemyAction(queue)
+  b.queue = queue
+  b.qi = 1
+  b.kind = "text"
+  b.text = queue[1]
+  b.turns = (b.turns or 0) + 1
 end
 
 function Game3:prepBattler(mon)
@@ -5562,6 +12208,10 @@ function Game3:prepBattler(mon)
   mon.leechSeedSlot = nil
   mon.leechSeedFrom = nil
   mon.foresight = nil
+  mon.rooted = nil
+  mon.perishSong = nil
+  mon.uproarTurns = nil
+  mon.uproarMove = nil
   if type(mon.moves) ~= "table" or #mon.moves < 1 then
     mon.moves = self:movesFor(mon.species, mon.level)
   end
@@ -5653,12 +12303,26 @@ function Game3:fillTrainerSlots()
   if not b or not b.isTrainer then return {} end
   local party = b.trainerParty or {}
   local sent = {}
+  local function takePhazed()
+    local bench = b.phazed
+    if type(bench) ~= "table" then return nil end
+    for i = 1, #bench do
+      local mon = bench[i]
+      if Game3.aliveMon(mon) and mon ~= b.enemy and mon ~= b.enemy2 then
+        table.remove(bench, i)
+        return self:prepBattler(mon)
+      end
+    end
+  end
   local function fill(slot)
     if Game3.aliveMon(b[slot]) then return end
-    local nextIdx = (b.trainerIndex or 1) + 1
-    if nextIdx > #party then return end
-    b.trainerIndex = nextIdx
-    local mon = self:prepBattler(self:makeTrainerMon(party[nextIdx]))
+    local mon = takePhazed()
+    if not mon then
+      local nextIdx = (b.trainerIndex or 1) + 1
+      if nextIdx > #party then return end
+      b.trainerIndex = nextIdx
+      mon = self:prepBattler(self:makeTrainerMon(party[nextIdx]))
+    end
     if mon then self:markSeen(mon.species) end
     b[slot] = mon
     sent[#sent + 1] = mon
@@ -5674,7 +12338,12 @@ function Game3:canOfferShift()
   local b = self.battle
   if not (b and b.isTrainer) then return false end
   local party = b.trainerParty or {}
-  if (b.trainerIndex or 1) >= #party then return false end
+  local bench = b.phazed or {}
+  local benched = false
+  for i = 1, #bench do
+    if Game3.aliveMon(bench[i]) then benched = true break end
+  end
+  if (b.trainerIndex or 1) >= #party and not benched then return false end
   return self:firstHealthy(b.player, b.player2) ~= nil
 end
 
@@ -5761,6 +12430,208 @@ function Game3:trainerRow(id)
   return pack and pack.byId and pack.byId[id]
 end
 
+function Game3:resetTrainerRematches()
+  self.trainerRematches = {}
+  self.trainerRematchStepCounter = 0
+end
+
+function Game3:ensureTrainerRematches()
+  if type(self.trainerRematches) ~= "table" then
+    self.trainerRematches = {}
+  end
+  return self.trainerRematches
+end
+
+function Game3:snapshotTrainerRematches()
+  local src = self:ensureTrainerRematches()
+  local out = {}
+  for k, v in pairs(src) do
+    local n = tonumber(v) or 0
+    if n ~= 0 then out[tonumber(k) or k] = n end
+  end
+  return out
+end
+
+function Game3:applyTrainerRematchSave(data)
+  self:resetTrainerRematches()
+  if type(data) ~= "table" then return end
+  self.trainerRematchStepCounter = tonumber(data.trainerRematchStepCounter) or 0
+  local src = data.trainerRematches
+  if type(src) ~= "table" then return end
+  local dst = self:ensureTrainerRematches()
+  for k, v in pairs(src) do
+    local n = tonumber(v) or 0
+    if n ~= 0 then dst[tonumber(k) or k] = n end
+  end
+end
+
+function Game3:hasAtLeastFiveBadges()
+  local n = 0
+  for i = 1, 8 do
+    if self:hasBadge(i) then
+      n = n + 1
+      if n >= 5 then return true end
+    end
+  end
+  return false
+end
+
+function Game3:trainerEyeIndexByFirst(opponentId)
+  opponentId = tonumber(opponentId) or 0
+  if opponentId < 1 then return nil end
+  local rows = Game3.TRAINER_EYE_TRAINERS
+  for i = 1, #rows do
+    local ids = rows[i][1]
+    if ids and ids[1] == opponentId then return i end
+  end
+end
+
+function Game3:trainerEyeIndex(opponentId)
+  opponentId = tonumber(opponentId) or 0
+  if opponentId < 1 then return nil end
+  local rows = Game3.TRAINER_EYE_TRAINERS
+  for i = 1, #rows do
+    local ids = rows[i][1]
+    if ids then
+      for j = 1, 5 do
+        local id = ids[j] or 0
+        if id == 0 then break end
+        if id == opponentId then return i end
+      end
+    end
+  end
+end
+
+function Game3:trainerEyeRematchValue(index)
+  if not index or index < 1 or index > Game3.MAX_REMATCH_ENTRIES then
+    return 0
+  end
+  return tonumber(self:ensureTrainerRematches()[index]) or 0
+end
+
+function Game3:isFirstTrainerIdReadyForRematch(opponentId)
+  return self:trainerEyeRematchValue(self:trainerEyeIndexByFirst(opponentId)) ~= 0
+end
+
+function Game3:getTrainerEyeRematchFlag(opponentId)
+  return self:trainerEyeRematchValue(self:trainerEyeIndex(opponentId)) ~= 0
+end
+
+function Game3:wasSecondRematchWon(opponentId)
+  local i = self:trainerEyeIndexByFirst(opponentId)
+  if not i then return false end
+  local second = Game3.TRAINER_EYE_TRAINERS[i][1][2] or 0
+  if second == 0 then return false end
+  return self:trainerDefeated(second)
+end
+
+function Game3:shouldTryRematchBattle()
+  local id = tonumber(self.trainerBattleOpponent) or 0
+  if self:isFirstTrainerIdReadyForRematch(id) or self:wasSecondRematchWon(id) then
+    return 1
+  end
+  return 0
+end
+
+function Game3:isTrainerReadyForRematch()
+  local id = tonumber(self.trainerBattleOpponent) or 0
+  if self:getTrainerEyeRematchFlag(id) then return 1 end
+  return 0
+end
+
+function Game3:getRematchTrainerId(opponentId)
+  opponentId = tonumber(opponentId) or tonumber(self.trainerBattleOpponent) or 0
+  local i = self:trainerEyeIndexByFirst(opponentId)
+  if not i then return 0 end
+  local ids = Game3.TRAINER_EYE_TRAINERS[i][1]
+  for k = 2, 5 do
+    local id = ids[k] or 0
+    if id == 0 then return ids[k - 1] or 0 end
+    if not self:trainerDefeated(id) then return id end
+  end
+  return ids[5] or 0
+end
+
+function Game3:clearTrainerEyeRematchFlag(opponentId)
+  local i = self:trainerEyeIndex(opponentId)
+  if i then self:ensureTrainerRematches()[i] = 0 end
+end
+
+function Game3:incrementRematchStepCounter()
+  if not self:hasAtLeastFiveBadges() then return end
+  local n = tonumber(self.trainerRematchStepCounter) or 0
+  if n >= Game3.TRAINER_REMATCH_STEPS then
+    self.trainerRematchStepCounter = Game3.TRAINER_REMATCH_STEPS
+  else
+    self.trainerRematchStepCounter = n + 1
+  end
+end
+
+function Game3:isRematchStepCounterMaxed()
+  if not self:hasAtLeastFiveBadges() then return false end
+  return (tonumber(self.trainerRematchStepCounter) or 0)
+    >= Game3.TRAINER_REMATCH_STEPS
+end
+
+function Game3:updateRandomTrainerEyeRematches(mapGroup, mapNum)
+  mapGroup = tonumber(mapGroup) or 0
+  mapNum = tonumber(mapNum) or 0
+  local flags = self:ensureTrainerRematches()
+  local rows = Game3.TRAINER_EYE_TRAINERS
+  local ret = false
+  for i = 1, #rows do
+    local row = rows[i]
+    if row[2] == mapGroup and row[3] == mapNum then
+      if (tonumber(flags[i]) or 0) ~= 0 then
+        ret = true
+      else
+        local ids = row[1]
+        if self:trainerDefeated(ids[1])
+            and (self:gbaRandom() % 100) <= 30 then
+          local rematches = 1
+          while rematches < 5 do
+            local nxt = ids[rematches + 1] or 0
+            if nxt == 0 or not self:trainerDefeated(nxt) then break end
+            rematches = rematches + 1
+          end
+          flags[i] = rematches
+          ret = true
+        end
+      end
+    end
+  end
+  return ret
+end
+
+function Game3:tryUpdateRandomTrainerRematches(mapGroup, mapNum)
+  if mapGroup == nil then
+    mapGroup, mapNum = self:currentMapGroupNum()
+  end
+  if not self:isRematchStepCounterMaxed() then return false end
+  if self:updateRandomTrainerEyeRematches(mapGroup, mapNum) then
+    self.trainerRematchStepCounter = 0
+    return true
+  end
+  return false
+end
+
+function Game3:startRematchBattleSpecial()
+  if self.phase == "battle" then return 0 end
+  local kind = tonumber(self.trainerBattleMode)
+  if kind ~= Game3.TRAINER_BATTLE_REMATCH_DOUBLE then
+    kind = Game3.TRAINER_BATTLE_REMATCH
+  end
+  if not self:scriptTrainerBattle({
+    kind = kind,
+    trainerId = self.trainerBattleOpponent,
+    intro = self.trainerIntroSpeech,
+  }) then
+    return 0
+  end
+  self:beginScriptWait()
+  return 1
+end
+
 function Game3:markTrainerDefeated(npc)
   if not npc then return end
   npc.defeated = true
@@ -5782,10 +12653,11 @@ function Game3:trainerSeeInfo(npc, map)
   if range < 1 then return end
   local px, py = self.playerX, self.playerY
   local dirs
-  if npc.trainerType == Game3.TRAINER_TYPE_SEE_ALL then
-    dirs = { "north", "south", "west", "east" }
-  else
+  if npc.trainerType == Game3.TRAINER_TYPE_NORMAL then
     dirs = { npc.facing or "south" }
+  else
+    -- TRAINER_TYPE_SEE_ALL and TRAINER_TYPE_BURIED (trainer_see.c else).
+    dirs = { "north", "south", "west", "east" }
   end
   for i = 1, #dirs do
     local dir = dirs[i]
@@ -5875,6 +12747,7 @@ function Game3:beginTrainerApproach(npc)
   local dx, dy, dist, dir = self:trainerSeeInfo(npc)
   if not dist then return false end
   if npc then npc.facing = dir end
+  self:revealHiddenTrainer(npc)
   self.field = {
     kind = "trainer_approach",
     npc = npc,
@@ -5917,6 +12790,7 @@ function Game3:startTrainerBattle(npc)
   if player2 then self:prepBattler(player2) end
   self:markSeen(enemy.species)
   if enemy2 then self:markSeen(enemy2.species) end
+  self:clearPoisonStepCounter()
   self.walkCooldown = 0
   self.field = nil
   self.phase = "battle"
@@ -5956,7 +12830,11 @@ function Game3:startTrainerBattle(npc)
     animT = 0,
     trainerItems = packed,
     numItems = nItems,
+    eyeRematch = npc.eyeRematch and true or nil,
   }
+  self:playBattleMusic("trainer")
+  self:resetBattleResults()
+  self:applyOverworldBattleWeather()
   self:markSentIn(player)
   self:markSentIn(player2)
   self:applyLeagueFriendship(npc)
@@ -5986,13 +12864,39 @@ end
 
 function Game3:scriptTrainerBattle(op)
   op = op or {}
+  local kind = tonumber(op.kind) or Game3.TRAINER_BATTLE_SINGLE
+  self.trainerBattleMode = kind
+  self.trainerIntroSpeech = op.intro
+  self.trainerCannotSpeech = op.cannot
   local npc = self._scriptNpc
   local id = tonumber(op.trainerId) or (npc and tonumber(npc.trainerId)) or 0
-  if id > 0 and self:trainerDefeated(id) then return false end
-  if npc and (npc.defeated or self:isNpcDefeated(npc)) then return false end
-  local battler = npc or {}
-  local party = battler.party
-  if type(party) ~= "table" or #party < 1 then
+  self.trainerBattleOpponent = id
+  local rematch = kind == Game3.TRAINER_BATTLE_REMATCH
+      or kind == Game3.TRAINER_BATTLE_REMATCH_DOUBLE
+  if rematch then
+    -- EventScript_TryDoRematchBattle: not ready → gotopostbattlescript.
+    -- First-fight id is already defeated; do not reuse npc.party.
+    if self:isTrainerReadyForRematch() == 0 then return false end
+    if self:trainerEyeIndexByFirst(id) then
+      id = self:getRematchTrainerId(id)
+      self.trainerBattleOpponent = id
+    end
+    if id < 1 then return false end
+  elseif id > 0 and self:trainerDefeated(id) then
+    return false
+  end
+  -- Object-event trainers: a second trainerbattle on that NPC is the
+  -- already-defeated talk-again path.  Winstrate reuses Victor as
+  -- _scriptNpc for Victoria / Vivi / Vicky; removeobject sets his hide
+  -- flag, which must not skip those later trainerIds.
+  local npcId = npc and tonumber(npc.trainerId) or 0
+  local sameNpc = npc ~= nil and npcId ~= 0 and npcId == id
+  if not rematch and sameNpc and (npc.defeated or self:isNpcDefeated(npc)) then
+    return false
+  end
+  local battler = (not rematch) and sameNpc and npc or nil
+  local party = battler and battler.party
+  if rematch or type(party) ~= "table" or #party < 1 then
     local tr = self:trainerRow(id)
     if not (tr and type(tr.party) == "table" and #tr.party > 0) then
       return false
@@ -6004,7 +12908,16 @@ function Game3:scriptTrainerBattle(op)
       doubleBattle = tr.doubleBattle,
       trainerId = id,
       items = tr.items,
+      eyeRematch = rematch and true or nil,
     }
+    if not rematch and sameNpc then
+      npc.party = npc.party or tr.party
+      npc.trainerId = npc.trainerId or id
+      npc.trainerName = npc.trainerName or tr.name
+      npc.trainerClass = npc.trainerClass or tr.className
+      npc.items = npc.items or tr.items
+      battler = npc
+    end
   else
     battler.trainerId = battler.trainerId or id
   end
@@ -6030,6 +12943,104 @@ function Game3:scriptTrainerBattle(op)
   return true
 end
 
+function Game3:getTrainerBattleMode()
+  return tonumber(self.trainerBattleMode) or Game3.TRAINER_BATTLE_SINGLE
+end
+
+function Game3:sayTrainerSpeech(text)
+  text = self:expandScriptText(text or "")
+  if text == "" then return end
+  if self._scriptSays then
+    self:sayScript(text)
+  elseif not self.field then
+    self.field = { kind = "talk", text = text }
+  end
+end
+
+function Game3:showTrainerIntroSpeech()
+  self:sayTrainerSpeech(self.trainerIntroSpeech)
+end
+
+function Game3:showTrainerNonBattlingSpeech()
+  self:sayTrainerSpeech(self.trainerCannotSpeech)
+end
+
+function Game3:getTrainerFlag()
+  local id = tonumber(self.trainerBattleOpponent) or 0
+  if id < 1 then
+    local npc = self._scriptNpc
+    id = npc and tonumber(npc.trainerId) or 0
+  end
+  if self:trainerDefeated(id) then return 1 end
+  return 0
+end
+
+function Game3:hasEnoughMonsForDoubleBattle()
+  local n = self:monsStateToDoubles()
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:countAlivePartyMonsExceptSelectedOne()
+  local skip = self:varGet(0x8004)
+  local n = 0
+  local party = self.party or {}
+  for i = 1, #party do
+    if (i - 1) ~= skip and self:canBattle(party[i]) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+function Game3:leadMonNicknamed()
+  local mon = self:leadMon()
+  if not mon then return 0 end
+  local nick = mon.name or ""
+  local species = self:speciesName(mon.species)
+  if nick ~= species then return 1 end
+  return 0
+end
+
+function Game3:interviewBefore()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  if self:varGet(0x8005) == Game3.TVSHOW_FAN_CLUB_LETTER then
+    local mon = self:leadMon()
+    if mon then
+      self:setStringVar(1, self:speciesName(mon.species))
+    end
+  end
+  return 0
+end
+
+function Game3:setContestCategoryStringVarForInterview()
+  local cat = 0
+  local shows = self.tvShows
+  local i = self:varGet(0x8004) + 1
+  if type(shows) == "table" and shows[i] then
+    cat = tonumber(shows[i].contestCategory) or 0
+  end
+  local names = Game3.CONTEST_CAT_NAMES
+  self:setStringVar(2, names[cat + 1] or "COOL")
+end
+
+function Game3:tvIsScriptShowKindAlreadyInQueue()
+  return 0
+end
+
+function Game3:scriptGetMultiplayerId()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 4)
+  return 4
+end
+
+function Game3:scriptRandom()
+  local limit = self:varGet(Gen3Script.VAR_RESULT)
+  if limit == 0 then return 0 end
+  local n = self:gbaRandom() % limit
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
 function Game3:trainerLoseText(npc)
   local b = self.battle
   local t = b and b.defeat
@@ -6053,6 +13064,7 @@ end
 function Game3:openTrainerVictory()
   local b = self.battle
   if not b then return end
+  self:recordBattleEnd(Game3.B_OUTCOME_WON)
   b.kind = "won_trainer"
   local pay = Game3.trainerPay(b)
   if pay > 0 then
@@ -6089,6 +13101,10 @@ function Game3:confirmTrainerWin()
     return
   end
   self:markTrainerDefeated(b.npc)
+  if b.eyeRematch then
+    self:clearTrainerEyeRematchFlag(
+      (b.npc and b.npc.trainerId) or self.trainerBattleOpponent)
+  end
   if b.rivalRoute103 then self:finishRoute103Rival(b.npc) end
   self:finishBattle()
 end
@@ -6152,7 +13168,10 @@ function Game3:itemPocket(id)
   if id == Game3.ITEM_MACH_BIKE or id == Game3.ITEM_ACRO_BIKE
       or id == Game3.ITEM_SOOT_SACK or id == Game3.ITEM_WAILMER_PAIL
       or id == Game3.ITEM_DEVON_GOODS or id == Game3.ITEM_LETTER
-      or id == Game3.ITEM_ITEMFINDER
+      or id == Game3.ITEM_ITEMFINDER or id == Game3.ITEM_COIN_CASE
+      or id == Game3.ITEM_GO_GOGGLES or id == Game3.ITEM_DEVON_SCOPE
+      or id == Game3.ITEM_POKEBLOCK_CASE
+      or id == Game3.ITEM_RED_ORB
       or Game3.rodKind(id) ~= nil then
     return Game3.POCKET_KEY
   end
@@ -6168,6 +13187,13 @@ function Game3:bagSlotsIn(pocket)
     if slot and self:itemPocket(slot.id) == pocket then
       list[#list + 1] = slot
     end
+  end
+  -- Gen 1 leftover `balls` counter: show a POKe BALL in the BALLS pocket
+  -- when the bag itself has none, so trainer-battle throws still work.
+  if pocket == Game3.POCKET_BALLS
+      and self:itemCount(Game3.ITEM_POKE_BALL) < 1
+      and (self.balls or 0) > 0 then
+    list[#list + 1] = { id = Game3.ITEM_POKE_BALL, count = self.balls }
   end
   return list
 end
@@ -6213,14 +13239,46 @@ function Game3:itemName(id)
   if id == Game3.ITEM_SUPER_POTION then return "SUPER POTION" end
   if id == Game3.ITEM_FULL_HEAL then return "FULL HEAL" end
   if id == Game3.ITEM_REVIVE then return "REVIVE" end
+  if id == Game3.ITEM_MAX_REVIVE then return "MAX REVIVE" end
   if id == Game3.ITEM_FRESH_WATER then return "FRESH WATER" end
   if id == Game3.ITEM_SODA_POP then return "SODA POP" end
   if id == Game3.ITEM_LEMONADE then return "LEMONADE" end
   if id == Game3.ITEM_MOOMOO_MILK then return "MOOMOO MILK" end
+  if id == Game3.ITEM_ENERGY_POWDER then return "ENERGYPOWDER" end
+  if id == Game3.ITEM_ENERGY_ROOT then return "ENERGY ROOT" end
+  if id == Game3.ITEM_HEAL_POWDER then return "HEAL POWDER" end
+  if id == Game3.ITEM_REVIVAL_HERB then return "REVIVAL HERB" end
+  if id == Game3.ITEM_LAVA_COOKIE then return "LAVA COOKIE" end
+  if id == Game3.ITEM_ETHER then return "ETHER" end
+  if id == Game3.ITEM_MAX_ETHER then return "MAX ETHER" end
+  if id == Game3.ITEM_ELIXIR then return "ELIXIR" end
+  if id == Game3.ITEM_MAX_ELIXIR then return "MAX ELIXIR" end
+  if id == Game3.ITEM_SACRED_ASH then return "SACRED ASH" end
+  if id == Game3.ITEM_HP_UP then return "HP UP" end
   if id == Game3.ITEM_RARE_CANDY then return "RARE CANDY" end
   if id == Game3.ITEM_PP_UP then return "PP UP" end
+  if id == Game3.ITEM_PP_MAX then return "PP MAX" end
+  if id == Game3.ITEM_IRON then return "IRON" end
+  if id == Game3.ITEM_CARBOS then return "CARBOS" end
+  if id == Game3.ITEM_CALCIUM then return "CALCIUM" end
+  if id == Game3.ITEM_ZINC then return "ZINC" end
+  if id == Game3.ITEM_SUN_STONE then return "SUN STONE" end
+  if id == Game3.ITEM_MOON_STONE then return "MOON STONE" end
+  if id == Game3.ITEM_FIRE_STONE then return "FIRE STONE" end
+  if id == Game3.ITEM_THUNDER_STONE then return "THUNDERSTONE" end
+  if id == Game3.ITEM_WATER_STONE then return "WATER STONE" end
+  if id == Game3.ITEM_LEAF_STONE then return "LEAF STONE" end
   if id == Game3.ITEM_NUGGET then return "NUGGET" end
   if id == Game3.ITEM_PROTEIN then return "PROTEIN" end
+  if id == Game3.ITEM_GUARD_SPEC then return "GUARD SPEC." end
+  if id == Game3.ITEM_DIRE_HIT then return "DIRE HIT" end
+  if id == Game3.ITEM_X_ATTACK then return "X ATTACK" end
+  if id == Game3.ITEM_X_DEFEND then return "X DEFEND" end
+  if id == Game3.ITEM_X_SPEED then return "X SPEED" end
+  if id == Game3.ITEM_X_ACCURACY then return "X ACCURACY" end
+  if id == Game3.ITEM_X_SPECIAL then return "X SPECIAL" end
+  if id == Game3.ITEM_POKE_DOLL then return "POKe DOLL" end
+  if id == Game3.ITEM_FLUFFY_TAIL then return "FLUFFY TAIL" end
   if id == Game3.ITEM_KINGS_ROCK then return "KING'S ROCK" end
   if id == Game3.ITEM_SUPER_REPEL then return "SUPER REPEL" end
   if id == Game3.ITEM_MAX_REPEL then return "MAX REPEL" end
@@ -6233,8 +13291,20 @@ function Game3:itemName(id)
   if id == Game3.ITEM_ACRO_BIKE then return "ACRO BIKE" end
   if id == Game3.ITEM_WAILMER_PAIL then return "WAILMER PAIL" end
   if id == Game3.ITEM_ITEMFINDER then return "ITEMFINDER" end
+  if id == Game3.ITEM_COIN_CASE then return "COIN CASE" end
   if id == Game3.ITEM_DEVON_GOODS then return "DEVON GOODS" end
   if id == Game3.ITEM_LETTER then return "LETTER" end
+  if id == Game3.ITEM_GO_GOGGLES then return "GO-GOGGLES" end
+  if id == Game3.ITEM_BLUE_FLUTE then return "BLUE FLUTE" end
+  if id == Game3.ITEM_YELLOW_FLUTE then return "YELLOW FLUTE" end
+  if id == Game3.ITEM_RED_FLUTE then return "RED FLUTE" end
+  if id == Game3.ITEM_WHITE_FLUTE then return "WHITE FLUTE" end
+  if id == Game3.ITEM_BLACK_FLUTE then return "BLACK FLUTE" end
+  if id == Game3.ITEM_DEVON_SCOPE then return "DEVON SCOPE" end
+  if id == Game3.ITEM_POKEBLOCK_CASE then return "POKeBLOCK CASE" end
+  if id == Game3.ITEM_RED_ORB then return "RED ORB" end
+  if id == Game3.ITEM_MIRACLE_SEED then return "MIRACLE SEED" end
+  if id == Game3.ITEM_MYSTIC_WATER then return "MYSTIC WATER" end
   if id == Game3.ITEM_EXP_SHARE then return "EXP. SHARE" end
   if id == Game3.ITEM_HM_CUT then return "HM01" end
   if id == Game3.ITEM_HM_FLY then return "HM02" end
@@ -6245,6 +13315,7 @@ function Game3:itemName(id)
   if id == Game3.ITEM_HM_WATERFALL then return "HM07" end
   if id == Game3.ITEM_HM_DIVE then return "HM08" end
   if id == Game3.ITEM_TM43 then return "TM43" end
+  if id == Game3.ITEM_TM40 then return "TM40" end
   if id >= Game3.ITEM_CHERI_BERRY and id <= Game3.ITEM_ENIGMA_BERRY then
     local name = Game3.BERRY_NAMES[id - Game3.ITEM_CHERI_BERRY + 1]
     if name then return name .. " BERRY" end
@@ -6266,6 +13337,11 @@ function Game3:itemPrice(id)
   if id == Game3.ITEM_SODA_POP then return 300 end
   if id == Game3.ITEM_LEMONADE then return 350 end
   if id == Game3.ITEM_MOOMOO_MILK then return 500 end
+  if id == Game3.ITEM_ENERGY_POWDER then return 500 end
+  if id == Game3.ITEM_ENERGY_ROOT then return 800 end
+  if id == Game3.ITEM_HEAL_POWDER then return 450 end
+  if id == Game3.ITEM_REVIVAL_HERB then return 2800 end
+  if id == Game3.ITEM_LAVA_COOKIE then return 200 end
   return 0
 end
 
@@ -6338,6 +13414,27 @@ function Game3.berryMinYield(berry)
   return 2
 end
 
+function Game3.berryMaxYield(berry)
+  return Game3.berryMinYield(berry) + 1
+end
+
+function Game3:calcBerryYield(tree)
+  local berry = tree and tree.berry or 0
+  local minY = Game3.berryMinYield(berry)
+  local maxY = Game3.berryMaxYield(berry)
+  local water = math.min(4, tonumber(tree and tree.watered) or 0)
+  if water < 1 then return minY end
+  local span = maxY - minY
+  local randMin = span * (water - 1)
+  local randMax = span * water
+  local range = randMax - randMin + 1
+  if range < 1 then return minY end
+  local rand = randMin + (self:rand(range) or 1) - 1
+  local extra = math.floor(rand / 4)
+  if (rand % 4) > 1 then extra = extra + 1 end
+  return extra + minY
+end
+
 function Game3.berryStageMinutes(berry)
   berry = tonumber(berry) or 0
   if berry == 9 then return 12 * 60 end
@@ -6367,14 +13464,62 @@ function Game3.isBerryTreeGfx(gid)
     or gid == Game3.GFX_BERRY_TREE_LATE
 end
 
+-- pokeruby StartSpriteAnim(sprite, berryStage) after berryStage--.
+-- Combined pic table (dirt + sprout + 3 late stages × 2 bounce frames):
+--   anim 0 planted: 0; sprout 1–2; taller 3–4; flower 5–6; berries 7–8.
+-- Late 16×32 sheets often store only the last three stages (6 frames).
+-- Early 16×16 sheets store dirt + sprout (3 frames).
+function Game3.berrySheetFrame(stage, frameCount, t)
+  stage = tonumber(stage) or 0
+  if stage < 1 then return 0 end
+  local anim = stage - 1
+  if anim > 4 then anim = 4 end
+  local n = tonumber(frameCount) or 9
+  if n < 1 then n = 1 end
+  local first, last
+  if n >= 7 then
+    if anim == 0 then
+      first, last = 0, 0
+    else
+      first = anim * 2 - 1
+      last = anim * 2
+    end
+  elseif n <= 4 then
+    if anim <= 0 then
+      first, last = 0, 0
+    else
+      first = math.min(1, n - 1)
+      last = math.min(2, n - 1)
+    end
+  else
+    local late = anim - 2
+    if late < 0 then late = 0 end
+    first = late * 2
+    last = first + 1
+  end
+  if first < 0 then first = 0 end
+  if last >= n then last = n - 1 end
+  if first >= n then first = n - 1 end
+  if last < first then last = first end
+  if last > first and t then
+    if math.floor((t or 0) * 4) % 2 == 1 then return last end
+    return first
+  end
+  return last
+end
+
 -- pokeruby get_berry_tree_graphics: stage 0 is invisible (loamy soil).
 -- gBerryTreeGraphicsIdTable: planted/sprouted = gfx 61, taller+ = gfx 62.
+-- gfx 62's pic table is the same Pecha sheet as 61; the extractor skips
+-- the 16x16 dirt/sprout prefix so ow_62 is the six 16x32 bush frames.
 function Game3:applyBerryTreeSprite(npc)
   if not npc or not Game3.isBerryTreeGfx(npc.graphicsId) then return npc end
   local tree = self:berryTreeInfo(npc.trainerRange)
   local stage = (tree and tree.stage) or 0
+  npc.berryStage = stage
   if stage == Game3.BERRY_STAGE_NO_BERRY then
     npc.invisible = true
+    npc.animFrame = nil
     return npc
   end
   npc.invisible = nil
@@ -6383,6 +13528,8 @@ function Game3:applyBerryTreeSprite(npc)
   else
     npc.graphicsId = Game3.GFX_BERRY_TREE_LATE
   end
+  local spec = Game3.spriteSpec(self.data and self.data.sprites, npc.graphicsId)
+  npc.animFrame = Game3.berrySheetFrame(stage, spec and spec.frameCount)
   return npc
 end
 
@@ -6407,8 +13554,7 @@ function Game3:useWailmerPail()
     local name = self:berryName(tree.berry)
     return true, ("Watered the %s. The plant seems to be delighted."):format(name)
   end
-  return false, ("DAD's advice... %s, there's a time and place for everything!"):format(
-    self:playerName())
+  return false, self:dadsAdvice()
 end
 
 -- pokeruby ItemfinderCheckForHiddenItems: (u16)(dx+7)<15 and
@@ -6480,6 +13626,7 @@ function Game3:nearestHiddenItem()
 end
 
 function Game3:useItemfinder()
+  self:incrementGameStat(Game3.GAME_STAT_USED_ITEMFINDER)
   local dx, dy = self:nearestHiddenItem()
   if dx == nil then
     return true, "... ... ... ... Nope!\nThere's no response."
@@ -6737,7 +13884,7 @@ end
 
 -- Dewford editor: word 0 is Conditions; word 1 is Hobbies then Lifestyle
 -- (InitDewfordTrend's groups). Full Easy Chat groups stay later.
-function Game3:easyChatOptions(slot)
+function Game3:easyChatOptions(slot, mode)
   local labels, packs = {}, {}
   local function add(group)
     local list = Game3.EC_WORDS[group]
@@ -6746,6 +13893,18 @@ function Game3:easyChatOptions(slot)
       labels[#labels + 1] = list[i]
       packs[#packs + 1] = Game3.ecPack(group, i - 1)
     end
+  end
+  if mode == Game3.EC_TYPE_BARD_SONG
+      or mode == Game3.EC_TYPE_GABBY_INTERVIEW then
+    add(Game3.EC_GROUP_PEOPLE)
+    add(Game3.EC_GROUP_SPEECH)
+    add(Game3.EC_GROUP_ACTIONS)
+    add(Game3.EC_GROUP_HOBBIES)
+    add(Game3.EC_GROUP_ADJECTIVES)
+    add(Game3.EC_GROUP_CONDITIONS)
+    add(Game3.EC_GROUP_LIFESTYLE)
+    add(Game3.EC_GROUP_TRENDY_SAYING)
+    return labels, packs
   end
   if (tonumber(slot) or 0) == 0 then
     add(Game3.EC_GROUP_CONDITIONS)
@@ -6759,7 +13918,7 @@ end
 function Game3:openEasyChatSlot(field, slot)
   if type(field) ~= "table" then return end
   field.slot = tonumber(slot) or 0
-  local labels, packs = self:easyChatOptions(field.slot)
+  local labels, packs = self:easyChatOptions(field.slot, field.mode)
   field.labels = labels
   field.packs = packs
   field.cursor = 0
@@ -6771,6 +13930,11 @@ function Game3:openEasyChatSlot(field, slot)
     end
   end
   field.text = Game3.easyChatPhrase(field.words)
+  if (field.slots or 2) > 2 then
+    field.text = Game3.bardLyricString(field.words)
+  elseif (field.slots or 2) == 1 then
+    field.text = Game3.ecWordText(field.words and field.words[1])
+  end
 end
 
 function Game3:phraseAlreadyTrendy(w0, w1)
@@ -6831,12 +13995,46 @@ end
 
 function Game3:showEasyChatScreen()
   local mode = (self.scriptVars and self.scriptVars[0x8004]) or 0
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_CHAT_USED] = true
+  if mode == Game3.EC_TYPE_BARD_SONG then
+    self:ensureMauvilleMan()
+    local bard = self.mauvilleMan
+    local lyrics = bard.temporaryLyrics or bard.songLyrics
+    local orig = {}
+    for i = 1, 6 do orig[i] = lyrics[i] or 0 end
+    bard.temporaryLyrics = { orig[1], orig[2], orig[3], orig[4], orig[5], orig[6] }
+    self:beginScriptWait()
+    self.field = {
+      kind = "easy_chat",
+      mode = Game3.EC_TYPE_BARD_SONG,
+      orig = orig,
+      words = { orig[1], orig[2], orig[3], orig[4], orig[5], orig[6] },
+      scripted = true,
+      slots = 6,
+    }
+    self:openEasyChatSlot(self.field, 0)
+    return true
+  end
+  if mode == Game3.EC_TYPE_GABBY_INTERVIEW then
+    local d = self:ensureGabbyAndTy()
+    d.quote = Game3.EC_EMPTY_WORD
+    self:beginScriptWait()
+    self.field = {
+      kind = "easy_chat",
+      mode = Game3.EC_TYPE_GABBY_INTERVIEW,
+      orig = { Game3.EC_EMPTY_WORD },
+      words = { Game3.EC_EMPTY_WORD },
+      scripted = true,
+      slots = 1,
+    }
+    self:openEasyChatSlot(self.field, 0)
+    return true
+  end
   if mode ~= Game3.EC_TYPE_TRENDY_PHRASE then
     self:setScriptVar(Gen3Script.VAR_RESULT, 0)
     return false
   end
-  self.flags = self.flags or {}
-  self.flags[Game3.FLAG_SYS_CHAT_USED] = true
   local pair = self:ensureDewfordTrend()[1] or { 0, 0 }
   local orig = { pair[1], pair[2] }
   self:beginScriptWait()
@@ -6845,6 +14043,7 @@ function Game3:showEasyChatScreen()
     orig = orig,
     words = { orig[1], orig[2] },
     scripted = true,
+    slots = 2,
   }
   self:openEasyChatSlot(self.field, 0)
   return true
@@ -6854,7 +14053,31 @@ function Game3:finishEasyChat(ok)
   local f = self.field
   local words = f and f.words
   local orig = f and f.orig
+  local mode = f and f.mode
   self.field = nil
+  if mode == Game3.EC_TYPE_BARD_SONG then
+    if ok and type(words) == "table" then
+      self:ensureMauvilleMan()
+      local tmp = {}
+      for i = 1, 6 do tmp[i] = words[i] or 0 end
+      self.mauvilleMan.temporaryLyrics = tmp
+      self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+    else
+      self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+    end
+    return self:endScriptWait()
+  end
+  if mode == Game3.EC_TYPE_GABBY_INTERVIEW then
+    local d = self:ensureGabbyAndTy()
+    if ok and type(words) == "table" then
+      d.quote = tonumber(words[1]) or Game3.EC_EMPTY_WORD
+      self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+    else
+      d.quote = Game3.EC_EMPTY_WORD
+      self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+    end
+    return self:endScriptWait()
+  end
   if ok and type(words) == "table" then
     local same = Game3.easyChatPhrase(words) == Game3.easyChatPhrase(orig)
     if same then
@@ -6870,6 +14093,731 @@ function Game3:finishEasyChat(ok)
   return self:endScriptWait()
 end
 
+-- pokeruby tv.c ResetGabbyAndTy. quote 0xFFFF is "none", not 0.
+function Game3:resetGabbyAndTy()
+  self.gabbyAndTy = {
+    mon1 = 0,
+    mon2 = 0,
+    lastMove = 0,
+    quote = Game3.EC_EMPTY_WORD,
+    mapnum = 0,
+    battleNum = 0,
+    valA_0 = 0,
+    valA_1 = 0,
+    valA_2 = 0,
+    valA_3 = 0,
+    valA_4 = 0,
+    valA_5 = 0,
+    valB_0 = 0,
+    valB_1 = 0,
+    valB_2 = 0,
+    valB_3 = 0,
+    valB_4 = 0,
+    valB_5 = 0,
+  }
+  return self.gabbyAndTy
+end
+
+function Game3:ensureGabbyAndTy()
+  if type(self.gabbyAndTy) ~= "table" then self:resetGabbyAndTy() end
+  return self.gabbyAndTy
+end
+
+function Game3:snapshotGabbyAndTy()
+  local d = self:ensureGabbyAndTy()
+  local out = {}
+  for k, v in pairs(d) do out[k] = v end
+  return out
+end
+
+function Game3:applyGabbyAndTySave(data)
+  if type(data) ~= "table" then
+    self:resetGabbyAndTy()
+    return
+  end
+  self.gabbyAndTy = data
+  if self.gabbyAndTy.quote == nil then
+    self.gabbyAndTy.quote = Game3.EC_EMPTY_WORD
+  end
+end
+
+-- battle_main.c zeroes gBattleResults / gBattleOutcome at battle start.
+function Game3:resetBattleResults()
+  self.battleResults = {
+    poke1Species = 0,
+    opponentSpecies = 0,
+    lastUsedMove = 0,
+    playerMonWasDamaged = 0,
+    playerFaintCounter = 0,
+    playerHealInBattleCount = 0,
+    usedMasterBall = 0,
+    usedBalls = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  }
+  self.battleOutcome = 0
+end
+
+function Game3:ensureBattleResults()
+  if type(self.battleResults) ~= "table" then self:resetBattleResults() end
+  return self.battleResults
+end
+
+-- HandleEndTurn_BattleEnd: poke1Species / opponentSpecies are the
+-- player-side battlers, not the foe (doubles: lead then partner).
+function Game3:snapshotBattleMons()
+  local b, r = self.battle, self.battleResults
+  if not (b and r) then return end
+  r.poke1Species = (b.player and b.player.species) or 0
+  if b.player2 then
+    r.opponentSpecies = b.player2.species or 0
+  end
+end
+
+function Game3:recordBattleEnd(outcome)
+  self:snapshotBattleMons()
+  if (self.battleOutcome or 0) ~= 0 then return end
+  self.battleOutcome = tonumber(outcome) or 0
+  self:finishRoamerBattle(self.battleOutcome)
+end
+
+function Game3:notePlayerDamaged(defender, dmg)
+  if (tonumber(dmg) or 0) <= 0 then return end
+  if not self:isPlayerBattler(defender) then return end
+  local r = self.battleResults
+  if r then r.playerMonWasDamaged = 1 end
+end
+
+function Game3:noteUsedBall(itemId)
+  local r = self.battleResults
+  if not r then return end
+  itemId = tonumber(itemId) or 0
+  if itemId == Game3.ITEM_SAFARI_BALL then return end
+  if itemId == Game3.ITEM_MASTER_BALL then
+    r.usedMasterBall = 1
+    return
+  end
+  local i = itemId - Game3.ITEM_ULTRA_BALL + 1
+  if i >= 1 and i <= 11 then
+    local n = (r.usedBalls[i] or 0) + 1
+    if n > 255 then n = 255 end
+    r.usedBalls[i] = n
+  end
+end
+
+-- tv.c GabbyAndTyGetBattleNum: 0 is valid (first pair). After 6 the
+-- three later pairs cycle as (n % 3) + 6.
+function Game3:gabbyAndTyGetBattleNum()
+  local n = self:ensureGabbyAndTy().battleNum or 0
+  if n >= 6 then return (n % 3) + 6 end
+  return n
+end
+
+function Game3:gabbyAndTyBeforeInterview()
+  local d = self:ensureGabbyAndTy()
+  local r = self:ensureBattleResults()
+  d.mon1 = r.poke1Species or 0
+  d.mon2 = r.opponentSpecies or 0
+  d.lastMove = r.lastUsedMove or 0
+  if (d.battleNum or 0) ~= 0xFF then
+    d.battleNum = (d.battleNum or 0) + 1
+  end
+  d.valA_0 = (r.playerMonWasDamaged ~= 0) and 1 or 0
+  d.valA_1 = ((r.playerFaintCounter or 0) ~= 0) and 1 or 0
+  d.valA_2 = ((r.playerHealInBattleCount or 0) ~= 0) and 1 or 0
+  d.valA_3 = 0
+  if (r.usedMasterBall or 0) ~= 0 then
+    d.valA_3 = 1
+  else
+    local balls = r.usedBalls or {}
+    for i = 1, 11 do
+      if (balls[i] or 0) ~= 0 then
+        d.valA_3 = 1
+        break
+      end
+    end
+  end
+  d.valA_4 = 0
+  if (d.lastMove or 0) == 0 then
+    self.flags = self.flags or {}
+    self.flags[Game3.FLAG_TEMP_1] = true
+  end
+end
+
+function Game3:gabbyAndTyAfterInterview()
+  local d = self:ensureGabbyAndTy()
+  d.valB_0 = d.valA_0 or 0
+  d.valB_1 = d.valA_1 or 0
+  d.valB_2 = d.valA_2 or 0
+  d.valB_3 = d.valA_3 or 0
+  d.valA_4 = 1
+  d.mapnum = (self.map and self.map.regionMapSectionId) or 0
+  self:incrementGameStat(Game3.GAME_STAT_GOT_INTERVIEWED)
+end
+
+Game3.TV_GABBY_TEXTS = {
+  "IN SEARCH OF TRAINERS...\nGABBY: Hi! Today I'm visiting an area\nnear {STR_VAR_1}.\nWe're trying to spot some up-and-coming\nnew talent in the field.\nToday, we turned our lens on the\nTRAINER {PLAYER}.\nThere's something about this TRAINER\nthat piqued our interest.",
+  "We've battled {PLAYER} before, but we\ncan attest that the TRAINER has most\ndefinitely improved from before.\nI knew we were onto someone special\nwhen we spotted this TRAINER!",
+  "The best way to determine how strong\na TRAINER is...\nWell, the fastest way is to battle.\nAnd so we began our investigation!\n... ...\nThat's how we ended up in battle\nwith {PLAYER}.\nIn a dominating performance, we were\nflattened, rolled up, and tossed aside!\n{PLAYER} is ruthlessly strong...\nWe asked the TRAINER for a succinct\nsummation of the battle we shared.",
+  "The combination of {STR_VAR_1} and\n{STR_VAR_3} was divine!\nThe sight of them - {STR_VAR_1} and\n{STR_VAR_3} - selflessly supporting\neach other in the thick of battle...\nIt was a marvelous sight to behold!\n{STR_VAR_2} was the move the TRAINER\nused last in our battle.\nThe move {STR_VAR_2} is {STR_VAR_1}\nand {STR_VAR_3}'s sign of friendship!",
+  "...I lost confidence in myself as\na result of our encounter.\nWe were beaten before we could launch\na single attack.\nOhhh... Snivel...\nIn spite of that, {PLAYER}'s battles\nare worth seeing.\nI recommend confident TRAINERS to\nchallenge {PLAYER}.",
+  "There's only one thing to be said.\nDon't you dare throw a POKe BALL during\na TRAINER battle!\n{PLAYER} is certainly strong, but has\nno clue about the basic rules.\nTo our TV audience, I have a request.\nIf you see {PLAYER}, please caution\nthe TRAINER!",
+  "{PLAYER} is adept at reading the\nopponent's actions.\nThe timing of item usage was remarkably\neffective!",
+  "Honestly speaking, I thought that\nI might even be pretty good.\nWhile we did end up losing, we did have\na hotly contested battle.\nBut if you're struggling against me,\nyou have a ways to go, {PLAYER}!",
+  "After our battle, we asked {PLAYER} for\na succinct summary.\nThe TRAINER replied, “{STR_VAR_1}.”\n{PLAYER}'s POKeMON {STR_VAR_2} and\n{STR_VAR_3}...\nAnd “{STR_VAR_1}”...\nMmm! That's deep! There's deep\nsignificance behind that quote!\nIt's no surprise - a good TRAINER has\ngood things to say.\nThat's all for today!\nSee you again on our next broadcast!",
+}
+
+function Game3:setTVMetatilesOnMap(tileId)
+  local map = self.map
+  if not map then return end
+  local w, h = map.width or 0, map.height or 0
+  local y = 0
+  while y < h do
+    local x = 0
+    while x < w do
+      if self:behaviorAt(map, x, y) == Game3.MB_TELEVISION then
+        self:mapGridSetMetatileId(x + Game3.MAP_OFFSET, y + Game3.MAP_OFFSET,
+          (tonumber(tileId) or 0) + Game3.MAPGRID_COLLISION_MASK)
+      end
+      x = x + 1
+    end
+    y = y + 1
+  end
+end
+
+function Game3:findAnyTVNewsOnTheAir()
+  local news = self.pokeNews
+  if type(news) ~= "table" then return Game3.TV_NO_SHOW end
+  local i = 1
+  while i <= #news do
+    local row = news[i]
+    if row and (row.kind or 0) ~= 0 and (row.state or 0) == 1
+        and (row.days or 0) < 3 then
+      return i - 1
+    end
+    i = i + 1
+  end
+  return Game3.TV_NO_SHOW
+end
+
+function Game3:tvShowIsAiring()
+  if self:special0x44() ~= Game3.TV_NO_SHOW then return true end
+  if self:findAnyTVNewsOnTheAir() ~= Game3.TV_NO_SHOW then return true end
+  return ((self:ensureGabbyAndTy().valA_4 or 0) ~= 0)
+end
+
+function Game3:updateTVScreensOnMap()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_TV_WATCH] = true
+  local news = self:checkForBigMovieOrEmergencyNewsOnTV()
+  if news == 1 then
+    self:setTVMetatilesOnMap(Game3.MT_BUILDING_TV_ON)
+    return
+  end
+  if news == 2 then return end
+  local group, num = self:currentMapGroupNum()
+  if group == Game3.MAP_LILYCOVE_INDOOR_GROUP
+      and num == Game3.MAP_LILYCOVE_MOTEL_1F_NUM then
+    self:setTVMetatilesOnMap(Game3.MT_BUILDING_TV_ON)
+    return
+  end
+  if self.flags[Game3.FLAG_SYS_TV_START] and self:tvShowIsAiring() then
+    self.flags[Game3.FLAG_SYS_TV_WATCH] = nil
+    self:setTVMetatilesOnMap(Game3.MT_BUILDING_TV_ON)
+  end
+end
+
+function Game3:turnOffTVScreen()
+  self.tvOn = false
+  self:setTVMetatilesOnMap(Game3.MT_BUILDING_TV_OFF)
+end
+
+function Game3:mapSectionName(sec)
+  sec = tonumber(sec) or 0
+  local names = self.data and self.data.maps and self.data.maps.sectionNames
+  if type(names) == "table" then
+    local n = names[sec] or names[sec + 1]
+    if type(n) == "string" and n ~= "" then return n end
+  end
+  return "this area"
+end
+
+function Game3:getMomOrDadStringForTVMessage()
+  local temp = Game3.VAR_TEMP_0 + 3
+  local group, num = self:currentMapGroupNum()
+  if group == Game3.MAP_LITTLEROOT_INDOOR_GROUP then
+    if not self:isFemale() and num == Game3.MAP_BRENDANS_HOUSE_1F_NUM then
+      self:setScriptVar(temp, 1)
+    elseif self:isFemale() and num == Game3.MAP_MAYS_HOUSE_1F_NUM then
+      self:setScriptVar(temp, 1)
+    end
+  end
+  local n = self:varGet(temp)
+  local name
+  if n == 1 then
+    name = Game3.TEXT_MOM
+  elseif n == 2 then
+    name = Game3.TEXT_DAD
+  elseif n > 2 then
+    if n % 2 == 0 then name = Game3.TEXT_MOM else name = Game3.TEXT_DAD end
+  elseif (self:gbaRandom() % 2) ~= 0 then
+    name = Game3.TEXT_MOM
+    self:setScriptVar(temp, 1)
+  else
+    name = Game3.TEXT_DAD
+    self:setScriptVar(temp, 2)
+  end
+  self:setStringVar(1, name)
+  return name
+end
+
+function Game3:doTVShowInSearchOfTrainers()
+  local d = self:ensureGabbyAndTy()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  local state = self.tvShowState or 0
+  if state == 0 then
+    self:setStringVar(1, self:mapSectionName(d.mapnum))
+    if (d.battleNum or 0) > 1 then
+      self.tvShowState = 1
+    else
+      self.tvShowState = 2
+    end
+  elseif state == 1 then
+    self.tvShowState = 2
+  elseif state == 2 then
+    if (d.valA_0 or 0) == 0 then
+      self.tvShowState = 4
+    elseif (d.valA_3 or 0) ~= 0 then
+      self.tvShowState = 5
+    elseif (d.valA_2 or 0) ~= 0 then
+      self.tvShowState = 6
+    elseif (d.valA_1 or 0) ~= 0 then
+      self.tvShowState = 7
+    else
+      self.tvShowState = 3
+    end
+  elseif state == 3 then
+    self:setStringVar(1, self:speciesName(d.mon1 or 0))
+    self:setStringVar(2, self:moveName(d.lastMove or 0))
+    self:setStringVar(3, self:speciesName(d.mon2 or 0))
+    self.tvShowState = 8
+  elseif state >= 4 and state <= 7 then
+    self.tvShowState = 8
+  else
+    self:setStringVar(1, Game3.ecWordText(d.quote))
+    self:setStringVar(2, self:speciesName(d.mon1 or 0))
+    self:setStringVar(3, self:speciesName(d.mon2 or 0))
+    self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+    self.tvShowState = 0
+    d.valA_4 = 0
+  end
+  local text = Game3.TV_GABBY_TEXTS[state + 1]
+  if text then self:sayScript(text) end
+  return self:varGet(Gen3Script.VAR_RESULT)
+end
+
+function Game3:isPokerusInParty()
+  local party = self.party or {}
+  local n = 0
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and (math.floor(tonumber(mon.pokerus) or 0) % 16) ~= 0 then
+      n = 1
+      break
+    end
+  end
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:isGrassTypeInParty()
+  local party = self.party or {}
+  local n = 0
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and (mon.species or 0) > 0 and not mon.isEgg then
+      if Game3.hasType(mon, Game3.TYPE_GRASS) then
+        n = 1
+        break
+      end
+      local row = self:speciesRow(mon.species)
+      if row and (row.type1 == Game3.TYPE_GRASS
+          or row.type2 == Game3.TYPE_GRASS) then
+        n = 1
+        break
+      end
+    end
+  end
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:foundAbandonedShipKey(flag)
+  self:setScriptVar(0x8004, flag)
+  local n = (self.flags and self.flags[flag]) and 1 or 0
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:checkRelicanthWailord()
+  local party = self.party or {}
+  local n = 0
+  if self:partyMonSpecies2(party[1]) == Game3.SPECIES_RELICANTH
+      and self:partyMonSpecies2(party[#party]) == Game3.SPECIES_WAILORD then
+    n = 1
+  end
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:getWeekCount()
+  local t = self:localTime()
+  local n = math.floor((t.days or 0) / 7)
+  if n > 9999 then n = 9999 end
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:setLotteryNumber(n)
+  n = tonumber(n) or 0
+  self:setScriptVar(Game3.VAR_LOTTERY_RND_L, n % 65536)
+  self:setScriptVar(Game3.VAR_LOTTERY_RND_H, math.floor(n / 65536) % 65536)
+end
+
+function Game3:getLotteryNumber()
+  local low = self:varGet(Game3.VAR_LOTTERY_RND_L)
+  local high = self:varGet(Game3.VAR_LOTTERY_RND_H)
+  return high * 65536 + low
+end
+
+function Game3:resetLotteryCorner()
+  local low = self:gbaRandom()
+  self:setLotteryNumber(self:gbaRandom() * 65536 + low)
+  self:setScriptVar(Game3.VAR_LOTTERY_PRIZE, 0)
+end
+
+function Game3:retrieveLotteryNumber()
+  local n = self:getLotteryNumber() % 65536
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:bufferLottoTicketNumber()
+  local n = self:varGet(Gen3Script.VAR_RESULT) % 65536
+  self:setStringVar(1, string.format("%05d", n))
+end
+
+-- DoLotteryCornerComputerEffect / EndLotteryCornerComputerEffect.
+-- CreateTask then ScriptContext_Enable; Lilycove uses delay 220, not
+-- waitstate. Do not beginScriptWait.
+function Game3:lotteryLaptopTiles(flash)
+  local coll = Game3.MAPGRID_COLLISION_MASK
+  local t1 = Game3.MT_SHOP_LAPTOP1_NORMAL
+  local t2 = Game3.MT_SHOP_LAPTOP2_NORMAL
+  if flash then
+    t1 = Game3.MT_SHOP_LAPTOP1_FLASH
+    t2 = Game3.MT_SHOP_LAPTOP2_FLASH
+  end
+  self:mapGridSetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY,
+    t1 + coll)
+  self:mapGridSetMetatileId(Game3.LOTTERY_LAPTOP_GX,
+    Game3.LOTTERY_LAPTOP_GY + 1, t2 + coll)
+end
+
+function Game3:doLotteryCornerComputerEffect()
+  self.lotteryLaptop = { t = 0, n = 0, flash = true }
+end
+
+function Game3:endLotteryCornerComputerEffect()
+  self.lotteryLaptop = nil
+  self:lotteryLaptopTiles(false)
+end
+
+function Game3:stepLotteryLaptop(frames)
+  local lot = self.lotteryLaptop
+  if not lot then return end
+  local i = 1
+  while i <= frames do
+    lot.t = (lot.t or 0) + 1
+    if lot.t >= Game3.LOTTERY_BLINK_PERIOD then
+      lot.t = 0
+      self:lotteryLaptopTiles(lot.flash)
+      lot.flash = not lot.flash
+      lot.n = (lot.n or 0) + 1
+      if lot.n >= Game3.LOTTERY_BLINK_TOGGLES then
+        self.lotteryLaptop = nil
+        return
+      end
+    end
+    i = i + 1
+  end
+end
+
+-- field_specials.c Task_PCTurnOnEffect: same 7-frame × 5 toggle as
+-- lottery. data[4]==0 is On. Facing: N (0,-1) W (-1,-1) E (1,-1) else
+-- (0,0). DoPCTurnOff snaps Off. Scripts follow with msgbox, not waitstate.
+function Game3:mapGridInFront()
+  local dx, dy = Game3.deltaFromFacing(self.facing or "south")
+  return (self.playerX or 0) + dx + Game3.MAP_OFFSET,
+    (self.playerY or 0) + dy + Game3.MAP_OFFSET
+end
+
+function Game3:pcTurnDxDy()
+  local facing = self.facing
+  if facing == "north" then return 0, -1 end
+  if facing == "west" then return -1, -1 end
+  if facing == "east" then return 1, -1 end
+  return 0, 0
+end
+
+function Game3:pcMetatile(on)
+  local which = self:varGet(0x8004)
+  if which == 1 then
+    if on then return Game3.MT_BRENDAN_PC_ON end
+    return Game3.MT_BRENDAN_PC_OFF
+  end
+  if which == 2 then
+    if on then return Game3.MT_MAY_PC_ON end
+    return Game3.MT_MAY_PC_OFF
+  end
+  if on then return Game3.MT_BUILDING_PC_ON end
+  return Game3.MT_BUILDING_PC_OFF
+end
+
+function Game3:pcApplyTile(on)
+  local dx, dy = self:pcTurnDxDy()
+  local gx = (self.playerX or 0) + dx + Game3.MAP_OFFSET
+  local gy = (self.playerY or 0) + dy + Game3.MAP_OFFSET
+  self:mapGridSetMetatileId(gx, gy,
+    self:pcMetatile(on) + Game3.MAPGRID_COLLISION_MASK)
+end
+
+function Game3:doPCTurnOnEffect()
+  if self.pcBlink then return end
+  self.pcBlink = { t = 0, n = 0, on = true }
+end
+
+function Game3:doPCTurnOffEffect()
+  self.pcBlink = nil
+  self:pcApplyTile(false)
+end
+
+function Game3:doSecretBasePCTurnOffEffect()
+  local gx, gy = self:mapGridInFront()
+  local tile = Game3.MT_SECRET_BASE_PC_OFF
+  if self:varGet(Game3.VAR_CURRENT_SECRET_BASE) ~= 0 then
+    tile = Game3.MT_SECRET_BASE_PC_OFF_OTHER
+  end
+  self:playSe(Game3.SE_PC_OFF)
+  self:mapGridSetMetatileId(gx, gy, tile + Game3.MAPGRID_COLLISION_MASK)
+end
+
+function Game3:waitButtonPress()
+  if self.waitButton or self._waitButtonDone then return end
+  self.waitButton = true
+  self:beginScriptWait()
+end
+
+function Game3:stepPcBlink(frames)
+  local pc = self.pcBlink
+  if not pc then return end
+  local i = 1
+  while i <= frames do
+    pc.t = (pc.t or 0) + 1
+    if pc.t >= Game3.LOTTERY_BLINK_PERIOD then
+      pc.t = 0
+      self:pcApplyTile(pc.on)
+      pc.on = not pc.on
+      pc.n = (pc.n or 0) + 1
+      if pc.n >= Game3.LOTTERY_BLINK_TOGGLES then
+        self.pcBlink = nil
+        return
+      end
+    end
+    i = i + 1
+  end
+end
+
+-- braille_puzzles.c DoBrailleWait: 7200-frame wait then
+-- S_OpenRegiceChamber. First JOY_NEW erases + SE_SELECT; a second
+-- cancels without opening. Timeout waits 30 more frames then opens.
+-- SetupScript replaces the waitstate script; we still Enable so the
+-- original waitbuttonpress can run.
+function Game3:openRegiceChamber()
+  self:setMetatile(7, 19, 0x22A, 1)
+  self:setMetatile(8, 19, 0x22B, 1)
+  self:setMetatile(9, 19, 0x22C, 1)
+  self:setMetatile(7, 20, 0x232, 1)
+  self:setMetatile(8, 20, 0x233, 0)
+  self:setMetatile(9, 20, 0x234, 1)
+  self:drawWholeMapView()
+  self:playSe(Game3.SE_BANG)
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_BRAILLE_WAIT] = true
+end
+
+function Game3:doBrailleWait()
+  self.flags = self.flags or {}
+  if self.flags[Game3.FLAG_SYS_BRAILLE_WAIT] then return end
+  self.brailleWait = {
+    stage = 1,
+    left = Game3.BRAILLE_WAIT_FRAMES,
+  }
+  self:beginScriptWait()
+end
+
+function Game3:brailleWaitPressed()
+  if type(Input.pressed) ~= "table" then return false end
+  return Input:wasPressed("a") or Input:wasPressed("b")
+      or Input:wasPressed("start") or Input:wasPressed("select")
+      or Input:wasPressed("up") or Input:wasPressed("down")
+      or Input:wasPressed("left") or Input:wasPressed("right")
+end
+
+function Game3:stepBrailleWait(frames)
+  local w = self.brailleWait
+  if not w then return end
+  if self:brailleWaitPressed() then
+    if w.stage == 1 then
+      self:playSe(Game3.SE_SELECT)
+      w.stage = 2
+    elseif w.stage == 2 then
+      self.brailleWait = nil
+      self:endCinemaWait()
+      return
+    end
+  end
+  while frames > 0 and self.brailleWait do
+    w = self.brailleWait
+    if w.stage == 1 or w.stage == 2 then
+      local n = frames
+      if n > w.left then n = w.left end
+      w.left = w.left - n
+      frames = frames - n
+      if w.left <= 0 then
+        if w.stage == 1 then
+          w.stage = 3
+          w.left = Game3.BRAILLE_WAIT_CLEAR_FRAMES
+        else
+          self.brailleWait = nil
+          self:openRegiceChamber()
+          self:endCinemaWait()
+          return
+        end
+      end
+    elseif w.stage == 3 then
+      local n = frames
+      if n > w.left then n = w.left end
+      w.left = w.left - n
+      frames = frames - n
+      if w.left <= 0 then
+        self.brailleWait = nil
+        self:openRegiceChamber()
+        self:endCinemaWait()
+        return
+      end
+    else
+      return
+    end
+  end
+end
+
+function Game3:doTVShow()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+  return 1
+end
+
+function Game3:doPokeNews()
+  self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  return 0
+end
+
+function Game3:special0x44()
+  return Game3.TV_NO_SHOW
+end
+
+function Game3:getNonMassOutbreakActiveTVShow()
+  local i = self:varGet(0x8004)
+  if i == Game3.TV_NO_SHOW then return Game3.TV_NO_SHOW end
+  return i
+end
+
+function Game3:getTVShowType()
+  return 0
+end
+
+function Game3.lotteryMatchingDigits(win, otId)
+  win = (tonumber(win) or 0) % 65536
+  otId = (tonumber(otId) or 0) % 65536
+  local n = 0
+  for _ = 1, 5 do
+    if (win % 10) ~= (otId % 10) then break end
+    win = math.floor(win / 10)
+    otId = math.floor(otId / 10)
+    n = n + 1
+  end
+  return n
+end
+
+function Game3:pickLotteryCornerTicket()
+  local win = self:varGet(Gen3Script.VAR_RESULT)
+  self:setScriptVar(0x8004, 0)
+  local best, where, mon = 0, nil, nil
+  local function consider(candidate, loc)
+    if not candidate or (candidate.species or 0) == 0 or candidate.isEgg then
+      return
+    end
+    local n = Game3.lotteryMatchingDigits(win, candidate.otId or 0)
+    if n > best and n > 1 then
+      best, where, mon = n, loc, candidate
+    end
+  end
+  local party = self.party or {}
+  for i = 1, #party do consider(party[i], 0) end
+  self:ensurePc()
+  for b = 1, Game3.BOX_COUNT do
+    local box = self.pc[b]
+    if type(box) == "table" then
+      for s = 1, Game3.BOX_SIZE do consider(box[s], 1) end
+    end
+  end
+  if best > 1 and mon then
+    local rank = best - 1
+    self:setScriptVar(0x8004, rank)
+    self:setScriptVar(0x8005, Game3.LOTTERY_PRIZES[rank] or 0)
+    self:setScriptVar(0x8006, where)
+    self:setStringVar(1, mon.name or self:speciesName(mon.species))
+  end
+end
+
+function Game3:gabbyAndTyGetLastQuote()
+  local d = self:ensureGabbyAndTy()
+  if (d.quote or Game3.EC_EMPTY_WORD) == Game3.EC_EMPTY_WORD then
+    return 0
+  end
+  self:setStringVar(1, Game3.ecWordText(d.quote))
+  d.quote = Game3.EC_EMPTY_WORD
+  return 1
+end
+
+-- !valB_0 (not damaged) → 1; balls → 2; heal → 3; faint → 4; else 0.
+-- 0 is valid (damaged, no extra trivia).
+function Game3:gabbyAndTyGetLastBattleTrivia()
+  local d = self:ensureGabbyAndTy()
+  if (d.valB_0 or 0) == 0 then return 1 end
+  if (d.valB_3 or 0) ~= 0 then return 2 end
+  if (d.valB_2 or 0) ~= 0 then return 3 end
+  if (d.valB_1 or 0) ~= 0 then return 4 end
+  return 0
+end
+
+-- tv.c switch has no case 0: first fight still calls this after
+-- BeforeInterview increments 0→1, so case 1 is Route 111 pair 1.
+function Game3:getGabbyAndTyLocalIds()
+  local pair = Game3.GABBY_TY_LOCAL_IDS[self:gabbyAndTyGetBattleNum()]
+  if not pair then return end
+  self:setScriptVar(0x8004, pair.gabby)
+  self:setScriptVar(0x8005, pair.ty)
+end
+
 function Game3:stepEasyChat(f)
   local n = #(f.labels or {})
   if n < 1 then n = 1 end
@@ -6882,8 +14830,9 @@ function Game3:stepEasyChat(f)
   elseif Input:wasPressed("a") then
     local pack = f.packs and f.packs[(f.cursor or 0) + 1]
     if pack then f.words[(f.slot or 0) + 1] = pack end
-    if (f.slot or 0) == 0 then
-      self:openEasyChatSlot(f, 1)
+    local last = (f.slots or 2) - 1
+    if (f.slot or 0) < last then
+      self:openEasyChatSlot(f, (f.slot or 0) + 1)
     else
       self:finishEasyChat(true)
     end
@@ -6891,9 +14840,691 @@ function Game3:stepEasyChat(f)
     if (f.slot or 0) == 0 then
       self:finishEasyChat(false)
     else
-      self:openEasyChatSlot(f, 0)
+      self:openEasyChatSlot(f, (f.slot or 0) - 1)
     end
   end
+end
+
+function Game3.stripEos(s)
+  if type(s) ~= "string" then return "" end
+  return (s:gsub("%$", ""):gsub("{POKEBLOCK}", "POKeBLOCK"))
+end
+
+function Game3.bardLyricString(lyrics)
+  if type(lyrics) ~= "table" then return "" end
+  local a = Game3.ecWordText(lyrics[1])
+  local b = Game3.ecWordText(lyrics[2])
+  local c = Game3.ecWordText(lyrics[3])
+  local d = Game3.ecWordText(lyrics[4])
+  local e = Game3.ecWordText(lyrics[5])
+  local f = Game3.ecWordText(lyrics[6])
+  return (a .. " " .. b .. " " .. c .. "\n" .. d .. " " .. e .. " " .. f)
+    :gsub(" +", " "):gsub(" \n", "\n")
+end
+
+function Game3:getGameStat(id)
+  id = tonumber(id) or 0
+  if id == Game3.NUM_GAME_STATS then id = 0 end
+  self.gameStats = self.gameStats or {}
+  return self.gameStats[id] or 0
+end
+
+function Game3:ensureMauvilleMan()
+  local man = self.mauvilleMan
+  if type(man) == "table" and man.id ~= nil then return man end
+  return self:setupMauvilleOldMan()
+end
+
+function Game3:setupMauvilleOldMan(skipGfx)
+  local digit = math.floor(self:playerTrainerIdOnesDigit() / 2)
+  if digit == Game3.MAUVILLE_MAN_HIPSTER then
+    self.mauvilleMan = { id = Game3.MAUVILLE_MAN_HIPSTER, alreadySpoken = 0 }
+  elseif digit == Game3.MAUVILLE_MAN_TRADER then
+    local items, names = {}, {}
+    for i = 1, 4 do
+      items[i] = Game3.TRADER_DECORATIONS[i]
+      names[i] = Game3.TRADER_OWNERS[i]
+    end
+    self.mauvilleMan = {
+      id = Game3.MAUVILLE_MAN_TRADER, alreadyTraded = 0,
+      items = items, names = names,
+    }
+  elseif digit == Game3.MAUVILLE_MAN_STORYTELLER then
+    self.mauvilleMan = {
+      id = Game3.MAUVILLE_MAN_STORYTELLER, alreadyRecorded = 0,
+      gameStatIDs = { 0, 0, 0, 0 },
+      statValues = { 0, 0, 0, 0 },
+      trainerNames = { "", "", "", "" },
+    }
+  elseif digit == Game3.MAUVILLE_MAN_GIDDY then
+    self.mauvilleMan = { id = Game3.MAUVILLE_MAN_GIDDY, taleCounter = 0 }
+  else
+    local lyrics = {}
+    for i = 1, 6 do lyrics[i] = Game3.DEFAULT_BARD_LYRICS[i] end
+    self.mauvilleMan = {
+      id = Game3.MAUVILLE_MAN_BARD, hasChangedSong = 0,
+      songLyrics = lyrics, temporaryLyrics = nil,
+    }
+  end
+  if not skipGfx then self:setMauvilleOldManGfx() end
+  return self.mauvilleMan
+end
+
+function Game3:setMauvilleOldManGfx()
+  local man = self:ensureMauvilleMan()
+  self:setScriptVar(Game3.VAR_OBJ_GFX_ID_0, Game3.GFX_BARD + (man.id or 0))
+end
+
+function Game3:getCurrentMauvilleMan()
+  return self:ensureMauvilleMan().id or 0
+end
+
+function Game3:hasBardSongBeenChanged()
+  local man = self:ensureMauvilleMan()
+  return (man.hasChangedSong or 0) ~= 0 and 1 or 0
+end
+
+function Game3:saveBardSongLyrics()
+  local man = self:ensureMauvilleMan()
+  local src = man.temporaryLyrics or man.songLyrics
+  local lyrics = {}
+  for i = 1, 6 do lyrics[i] = src and src[i] or 0 end
+  man.songLyrics = lyrics
+  man.hasChangedSong = 1
+  man.playerName = self:playerName()
+end
+
+function Game3:playBardSong()
+  local man = self:ensureMauvilleMan()
+  local useTemp = (self:varGet(0x8004) or 0) ~= 0
+  local lyrics = man.songLyrics
+  if useTemp and man.temporaryLyrics then lyrics = man.temporaryLyrics end
+  self:beginScriptWait()
+  self.field = {
+    kind = "bard_song",
+    text = Game3.bardLyricString(lyrics),
+  }
+end
+
+function Game3:getHipsterSpokenFlag()
+  local man = self:ensureMauvilleMan()
+  return (man.alreadySpoken or 0) ~= 0 and 1 or 0
+end
+
+function Game3:setHipsterSpokenFlag()
+  self:ensureMauvilleMan().alreadySpoken = 1
+end
+
+function Game3:trendySayingUnlocked(i)
+  local u = self.trendyUnlocked
+  return type(u) == "table" and u[i] and true or false
+end
+
+function Game3:unlockTrendySaying(i)
+  i = tonumber(i) or 0
+  if i < 1 or i > Game3.TRENDY_SAYING_COUNT then return end
+  self.trendyUnlocked = self.trendyUnlocked or {}
+  self.trendyUnlocked[i] = true
+end
+
+function Game3:countTrendyUnlocked()
+  local n = 0
+  for i = 1, Game3.TRENDY_SAYING_COUNT do
+    if self:trendySayingUnlocked(i) then n = n + 1 end
+  end
+  return n
+end
+
+-- new_game.c calls sub_80EB8EC once so one trendy word is already on.
+function Game3:unlockRandomTrendySaying()
+  local left = Game3.TRENDY_SAYING_COUNT - self:countTrendyUnlocked()
+  if left < 1 then return 0xFFFF end
+  local pick = (self:rand(left) or 1) - 1
+  for i = 1, Game3.TRENDY_SAYING_COUNT do
+    if not self:trendySayingUnlocked(i) then
+      if pick == 0 then
+        self:unlockTrendySaying(i)
+        return Game3.ecPack(Game3.EC_GROUP_TRENDY_SAYING, i - 1)
+      end
+      pick = pick - 1
+    end
+  end
+  return 0xFFFF
+end
+
+function Game3:hipsterTeachWord()
+  local word = self:unlockRandomTrendySaying()
+  if word == 0xFFFF then return 0 end
+  self:setStringVar(1, Game3.ecWordText(word))
+  return 1
+end
+
+function Game3:giddyShouldTellAnotherTale()
+  local man = self:ensureMauvilleMan()
+  if (man.taleCounter or 0) == 10 then
+    man.taleCounter = 0
+    return 0
+  end
+  return 1
+end
+
+function Game3:ecGroupSize(group)
+  local list = Game3.EC_WORDS[group]
+  if type(list) == "table" then return #list end
+  return 0
+end
+
+function Game3:giddyShuffleQuestions()
+  local q = {}
+  for i = 1, 8 do q[i] = i end
+  for i = 1, 8 do
+    local r = self:rand(i) or 1
+    q[i], q[r] = q[r], q[i]
+  end
+  return q
+end
+
+function Game3:generateGiddyLine()
+  local man = self:ensureMauvilleMan()
+  if (man.taleCounter or 0) == 0 then
+    man.questionList = self:giddyShuffleQuestions()
+    man.questionNum = 1
+    local groups = {
+      Game3.EC_GROUP_LIFESTYLE, Game3.EC_GROUP_HOBBIES,
+      Game3.EC_GROUP_PEOPLE, Game3.EC_GROUP_SPEECH,
+      Game3.EC_GROUP_ACTIONS, Game3.EC_GROUP_ADJECTIVES,
+    }
+    local words = {}
+    for i = 1, 10 do
+      local r = (self:rand(10) or 1) - 1
+      if r < 3 then
+        words[i] = 0xFFFF
+      else
+        local g = groups[((self:rand(#groups) or 1) - 1) % #groups + 1]
+        words[i] = self:ecRandomWord(g)
+      end
+    end
+    man.randomWords = words
+  end
+  local idx = (man.taleCounter or 0) + 1
+  local word = man.randomWords and man.randomWords[idx]
+  if word and word ~= 0xFFFF then
+    local adj = Game3.GIDDY_ADJECTIVES[(self:rand(8) or 1)]
+    self:setStringVar(4, Game3.ecWordText(word) .. " is" .. (adj or " so pretty!")
+      .. "\nDon't you agree?")
+  else
+    local qn = man.questionNum or 1
+    local qi = man.questionList and man.questionList[qn] or qn
+    man.questionNum = qn + 1
+    self:setStringVar(4, Game3.GIDDY_QUESTIONS[qi] or Game3.GIDDY_QUESTIONS[1])
+  end
+  if ((self:rand(10) or 1) - 1) == 0 then
+    man.taleCounter = 10
+  else
+    man.taleCounter = (man.taleCounter or 0) + 1
+  end
+  return 1
+end
+
+function Game3:storyByStat(stat)
+  local list = Game3.STORYTELLER_STORIES
+  for i = 1, #list do
+    if list[i].stat == stat then return list[i] end
+  end
+  return list[#list]
+end
+
+function Game3:storytellerFreeSlot()
+  local man = self:ensureMauvilleMan()
+  local ids = man.gameStatIDs or {}
+  for i = 1, 4 do
+    if (ids[i] or 0) == 0 then return i - 1 end
+  end
+  return 4
+end
+
+function Game3:storytellerAlreadyRecorded()
+  local man = self:ensureMauvilleMan()
+  return (man.alreadyRecorded or 0) ~= 0 and 1 or 0
+end
+
+function Game3:storytellerRecord(slot, stat)
+  local man = self:ensureMauvilleMan()
+  man.gameStatIDs = man.gameStatIDs or { 0, 0, 0, 0 }
+  man.statValues = man.statValues or { 0, 0, 0, 0 }
+  man.trainerNames = man.trainerNames or { "", "", "", "" }
+  local i = slot + 1
+  man.gameStatIDs[i] = stat
+  man.statValues[i] = self:getGameStat(stat)
+  man.trainerNames[i] = self:playerName()
+  man.alreadyRecorded = 1
+  local story = self:storyByStat(stat)
+  self:setStringVar(1, tostring(self:getGameStat(stat)))
+  self:setStringVar(2, Game3.stripEos(story.action))
+end
+
+function Game3:storytellerInitializeRandomStat()
+  local used = {}
+  local man = self:ensureMauvilleMan()
+  for i = 1, 4 do used[man.gameStatIDs and man.gameStatIDs[i] or 0] = true end
+  local order = {}
+  for i = 1, #Game3.STORYTELLER_STORIES do order[i] = i end
+  for i = 1, #order do
+    local a = self:rand(#order) or 1
+    local b = self:rand(#order) or 1
+    order[a], order[b] = order[b], order[a]
+  end
+  for i = 1, #order do
+    local story = Game3.STORYTELLER_STORIES[order[i]]
+    if not used[story.stat] and self:getGameStat(story.stat) >= story.min then
+      self:storytellerRecord(self:storytellerFreeSlot(), story.stat)
+      return 1
+    end
+  end
+  return 0
+end
+
+function Game3:storytellerDisplayStory()
+  local man = self:ensureMauvilleMan()
+  local slot = (self.storytellerSel or 0) + 1
+  local stat = man.gameStatIDs and man.gameStatIDs[slot] or 0
+  local story = self:storyByStat(stat)
+  self:setStringVar(1, tostring(man.statValues and man.statValues[slot] or 0))
+  self:setStringVar(2, Game3.stripEos(story.action))
+  self:setStringVar(3, man.trainerNames and man.trainerNames[slot] or "")
+  local text = self:expandScriptText(Game3.stripEos(story.text))
+  if self._scriptSays then
+    self:sayScript(text)
+  else
+    self.field = { kind = "talk", text = text }
+  end
+end
+
+function Game3:storytellerUpdateStat()
+  local man = self:ensureMauvilleMan()
+  local slot = self.storytellerSel or 0
+  local i = slot + 1
+  local stat = man.gameStatIDs and man.gameStatIDs[i] or 0
+  if self:getGameStat(stat) > (man.statValues and man.statValues[i] or 0) then
+    self:storytellerRecord(slot, stat)
+    return 1
+  end
+  return 0
+end
+
+function Game3:openMauvilleMenu(labels, onPick)
+  self:beginScriptWait()
+  self.field = {
+    kind = "mauville_menu",
+    labels = labels,
+    cursor = 0,
+    onPick = onPick,
+  }
+end
+
+function Game3:storytellerStoryListMenu()
+  local man = self:ensureMauvilleMan()
+  local labels = {}
+  for i = 1, 4 do
+    local stat = man.gameStatIDs and man.gameStatIDs[i] or 0
+    if stat == 0 then break end
+    labels[#labels + 1] = Game3.stripEos(self:storyByStat(stat).title)
+  end
+  labels[#labels + 1] = "CANCEL"
+  self:openMauvilleMenu(labels, "pickStorytellerStory")
+end
+
+function Game3:pickStorytellerStory(index)
+  local n = self:storytellerFreeSlot()
+  if index >= n then
+    self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+    return
+  end
+  self.storytellerSel = index
+  self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+end
+
+function Game3:getTraderTradedFlag()
+  local man = self:ensureMauvilleMan()
+  return (man.alreadyTraded or 0) ~= 0 and 1 or 0
+end
+
+function Game3:doesPlayerHaveNoDecorations()
+  local bag = self.decorations
+  if type(bag) ~= "table" then return 1 end
+  for _, n in pairs(bag) do
+    if (tonumber(n) or 0) > 0 then return 0 end
+  end
+  return 1
+end
+
+function Game3:isDecorationFull()
+  return 0
+end
+
+-- decoration_inventory.c AddDecoration. RESULT TRUE/FALSE.
+function Game3:addDecoration(id)
+  id = tonumber(id) or 0
+  if id < 1 then return false end
+  if self:isDecorationFull() ~= 0 then return false end
+  self.decorations = self.decorations or {}
+  self.decorations[id] = (tonumber(self.decorations[id]) or 0) + 1
+  return true
+end
+
+function Game3:decorationName(id)
+  id = tonumber(id) or 0
+  return Game3.DECOR_NAMES[id] or ("DECOR %d"):format(id)
+end
+
+function Game3:decorationPrice(id)
+  id = tonumber(id) or 0
+  return Game3.DECOR_PRICES[id] or 0
+end
+
+-- field_specials.c gUnknown_083F83C0. B is MULTI_B_PRESSED 0x7F, not CANCEL index 7.
+function Game3:glassWorkshopLabels()
+  return {
+    self:itemName(Game3.ITEM_BLUE_FLUTE),
+    self:itemName(Game3.ITEM_YELLOW_FLUTE),
+    self:itemName(Game3.ITEM_RED_FLUTE),
+    self:itemName(Game3.ITEM_WHITE_FLUTE),
+    self:itemName(Game3.ITEM_BLACK_FLUTE),
+    self:decorationName(Game3.DECOR_PRETTY_CHAIR),
+    self:decorationName(Game3.DECOR_PRETTY_DESK),
+    "CANCEL",
+  }
+end
+
+function Game3:showGlassWorkshopMenu()
+  self:openMauvilleMenu(self:glassWorkshopLabels(), "pickGlassWorkshop")
+  if self.field then self.field.bPressed = Game3.MULTI_B_PRESSED end
+end
+
+function Game3:pickGlassWorkshop(index)
+  index = tonumber(index) or Game3.MULTI_B_PRESSED
+  self:setScriptVar(Gen3Script.VAR_RESULT, index)
+end
+
+-- pokemon_3.c GetMoveTutorMoves / sub_8040574. SPECIES2 egg → 0.
+-- Level-up moves at or below current level that the mon does not know.
+-- Cap MAX_MOVE_TUTOR_MOVES 20. Duplicates in the learnset are skipped.
+function Game3:tutorLearnsetMoveId(entry)
+  if type(entry) == "number" then return entry end
+  if type(entry) ~= "table" then return 0 end
+  local m = entry.move
+  if type(m) == "number" then return m end
+  if type(m) == "table" then return tonumber(m.id) or 0 end
+  return tonumber(entry.id) or 0
+end
+
+function Game3:getMoveTutorMoves(mon)
+  if not mon or mon.isEgg then return {} end
+  local row = self:speciesRow(mon.species)
+  local learn = row and row.learnset or {}
+  local level = mon.level or 1
+  local out = {}
+  local cap = Game3.MAX_MOVE_TUTOR_MOVES
+  for i = 1, #learn do
+    if #out >= cap then break end
+    local e = learn[i]
+    if e and (e.level or 1) <= level then
+      local id = self:tutorLearnsetMoveId(e)
+      if id > 0 and not self:knowsMove(mon, id) then
+        local seen = false
+        for j = 1, #out do
+          if out[j] == id then seen = true; break end
+        end
+        if not seen then out[#out + 1] = id end
+      end
+    end
+  end
+  return out
+end
+
+function Game3:selectMoveTutorMon()
+  self:beginScriptWait()
+  self.field = { kind = "move_tutor_mon", cursor = 0, scripted = true }
+end
+
+function Game3:pickMoveTutorMon(index)
+  index = tonumber(index) or 0
+  self.field = nil
+  if index == Game3.PARTY_MENU_CANCEL then
+    self:setScriptVar(0x8004, Game3.PARTY_MENU_CANCEL)
+    self:setScriptVar(0x8005, 0)
+    self:endScriptWait()
+    return
+  end
+  local mon = self.party and self.party[index + 1]
+  self:setScriptVar(0x8004, index)
+  self:setScriptVar(0x8005, #(self:getMoveTutorMoves(mon)))
+  self:endScriptWait()
+end
+
+function Game3:tutorMon()
+  local idx = (self.scriptVars and self.scriptVars[0x8004]) or 0
+  return self.party and self.party[idx + 1]
+end
+
+-- pokemon_1.c GiveMoveToMon. "ok" / "known" are both != 0xFFFF on hardware.
+function Game3:giveMoveToMon(mon, moveId)
+  if not mon then return "fail" end
+  if self:knowsMove(mon, moveId) then return "known" end
+  local moves = mon.moves or {}
+  if #moves >= 4 then return "full" end
+  moves[#moves + 1] = self:copyMove(moveId)
+  mon.moves = moves
+  return "ok"
+end
+
+function Game3:finishTutorTeach(ok)
+  self.tutorWait = nil
+  self._tutorMoves = nil
+  self._tutorPick = nil
+  self.learnMove = nil
+  self:setScriptVar(0x8004, ok and 1 or 0)
+  self.field = nil
+  self:endScriptWait()
+end
+
+function Game3:displayMoveTutorMenu()
+  if not self:scriptWaiting() then self:beginScriptWait() end
+  local moves = self:getMoveTutorMoves(self:tutorMon())
+  self._tutorMoves = moves
+  local labels = {}
+  for i = 1, #moves do
+    labels[i] = self:learnMoveName(moves[i])
+  end
+  labels[#labels + 1] = "EXIT"
+  self.field = { kind = "move_tutor_list", labels = labels, cursor = 0 }
+end
+
+function Game3:pickMoveTutorList(index)
+  index = tonumber(index) or 0
+  local moves = self._tutorMoves or {}
+  if index < 0 or index >= #moves then
+    self:openTutorGiveUp()
+    return
+  end
+  self._tutorPick = index
+  local name = self:learnMoveName(moves[index + 1])
+  self.field = {
+    kind = "tutor_confirm",
+    text = ("Teach %s?"):format(name),
+    cursor = 0,
+  }
+end
+
+function Game3:openTutorGiveUp()
+  self.field = {
+    kind = "tutor_giveup",
+    text = "Give up trying to teach a new move?",
+    cursor = 0,
+  }
+end
+
+function Game3:answerTutorGiveUp(yes)
+  if yes then
+    self:finishTutorTeach(false)
+  else
+    self:displayMoveTutorMenu()
+  end
+end
+
+function Game3:answerTutorConfirm(yes)
+  if not yes then
+    self:displayMoveTutorMenu()
+    return
+  end
+  local moves = self._tutorMoves or {}
+  local id = moves[(self._tutorPick or 0) + 1]
+  local mon = self:tutorMon()
+  local status = self:giveMoveToMon(mon, id)
+  if status == "ok" or status == "known" then
+    self:finishTutorTeach(true)
+    return
+  end
+  self.tutorWait = true
+  self.learnMove = { mon = mon, move = id, name = self:learnMoveName(id) }
+  self:openLearnForget()
+end
+
+-- Lilycove Move Deleter. SelectMove has no waitstate in the script;
+-- the ROM pauses because CB2 swaps to the summary screen, so we must
+-- beginScriptWait. B / 5th slot writes 0x8005 = 4. HMs are allowed.
+function Game3:countPokemonMoves()
+  local mon = self:selectedPartyMon()
+  local n = #(mon and mon.moves or {})
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  return n
+end
+
+function Game3:getPokemonNicknameAndMoveName()
+  local mon = self:selectedPartyMon()
+  local slot = (self.scriptVars and self.scriptVars[0x8005]) or 0
+  local move = mon and mon.moves and mon.moves[slot + 1]
+  self:setStringVar(1, (mon and mon.name) or "")
+  local name = ""
+  if move then
+    name = move.name or self:learnMoveName(move.id)
+  end
+  self:setStringVar(2, name or "")
+end
+
+function Game3:deleteMonMove()
+  local mon = self:selectedPartyMon()
+  if not (mon and type(mon.moves) == "table") then return end
+  local slot = (self.scriptVars and self.scriptVars[0x8005]) or 0
+  local i = slot + 1
+  if i < 1 or i > #mon.moves then return end
+  table.remove(mon.moves, i)
+end
+
+function Game3:selectMove()
+  self:beginScriptWait()
+  local mon = self:selectedPartyMon()
+  local moves = mon and mon.moves or {}
+  local labels = {}
+  for i = 1, #moves do
+    local m = moves[i]
+    labels[i] = (m and m.name) or self:learnMoveName(m and m.id)
+  end
+  labels[#labels + 1] = "CANCEL"
+  self.field = { kind = "move_deleter", labels = labels, cursor = 0 }
+end
+
+function Game3:pickMoveDeleter(index)
+  index = tonumber(index) or 0
+  local mon = self:selectedPartyMon()
+  local n = #(mon and mon.moves or {})
+  local slot = Game3.MOVE_DELETER_CANCEL
+  if index >= 0 and index < n then slot = index end
+  self:setScriptVar(0x8005, slot)
+  self.field = nil
+  self:endScriptWait()
+end
+
+function Game3:traderMenuGetDecoration()
+  local man = self:ensureMauvilleMan()
+  local labels = {}
+  local ids = man.items or Game3.TRADER_DECORATIONS
+  for i = 1, 4 do
+    if (ids[i] or 0) ~= 0 then
+      labels[#labels + 1] = self:decorationName(ids[i])
+    end
+  end
+  labels[#labels + 1] = "CANCEL"
+  self:openMauvilleMenu(labels, "pickTraderGet")
+end
+
+function Game3:pickTraderGet(index)
+  local man = self:ensureMauvilleMan()
+  local ids = man.items or {}
+  local n = 0
+  for i = 1, 4 do
+    if (ids[i] or 0) ~= 0 then n = n + 1 end
+  end
+  if index >= n then
+    self:setScriptVar(0x8004, 0)
+    return
+  end
+  self:setScriptVar(0x8005, index)
+  self:setScriptVar(0x8004, ids[index + 1] or 0)
+  self:setStringVar(1, (man.names and man.names[index + 1]) or "")
+end
+
+function Game3:traderMenuGiveDecoration()
+  local labels, ids = {}, {}
+  local bag = self.decorations or {}
+  for id, n in pairs(bag) do
+    if (tonumber(n) or 0) > 0 then
+      ids[#ids + 1] = tonumber(id)
+      labels[#labels + 1] = self:decorationName(id)
+    end
+  end
+  labels[#labels + 1] = "CANCEL"
+  self._traderGiveIds = ids
+  self:openMauvilleMenu(labels, "pickTraderGive")
+end
+
+function Game3:pickTraderGive(index)
+  local ids = self._traderGiveIds or {}
+  self._traderGiveIds = nil
+  if index >= #ids then
+    self:setScriptVar(0x8006, 0)
+    return
+  end
+  local give = ids[index + 1]
+  local get = self:varGet(0x8004)
+  self:setScriptVar(0x8006, give)
+  self:setStringVar(3, self:decorationName(get))
+  self:setStringVar(2, self:decorationName(give))
+end
+
+function Game3:traderDoDecorationTrade()
+  local man = self:ensureMauvilleMan()
+  local getId = self:varGet(0x8004)
+  local giveId = self:varGet(0x8006)
+  local slot = (self:varGet(0x8005) or 0) + 1
+  self.decorations = self.decorations or {}
+  local have = tonumber(self.decorations[giveId]) or 0
+  if have > 0 then self.decorations[giveId] = have - 1 end
+  self.decorations[getId] = (tonumber(self.decorations[getId]) or 0) + 1
+  man.names = man.names or {}
+  man.items = man.items or {}
+  man.names[slot] = self:playerName()
+  man.items[slot] = giveId
+  man.alreadyTraded = 1
+end
+
+function Game3:pickMauvilleMenu(index)
+  local f = self.field
+  local name = f and f.onPick
+  self.field = nil
+  if type(name) == "string" and self[name] then self[name](self, index, f) end
+  if self.field then return end
+  self:endScriptWait()
 end
 
 function Game3:berryGetTreeData()
@@ -6908,10 +15539,26 @@ function Game3:berryGetTreeData()
 end
 
 function Game3:chooseBerryFromBag()
-  local slots = self:bagSlotsIn(Game3.POCKET_BERRIES)
-  local id = 0
-  if slots[1] then id = slots[1].id or 0 end
-  self:setScriptVar(Game3.VAR_ITEM_ID, id)
+  -- item_menu.c ITEMMENULOCATION_BERRY / ChooseBerry: only the berry
+  -- pocket, A writes VAR_ITEM_ID, B writes 0. waitstate holds until then.
+  self.field = {
+    kind = "bag",
+    pocket = Game3.POCKET_BERRIES,
+    cursor = 0,
+    pickBerry = true,
+  }
+  -- S_BerryTree fades TO black before this special. The bag callback is
+  -- FadeScreen(FADE_FROM_BLACK). A held TO_BLACK (alpha can still be 0 on
+  -- the same tick as fadescreen) left a 240×160 black plate after plant.
+  self:fadeInFromBlack()
+  self:beginScriptWait()
+end
+
+function Game3:finishBerryPick(id)
+  self:setScriptVar(Game3.VAR_ITEM_ID, tonumber(id) or 0)
+  self.field = nil
+  self:fadeInFromBlack()
+  self:endScriptWait()
 end
 
 function Game3:pickBerryTree()
@@ -6957,7 +15604,7 @@ function Game3:growBerryTree(tree)
   local stage = tree.stage or 0
   if stage == Game3.BERRY_STAGE_NO_BERRY then return false end
   if stage == Game3.BERRY_STAGE_FLOWERING then
-    tree.yield = Game3.berryMinYield(tree.berry)
+    tree.yield = self:calcBerryYield(tree)
   end
   if stage >= Game3.BERRY_STAGE_PLANTED
       and stage <= Game3.BERRY_STAGE_FLOWERING then
@@ -7020,9 +15667,10 @@ end
 
 function Game3:tickBerryTrees(dt)
   if type(self.berryTrees) ~= "table" then return end
+  -- Field dt is seconds. ROM BerryTreeTimeUpdate is minutes of RTC.
   local acc = (self.berryMinuteAcc or 0) + (dt or 0)
-  local minutes = math.floor(acc)
-  self.berryMinuteAcc = acc - minutes
+  local minutes = math.floor(acc / 60)
+  self.berryMinuteAcc = acc - minutes * 60
   if minutes < 1 then return end
   for _, tree in pairs(self.berryTrees) do
     self:advanceBerryTree(tree, minutes)
@@ -7036,10 +15684,12 @@ function Game3:runBerrySpecial(id)
   elseif id == Game3.SPECIAL_BERRY_BAG_MENU then
     self:chooseBerryFromBag()
   elseif id == Game3.SPECIAL_PLANT_BERRY_TREE then
+    local item = self:varGet(Game3.VAR_ITEM_ID)
     self:plantBerryTree(
       self:scriptBerryTreeId(),
-      Game3.itemToBerryType(self:varGet(Game3.VAR_ITEM_ID)),
+      Game3.itemToBerryType(item),
       Game3.BERRY_STAGE_PLANTED, true)
+    if (tonumber(item) or 0) > 0 then self:takeItem(item, 1) end
     self:berryGetTreeData()
     self:refreshBerryTreeSprites()
   elseif id == Game3.SPECIAL_PICK_BERRY_TREE then
@@ -7051,7 +15701,9 @@ function Game3:runBerrySpecial(id)
     self:waterBerryTree()
   elseif id == Game3.SPECIAL_PLAYER_HAS_BERRIES then
     local has = #self:bagSlotsIn(Game3.POCKET_BERRIES) > 0
-    self:setScriptVar(Gen3Script.VAR_RESULT, has and 1 or 0)
+    local n = has and 1 or 0
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
   end
 end
 
@@ -7078,9 +15730,84 @@ function Game3:statusHeal(id)
   return Game3.STATUS_HEAL[id]
 end
 
+function Game3.isBlueYellowRedFlute(id)
+  return id == Game3.ITEM_BLUE_FLUTE
+      or id == Game3.ITEM_YELLOW_FLUTE
+      or id == Game3.ITEM_RED_FLUTE
+end
+
 function Game3.isBall(id)
   id = tonumber(id) or 0
   return id >= Game3.ITEM_MASTER_BALL and id <= Game3.LAST_BALL
+end
+
+-- ItemUseOutOfBattle_Medicine and ItemUseInBattle_Medicine both open
+-- the party (pokemon_menu.c ITEM_USE_SINGLE_MON / battle_party_menu.c).
+function Game3.needsBattleParty(id)
+  id = tonumber(id)
+  if Game3.HEAL_AMOUNT[id] ~= nil
+      or Game3.STATUS_HEAL[id] ~= nil
+      or Game3.REVIVE_FRACTION[id] ~= nil then
+    return true
+  end
+  return Game3.PP_HEAL[id] ~= nil
+end
+
+function Game3.needsFieldParty(id)
+  id = tonumber(id)
+  if Game3.needsBattleParty(id) then return true end
+  if Game3.VITAMIN_STAT[id] or id == Game3.ITEM_RARE_CANDY then return true end
+  if Game3.PP_HEAL[id] or Game3.PP_UP[id] then return true end
+  if Game3.EVO_STONE[id] then return true end
+  return false
+end
+
+function Game3.needsMovePick(id)
+  id = tonumber(id)
+  local pp = Game3.PP_HEAL[id]
+  if pp and pp.one then return true end
+  return Game3.PP_UP[id] ~= nil
+end
+
+-- pokemon_2.c CalculatePPWithBonus: base + floor(base * 20 * ppUps / 100).
+function Game3:moveBasePp(move)
+  if type(move) ~= "table" then return 0 end
+  local spec = self.data and self.data.moves and self.data.moves.byId
+    and self.data.moves.byId[move.id]
+  return tonumber(spec and spec.pp) or tonumber(move.maxPp) or tonumber(move.pp) or 0
+end
+
+function Game3:moveMaxPp(move)
+  local base = self:moveBasePp(move)
+  local ups = math.min(3, math.max(0, tonumber(move and move.ppUps) or 0))
+  return base + math.floor(base * 20 * ups / 100)
+end
+
+-- pokemon_3.c GetEvolutionTargetSpecies type 2/3: EVO_ITEM + matching param.
+-- Everstone HOLD_EFFECT_PREVENT_EVOLVE blocks type 2 (use), not type 3 (scan).
+function Game3:itemEvolutionTarget(mon, item, scan)
+  if not mon or mon.isEgg then return nil end
+  item = tonumber(item)
+  if not item then return nil end
+  if not scan then
+    local hold = self:holdEffectOf(mon)
+    if hold == Game3.HOLD_EFFECT_PREVENT_EVOLVE then return nil end
+  end
+  local list = self:evolutionsFor(mon.species)
+  if type(list) ~= "table" then return nil end
+  for i = 1, #list do
+    local e = list[i]
+    if e and e.method == Game3.EVO_ITEM and (e.param or 0) == item and e.target then
+      return e.target
+    end
+  end
+end
+
+-- party_menu.c IsMedicineIneffective: HP vitamin on Shedinja.
+function Game3:isMedicineIneffective(mon, id)
+  local spec = Game3.VITAMIN_STAT[tonumber(id)]
+  return spec ~= nil and spec.key == "hpEv"
+      and mon and mon.species == Game3.SPECIES_SHEDINJA
 end
 
 function Game3.ballBonus(id)
@@ -7128,33 +15855,229 @@ function Game3:catchBallBonus(id, mon)
 end
 
 function Game3:itemTarget(id)
+  local frac = Game3.REVIVE_FRACTION[id]
   local amount = self:healAmount(id)
   local clears = self:statusHeal(id)
   local party = self.party or {}
   for i = 1, #party do
     local mon = party[i]
-    if mon and (mon.hp or 0) > 0 then
+    if not mon then
+    elseif frac then
+      if (mon.hp or 0) <= 0 then return mon end
+    elseif (mon.hp or 0) > 0 then
       local hurt = amount and (mon.hp or 0) < (mon.maxHp or 0)
-      local sick = clears and mon.status
-        and (clears == true or mon.status == clears)
+      local sick = false
+      if clears == true then
+        sick = mon.status ~= nil or (mon.confuseTurns or 0) > 0
+      elseif clears == "confuse" then
+        sick = (mon.confuseTurns or 0) > 0
+      elseif clears == "love" then
+        sick = mon.infatuatedBy ~= nil
+      elseif clears and mon.status == clears then
+        sick = true
+      end
       if hurt or sick then return mon end
     end
   end
 end
 
-function Game3:useItemOnMon(mon, id)
-  if not mon or (mon.hp or 0) <= 0 then
+function Game3:useItemOnMon(mon, id, moveIndex)
+  if not mon then
+    return false, "It won't have any effect."
+  end
+  -- pokemon_menu.c sub_808B0C0: IS_EGG → SE_FAILURE, no effect.
+  if mon.isEgg then
+    return false, "It won't have any effect."
+  end
+  id = tonumber(id)
+  -- Vitamins, Rare Candy, PP, and stones run before the fainted-HP
+  -- guard (pokemon_item_effect.c case 3/4/5). Revive still needs HP 0.
+  local vitamin = Game3.VITAMIN_STAT[id]
+  if vitamin then
+    if self:isMedicineIneffective(mon, id) then
+      return false, "It won't have any effect."
+    end
+    local key = vitamin.key
+    local cur = mon[key] or 0
+    local total = self:monEvCount(mon)
+    if cur >= Game3.VITAMIN_EV_CAP or total >= Game3.MAX_TOTAL_EVS then
+      return false, "It won't have any effect."
+    end
+    local add = Game3.VITAMIN_EV
+    if cur + add > Game3.VITAMIN_EV_CAP then
+      add = Game3.VITAMIN_EV_CAP - cur
+    end
+    if total + add > Game3.MAX_TOTAL_EVS then
+      add = Game3.MAX_TOTAL_EVS - total
+    end
+    if add < 1 then
+      return false, "It won't have any effect."
+    end
+    if not self:takeItem(id, 1) then
+      return false, "You have none left!"
+    end
+    mon[key] = cur + add
+    self:recalcStats(mon)
+    self:applyItemFriendship(mon, id)
+    local name = mon.name or "POKeMON"
+    return true, ("%s's %s was\nraised."):format(name, vitamin.name)
+  end
+  if id == Game3.ITEM_RARE_CANDY then
+    if (mon.level or 1) >= Game3.MAX_LEVEL then
+      return false, "It won't have any effect."
+    end
+    if not self:takeItem(id, 1) then
+      return false, "You have none left!"
+    end
+    local before = {
+      mon.maxHp or 0, mon.atk or 0, mon.def or 0,
+      mon.spa or 0, mon.spd or 0, mon.spe or 0,
+    }
+    local growth = mon.growth or Game3.GROWTH_MEDIUM_SLOW
+    mon.level = (mon.level or 1) + 1
+    mon.exp = Game3.expAtLevel(growth, mon.level)
+    self:recalcStats(mon)
+    self:applyItemFriendship(mon, id)
+    local after = {
+      mon.maxHp or 0, mon.atk or 0, mon.def or 0,
+      mon.spa or 0, mon.spd or 0, mon.spe or 0,
+    }
+    local labels = { "HP", "ATTACK", "DEFENSE", "SP. ATK", "SP. DEF", "SPEED" }
+    local growths = {}
+    for i = 1, 6 do
+      growths[i] = {
+        name = labels[i],
+        delta = (after[i] or 0) - (before[i] or 0),
+        value = after[i] or 0,
+      }
+    end
+    self.candyGrowth = growths
+    local learned = self:tryLearnLevelMoves(mon)
+    self:tryEvolve(mon)
+    local name = mon.name or "POKeMON"
+    local texts = {
+      ("%s was elevated to\nLv. %d."):format(name, mon.level),
+    }
+    for i = 1, #learned do texts[#texts + 1] = learned[i] end
+    return true, table.concat(texts, " ")
+  end
+  if Game3.EVO_STONE[id] then
+    local target = self:itemEvolutionTarget(mon, id)
+    if not target then
+      return false, "It won't have any effect."
+    end
+    if not self:takeItem(id, 1) then
+      return false, "You have none left!"
+    end
+    self.pendingEvo = self.pendingEvo or {}
+    self.pendingEvo[#self.pendingEvo + 1] = {
+      mon = mon,
+      from = mon.species,
+      fromName = mon.name,
+      target = target,
+    }
+    return true
+  end
+  if Game3.PP_UP[id] then
+    if moveIndex == nil then
+      return false, nil, "pick_move"
+    end
+    local move = (mon.moves or {})[tonumber(moveIndex) or 0]
+    if not move then
+      return false, "It won't have any effect."
+    end
+    local ups = tonumber(move.ppUps) or 0
+    local maxNow = self:moveMaxPp(move)
+    -- PP Up: ppUps < 3 and CalculatePPWithBonus > 4 (Sketch fails).
+    -- PP Max: ppUps < 3 only.
+    local to = Game3.PP_UP[id]
+    if ups >= 3 or (to < 3 and maxNow <= 4) then
+      return false, "It won't have any effect."
+    end
+    if not self:takeItem(id, 1) then
+      return false, "You have none left!"
+    end
+    move.ppUps = to < 3 and (ups + 1) or 3
+    local maxAfter = self:moveMaxPp(move)
+    move.pp = (move.pp or 0) + (maxAfter - maxNow)
+    move.maxPp = maxAfter
+    self:applyItemFriendship(mon, id)
+    return true, ("%s's PP increased."):format(move.name or "MOVE")
+  end
+  local ppHeal = Game3.PP_HEAL[id]
+  if ppHeal then
+    if ppHeal.one and moveIndex == nil then
+      return false, nil, "pick_move"
+    end
+    local moves = mon.moves or {}
+    local first = ppHeal.one and (tonumber(moveIndex) or 0) or 1
+    local last = ppHeal.one and first or #moves
+    local hit = false
+    for i = first, last do
+      local move = moves[i]
+      if move then
+        local maxPp = self:moveMaxPp(move)
+        local cur = move.pp or 0
+        if cur < maxPp then
+          if not hit then
+            if not self:takeItem(id, 1) then
+              return false, "You have none left!"
+            end
+            hit = true
+          end
+          if (ppHeal.amount or 0) >= 127 then
+            move.pp = maxPp
+          else
+            move.pp = math.min(maxPp, cur + (ppHeal.amount or 0))
+          end
+        end
+      end
+    end
+    if not hit then
+      return false, "It won't have any effect."
+    end
+    return true, "PP was restored."
+  end
+  local frac = Game3.REVIVE_FRACTION[id]
+  if frac then
+    if (mon.hp or 0) > 0 then
+      return false, "It won't have any effect."
+    end
+    if not self:takeItem(id, 1) then
+      return false, "You have none left!"
+    end
+    local maxHp = mon.maxHp or 1
+    local hp = math.floor(maxHp * frac)
+    if frac >= 1 then hp = maxHp end
+    if hp < 1 then hp = 1 end
+    mon.hp = hp
+    self:applyItemFriendship(mon, id)
+    return true, ("%s was revived!"):format(mon.name or "POKeMON")
+  end
+  if (mon.hp or 0) <= 0 then
     return false, "It won't have any effect."
   end
   local amount = self:healAmount(id)
   local clears = self:statusHeal(id)
   local willHeal = amount and (mon.hp or 0) < (mon.maxHp or 0)
-  local willCure = clears and mon.status
-    and (clears == true or mon.status == clears)
+  local willCure = false
+  if clears == true then
+    willCure = mon.status ~= nil or (mon.confuseTurns or 0) > 0
+  elseif clears == "confuse" then
+    willCure = (mon.confuseTurns or 0) > 0
+  elseif clears == "love" then
+    willCure = mon.infatuatedBy ~= nil
+  elseif clears and mon.status == clears then
+    willCure = true
+  end
   if not willHeal and not willCure then
     return false, "It won't have any effect."
   end
-  if not self:takeItem(id, 1) then
+  if Game3.isBlueYellowRedFlute(id) then
+    if self:itemCount(id) < 1 then
+      return false, "You have none left!"
+    end
+  elseif not self:takeItem(id, 1) then
     return false, "You have none left!"
   end
   local texts = {}
@@ -7164,20 +16087,45 @@ function Game3:useItemOnMon(mon, id)
     texts[#texts + 1] = ("%s recovered HP!"):format(mon.name or "POKeMON")
   end
   if willCure then
-    mon.status = nil
-    mon.sleepTurns = nil
-    texts[#texts + 1] = ("%s's status returned to normal!"):format(
-      mon.name or "POKeMON")
+    local name = mon.name or "POKeMON"
+    if clears == "confuse" then
+      mon.confuseTurns = nil
+      texts[#texts + 1] = ("%s snapped out of its confusion."):format(name)
+    elseif clears == "love" then
+      mon.infatuatedBy = nil
+      texts[#texts + 1] = ("%s got over its infatuation."):format(name)
+    else
+      mon.status = nil
+      mon.sleepTurns = nil
+      if clears == true then mon.confuseTurns = nil end
+      if id == Game3.ITEM_BLUE_FLUTE then
+        texts[#texts + 1] = ("%s woke up."):format(name)
+      else
+        texts[#texts + 1] = ("%s's status returned to normal!"):format(name)
+      end
+    end
   end
+  self:applyItemFriendship(mon, id)
   return true, table.concat(texts, " ")
 end
 
+function Game3:dadsAdvice()
+  -- gOtherText_DadsAdvice. \l is a third line in FONT3.
+  return ("DAD's advice...\n%s, there's a time and place for\neverything!"):format(
+    self:playerName())
+end
+
 function Game3:useFieldItem(id)
+  id = tonumber(id)
   if Game3.isBall(id) then
     return false, "Use this in battle."
   end
+  -- item_menu.c: type 1 (medicine / candy / PP / stone) with no party.
+  if Game3.needsFieldParty(id) and #(self.party or {}) < 1 then
+    return false, "There is no\nPOKéMON."
+  end
   if Game3.isTmHm(id) then
-    return self:openPartyTeach(id)
+    return self:bootTmHm(id)
   end
   if Game3.rodKind(id) ~= nil then
     return self:useRod(id)
@@ -7194,41 +16142,276 @@ function Game3:useFieldItem(id)
   if Game3.REPEL_STEPS[id] then
     return self:useRepel(id)
   end
+  if id == Game3.ITEM_WHITE_FLUTE or id == Game3.ITEM_BLACK_FLUTE then
+    return self:useBlackWhiteFlute(id)
+  end
   if id == Game3.ITEM_ESCAPE_ROPE then
     return self:useEscapeRope()
   end
-  local mon = self:itemTarget(id)
-  if not mon then return false, "It won't have any effect." end
-  return self:useItemOnMon(mon, id)
+  if id == Game3.ITEM_COIN_CASE then
+    return true, ("Your COINS:\n%d"):format(self:getCoins())
+  end
+  if id == Game3.ITEM_POKEBLOCK_CASE then
+    return self:openPokeblockCase()
+  end
+  if Game3.isMailItem(id) then
+    return self:readBagMail(id)
+  end
+  if id == Game3.ITEM_SACRED_ASH then
+    local fromBag = self.field and self.field.kind == "bag"
+    local _, msg = self:useSacredAsh()
+    self.field = {
+      kind = "talk",
+      text = msg or "It won't have any effect.",
+      thenBag = fromBag or nil,
+    }
+    return true
+  end
+  -- item_menu.c BAG_POCKET_BERRIES: plant if facing empty soil, else
+  -- the berry's own fieldUseFunc (medicine / CannotUse).
+  if self:itemPocket(id) == Game3.POCKET_BERRIES then
+    local planted, plantMsg = self:plantBerryFromBag(id)
+    if planted then
+      local fromBag = self.field and self.field.kind == "bag"
+      self.field = {
+        kind = "talk",
+        text = plantMsg,
+        thenBag = fromBag or nil,
+      }
+      return true
+    end
+  end
+  -- ItemUseOutOfBattle_Medicine / RareCandy / PPRecovery / PPUp /
+  -- EvolutionStone: fade to the party, then the matching callback.
+  if Game3.needsFieldParty(id) then
+    return self:openPartyUse(id)
+  end
+  return false, self:dadsAdvice()
 end
 
-function Game3:battleBagList()
-  local list = {}
-  for i = 1, #(self.bag or {}) do
-    local slot = self.bag[i]
-    if slot then list[#list + 1] = slot end
+-- ItemUseOutOfBattle_SacredAsh: ITEM_USE_ALL_MONS, revive every fainted
+-- mon to full HP, consume once if any hit. No friendship bytes.
+function Game3:useSacredAsh()
+  local id = Game3.ITEM_SACRED_ASH
+  if self:itemCount(id) < 1 then
+    return false, "You have none left!"
   end
-  if self:itemCount(Game3.ITEM_POKE_BALL) < 1 and (self.balls or 0) > 0 then
-    list[#list + 1] = { id = Game3.ITEM_POKE_BALL, count = self.balls }
+  local party = self.party or {}
+  local hit = 0
+  local lastName
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and not mon.isEgg and (mon.hp or 0) <= 0 then
+      mon.hp = mon.maxHp or 1
+      hit = hit + 1
+      lastName = mon.name or "POKeMON"
+    end
   end
-  return list
+  if hit < 1 then
+    return false, "It won't have any effect."
+  end
+  self:takeItem(id, 1)
+  if hit == 1 then
+    return true, ("%s was revived!"):format(lastName)
+  end
+  return true, "The fainted POKeMON were revived!"
+end
+
+function Game3:facingUnplantedSoil()
+  local npc = self:facingNpc()
+  if not npc or not Game3.isBerryTreeGfx(npc.graphicsId) then return nil end
+  local tree = self:berryTreeInfo(npc.trainerRange)
+  if (tree.stage or 0) ~= Game3.BERRY_STAGE_NO_BERRY then return nil end
+  return npc
+end
+
+-- ItemUseOutOfBattle_Berry then S_PlantBerryTreeFromBag.
+function Game3:plantBerryFromBag(id)
+  local npc = self:facingUnplantedSoil()
+  if not npc then return false end
+  local berry = Game3.itemToBerryType(id)
+  if berry < 1 then return false end
+  if not self:takeItem(id, 1) then
+    return false, "You have none left!"
+  end
+  self._scriptNpc = npc
+  self:plantBerryTree(npc.trainerRange, berry, Game3.BERRY_STAGE_PLANTED, true)
+  self:incrementGameStat(Game3.GAME_STAT_PLANTED_BERRIES)
+  self:refreshBerryTreeSprites()
+  local name = self:berryName(berry)
+  return true, ("%s planted one %s BERRY in\nthe soft, loamy soil."):format(
+    self:playerName(), name)
+end
+
+function Game3:bootTmHm(item)
+  local moveId = self:tmhmMove(item)
+  local slot = self:copyMove(moveId)
+  local name = (slot and slot.name) or "MOVE"
+  local boot = item >= Game3.ITEM_HM_CUT and "Booted up an HM." or "Booted up a TM."
+  local from = (self.field and self.field.kind == "bag") and "bag" or "field"
+  self.field = {
+    kind = "talk",
+    text = boot,
+    queue = {
+      boot,
+      ("It contained\n%s.\nTeach %s\nto a POKéMON?"):format(name, name),
+    },
+    qi = 1,
+    thenTmAsk = true,
+    tmItem = item,
+    from = from,
+    thenBag = from == "bag" or nil,
+  }
+  return true
+end
+
+function Game3:openTmYesNo()
+  local f = self.field
+  self.field = {
+    kind = "tm_yesno",
+    text = (f and f.text) or "Teach the move to a POKéMON?",
+    cursor = 0,
+    tmItem = f and f.tmItem,
+    from = f and f.from,
+    thenBag = f and f.thenBag,
+  }
+  return true
+end
+
+function Game3:answerTmYesNo(yes)
+  local f = self.field
+  local item = f and f.tmItem
+  local from = f and f.from
+  if yes and item then
+    return self:openPartyTeach(item, from)
+  end
+  if from == "bag" then
+    return self:openBag()
+  end
+  self:closeField()
+  return true
+end
+
+function Game3:readBagMail(id)
+  local fromBag = self.field and self.field.kind == "bag"
+  self.field = {
+    kind = "mail_read",
+    item = id,
+    thenBag = fromBag or nil,
+  }
+  return true
+end
+
+function Game3:openPokeblockCase()
+  local blocks = self:ensurePokeblocks()
+  local labels = {}
+  for i = 1, Game3.POKEBLOCK_MAX do
+    local b = blocks[i]
+    if b and (b.color or 0) ~= 0 then
+      labels[#labels + 1] = self:pokeblockName(b)
+    end
+  end
+  if #labels < 1 then labels[1] = "The CASE is empty." end
+  labels[#labels + 1] = "CANCEL"
+  local fromBag = self.field and self.field.kind == "bag"
+  self.field = {
+    kind = "pokeblock_case",
+    labels = labels,
+    cursor = 0,
+    thenBag = fromBag or nil,
+  }
+  return true
+end
+
+function Game3:battleBagList(pocket)
+  pocket = tonumber(pocket)
+  if not pocket then
+    local b = self.battle
+    pocket = (b and b.bagPocket) or self.lastBagPocket or self:firstFilledPocket()
+  end
+  return self:bagSlotsIn(pocket)
 end
 
 function Game3:spendBall(id)
   id = id or Game3.ITEM_POKE_BALL
+  if id == Game3.ITEM_SAFARI_BALL then
+    local n = self.safariBalls or 0
+    if n < 1 then return false end
+    self.safariBalls = n - 1
+    return true
+  end
   if id == Game3.ITEM_POKE_BALL then return self:spendPokeBall() end
   return self:takeItem(id, 1)
 end
 
-function Game3:buyMartItem(id)
+function Game3:buyMartItem(id, kind, qty)
+  qty = math.floor(tonumber(qty) or 1)
+  if qty < 1 then qty = 1 end
   if not id then return false, "There's nothing to buy." end
-  local price = self:itemPrice(id)
+  if kind == "decor" then
+    local price = self:decorationPrice(id) * qty
+    if (self.money or 0) < price then
+      return false, "You don't have enough money."
+    end
+    for _ = 1, qty do
+      if not self:addDecoration(id) then
+        return false, "No more room!"
+      end
+    end
+    self.money = (self.money or 0) - price
+    self:playSe(Game3.SE_SHOP)
+    return true, ("Got %s!"):format(self:decorationName(id))
+  end
+  local unit = self:itemPrice(id)
+  local price = unit * qty
   if (self.money or 0) < price then
     return false, "You don't have enough money."
   end
   self.money = (self.money or 0) - price
-  self:addItem(id, 1)
+  self:addItem(id, qty)
+  self:playSe(Game3.SE_SHOP)
+  if qty > 1 then
+    return true, ("Got %s x%d!"):format(self:itemName(id), qty)
+  end
   return true, ("Got %s!"):format(self:itemName(id))
+end
+
+function Game3:canSellItem(id)
+  id = tonumber(id) or 0
+  if id < 1 then return false end
+  local pocket = self:itemPocket(id)
+  if pocket == Game3.POCKET_KEY or pocket == Game3.POCKET_TMHM then
+    return false
+  end
+  return (self:itemPrice(id) or 0) > 0
+end
+
+function Game3:martSellSlots()
+  local bag = self.bag or {}
+  local list = {}
+  for i = 1, #bag do
+    local slot = bag[i]
+    if slot and self:canSellItem(slot.id) then
+      list[#list + 1] = slot
+    end
+  end
+  return list
+end
+
+function Game3:sellMartItem(id, qty)
+  qty = math.floor(tonumber(qty) or 1)
+  if qty < 1 then qty = 1 end
+  if not self:canSellItem(id) then
+    return false, "I can't buy that."
+  end
+  local unit = math.floor((self:itemPrice(id) or 0) / 2)
+  if not self:takeItem(id, qty) then
+    return false, "You don't have that."
+  end
+  local got = unit * qty
+  self.money = (self.money or 0) + got
+  self:playSe(Game3.SE_SHOP)
+  return true, ("Received $%d."):format(got)
 end
 
 function Game3:pickupItem(npc)
@@ -7236,6 +16419,7 @@ function Game3:pickupItem(npc)
   if not id or id < 1 then return false end
   local n = npc.itemCount or 1
   self:addItem(id, n)
+  self:playObtainFanfare(id)
   if npc.flagId and npc.flagId ~= 0 then
     self.flags = self.flags or {}
     self.flags[npc.flagId] = true
@@ -7294,6 +16478,15 @@ function Game3:playerGraphicsId()
   end
   if self.bike == "mach" then
     return female and Game3.GFX_MAY_MACH_BIKE or Game3.GFX_BRENDAN_MACH_BIKE
+  end
+  if self.wateringLeft then
+    if female then
+      local byId = self.data and self.data.sprites and self.data.sprites.byId
+      if byId and byId[Game3.GFX_MAY_WATERING] then
+        return Game3.GFX_MAY_WATERING
+      end
+    end
+    return Game3.GFX_BRENDAN_WATERING
   end
   if female then
     local byId = self.data and self.data.sprites and self.data.sprites.byId
@@ -7536,10 +16729,12 @@ function Game3:isStarterGiver(npc)
   return gid == Game3.GFX_BIRCHS_BAG or gid == Game3.GFX_BIRCH
 end
 
-function Game3:giveMon(species, level)
+function Game3:giveMon(species, level, item)
   species = tonumber(species)
   if not species or species < 1 then return false end
   local mon = self:makeMon(species, level or Game3.STARTER_LEVEL)
+  local held = tonumber(item) or 0
+  if held ~= 0 then mon.item = held end
   if not self:addToParty(mon) then
     if Game3.isStarterSpecies(species) then return false end
     if not self:sendToPc(mon) then return false end
@@ -7582,16 +16777,20 @@ function Game3:openStarterMenu(npc)
   return true
 end
 
-function Game3:openMartList(list)
+function Game3:openMartList(list, kind)
   if type(list) ~= "table" or #list < 1 then
     list = { Game3.ITEM_POKE_BALL }
+    kind = nil
   end
   self.field = {
     kind = "mart",
+    martKind = kind,
     items = list,
     cursor = 0,
+    mode = "root",
     note = ("$%d"):format(self.money or 0),
   }
+  self:hideMoneyBox()
   return true
 end
 
@@ -7623,6 +16822,7 @@ function Game3:startMap()
 end
 
 function Game3:warpToHeal()
+  self:repairStaleBedroomHeal()
   local dest, x, y
   local heal = self.lastHeal
   if heal and heal.mapId then
@@ -7664,6 +16864,52 @@ function Game3:warpToHeal()
   return true
 end
 
+-- post_battle_event_funcs.c GameClear. Credits / HoF cinema is skipped:
+-- heal, FLAG_SYS_GAME_CLEAR, first HoF time, Champion ribbons, record
+-- the party (Task_Hof_InitTeamSaveData), bedroom heal, warp home. Do
+-- not beginScriptWait; waitstate is already a no-op.
+function Game3:hofPlayTimeStat()
+  local sec = math.floor(tonumber(self.playSeconds) or 0)
+  if sec < 0 then sec = 0 end
+  local h = math.floor(sec / 3600)
+  local m = math.floor((sec % 3600) / 60)
+  local s = sec % 60
+  return h * 65536 + m * 256 + s
+end
+
+function Game3:gameClear()
+  self:healParty()
+  self.flags = self.flags or {}
+  if self.flags[Game3.FLAG_SYS_GAME_CLEAR] then
+    self.hasHallOfFameRecords = true
+  else
+    self.hasHallOfFameRecords = false
+    self.flags[Game3.FLAG_SYS_GAME_CLEAR] = true
+  end
+  if self:getGameStat(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME) == 0 then
+    self.gameStats = self.gameStats or {}
+    self.gameStats[Game3.GAME_STAT_FIRST_HOF_PLAY_TIME] = self:hofPlayTimeStat()
+  end
+  self:setBedroomHeal()
+  local ribbonGet = false
+  local party = self.party or {}
+  for i = 1, #party do
+    local mon = party[i]
+    if mon and (mon.species or 0) ~= 0
+        and not mon.isEgg and not mon.championRibbon then
+      mon.championRibbon = true
+      ribbonGet = true
+    end
+  end
+  if ribbonGet then
+    self:incrementGameStat(Game3.GAME_STAT_RECEIVED_RIBBONS)
+    self.flags[Game3.FLAG_SYS_RIBBON_GET] = true
+  end
+  self:recordHallOfFameTeam()
+  self:writeSave()
+  return self:warpToHeal()
+end
+
 -- pokeruby sub_8053678: Dig / Escape Rope land on warp4.
 function Game3:warpToEscape()
   local w = self.escapeWarp
@@ -7681,9 +16927,95 @@ function Game3:warpToEscape()
   return true
 end
 
+function Game3:resetEliteFour()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_DEFEATED_ELITE_4_SIDNEY] = nil
+  self.flags[Game3.FLAG_DEFEATED_ELITE_4_PHOEBE] = nil
+  self.flags[Game3.FLAG_DEFEATED_ELITE_4_GLACIA] = nil
+  self.flags[Game3.FLAG_DEFEATED_ELITE_4_DRAKE] = nil
+  self:setScriptVar(Game3.VAR_ELITE_4_STATE, 0)
+end
+
+function Game3:tryReadyRivalForGoGoggles()
+  if self.flags and self.flags[Game3.FLAG_RECEIVED_GO_GOGGLES] then return end
+  if not (self.flags and self.flags[Game3.FLAG_DEFEATED_LAVARIDGE_GYM]) then
+    return
+  end
+  self.flags[Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1] = nil
+  self:setScriptVar(Game3.VAR_LAVARIDGE_RIVAL_STATE, 2)
+end
+
+function Game3:setHideFlag(flag, hidden)
+  self.flags = self.flags or {}
+  if hidden then
+    self.flags[flag] = true
+  else
+    self.flags[flag] = nil
+  end
+end
+
+function Game3:moveMrBrineyToHouse()
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_DEWFORD_TOWN, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_DEWFORD, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE109, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE109, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE104, false)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE, false)
+  self:setHideFlag(Game3.FLAG_HIDE_PEEKO_BRINEY_HOUSE, false)
+end
+
+function Game3:moveMrBrineyToDewford()
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE109, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE109, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE104, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE104, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE, true)
+  self:setHideFlag(Game3.FLAG_HIDE_PEEKO_BRINEY_HOUSE, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_DEWFORD_TOWN, false)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_DEWFORD, false)
+end
+
+function Game3:moveMrBrineyToRoute109()
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE104, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE104, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE, true)
+  self:setHideFlag(Game3.FLAG_HIDE_PEEKO_BRINEY_HOUSE, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_DEWFORD_TOWN, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_DEWFORD, true)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_ROUTE109, false)
+  self:setHideFlag(Game3.FLAG_HIDE_MR_BRINEY_BOAT_ROUTE109, false)
+end
+
+function Game3:resetMrBriney()
+  local loc = self:varGet(Game3.VAR_BRINEY_LOCATION)
+  if loc == 1 then
+    self:moveMrBrineyToHouse()
+  elseif loc == 2 then
+    self:moveMrBrineyToDewford()
+  elseif loc == 3 then
+    self:moveMrBrineyToRoute109()
+  end
+end
+
+function Game3:runWhiteOutScript()
+  self:resetEliteFour()
+  self:tryReadyRivalForGoGoggles()
+  self:resetMrBriney()
+end
+
+function Game3:resetStateAfterWhiteOut()
+  self.flags = self.flags or {}
+  self.flags[Game3.FLAG_SYS_CYCLING_ROAD] = nil
+  self.flags[Game3.FLAG_SYS_USE_STRENGTH] = nil
+  self.flags[Game3.FLAG_SYS_USE_FLASH] = nil
+  self:resetSSTidalFlag()
+  self:exitSafariMode()
+end
+
 function Game3:blackout()
   local chase = self.battle and self.battle.chase
   local scripted = chase and self.scriptWait
+  self:recordBattleEnd(Game3.B_OUTCOME_LOST)
   self:healParty()
   self.phase = "play"
   self.battle = nil
@@ -7695,7 +17027,18 @@ function Game3:blackout()
     self:finishBirchChase()
     return
   end
+  -- overworld.c DoWhiteOut: EventScript_WhiteOut then money/2 then heal
+  -- then Overworld_ResetStateAfterWhiteOut then last-heal warp.
+  self:runWhiteOutScript()
+  self.money = math.floor((tonumber(self.money) or 0) / 2)
+  self:resetStateAfterWhiteOut()
+  -- overworld.c sub_805308C: history then RoamerMoveToOtherLocationSet
+  -- (UpdateRoamerHPStatus already jumped once on battle end).
+  self._skipRoamerMove = true
+  self:updateLocationHistoryForRoamer()
+  self:roamerMoveToOtherLocationSet()
   self:warpToHeal()
+  self._skipRoamerMove = nil
 end
 
 function Game3:startWildBattle(species, level)
@@ -7703,6 +17046,7 @@ function Game3:startWildBattle(species, level)
   self:markSeen(species)
   local player = self:firstHealthy()
   if not player then return false end
+  self:clearPoisonStepCounter()
   self:recalcStats(player)
   player.hp = math.min(player.hp or player.maxHp, player.maxHp)
   player.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
@@ -7733,30 +17077,119 @@ function Game3:startWildBattle(species, level)
     introT = 0,
     animT = 0,
   }
+  self:playBattleMusic("wild")
+  if self:inSafariMode() then
+    local rate = enemy.catchRate or 45
+    self.battle.safari = true
+    self.battle.safariCatchFactor = math.floor(rate * 100 / 1275)
+    self.battle.safariFleeRate = 3
+    self.battle.safariGoNearCounter = 0
+    self.battle.safariPkblThrowCounter = 0
+  end
+  self:resetBattleResults()
+  self:applyOverworldBattleWeather()
   self:markSentIn(player)
   return true
 end
 
+function Game3:setWildBattle(species, level, item)
+  self.scriptedWild = {
+    species = tonumber(species) or 0,
+    level = tonumber(level) or 1,
+    item = tonumber(item) or 0,
+  }
+end
+
+function Game3:doWildBattle(opts)
+  local spec = self.scriptedWild
+  if not spec then return false end
+  self:beginScriptWait()
+  if not self:startWildBattle(spec.species, spec.level) then
+    self:endScriptWait()
+    return false
+  end
+  local item = spec.item or 0
+  if item ~= 0 then self.battle.enemy.item = item end
+  self.battle.scriptedWild = true
+  opts = opts or {}
+  -- BATTLE_TYPE_LEGENDARY skips wild held-item rolls (already ITEM_NONE
+  -- here). CanRunFromBattle does not check it; RUN still works.
+  if opts.legendary then self.battle.legendary = true end
+  if opts.kyogreGroudon then self.battle.kyogreGroudon = true end
+  if opts.regi then self.battle.regi = true end
+  self:incrementGameStat(Game3.GAME_STAT_TOTAL_BATTLES)
+  self:incrementGameStat(Game3.GAME_STAT_WILD_BATTLES)
+  return true
+end
+
+-- battle_setup.c ScrSpecial_StartGroudonKyogreBattle. Same callback as
+-- dowildbattle (CB2_EndScriptedWildBattle). Must beginScriptWait.
+function Game3:startGroudonKyogreBattle()
+  return self:doWildBattle({ legendary = true, kyogreGroudon = true })
+end
+
+function Game3:startRayquazaBattle()
+  return self:doWildBattle({ legendary = true })
+end
+
+function Game3:startRegiBattle()
+  return self:doWildBattle({ legendary = true, regi = true })
+end
+
+function Game3:startSouthernIslandBattle()
+  return self:doWildBattle({ legendary = true })
+end
+
+-- overworld.c sub_8054D4C: returning to the field runs ON_RESUME
+-- (New Mauville Voltorb FLAG_SYS_CTRL_OBJ_DELETE / removeobject).
+function Game3:runOnResumeFromBattle()
+  local pause = self._scriptPause
+  local ret = self._scriptReturn
+  local loaded = self._scriptLoaded
+  local cmp = self._scriptCmp
+  self:runMapScript("onResume")
+  self._scriptPause = pause
+  self._scriptReturn = ret
+  self._scriptLoaded = loaded
+  self._scriptCmp = cmp
+end
+
 function Game3:endBattle()
+  self:randomlyGivePartyPokerus()
+  self:partySpreadPokerus()
   local chase = self.battle and self.battle.chase
   local after = self.battle and self.battle.afterText
   local scripted = self.scriptWait
   local pending = self.pendingEvo
+  local safari = self.battle and self.battle.safari
+  local outcome = self.battleOutcome
+  self:restorePartySpeciesTypes()
   self.phase = "play"
   self.battle = nil
-  if pending and #pending > 0 then
+  self:playMapMusic()
+  -- battle_main.c TryEvolvePokemon: only after B_OUTCOME_WON, and only
+  -- for mons that leveled in that fight. Mid-battle KO of the first of
+  -- two trainer mons must not evolve. The field script (RoxanneDefeated
+  -- / gotobeatenscript) waits until finishPostBattleScenes after the
+  -- evo and learn-move prompts; returning here used to drop the badge.
+  if outcome == Game3.B_OUTCOME_WON and pending and #pending > 0 then
     self.pendingEvo = pending
     self:startPendingEvolve()
     return
   end
+  self.pendingEvo = nil
+  self:runOnResumeFromBattle()
   if scripted then
     self:endScriptWait()
+    if safari then self:afterSafariBattle(outcome) end
     return
   end
   if chase then
     self:finishBirchChase()
   elseif type(after) == "string" and after ~= "" then
     self.field = { kind = "talk", text = after }
+  elseif safari then
+    self:afterSafariBattle(outcome)
   end
 end
 
@@ -7790,18 +17223,18 @@ function Game3.rollPickupItem(_level, roll)
 end
 
 function Game3:tryPickup()
+  -- pokeruby atkE5_pickup: empty hold slot, not the BAG. Silent.
   local texts = {}
   local party = self.party or {}
   for i = 1, #party do
     local mon = party[i]
-    if mon and (mon.species or 0) > 0
-        and self:hasAbility(mon, Game3.ABILITY_PICKUP) then
+    if mon and (mon.species or 0) > 0 and not mon.isEgg
+        and self:hasAbility(mon, Game3.ABILITY_PICKUP)
+        and (tonumber(mon.item) or 0) == 0 then
       if self:rand(10) == 1 then
         local id = Game3.rollPickupItem(mon.level or 1, self:rand(100) - 1)
-        if id then
-          self:addItem(id, 1)
-          texts[#texts + 1] = ("%s found a %s!"):format(
-            mon.name, self:itemName(id))
+        if id and id > 0 then
+          mon.item = id
         end
       end
     end
@@ -7838,6 +17271,10 @@ function Game3:dismissIntro()
   end
   if not b.switchInDone then
     b.switchInDone = true
+    if b.owWeatherLine then
+      lines[#lines + 1] = b.owWeatherLine
+      b.owWeatherLine = nil
+    end
     addEnter(b.enemy, b.player or b.player2)
     addEnter(b.enemy2, b.player2 or b.player)
     if b.enterBoth then
@@ -7905,6 +17342,24 @@ function Game3:partyKnowsMove(id)
   return false
 end
 
+-- ScrCmd_checkpartymove: RESULT is the 0-based slot, or PARTY_SIZE (6)
+-- if nobody knows it. Empty species breaks the loop. Eggs are skipped.
+-- A hit also writes VAR_0x8004 = that mon's species. Slot 0 is valid.
+function Game3:checkPartyMove(move)
+  move = tonumber(move) or 0
+  local party = self.party or {}
+  for i = 0, Game3.PARTY_SIZE - 1 do
+    local mon = party[i + 1]
+    local species = tonumber(mon and mon.species) or 0
+    if species == 0 then break end
+    if not mon.isEgg and self:knowsMove(mon, move) then
+      self:setScriptVar(0x8004, species)
+      return i
+    end
+  end
+  return Game3.PARTY_SIZE
+end
+
 function Game3:hasBadge(n)
   n = tonumber(n) or 0
   if n < 1 or n > 8 then return false end
@@ -7964,7 +17419,10 @@ function Game3:useRockSmash()
   local npc = self:npcInFront()
   if npc and npc.graphicsId == Game3.GFX_BREAKABLE_ROCK then
     self:removeObject(npc.localId)
-    self:tryRockSmashEncounter()
+    -- DoRockSmashMovement: removeobject, then Rusturf, then wild.
+    if self:tryUpdateRusturfTunnelState() == 0 then
+      self:rockSmashWildEncounter()
+    end
     return true, "Used ROCK SMASH!"
   end
   return false, "You can't use that here!"
@@ -7979,7 +17437,17 @@ function Game3:canStep(map, x, y)
   if Game3.isSurfable(b) then
     return self.surfing and true or false
   end
-  return Game3.walkable(map, x, y)
+  if not Game3.walkable(map, x, y) then return false end
+  -- GetCollisionAtCoords returns Z-mismatch (3) on elevation 1 water
+  -- before Surf; those tiles are collision 0 so walkable alone lets
+  -- Brendan stroll the shallows. Elevation 0/0xF means "any height".
+  if not self.surfing then
+    local i = self:gridIndex(map, x, y)
+    if i and Game3.elevationOf(map.grid[i]) == 1 then
+      return false
+    end
+  end
+  return true
 end
 
 -- pokeruby GetLedgeJumpDirection: walking into a solid jump metatile
@@ -8010,6 +17478,7 @@ function Game3:tryLedgeHop(map, dx, dy)
   local ox, oy = self.playerX, self.playerY
   self.walkFromX, self.walkFromY = ox, oy
   self.playerX, self.playerY = lx, ly
+  self:updatePlayerZCoord()
   self.walkDuration = (self:walkPeriod() or Game3.WALK_PERIOD) * 2
   self.walkCooldown = self.walkDuration
   self.hopping = true
@@ -8038,6 +17507,7 @@ function Game3:pushBoulder(npc, dx, dy)
   npc.x, npc.y = nx, ny
   npc.walkDuration = Game3.WALK_PERIOD
   npc.cooldown = Game3.WALK_PERIOD
+  self:updateNpcZCoord(npc, map)
   return true
 end
 
@@ -8076,13 +17546,28 @@ function Game3:flashRadius()
   return Game3.FLASH_RADII[level] or 24
 end
 
+-- WIN0 is a 240×160 screen effect. Survey zoom OUT would scale the
+-- 24px hole with the world and leave a speck; keep at least FIT.
+-- Letterbox canvases stay at 1px/world so 24px is still 24px.
+function Game3:flashOverlayScale(s, vw)
+  s = tonumber(s) or 1
+  if s < 1 then s = 1 end
+  vw = tonumber(vw) or Game3.SCREEN_W
+  if vw <= Game3.SCREEN_W then return s end
+  local fit = 1
+  if self.fitScale then fit = tonumber(self:fitScale()) or 1 end
+  if fit < 1 then fit = 1 end
+  if s < fit then return fit end
+  return s
+end
+
 -- pokeruby UpdateFlashLevelEffect: every other frame, radius += delta
 -- (±1). Stops when cur > dest (so shrinking almost instantly finishes).
-function Game3.flashAnimFrames(fromR, destR)
+function Game3.flashAnimFrames(fromR, destR, step)
   fromR = tonumber(fromR) or 0
   destR = tonumber(destR) or 0
   if fromR == destR then return 0 end
-  local delta = Game3.FLASH_ANIM_DELTA
+  local delta = tonumber(step) or Game3.FLASH_ANIM_DELTA
   if fromR >= destR then delta = -delta end
   local cur, frames, guard = fromR, 0, 0
   while guard < 400 do
@@ -8251,11 +17736,20 @@ end
 
 function Game3:warpDive(dir)
   local c = self:connectionByDir(self.map, dir)
-  if not c then return false end
-  local dest = self:lookupMap(c.mapGroup, c.mapNum)
-  if not dest then return false end
-  self:enterMap(dest, self.playerX or 0, self.playerY or 0, false)
-  return true
+  if c then
+    local dest = self:lookupMap(c.mapGroup, c.mapNum)
+    if not dest then return false end
+    self:enterMap(dest, self.playerX or 0, self.playerY or 0, false)
+    return true
+  end
+  -- overworld.c SetDiveWarp: no connection → RunOnDiveWarpMapScript,
+  -- then gFixedDiveWarp (setdivewarp). Dest xy is the stored warp, not
+  -- the player's tile (Sootopolis always lands at 9,6 / 29,53).
+  self:runMapScript("onDiveWarp")
+  local d = self.diveWarp
+  if not d then return false end
+  return self:scriptWarp(d.mapGroup, d.mapNum,
+    d.warpId or Game3.WARP_ID_NONE, d.x or 0, d.y or 0)
 end
 
 function Game3:useDive()
@@ -8525,12 +18019,28 @@ function Game3:useRod(id)
   return true
 end
 
+-- Overworld_IsBikingAllowed: cycling-road gates are indoor but keep the bike.
 function Game3.canBikeOn(map)
   if not map then return false end
+  local g, n = tonumber(map.group), tonumber(map.index)
+  if g == nil then
+    local gs, ns = tostring(map.id or ""):match("^g(%d+)_(%d+)$")
+    g, n = tonumber(gs), tonumber(ns)
+  end
+  if g == Game3.MAP_ROUTE110_CYCLING_NORTH_GROUP
+      and (n == Game3.MAP_ROUTE110_CYCLING_SOUTH_NUM
+        or n == Game3.MAP_ROUTE110_CYCLING_NORTH_NUM) then
+    return true
+  end
   local t = map.mapType or 0
   if t == Game3.MAP_TYPE_INDOOR then return false end
   if t == Game3.MAP_TYPE_SECRET_BASE then return false end
   if t == Game3.MAP_TYPE_UNDERWATER then return false end
+  if g == Game3.GRANITE_CAVE_GROUP
+      and (n == Game3.MAP_SEAFLOOR_CAVERN_ROOM9_NUM
+        or n == Game3.MAP_CAVE_OF_ORIGIN_B4F_NUM) then
+    return false
+  end
   return true
 end
 
@@ -8541,9 +18051,105 @@ function Game3:wantRun()
 end
 
 function Game3:walkPeriod()
+  -- ForcedMovement_MuddySlope uses PlayerGoSpeed2 (run) even on a bike.
+  if self.slopeSlide then return Game3.RUN_PERIOD end
   if self.bike == "mach" then return Game3.MACH_PERIOD end
   if self.running then return Game3.RUN_PERIOD end
   return Game3.WALK_PERIOD
+end
+
+-- pokeruby GetPlayerSpeed: walk 1, run/surf 2, Acro 3, Mach FASTEST 4.
+-- This engine has no Mach gears, so Mach is always FASTEST.
+function Game3:playerSpeed()
+  if self.bike == "mach" then return 4 end
+  if self.bike == "acro" then return 3 end
+  if self.running or self.surfing then return 2 end
+  return 1
+end
+
+function Game3:onMuddySlope()
+  return self:behaviorAt(self.map, self.playerX, self.playerY) == Game3.MB_MUDDY_SLOPE
+end
+
+-- ForcedMovement_MuddySlope: slide south unless movementDirection is
+-- NORTH and GetPlayerSpeed() > 3. Climb is Mach at FASTEST holding up,
+-- not facing-north-alone (idle Mach still slides).
+function Game3:canClimbMuddySlope()
+  return self.bike == "mach" and Input:isDown("up")
+end
+
+function Game3:tryMuddySlope()
+  if not self.map or not self:onMuddySlope() then
+    self.slopeFaceLock = nil
+    self.slopeSlide = nil
+    return false
+  end
+  if self:canClimbMuddySlope() then
+    self.slopeFaceLock = nil
+    self.slopeSlide = nil
+    return false
+  end
+  local face = self.facing
+  self.slopeFaceLock = true
+  self.slopeSlide = true
+  local ok = self:tryWalk(0, 1)
+  self.slopeSlide = nil
+  if ok then
+    self.facing = face
+  else
+    self.slopeFaceLock = nil
+  end
+  return ok
+end
+
+-- field_player_avatar.c sForcedMovementTestFuncs. Ice / Trick House 8
+-- slip in movementDirection at PlayerGoSpeed2. Walk pads are Speed1.
+-- Slide pads lock facing at Speed2. Currents ride Speed2 in a fixed dir.
+-- Waterfall is already climbing; do not push south here.
+function Game3.forcedMoveSpec(behavior, facing)
+  behavior = tonumber(behavior) or 0
+  if behavior == Game3.MB_ICE
+      or behavior == Game3.MB_TRICK_HOUSE_PUZZLE_8_FLOOR then
+    local dx, dy = Game3.deltaFromFacing(facing)
+    return dx, dy, "run", false
+  end
+  if behavior == Game3.MB_WALK_EAST then return 1, 0, "walk", false end
+  if behavior == Game3.MB_WALK_WEST then return -1, 0, "walk", false end
+  if behavior == Game3.MB_WALK_NORTH then return 0, -1, "walk", false end
+  if behavior == Game3.MB_WALK_SOUTH then return 0, 1, "walk", false end
+  if behavior == Game3.MB_SLIDE_EAST then return 1, 0, "run", true end
+  if behavior == Game3.MB_SLIDE_WEST then return -1, 0, "run", true end
+  if behavior == Game3.MB_SLIDE_NORTH then return 0, -1, "run", true end
+  if behavior == Game3.MB_SLIDE_SOUTH then return 0, 1, "run", true end
+  if behavior == Game3.MB_EASTWARD_CURRENT then return 1, 0, "run", false end
+  if behavior == Game3.MB_WESTWARD_CURRENT then return -1, 0, "run", false end
+  if behavior == Game3.MB_NORTHWARD_CURRENT then return 0, -1, "run", false end
+  if behavior == Game3.MB_SOUTHWARD_CURRENT then return 0, 1, "run", false end
+end
+
+function Game3:tryForcedMovement()
+  if not self.map then return false end
+  if self:onMuddySlope() then
+    return self:tryMuddySlope()
+  end
+  local b = self:behaviorAt(self.map, self.playerX, self.playerY)
+  local dx, dy, speed, faceLock = Game3.forcedMoveSpec(b, self.facing)
+  if dx == nil then
+    self.slopeFaceLock = nil
+    self.slopeSlide = nil
+    return false
+  end
+  local face = self.facing
+  if faceLock then self.slopeFaceLock = true end
+  if speed == "run" then self.slopeSlide = true end
+  local ok = self:tryWalk(dx, dy)
+  self.slopeSlide = nil
+  if ok then
+    if faceLock then self.facing = face end
+  else
+    self.slopeFaceLock = nil
+  end
+  return ok
 end
 
 function Game3:useBike(id)
@@ -8594,10 +18200,145 @@ function Game3:repelBlocks(level)
 end
 
 function Game3:tickWalkCounters()
+  self:incrementGameStat(Game3.GAME_STAT_STEPS)
   self:tickRepel()
   self:tickDaycare()
   self:tickEggCycles()
   self:tickHappinessSteps()
+  self:tickPoisonSteps()
+  self:incrementRematchStepCounter()
+  self:safariZoneTakeStep()
+  self:ssTidalTakeStep()
+end
+
+-- field_poison.c IsMonValidSpecies + STATUS_PRIMARY_POISON.
+-- Eggs and empty slots skip. Toxic is stored as STATUS_PSN.
+function Game3:isFieldPoisoned(mon)
+  if not mon or mon.isEgg then return false end
+  if (self:partyMonSpecies2(mon) or 0) == 0 then return false end
+  return mon.status == Game3.STATUS_PSN
+end
+
+-- field_poison.c DoPoisonFieldEffect. Return 2 if any poisoned mon
+-- hit 0 HP this tick (starts gUnknown_081A14B8).
+function Game3:doPoisonFieldEffect()
+  local party = self.party or {}
+  local poisoned = 0
+  local fainting = 0
+  for i = 1, #party do
+    local mon = party[i]
+    if self:isFieldPoisoned(mon) then
+      poisoned = poisoned + 1
+      local hp = mon.hp or 0
+      if hp > 0 then hp = hp - 1 end
+      mon.hp = hp
+      if hp == 0 then fainting = fainting + 1 end
+    end
+  end
+  if fainting > 0 then return 2 end
+  if poisoned > 0 then return 1 end
+  return 0
+end
+
+function Game3:clearPoisonStepCounter()
+  self:setScriptVar(Game3.VAR_POISON_STEP_COUNTER, 0)
+end
+
+-- field_control_avatar.c UpdatePoisonStepCounter. Secret bases skip.
+-- Counter ++ % 4; on 0 run DoPoisonFieldEffect.
+function Game3:tickPoisonSteps()
+  local map = self.map
+  if map and (map.mapType or 0) == Game3.MAP_TYPE_SECRET_BASE then return end
+  local n = (self:varGet(Game3.VAR_POISON_STEP_COUNTER) + 1) % 4
+  self:setScriptVar(Game3.VAR_POISON_STEP_COUNTER, n)
+  if n ~= 0 then return end
+  if self:doPoisonFieldEffect() == 2 then
+    self:startFieldPoisonWhiteout()
+  end
+end
+
+function Game3:allValidMonsFainted()
+  local party = self.party or {}
+  for i = 1, #party do
+    local mon = party[i]
+    local sp = self:partyMonSpecies2(mon)
+    if sp ~= 0 and sp ~= Game3.SPECIES_EGG and (mon.hp or 0) > 0 then
+      return false
+    end
+  end
+  return true
+end
+
+function Game3:monFaintedFromPoison(mon)
+  if not self:isFieldPoisoned(mon) then return false end
+  return (mon.hp or 0) == 0
+end
+
+function Game3:queueFieldTalk(texts, thenWhiteout)
+  if type(texts) ~= "table" or #texts < 1 then return end
+  if self._scriptSays then
+    for i = 1, #texts do self:sayScript(texts[i]) end
+    return
+  end
+  if self.field then return end
+  self.field = {
+    kind = "talk",
+    text = texts[1],
+    queue = texts,
+    qi = 1,
+    thenWhiteout = thenWhiteout or nil,
+  }
+end
+
+-- field_poison.c ExecuteWhiteOut / Task_WhiteOut: friendship, clear
+-- status, "{nick} fainted...". RESULT 1 if every valid mon is down.
+function Game3:executeWhiteOut()
+  local party = self.party or {}
+  local texts = {}
+  for i = 1, #party do
+    local mon = party[i]
+    if self:monFaintedFromPoison(mon) then
+      self:adjustFriendship(mon, Game3.FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE)
+      mon.status = nil
+      self:setStringVar(1, mon.name or "POKeMON")
+      texts[#texts + 1] = self:expandScriptText(Game3.TEXT_POKEMON_FAINTED)
+    end
+  end
+  local n = self:allValidMonsFainted() and 1 or 0
+  self:setScriptVar(Gen3Script.VAR_RESULT, n)
+  self:queueFieldTalk(texts, false)
+  return n
+end
+
+-- Walk path owns gUnknown_081A14B8: faint texts, then the whiteout
+-- line, then DoWhiteOut after A. Script IR still hits specials 199/200.
+function Game3:startFieldPoisonWhiteout()
+  local n = self:executeWhiteOut()
+  if n ~= 1 then return n end
+  local line = self:expandScriptText(Game3.TEXT_WHITED_OUT)
+  local f = self.field
+  if f and f.kind == "talk" then
+    local q = f.queue
+    if type(q) ~= "table" then
+      q = { f.text }
+      f.queue = q
+      f.qi = 1
+    end
+    q[#q + 1] = line
+    f.thenWhiteout = true
+  elseif self._scriptSays then
+    self:sayScript(line)
+  else
+    self.field = { kind = "talk", text = line, thenWhiteout = true }
+  end
+  return n
+end
+
+function Game3:sp0C8WhiteoutMaybe()
+  local f = self.field
+  if f and f.thenWhiteout then return 0 end
+  self:blackout()
+  return 0
 end
 
 function Game3:tickRepel()
@@ -8622,6 +18363,29 @@ function Game3:useRepel(id)
   end
   self.repelSteps = steps
   return true, ("Used the %s."):format(self:itemName(id))
+end
+
+-- item_use.c ItemUseOutOfBattle_BlackWhiteFlute. Not consumed. Lasts
+-- until the next LoadMap ClearTempFieldEventData.
+function Game3:useBlackWhiteFlute(id)
+  if id ~= Game3.ITEM_WHITE_FLUTE and id ~= Game3.ITEM_BLACK_FLUTE then
+    return false, "It won't have any effect."
+  end
+  if self:itemCount(id) < 1 then
+    return false, "You have none left!"
+  end
+  self.flags = self.flags or {}
+  local name = self:itemName(id)
+  if id == Game3.ITEM_WHITE_FLUTE then
+    self.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = true
+    self.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = nil
+    return true, ("%s used the %s.\nWild POKéMON will be lured."):format(
+      self:playerName(), name)
+  end
+  self.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = true
+  self.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = nil
+  return true, ("%s used the %s.\nWild POKéMON will be repelled."):format(
+    self:playerName(), name)
 end
 
 function Game3.canEscapeFrom(map)
@@ -9051,9 +18815,18 @@ function Game3:snapshotDaycare()
   for i = 1, Game3.DAYCARE_SLOTS do
     local row = self.daycare[i]
     if row and row.mon then
+      local mail
+      if type(row.mail) == "table" then
+        mail = {
+          itemId = tonumber(row.mail.itemId) or 0,
+          otName = row.mail.otName or "",
+          nick = row.mail.nick or "",
+        }
+      end
       out[i] = {
         mon = self:snapshotMon(row.mon),
         steps = row.steps or 0,
+        mail = mail,
       }
     end
   end
@@ -9068,7 +18841,17 @@ function Game3:loadDaycare(data)
     if row and row.mon then
       local mon = self:restoreMon(row.mon)
       if mon then
-        self.daycare[i] = { mon = mon, steps = tonumber(row.steps) or 0 }
+        local mail
+        if type(row.mail) == "table" then
+          mail = {
+            itemId = tonumber(row.mail.itemId) or 0,
+            otName = row.mail.otName or "",
+            nick = row.mail.nick or "",
+          }
+        end
+        self.daycare[i] = {
+          mon = mon, steps = tonumber(row.steps) or 0, mail = mail,
+        }
       end
     end
   end
@@ -9137,6 +18920,86 @@ function Game3:daycareLevelsGained(slot)
   return preview and preview.gained or 0
 end
 
+function Game3:takeMailFromMon(mon)
+  if not mon then return nil end
+  local mail = mon.mail
+  local item = tonumber(mon.item) or 0
+  if type(mail) == "table" and (tonumber(mail.itemId) or 0) ~= Game3.ITEM_NONE then
+    mon.mail = nil
+    if Game3.isMailItem(item) then mon.item = Game3.ITEM_NONE end
+    return {
+      itemId = tonumber(mail.itemId) or 0,
+      otName = self:playerName(),
+      nick = mon.name or "",
+    }
+  end
+  if Game3.isMailItem(item) then
+    mon.item = Game3.ITEM_NONE
+    return {
+      itemId = item,
+      otName = self:playerName(),
+      nick = mon.name or "",
+    }
+  end
+  return nil
+end
+
+function Game3:giveMailToMon(mon, mail)
+  if not (mon and type(mail) == "table") then return end
+  local itemId = tonumber(mail.itemId) or 0
+  if itemId == Game3.ITEM_NONE then return end
+  mon.mail = {
+    itemId = itemId,
+    otName = mail.otName or "",
+    nick = mail.nick or "",
+  }
+  mon.item = itemId
+end
+
+function Game3:getDaycareMonNicknames()
+  self:ensureDaycare()
+  local a = self.daycare[1] and self.daycare[1].mon
+  if a then
+    self:setStringVar(1, a.name or self:speciesName(a.species) or "")
+    self:setStringVar(3, a.otName or self:playerName())
+  end
+  local b = self.daycare[2] and self.daycare[2].mon
+  if b then
+    self:setStringVar(2, b.name or self:speciesName(b.species) or "")
+  end
+end
+
+function Game3:getSelectedDaycareMonNickname()
+  local mon = self:selectedPartyMon()
+  if not mon then
+    self:setStringVar(1, "")
+    return 0
+  end
+  self:setStringVar(1, mon.name or self:speciesName(mon.species) or "")
+  return tonumber(mon.species) or 0
+end
+
+-- egg_hatch.c DaycareMonReceivedMail_: mail itemId != NONE, then TRUE if
+-- the current nick or player name differs from the stored mail names.
+function Game3:daycareMonReceivedMail()
+  local slot = (self:varGet(0x8004) or 0) + 1
+  self:ensureDaycare()
+  local row = self.daycare[slot]
+  if not (row and type(row.mail) == "table") then return 0 end
+  if (tonumber(row.mail.itemId) or 0) == Game3.ITEM_NONE then return 0 end
+  local mon = row.mon
+  local nick = (mon and (mon.name or "")) or ""
+  local mailNick = row.mail.nick or ""
+  local mailOt = row.mail.otName or ""
+  if nick ~= mailNick or self:playerName() ~= mailOt then
+    self:setStringVar(1, nick)
+    self:setStringVar(2, mailOt)
+    self:setStringVar(3, mailNick)
+    return 1
+  end
+  return 0
+end
+
 function Game3:depositToDaycare(index)
   self:ensureDaycare()
   if self:daycareCount() >= Game3.DAYCARE_SLOTS then
@@ -9153,7 +19016,8 @@ function Game3:depositToDaycare(index)
     end
   end
   if not slot then return false, "The DAY CARE is full." end
-  self.daycare[slot] = { mon = self:cloneMon(mon), steps = 0 }
+  local mail = self:takeMailFromMon(mon)
+  self.daycare[slot] = { mon = self:cloneMon(mon), steps = 0, mail = mail }
   table.remove(self.party, index)
   return true, ("I'll raise your %s."):format(mon.name or "POKeMON")
 end
@@ -9175,6 +19039,7 @@ function Game3:takeFromDaycare(slot)
   end
   local mon = row.mon
   self:applyDaycareExp(mon, row.steps or 0)
+  self:giveMailToMon(mon, row.mail)
   self.money = (self.money or 0) - cost
   self.daycare[slot] = nil
   self:compactDaycare()
@@ -9367,6 +19232,24 @@ function Game3:inheritDaycareIvs(egg)
   end
 end
 
+-- contest_util.c ScriptGiveEgg: CreateEgg(species, TRUE) then GiveMonToPlayer.
+-- Do not remap Wynaut 360 through eggSpeciesFrom (that's daycare parents).
+function Game3:giveEgg(species)
+  species = tonumber(species)
+  if not species or species < 1 then return 2 end
+  local cycles = self:eggCyclesFor(species)
+  local egg = self:makeMon(species, Game3.EGG_HATCH_LEVEL)
+  egg.isEgg = true
+  egg.name = "EGG"
+  egg.hatchLeft = cycles
+  egg.friendship = cycles
+  egg.metLevel = 0
+  egg.metLocation = Game3.EGG_MET_HOT_SPRINGS
+  if self:addToParty(egg) then return 0 end
+  if self:sendToPc(egg) then return 1 end
+  return 2
+end
+
 function Game3:giveDaycareEgg()
   local pid = self.daycarePending or 0
   if pid == 0 then return false, "There's no EGG." end
@@ -9397,18 +19280,93 @@ end
 
 function Game3:hatchEgg(mon)
   if not (mon and mon.isEgg) then return false end
+  -- AddHatchedMonToParty / CreatedHatchedMon. Stat 13 is incremented
+  -- by the TakeStep caller, not here.
   mon.isEgg = nil
   mon.hatchLeft = nil
   mon.name = self:speciesName(mon.species)
   mon.friendship = Game3.HATCH_FRIENDSHIP
+  mon.metLevel = 0
+  mon.ball = Game3.ITEM_POKE_BALL
   self:setAbility(mon)
   self:recalcStats(mon)
   mon.hp = mon.maxHp
   self:markCaught(mon.species)
+  return true
+end
+
+function Game3:scriptHatchMon()
+  local idx = ((self.scriptVars and self.scriptVars[0x8004]) or 0) + 1
+  return self:hatchEgg(self.party and self.party[idx])
+end
+
+-- egg_hatch.c EggHatch: LockPlayerFieldControls, AddHatchedMonToParty
+-- inside the cinema, then the hatch line / nickname YES/NO.
+function Game3:eggHatch()
+  local idx = ((self.scriptVars and self.scriptVars[0x8004]) or 0) + 1
+  local mon = self.party and self.party[idx]
+  if not self:hatchEgg(mon) then return false end
+  self:beginScriptWait()
   self.field = {
-    kind = "talk",
-    text = ("The EGG hatched into %s!"):format(mon.name),
+    kind = "egg_hatch",
+    slot = idx,
+    stage = "shake",
+    left = Game3.EGG_HATCH_SHAKE_FRAMES,
+    t = 0,
+    name = mon.name,
   }
+  self:playSong(Game3.MUS_EVOLUTION, true)
+  return true
+end
+
+function Game3:stepEggHatch(dt)
+  local f = self.field
+  if not (f and f.kind == "egg_hatch") then return end
+  if f.stage ~= "shake" then return end
+  local frames = math.floor((dt or 0) * 60 + 0.0001)
+  f.t = (f.t or 0) + frames
+  f.left = (f.left or 0) - frames
+  if f.left <= 0 then
+    self:playFanfare(Game3.MUS_EVOLVED)
+    self.field = {
+      kind = "talk",
+      text = ("%s hatched from the EGG!"):format(f.name or "POKeMON"),
+      thenEggNick = true,
+      slot = f.slot,
+      name = f.name,
+    }
+  end
+end
+
+function Game3:openEggNickAsk()
+  local f = self.field
+  local name = (f and f.name) or "POKeMON"
+  self.field = {
+    kind = "egg_nick",
+    text = ("Would you like to nickname the newly\nhatched %s?"):format(name),
+    cursor = 0,
+    slot = f and f.slot,
+    name = name,
+  }
+  return true
+end
+
+function Game3:answerEggNick(yes)
+  local f = self.field
+  local slot = f and f.slot
+  if yes and slot then
+    self:setScriptVar(0x8004, slot - 1)
+    self:openNickname()
+    if self.field then self.field.fromHatch = true end
+    return true
+  end
+  return self:finishEggHatchCinema()
+end
+
+function Game3:finishEggHatchCinema()
+  self.field = nil
+  self:playMapMusic()
+  self:endScriptWait()
   return true
 end
 
@@ -9425,12 +19383,25 @@ function Game3:tickEggCycles()
     if mon and mon.isEgg then
       local left = (mon.hatchLeft or 1) - 1
       if left < 1 then
-        self:hatchEgg(mon)
+        -- field_control_avatar.c: IncrementGameStat then S_EggHatch
+        -- ("Huh?" / special EggHatch / waitstate).
+        self:incrementGameStat(Game3.GAME_STAT_HATCHED_EGGS)
+        self:setScriptVar(0x8004, i - 1)
+        self.field = {
+          kind = "talk",
+          text = "Huh?",
+          thenEggHatch = true,
+        }
+        return
       else
         mon.hatchLeft = left
       end
     end
   end
+end
+
+function Game3:foundBlackGlasses()
+  return (self.flags and self.flags[Game3.FLAG_HIDDEN_ITEM_BLACK_GLASSES]) and 1 or 0
 end
 
 function Game3:talkDaycareMan()
@@ -9473,6 +19444,87 @@ function Game3:canEnterContest(mon)
     return false, "It has no moves to appeal with."
   end
   return true
+end
+
+-- contest_2.c CanMonParticipateInContest: egg 3, fainted 4, then ribbon vs rank.
+function Game3:canMonParticipateInContest(mon, category, rank)
+  if not mon or mon.isEgg then return 3 end
+  if (mon.hp or 0) == 0 then return 4 end
+  category = category or 0
+  rank = rank or 0
+  if category < 0 or category > 4 then return 0 end
+  local ribbon = self:contestRibbon(mon, category)
+  if ribbon > rank then return 2 end
+  if ribbon >= rank then return 1 end
+  return 0
+end
+
+function Game3:syncContestMonsFromEngine(engine)
+  local mons = {}
+  if engine and engine.mons then
+    for i = 0, 3 do
+      mons[i + 1] = engine.mons[i]
+    end
+  end
+  self.contestMons = mons
+  self.contestPlayerMonIndex = (engine and engine.playerIndex)
+    or Game3.CONTEST_PLAYER_MON_INDEX
+  local points = {}
+  local category = (engine and engine.category) or 0
+  for i = 1, 4 do
+    points[i] = mons[i] and Contest3.round1Points(mons[i], category) or 0
+  end
+  self.contestMonRound1Points = points
+end
+
+function Game3:initContestMons(category, rank)
+  category = category or 0
+  rank = rank or 0
+  local mons = Contest3.prepareMons(
+    self, self.contestMonIndex or 1, category, rank)
+  if mons then
+    self:syncContestMonsFromEngine({
+      mons = mons, playerIndex = Contest3.PLAYER_INDEX, category = category,
+    })
+    return
+  end
+  self.contestMons = {}
+  self.contestPlayerMonIndex = Game3.CONTEST_PLAYER_MON_INDEX
+  self.contestMonRound1Points = { 0, 0, 0, 0 }
+end
+
+function Game3:setContestTrainerGfxIds(withPlayer)
+  local mons = self.contestMons
+  if type(mons) ~= "table" then
+    self:initContestMons(
+      (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_CATEGORY]) or 0,
+      (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_RANK]) or 0)
+    mons = self.contestMons
+  end
+  local n = withPlayer and 4 or 3
+  for i = 1, n do
+    local gfx = (mons[i] and mons[i].trainerGfxId) or 0
+    self:setScriptVar(Game3.VAR_OBJ_GFX_ID_0 + (i - 1), gfx)
+  end
+end
+
+function Game3:contestMonAt(index)
+  local mons = self.contestMons
+  if type(mons) ~= "table" then return nil end
+  return mons[(tonumber(index) or 0) + 1]
+end
+
+function Game3:contestWinnerIndex()
+  local stand = self.contestFinalStandings
+  if type(stand) == "table" then
+    for i = 1, 4 do
+      if (stand[i] or 0) == 0 then return i - 1 end
+    end
+  end
+  if self.contest and self.contest.won then
+    return self.contestPlayerMonIndex or Game3.CONTEST_PLAYER_MON_INDEX
+  end
+  return 0
 end
 
 function Game3:canEnterContestRank(mon, category, rank)
@@ -9536,17 +19588,25 @@ function Game3:beginContest(monIndex, category, rank)
   if not self:canEnterContestRank(mon, category, rank) then
     return false, "It hasn't won the previous rank yet."
   end
-  self.contest = {
-    monIndex = monIndex,
-    category = category,
-    rank = rank,
-    turn = 0,
-    player = self:contestCondition(mon, category),
-    npc = { Game3.CONTEST_NPC_SCORES[1], Game3.CONTEST_NPC_SCORES[2],
-      Game3.CONTEST_NPC_SCORES[3] },
-  }
+  self.contestMonIndex = monIndex
+  local mons = nil
+  if type(self.contestMons) == "table" and self.contestMons[1] then
+    mons = {}
+    for i = 0, 3 do mons[i] = self.contestMons[i + 1] end
+    mons[3] = Contest3.createPlayerMon(self, monIndex) or mons[3]
+  end
+  local engine
+  if mons and mons[0] and mons[3] then
+    engine = Contest3.makeEngine(self, mons, monIndex, category, rank)
+  else
+    engine = Contest3.start(self, monIndex, category, rank)
+  end
+  if not engine then return false, "You can't enter." end
+  self.contest = engine
+  self:syncContestMonsFromEngine(engine)
   self:setScriptVar(Game3.VAR_CONTEST_CATEGORY, category)
   self:setScriptVar(Game3.VAR_CONTEST_RANK, rank)
+  self:incrementGameStat(Game3.GAME_STAT_ENTERED_CONTEST)
   self.field = { kind = "contest_move", cursor = 0 }
   return true
 end
@@ -9568,15 +19628,34 @@ end
 
 function Game3:applyContestTurn(moveIndex)
   local c = self.contest
-  if not c then return false end
-  local mon = self.party and self.party[c.monIndex]
-  local move = mon and mon.moves and mon.moves[moveIndex]
-  local appeal = self:contestAppealOf(move, c.category)
-  c.player = (c.player or 0) + appeal
-  c.turn = (c.turn or 0) + 1
-  c.lastAppeal = appeal
-  if (c.turn or 0) >= Game3.CONTEST_TURNS then
+  if not c or not c.status then return false end
+  if c.done then return false end
+  Contest3.runRound(c, self, (moveIndex or 1) - 1)
+  c.turn = c.appealNumber
+  local player = c.playerIndex or 3
+  c.player = (c.status[player] and c.status[player].pointTotal) or 0
+  if c.done then
     self:finishContest()
+  else
+    c.phase = "select"
+  end
+  return true
+end
+
+function Game3:playContestMove(moveIndex)
+  local c = self.contest
+  if not c or not c.status or c.done then return false end
+  Contest3.runRound(c, self, (moveIndex or 1) - 1)
+  c.turn = c.appealNumber
+  local player = c.playerIndex or 3
+  c.player = (c.status[player] and c.status[player].pointTotal) or 0
+  if c.texts and c.texts[1] then
+    c.phase = "text"
+    c.textAt = 1
+  elseif c.done then
+    self:finishContest()
+  else
+    c.phase = "select"
   end
   return true
 end
@@ -9584,20 +19663,31 @@ end
 function Game3:finishContest()
   local c = self.contest
   if not c then return end
-  local totals = { c.player or 0, c.npc[1], c.npc[2], c.npc[3] }
-  local winner, best = 1, totals[1]
-  for i = 2, 4 do
-    if (totals[i] or 0) > best then
-      best = totals[i]
+  if c.status and not c.done then
+    Contest3.calculateFinalScores(c, self)
+  end
+  local stand = c.finalStandings or {}
+  local player = c.playerIndex or Game3.CONTEST_PLAYER_MON_INDEX
+  local winner = 0
+  for i = 0, 3 do
+    if (stand[i] or 3) == 0 then
       winner = i
+      break
     end
   end
+  c.winner = winner
+  c.won = (stand[player] or 3) == 0
+  local conv = {}
+  for i = 1, 4 do conv[i] = stand[i - 1] or 3 end
+  self.contestFinalStandings = conv
+  local totals = {}
+  for i = 1, 4 do totals[i] = c.totalPoints and c.totalPoints[i - 1] or 0 end
   c.totals = totals
-  c.winner = winner - 1
-  c.won = winner == 1
   if c.won then
     self:giveContestRibbon(self.party[c.monIndex], c.category, c.rank)
+    self:incrementGameStat(Game3.GAME_STAT_WON_CONTEST)
   end
+  c.phase = "done"
   self.field = {
     kind = "contest_results",
     scripted = self.field and self.field.scripted,
@@ -9609,21 +19699,565 @@ function Game3:contestResultsText()
   if not c then return "The CONTEST is over." end
   local cat = Game3.CONTEST_CAT_NAMES[(c.category or 0) + 1] or "COOL"
   local rank = Game3.CONTEST_RANK_NAMES[(c.rank or 0) + 1] or "NORMAL"
+  local player = c.playerIndex or Game3.CONTEST_PLAYER_MON_INDEX
+  local place = ((c.finalStandings and c.finalStandings[player]) or 3) + 1
   if c.won then
     return ("You won the %s %s CONTEST!"):format(rank, cat)
   end
-  local place = (c.winner or 1) + 1
   return ("You placed %d in the %s %s CONTEST."):format(place, rank, cat)
 end
 
 function Game3:showContestResults()
   self:beginScriptWait()
-  if not self.contest then
-    self.field = { kind = "talk", text = "The CONTEST is over." }
+  self.field = {
+    kind = "contest_results",
+    scripted = true,
+    text = self:contestResultsText(),
+  }
+  return true
+end
+
+function Game3:contestLobbyDest()
+  local loc = self:varGet(Game3.VAR_CONTEST_LOCATION)
+  return Game3.CONTEST_LOBBY_WARPS[loc] or Game3.CONTEST_LOBBY_WARPS[3]
+end
+
+function Game3:inContestHall()
+  if self:varGet(Game3.VAR_LINK_CONTEST_ROOM_STATE) == 0 then
+    return false
+  end
+  local map = self.map
+  if not map then return false end
+  local group, index = map.group, map.index
+  if group == Game3.MAP_GROUP_INDOOR_DYNAMIC
+      and index == Game3.MAP_NUM_LINK_CONTEST_ROOM1 then
     return true
   end
-  self.field = { kind = "contest_results", scripted = true }
+  return map.id == Game3.mapId(Game3.MAP_GROUP_INDOOR_DYNAMIC,
+    Game3.MAP_NUM_LINK_CONTEST_ROOM1)
+end
+
+function Game3:warpBackFromContestHall()
+  local dest = self:contestLobbyDest()
+  if not dest then return false end
+  self:setScriptVar(Game3.VAR_LINK_CONTEST_ROOM_STATE, 0)
+  return self:scriptWarp(dest.group, dest.num, Game3.WARP_ID_NONE,
+    dest.x, dest.y)
+end
+
+-- LinkContestRoom1 ON_FRAME hides the player and waitstates through
+-- startcontest. A leftover move/wait field also eats START, so there
+-- was no way out. START warps to the lobby 15FB64 would have used.
+function Game3:tryAbortContestHall()
+  if not self:inContestHall() then return false end
+  self._scriptPause = nil
+  self._scriptReturn = nil
+  self._scriptSays = nil
+  self._scriptLoaded = nil
+  self._scriptDepth = nil
+  self._pendingMapFrame = nil
+  self.scriptWait = nil
+  self.delayLeft = nil
+  self.moveJobs = {}
+  self.field = nil
+  self.contest = nil
+  self.invisible = nil
+  return self:warpBackFromContestHall()
+end
+
+function Game3:showContestWinnerPainting(contestId)
+  contestId = tonumber(contestId) or 0
+  if contestId ~= 0 then
+    self.contestPaintingId = contestId
+  end
+  self:beginScriptWait()
+  self.field = {
+    kind = "contest_winner",
+    scripted = true,
+    text = self:contestResultsText(),
+  }
   return true
+end
+
+function Game3:pokeblockName(block)
+  if type(block) ~= "table" then return "" end
+  return Game3.POKEBLOCK_NAMES[block.color or 0] or "POKeBLOCK"
+end
+
+function Game3:ensurePokeblocks()
+  if type(self.pokeblocks) ~= "table" then self.pokeblocks = {} end
+  return self.pokeblocks
+end
+
+function Game3:getFirstFreePokeblockSlot()
+  local blocks = self:ensurePokeblocks()
+  for i = 1, Game3.POKEBLOCK_MAX do
+    local b = blocks[i]
+    if not b or (b.color or 0) == 0 then return i - 1 end
+  end
+  return -1
+end
+
+function Game3:givePokeblock(block)
+  local slot = self:getFirstFreePokeblockSlot()
+  if slot < 0 then return false end
+  self.pokeblocks[slot + 1] = {
+    color = block.color or 0,
+    spicy = block.spicy or 0,
+    dry = block.dry or 0,
+    sweet = block.sweet or 0,
+    bitter = block.bitter or 0,
+    sour = block.sour or 0,
+    feel = block.feel or 0,
+  }
+  return true
+end
+
+function Game3:berryFlavor(item)
+  local berry = Game3.itemToBerryType(item)
+  return Game3.BERRY_FLAVORS[berry] or { 10, 0, 0, 0, 0, 25 }
+end
+
+function Game3:pokeblockFromBerry(item, players)
+  players = players or 1
+  if players < 1 then players = 1 end
+  local f = self:berryFlavor(item)
+  local spicy, dry, sweet, bitter, sour = f[1], f[2], f[3], f[4], f[5]
+  spicy = spicy - dry
+  dry = dry - sweet
+  sweet = sweet - bitter
+  bitter = bitter - sour
+  sour = sour - f[1]
+  if spicy < 0 then spicy = 0 end
+  if dry < 0 then dry = 0 end
+  if sweet < 0 then sweet = 0 end
+  if bitter < 0 then bitter = 0 end
+  if sour < 0 then sour = 0 end
+  local color = Game3.PBLOCK_CLR_RED
+  local best, which = spicy, 1
+  if dry > best then best, which = dry, 2 end
+  if sweet > best then best, which = sweet, 3 end
+  if bitter > best then best, which = bitter, 4 end
+  if sour > best then best, which = sour, 5 end
+  color = which
+  local feel = math.floor((f[6] or 25) / players) - players
+  if feel < 0 then feel = 0 end
+  return {
+    color = color, spicy = spicy, dry = dry, sweet = sweet,
+    bitter = bitter, sour = sour, feel = feel,
+  }
+end
+
+function Game3:doBerryBlending()
+  local slots = self:bagSlotsIn(Game3.POCKET_BERRIES)
+  if #slots < 1 then
+    self.field = { kind = "talk", text = "You have no BERRIES." }
+    return
+  end
+  self:beginScriptWait()
+  self.field = {
+    kind = "blender_berry",
+    cursor = 0,
+    slots = slots,
+    scripted = true,
+  }
+end
+
+function Game3:pickBlenderBerry(index)
+  local f = self.field
+  local slots = (f and f.slots) or self:bagSlotsIn(Game3.POCKET_BERRIES)
+  local slot = slots[(tonumber(index) or 0) + 1]
+  self.field = nil
+  if not slot then
+    self:endScriptWait()
+    return
+  end
+  local item = slot.id
+  self:takeItem(item, 1)
+  local extra = (self.scriptVars and self.scriptVars[0x8004]) or 0
+  local players = extra + 1
+  local block = self:pokeblockFromBerry(item, players)
+  self:givePokeblock(block)
+  self:incrementGameStat(Game3.GAME_STAT_POKEBLOCKS)
+  local rpm = 100
+  self.berryBlenderRecords = self.berryBlenderRecords or { 0, 0, 0 }
+  local recI = players
+  if recI < 2 then recI = 2 end
+  if recI > 4 then recI = 4 end
+  local recSlot = recI - 1
+  if rpm > (self.berryBlenderRecords[recSlot] or 0) then
+    self.berryBlenderRecords[recSlot] = rpm
+  end
+  self:endScriptWait()
+end
+
+function Game3:showBerryBlenderRecordWindow()
+  self.berryBlenderRecords = self.berryBlenderRecords or { 0, 0, 0 }
+  local rec = self.berryBlenderRecords
+  local function rpm(n)
+    n = tonumber(n) or 0
+    return ("%d.%02d RPM"):format(math.floor(n / 100), n % 100)
+  end
+  self:beginScriptWait()
+  self.field = {
+    kind = "talk",
+    scripted = true,
+    text = ("BERRY BLENDER max speed\n2P  %s\n3P  %s\n4P  %s"):format(
+      rpm(rec[1]), rpm(rec[2]), rpm(rec[3])),
+  }
+end
+
+function Game3:getPokeblockNameByMonNature()
+  local mon = self:leadMon()
+  local nature = Game3.natureIndex(mon and mon.personality)
+  local flavor = Game3.NATURE_LIKED_FLAVOR[nature]
+  if flavor == nil then
+    return 0
+  end
+  self:setStringVar(1, Game3.POKEBLOCK_NAMES[flavor + 1] or "POKeBLOCK")
+  return 1
+end
+
+function Game3:openPokeblockCaseOnFeeder()
+  local blocks = self:ensurePokeblocks()
+  local labels = {}
+  local ids = {}
+  for i = 1, Game3.POKEBLOCK_MAX do
+    local b = blocks[i]
+    if b and (b.color or 0) ~= 0 then
+      labels[#labels + 1] = self:pokeblockName(b)
+      ids[#ids + 1] = i
+    end
+  end
+  labels[#labels + 1] = "CANCEL"
+  self:beginScriptWait()
+  self.field = {
+    kind = "mauville_menu",
+    labels = labels,
+    cursor = 0,
+    onPick = "pickPokeblockFeeder",
+    feederIds = ids,
+  }
+end
+
+function Game3:pickPokeblockFeeder(index, f)
+  local ids = (f and f.feederIds) or {}
+  if index >= #ids then
+    self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+    return
+  end
+  local slot = ids[index + 1]
+  local block = self.pokeblocks and self.pokeblocks[slot]
+  self.safariFeeder = block
+  self:setScriptVar(Gen3Script.VAR_RESULT, 1)
+end
+
+function Game3:safariZoneGetPokeblockNameInFeeder()
+  local block = self.safariFeeder
+  if type(block) ~= "table" or (block.color or 0) == 0 then
+    return 0xFFFF
+  end
+  self:setStringVar(1, self:pokeblockName(block))
+  return block.color or 0
+end
+
+function Game3:pokenavLines()
+  local lines = {}
+  for i = 1, #Game3.FLY_DESTINATIONS do
+    local d = Game3.FLY_DESTINATIONS[i]
+    if self.flags and self.flags[d.flag] then
+      lines[#lines + 1] = d.name
+    end
+  end
+  if #lines < 1 then
+    lines[1] = "No towns recorded yet."
+  end
+  return lines
+end
+
+-- pokeruby sub_80FB758. 0 hides the name; 2/4 are Fly targets.
+function Game3:regionMapKind(sec)
+  sec = math.floor(tonumber(sec) or 0)
+  if sec == Game3RegionMap.MAPSEC_NONE or sec < 0 then
+    return Game3RegionMap.KIND_NONE
+  end
+  local flags = self.flags or {}
+  if sec <= 15 then
+    local dest = Game3.FLY_DESTINATIONS[sec + 1]
+    if dest and flags[dest.flag] then return Game3RegionMap.KIND_FLY end
+    return Game3RegionMap.KIND_TOWN
+  end
+  if sec == Game3RegionMap.MAPSEC_BATTLE_TOWER then
+    if flags[Game3.FLAG_LANDMARK_BATTLE_TOWER] then
+      return Game3RegionMap.KIND_SPECIAL
+    end
+    return Game3RegionMap.KIND_NONE
+  end
+  if sec == Game3RegionMap.MAPSEC_SOUTHERN_ISLAND then
+    if flags[Game3.FLAG_LANDMARK_SOUTHERN_ISLAND] then
+      return Game3RegionMap.KIND_LANDMARK
+    end
+    return Game3RegionMap.KIND_NONE
+  end
+  return Game3RegionMap.KIND_LANDMARK
+end
+
+function Game3:regionMapOpenState(scripted, flyMode)
+  local sec = (self.map and self.map.regionMapSectionId) or 0
+  local cx, cy = Game3.regionMapCursorForSection(sec)
+  return {
+    kind = flyMode and "fly" or "pokenav",
+    cursor = 0,
+    cursorX = cx,
+    cursorY = cy,
+    playerX = cx,
+    playerY = cy,
+    lines = self:pokenavLines(),
+    list = flyMode and self:flyList() or nil,
+    scripted = scripted,
+    flyMode = flyMode and true or nil,
+    zoomed = false,
+    zooming = false,
+    scrollX = 0,
+    scrollY = 0,
+    zoomPA = Game3RegionMap.ZOOM_PA_OUT,
+    t = 0,
+  }
+end
+
+function Game3:openPokeNav()
+  self.field = self:regionMapOpenState(false)
+  return true
+end
+
+function Game3:fieldShowRegionMap()
+  self:beginScriptWait()
+  self.field = self:regionMapOpenState(true)
+end
+
+function Game3:closeRegionMap()
+  local f = self.field
+  if f and f.scripted then
+    self.field = nil
+    self:endScriptWait()
+  elseif f and (f.flyMode or f.kind == "fly") then
+    self:closeField()
+  else
+    self:backToStart("POKeNAV")
+  end
+end
+
+function Game3:beginRegionMapZoom(f)
+  f.zooming = true
+  f.zoomFrame = 0
+  f.zoomFrom = f.zoomed and true or false
+  if not f.zoomed then
+    local tx, ty = Game3RegionMap.zoomScrollForCursor(
+      f.cursorX or Game3RegionMap.CURSOR_X_MIN,
+      f.cursorY or Game3RegionMap.CURSOR_Y_MIN)
+    f.zoomFromSX, f.zoomFromSY = 0, 0
+    f.zoomToSX, f.zoomToSY = tx, ty
+    f.zoomFromPA = Game3RegionMap.ZOOM_PA_OUT
+    f.zoomToPA = Game3RegionMap.ZOOM_PA_IN
+    f.zoomCellX = f.cursorX
+    f.zoomCellY = f.cursorY
+  else
+    f.zoomFromSX = f.scrollX or 0
+    f.zoomFromSY = f.scrollY or 0
+    f.zoomToSX, f.zoomToSY = 0, 0
+    f.zoomFromPA = Game3RegionMap.ZOOM_PA_IN
+    f.zoomToPA = Game3RegionMap.ZOOM_PA_OUT
+    f.cursorX = f.zoomCellX or f.cursorX
+    f.cursorY = f.zoomCellY or f.cursorY
+  end
+end
+
+function Game3:stepRegionMapZoom(f)
+  local n = Game3RegionMap.ZOOM_FRAMES
+  f.zoomFrame = (f.zoomFrame or 0) + 1
+  local t = f.zoomFrame / n
+  if t > 1 then t = 1 end
+  local fsx, fsy = f.zoomFromSX or 0, f.zoomFromSY or 0
+  f.scrollX = fsx + (f.zoomToSX - fsx) * t
+  f.scrollY = fsy + (f.zoomToSY - fsy) * t
+  local fpa = f.zoomFromPA or 256
+  f.zoomPA = fpa + ((f.zoomToPA or 128) - fpa) * t
+  if f.zoomFrame < n then return end
+  f.zooming = false
+  f.zoomed = not f.zoomFrom
+  f.scrollX = f.zoomToSX
+  f.scrollY = f.zoomToSY
+  f.zoomPA = f.zoomToPA
+  if f.zoomed then
+    f.zoomCellX = f.cursorX
+    f.zoomCellY = f.cursorY
+  else
+    f.scrollX, f.scrollY = 0, 0
+    f.zoomPA = Game3RegionMap.ZOOM_PA_OUT
+  end
+end
+
+function Game3:flyDestForSection(sec, area)
+  sec = math.floor(tonumber(sec) or 0)
+  if sec == Game3RegionMap.MAPSEC_BATTLE_TOWER then
+    return Game3.FLY_BATTLE_TOWER
+  end
+  if sec < 0 or sec > 15 then return nil end
+  local dest = Game3.FLY_DESTINATIONS[sec + 1]
+  if not dest then return nil end
+  if sec == Game3RegionMap.MAPSEC_EVER_GRANDE
+      and self.flags and self.flags[Game3.FLAG_SYS_POKEMON_LEAGUE_FLY]
+      and (tonumber(area) or 0) == 0 then
+    return {
+      mapId = dest.mapId, name = dest.name, flag = dest.flag,
+      mapsec = dest.mapsec, healId = Game3.HEAL_EVER_GRANDE_LEAGUE,
+    }
+  end
+  return dest
+end
+
+function Game3:stepRegionMap(f)
+  f.t = (f.t or 0) + 1
+  if f.zooming then
+    self:stepRegionMapZoom(f)
+    return
+  end
+  local xmin = Game3RegionMap.CURSOR_X_MIN
+  local ymin = Game3RegionMap.CURSOR_Y_MIN
+  local xmax = xmin + Game3RegionMap.WIDTH - 1
+  local ymax = ymin + Game3RegionMap.HEIGHT - 1
+  local fly = f.flyMode or f.kind == "fly"
+  if f.zoomed then
+    local dx, dy = 0, 0
+    if Input:isDown("up") then dy = -1
+    elseif Input:isDown("down") then dy = 1 end
+    if Input:isDown("left") then dx = -1
+    elseif Input:isDown("right") then dx = 1 end
+    if dx ~= 0 or dy ~= 0 then
+      local sx = (f.scrollX or 0) + dx
+      local sy = (f.scrollY or 0) + dy
+      if sx < Game3RegionMap.SCROLL_X_MIN then sx = Game3RegionMap.SCROLL_X_MIN end
+      if sx > Game3RegionMap.SCROLL_X_MAX then sx = Game3RegionMap.SCROLL_X_MAX end
+      if sy < Game3RegionMap.SCROLL_Y_MIN then sy = Game3RegionMap.SCROLL_Y_MIN end
+      if sy > Game3RegionMap.SCROLL_Y_MAX then sy = Game3RegionMap.SCROLL_Y_MAX end
+      f.scrollX, f.scrollY = sx, sy
+      f.zoomPan = (f.zoomPan or 0) + 1
+      if f.zoomPan >= 8 then
+        f.zoomPan = 0
+        local cx, cy = Game3RegionMap.zoomCellFromScroll(sx, sy)
+        f.cursorX, f.cursorY = cx, cy
+        f.zoomCellX, f.zoomCellY = cx, cy
+      end
+    else
+      f.zoomPan = 0
+    end
+  else
+    if Input:wasPressed("down") then
+      f.cursorY = math.min((f.cursorY or ymin) + 1, ymax)
+    elseif Input:wasPressed("up") then
+      f.cursorY = math.max((f.cursorY or ymin) - 1, ymin)
+    elseif Input:wasPressed("left") then
+      f.cursorX = math.max((f.cursorX or xmin) - 1, xmin)
+    elseif Input:wasPressed("right") then
+      f.cursorX = math.min((f.cursorX or xmin) + 1, xmax)
+    end
+  end
+  if Input:wasPressed("a") then
+    if fly then
+      local cx = f.cursorX or xmin
+      local cy = f.cursorY or ymin
+      local sec = Game3.regionMapSectionAt(cx, cy)
+      local kind = self:regionMapKind(sec)
+      if kind == Game3RegionMap.KIND_FLY or kind == Game3RegionMap.KIND_SPECIAL then
+        local dest = self:flyDestForSection(sec, Game3RegionMap.areaIndex(cx, cy))
+        if dest then
+          local _, msg = self:flyTo(dest)
+          self.field = { kind = "talk", text = msg }
+        end
+      end
+    elseif f.scripted then
+      self:closeRegionMap()
+    else
+      self:beginRegionMapZoom(f)
+    end
+  elseif Input:wasPressed("b") or Input:wasPressed("start") then
+    self:closeRegionMap()
+  end
+end
+
+function Game3:pcAccessLabels()
+  local labels = {}
+  if self.flags and self.flags[Game3.FLAG_SYS_PC_LANETTE] then
+    labels[1] = "LANETTE'S PC"
+  else
+    labels[1] = "SOMEONE'S PC"
+  end
+  labels[2] = "PLAYER'S PC"
+  if self.flags and self.flags[Game3.FLAG_SYS_GAME_CLEAR] then
+    labels[3] = "HALL OF FAME"
+    labels[4] = "LOG OFF"
+  else
+    labels[3] = "LOG OFF"
+  end
+  return labels
+end
+
+function Game3:scriptMenuCreatePCMultichoice()
+  self:beginScriptWait()
+  self.field = {
+    kind = "mauville_menu",
+    labels = self:pcAccessLabels(),
+    cursor = 0,
+    onPick = "pickPcAccess",
+    bPressed = Game3.MULTI_B_PRESSED,
+  }
+end
+
+function Game3:pickPcAccess(index)
+  self:setScriptVar(Gen3Script.VAR_RESULT, tonumber(index) or 0)
+end
+
+function Game3:openPlayerPc(bedroom)
+  local labels = { "ITEM STORAGE", "MAILBOX" }
+  if bedroom then labels[#labels + 1] = "DECORATION" end
+  labels[#labels + 1] = "TURN OFF"
+  self:beginScriptWait()
+  self:fadeInFromBlack()
+  self.field = {
+    kind = "player_pc",
+    labels = labels,
+    cursor = 0,
+    bedroom = bedroom and true or nil,
+    scripted = true,
+  }
+end
+
+function Game3:pickPlayerPc(index)
+  local f = self.field
+  local labels = (f and f.labels) or { "TURN OFF" }
+  local n = #labels
+  if index >= n - 1 then
+    self.field = nil
+    self:endScriptWait()
+    return
+  end
+  if index == 0 then
+    f.note = "No items are stored."
+    return
+  end
+  if index == 1 then
+    f.note = "There's no MAIL here."
+    return
+  end
+  if f and f.bedroom and index == 2 then
+    f.note = "Decorations go in a SECRET BASE."
+  end
+end
+
+function Game3:showPokemonStorageSystem()
+  self:beginScriptWait()
+  self:openPc()
+  if self.field then self.field.scripted = true end
 end
 
 function Game3:setScriptVar(id, value)
@@ -9633,7 +20267,10 @@ end
 
 function Game3:setStringVar(slot, text)
   self.stringVars = self.stringVars or {}
-  self.stringVars[tonumber(slot) or 1] = text or ""
+  if text == nil then text = "" end
+  -- LuaJIT string.gsub replacements must be strings. A numeric buffer
+  -- (size records, stats) used to traceback mid-dialogue and freeze.
+  self.stringVars[tonumber(slot) or 1] = tostring(text)
   return true
 end
 
@@ -9654,9 +20291,40 @@ function Game3:bufferLeadMonSpecies(slot)
   return self:setStringVar(dest, name)
 end
 
-function Game3:openNickname()
-  local idx = ((self.scriptVars and self.scriptVars[Gen3Script.VAR_0x8004]) or 0) + 1
-  local mon = self.party and self.party[idx]
+function Game3:bufferPartyMonNick(slot, partyIndex)
+  local dest = (tonumber(slot) or 0) + 1
+  local mon = self.party and self.party[(tonumber(partyIndex) or 0) + 1]
+  local name = ""
+  if mon then name = mon.name or self:speciesName(mon.species) or "" end
+  return self:setStringVar(dest, name)
+end
+
+function Game3:moveName(id)
+  id = tonumber(id) or 0
+  local spec = self.data and self.data.moves and self.data.moves.byId
+    and self.data.moves.byId[id]
+  if spec and spec.name and spec.name ~= "" then return spec.name end
+  local rows = Game3.PARTY_FIELD_MOVES
+  for i = 1, #rows do
+    if rows[i].id == id then return rows[i].name end
+  end
+  return ("MOVE %d"):format(id)
+end
+
+function Game3:bufferMoveName(slot, move)
+  return self:setStringVar((tonumber(slot) or 0) + 1, self:moveName(move))
+end
+
+function Game3:openNickname(opts)
+  opts = opts or {}
+  local mon = opts.mon
+  local idx = opts.slot
+  if not idx then
+    idx = ((self.scriptVars and self.scriptVars[Gen3Script.VAR_0x8004]) or 0) + 1
+  end
+  if not mon then
+    mon = self.party and self.party[idx]
+  end
   if not mon then return false end
   -- ChangePokemonNickname copies MON_DATA_NICKNAME to gStringVar3
   -- (old) and gStringVar2 (naming buffer).
@@ -9666,25 +20334,42 @@ function Game3:openNickname()
   self:beginScriptWait()
   self.field = {
     kind = "nickname",
-    scripted = true,
+    scripted = opts.scripted ~= false,
     slot = idx,
+    mon = mon,
     cursor = 0,
     name = nick:sub(1, Game3.NICKNAME_LEN),
     keys = Game3.nameKeys(),
+    fromCatch = opts.fromCatch or nil,
+    fromHatch = opts.fromHatch or nil,
   }
   return true
 end
 
 function Game3:finishNickname()
   local f = self.field
+  if f and f.nameBox then
+    local name = (f.name or ""):sub(1, Game3.BOX_NAME_LEN)
+    if name == "" then name = self:defaultBoxName(f.box or 1) end
+    self:ensurePc()
+    self.boxNames[f.box or 1] = name
+    self.field = f.fromPc
+    if self.field and self.field.kind == "pc" then self:pcRefreshMsg() end
+    return true
+  end
   local slot = (f and f.slot) or 1
-  local mon = self.party and self.party[slot]
+  local mon = (f and f.mon) or (self.party and self.party[slot])
   local name = (f and f.name) or ""
   if mon and name ~= "" then
     mon.name = name:sub(1, Game3.NICKNAME_LEN)
   end
   local scripted = f and f.scripted
+  local fromHatch = f and f.fromHatch
   self.field = nil
+  if fromHatch then
+    self:playMapMusic()
+    return self:endScriptWait()
+  end
   if scripted then return self:endScriptWait() end
   return true
 end
@@ -9692,15 +20377,21 @@ end
 function Game3:expandScriptText(text)
   if type(text) ~= "string" then return text end
   local vars = self.stringVars or {}
-  text = text:gsub("{PLAYER}", self:playerName())
-  text = text:gsub("{RIVAL}", self:rivalName())
+  local function lit(s)
+    if s == nil then return "" end
+    return tostring(s)
+  end
+  -- Function replacements so a name with "%" cannot traceback in gsub.
+  text = text:gsub("{PLAYER}", function() return lit(self:playerName()) end)
+  text = text:gsub("{RIVAL}", function() return lit(self:rivalName()) end)
   text = text:gsub("{KUN}", "")
-  text = text:gsub("{STR_VAR_1}", vars[1] or "")
-  text = text:gsub("{STR_VAR_2}", vars[2] or "")
-  text = text:gsub("{STR_VAR_3}", vars[3] or "")
+  text = text:gsub("{STR_VAR_1}", function() return lit(vars[1]) end)
+  text = text:gsub("{STR_VAR_2}", function() return lit(vars[2]) end)
+  text = text:gsub("{STR_VAR_3}", function() return lit(vars[3]) end)
+  text = text:gsub("{POKEBLOCK}", "POKeBLOCK")
   -- decodeText used to drop GBA \p (0xFB), so cached IR glued the next
-  -- sentence on: "TRAINER!You" / "says.Do". A real break sits on . ! ?
-  text = text:gsub("([.!?])(%u)", "%1 %2")
+  -- sentence on: "TRAINER!You" / "says.Do". \p is a page/line break.
+  text = text:gsub("([.!?])(%u)", "%1\n%2")
   return text
 end
 
@@ -9744,6 +20435,121 @@ function Game3:tryMapFrameScript()
   return self:runMapScriptTable("onFrame", true)
 end
 
+-- field_weather_effects.c TranslateWeatherNum / SetSav1Weather / DoCurrentWeather.
+function Game3:translateWeatherNum(weather)
+  weather = tonumber(weather) or 0
+  local stage = (self.weatherCycleStage or 0) % 4
+  if weather == Game3.OW_WEATHER_ROUTE119_CYCLE then
+    return Game3.WEATHER_CYCLE_119[stage + 1]
+  end
+  if weather == Game3.OW_WEATHER_ROUTE123_CYCLE then
+    return Game3.WEATHER_CYCLE_123[stage + 1]
+  end
+  if weather >= Game3.OW_WEATHER_NONE
+      and weather <= Game3.OW_WEATHER_BUBBLES then
+    return weather
+  end
+  return Game3.OW_WEATHER_NONE
+end
+
+function Game3:updateRainCounter(newWeather, oldWeather)
+  newWeather = tonumber(newWeather) or 0
+  oldWeather = tonumber(oldWeather) or 0
+  if newWeather ~= oldWeather
+      and (newWeather == Game3.OW_WEATHER_RAIN_LIGHT
+        or newWeather == Game3.OW_WEATHER_RAIN_MED) then
+    self:incrementGameStat(Game3.GAME_STAT_GOT_RAINED_ON)
+  end
+end
+
+function Game3:setSav1Weather(weather)
+  local old = self.sav1Weather or 0
+  local n = self:translateWeatherNum(weather)
+  self.sav1Weather = n
+  self:updateRainCounter(n, old)
+  return n
+end
+
+-- field_specials.c SetRoute119Weather / SetRoute123Weather. Header is
+-- WEATHER_SUNNY; the rain cycle only applies when lastUsedWarp is not
+-- outdoor (leaving Weather Institute / a house). Do not beginScriptWait.
+function Game3:setRoute119Weather()
+  if not Game3.isOutdoorMapType(self:lastUsedWarpMapType()) then
+    return self:setSav1Weather(Game3.OW_WEATHER_ROUTE119_CYCLE)
+  end
+  return self.sav1Weather or 0
+end
+
+function Game3:setRoute123Weather()
+  if not Game3.isOutdoorMapType(self:lastUsedWarpMapType()) then
+    return self:setSav1Weather(Game3.OW_WEATHER_ROUTE123_CYCLE)
+  end
+  return self.sav1Weather or 0
+end
+
+function Game3:setSav1WeatherFromCurrMapHeader()
+  local w = self.map and self.map.weather or 0
+  return self:setSav1Weather(w)
+end
+
+function Game3:resetWeather()
+  return self:setSav1WeatherFromCurrMapHeader()
+end
+
+function Game3:doCurrentWeather()
+  self.currWeather = self.sav1Weather or 0
+  return self.currWeather
+end
+
+function Game3:getCurrentWeather()
+  return self.currWeather or 0
+end
+
+function Game3:doCoordEventWeather(id)
+  local w = Game3.COORD_EVENT_WEATHER[tonumber(id) or 0]
+  if w == nil then return 0 end
+  self:setSav1Weather(w)
+  return self:doCurrentWeather()
+end
+
+function Game3.overworldWeatherStartText(ow)
+  ow = tonumber(ow) or 0
+  if ow == Game3.OW_WEATHER_SANDSTORM then
+    return "A sandstorm is raging."
+  end
+  if ow == Game3.OW_WEATHER_DROUGHT then
+    return "The sunlight is strong."
+  end
+  if ow == Game3.OW_WEATHER_RAIN_LIGHT
+      or ow == Game3.OW_WEATHER_RAIN_MED
+      or ow == Game3.OW_WEATHER_RAIN_HEAVY then
+    return "It is raining."
+  end
+  return nil
+end
+
+function Game3:applyOverworldBattleWeather()
+  local b = self.battle
+  if not b then return false end
+  local ow = self:getCurrentWeather()
+  local kind
+  if ow == Game3.OW_WEATHER_RAIN_LIGHT
+      or ow == Game3.OW_WEATHER_RAIN_MED
+      or ow == Game3.OW_WEATHER_RAIN_HEAVY then
+    kind = Game3.WEATHER_RAIN
+  elseif ow == Game3.OW_WEATHER_SANDSTORM then
+    kind = Game3.WEATHER_SAND
+  elseif ow == Game3.OW_WEATHER_DROUGHT then
+    kind = Game3.WEATHER_SUN
+  else
+    return false
+  end
+  b.weather = kind
+  b.weatherTurns = nil
+  b.owWeatherLine = Game3.overworldWeatherStartText(ow)
+  return true
+end
+
 function Game3:coordEventWouldRun(x, y)
   local events = self.map and self.map.coordEvents
   if type(events) ~= "table" then return false end
@@ -9767,7 +20573,8 @@ function Game3:tryCoordEvent(x, y)
     local ev = events[i]
     if ev and ev.x == x and ev.y == y then
       if not ev.script then
-        -- Weather coords have a null script; overworld weather is later.
+        -- coord_weather_event: script NULL, trigger is COORD_EVENT_WEATHER_*.
+        self:doCoordEventWeather(ev.trigger)
       elseif (ev.trigger or 0) == 0 then
         self:runMapOps(ev.script, false)
       elseif (self:varGet(ev.trigger) % 256) == ((ev.index or 0) % 256) then
@@ -9795,6 +20602,10 @@ function Game3:flyList()
       out[#out + 1] = d
     end
   end
+  local tower = Game3.FLY_BATTLE_TOWER
+  if self.flags and self.flags[tower.flag] and pack[tower.mapId] then
+    out[#out + 1] = tower
+  end
   return out
 end
 
@@ -9812,8 +20623,16 @@ function Game3:useFly()
   if #list < 1 then
     return false, "You can't use that here!"
   end
-  self.field = { kind = "fly", cursor = 0, list = list }
+  self.field = self:regionMapOpenState(false, true)
   return true, "Where do you want to FLY?"
+end
+
+function Game3:flyHealId(dest)
+  if type(dest) ~= "table" then return nil end
+  if dest.mapsec == 0 and self:isFemale() then
+    return Game3.HEAL_LITTLEROOT_TOWN_MAY
+  end
+  return dest.healId
 end
 
 function Game3:flyTo(dest)
@@ -9827,13 +20646,25 @@ function Game3:flyTo(dest)
   end
   local pack = ((self.data or {}).maps or {}).maps or {}
   local map = pack[dest.mapId]
+  local healId = self:flyHealId(dest)
+  local loc = healId and Game3.HEAL_LOCATIONS[healId]
+  if loc then
+    local healMap = self:lookupMap(loc.group, loc.num)
+    if healMap then map = healMap end
+  end
   if not map then
     return false, "You can't use that here!"
   end
   local spawn = map.spawn or {}
+  local x, y = spawn.x or 0, spawn.y or 0
+  if loc and loc.x ~= nil and loc.y ~= nil
+      and loc.x >= 0 and loc.y >= 0
+      and loc.x < (map.width or 0) and loc.y < (map.height or 0) then
+    x, y = loc.x, loc.y
+  end
   self.surfing = nil
   self.climbing = nil
-  self:enterMap(map, spawn.x or 0, spawn.y or 0, false)
+  self:enterMap(map, x, y, false)
   return true, ("Flew to %s!"):format(dest.name or dest.mapId)
 end
 
@@ -9974,13 +20805,16 @@ function Game3:showLearnMessages(texts, thenKind)
 end
 
 function Game3:afterLearnPrompt()
+  if self.tutorWait then
+    self:finishTutorTeach(true)
+    return
+  end
   self.learnMove = nil
   if self:startPendingLearn() then return end
   if self.phase == "battle" and self.battle then
     self:afterBattleMessages()
   else
-    if self:startPendingEvolve() then return end
-    self:closeField()
+    self:finishPostBattleScenes()
   end
 end
 
@@ -9995,6 +20829,13 @@ end
 function Game3:answerLearnStop(yes)
   local lm = self.learnMove
   if yes then
+    -- move_tutor_menu.c state 27: stop learning returns to the list,
+    -- not 0x8004 = 0 (that is EXIT / B give-up).
+    if self.tutorWait then
+      self.learnMove = nil
+      self:displayMoveTutorMenu()
+      return
+    end
     local mon = lm and lm.mon
     local name = (mon and mon.name) or "POKeMON"
     local moveName = (lm and lm.name) or "MOVE"
@@ -10053,9 +20894,39 @@ function Game3:evolutionsFor(species)
   return Game3.FALLBACK_EVOS[species]
 end
 
+-- pokemon_3.c GetEvolutionTargetSpecies type 1. Everstone blocks
+-- (type != 3). EVO_TRADE_ITEM zeros the hold item on a match.
+function Game3:checkTradeEvolution(mon)
+  if not mon or mon.isEgg then return nil end
+  if self:holdEffectOf(mon) == Game3.HOLD_EFFECT_PREVENT_EVOLVE then
+    return nil
+  end
+  local list = self:evolutionsFor(mon.species)
+  if type(list) ~= "table" then return nil end
+  local target
+  local held = tonumber(mon.item) or 0
+  for i = 1, #list do
+    local e = list[i]
+    if e and e.target then
+      if e.method == Game3.EVO_TRADE then
+        target = e.target
+      elseif e.method == Game3.EVO_TRADE_ITEM and (e.param or 0) == held then
+        mon.item = 0
+        held = 0
+        target = e.target
+      end
+    end
+  end
+  return target
+end
+
 function Game3:checkEvolution(mon)
   local list = self:evolutionsFor(mon.species)
   if type(list) ~= "table" then return nil end
+  -- GetEvolutionTargetSpecies type 0: Everstone blocks level-up evo.
+  if self:holdEffectOf(mon) == Game3.HOLD_EFFECT_PREVENT_EVOLVE then
+    return nil
+  end
   local level = mon.level or 1
   local upper = math.floor((mon.pid or 0) / 65536)
   for i = 1, #list do
@@ -10085,10 +20956,20 @@ function Game3:checkEvolution(mon)
   end
 end
 
+-- pokemon_3.c EvolutionRenameMon: keep a nickname; species-name
+-- nicknames become the new species name.
+function Game3:evolutionRenameMon(mon, oldSpecies, newSpecies)
+  if not mon then return end
+  if (mon.name or "") == (self:speciesName(oldSpecies) or "") then
+    mon.name = self:speciesName(newSpecies)
+  end
+end
+
 function Game3:applyEvolution(mon, target)
   local oldName = mon.name
+  local from = mon.species
+  self:evolutionRenameMon(mon, from, target)
   mon.species = target
-  mon.name = self:speciesName(target)
   local row = self:speciesRow(target) or {}
   if row.type1 then mon.type1 = row.type1 end
   if row.type2 or row.type1 then mon.type2 = row.type2 or row.type1 end
@@ -10097,6 +20978,8 @@ function Game3:applyEvolution(mon, target)
   if row.expYield then mon.expYield = row.expYield end
   if row.growthRate then mon.growth = row.growthRate end
   self:recalcStats(mon)
+  self:markCaught(target)
+  self:incrementGameStat(Game3.GAME_STAT_EVOLVED_POKEMON)
   return oldName, mon.name
 end
 
@@ -10149,9 +21032,34 @@ function Game3:startPendingEvolve()
   return true
 end
 
+-- pokeruby TryEvolvePokemon then CB2_ReturnToFieldContinueScript.
+-- A gym-leader win that levels the starter into its first evo must
+-- still gotobeatenscript (Stone Badge) after the animation.
+function Game3:finishPostBattleScenes()
+  if self:startPendingLearn() then return true end
+  if self:startPendingEvolve() then return true end
+  if self.tradeEvoWait then
+    self:closeTradeEvolution()
+    return true
+  end
+  if self.scriptWait then
+    self:runOnResumeFromBattle()
+    self:endScriptWait()
+    return true
+  end
+  if self.itemUseThenBag then
+    self.itemUseThenBag = nil
+    self:openBag()
+    return true
+  end
+  self:closeField()
+  return false
+end
+
 function Game3:finishEvolveStage()
   local evo = self.evolve
   if not evo then return end
+  local fromTrade = evo.fromTrade
   local learned = self:tryLearnLevelMoves(evo.mon)
   self.evolve = nil
   if #learned > 0 then
@@ -10162,18 +21070,26 @@ function Game3:finishEvolveStage()
       self.battle.text = learned[1]
       self.battle.printSrc = nil
     else
-      self.field = { kind = "talk", text = learned[1], queue = learned, qi = 1 }
+      self.field = {
+        kind = "talk", text = learned[1], queue = learned, qi = 1,
+        thenLearn = "done",
+      }
     end
     return
   end
-  if self:startPendingLearn() then return end
-  if self:startPendingEvolve() then return end
+  if fromTrade then
+    if self:startPendingLearn() then return end
+    self:closeTradeEvolution()
+    return
+  end
   if self.phase == "battle" and self.battle then
+    if self:startPendingLearn() then return end
+    if self:startPendingEvolve() then return end
     self.battle.kind = "text"
     self.battle.queue = nil
     self:advanceBattleText()
   else
-    self:closeField()
+    self:finishPostBattleScenes()
   end
 end
 
@@ -10198,8 +21114,12 @@ function Game3:stepEvolve(dt)
     if evo.t >= Game3.EVOLVE_ANIM then
       self:applyEvolution(evo.mon, evo.target)
       evo.stage = "done"
+      if evo.fromTrade then
+        self:playFanfare(Game3.MUS_EVOLVED)
+      end
       if box then
-        box.text = ("%s evolved into %s!"):format(evo.fromName, evo.mon.name)
+        box.text = ("%s evolved into %s!"):format(
+          evo.fromName, self:speciesName(evo.target))
         box.printSrc = nil
         box.textPage = 0
       end
@@ -10356,10 +21276,14 @@ function Game3:switchTo(index)
   local b = self.battle
   local mon = self.party and self.party[index]
   if not mon then return false, "No POKeMON." end
+  -- battle_party_menu.c Task_BattlePartyMenuShift: HP, already out,
+  -- then IS_EGG → gOtherText_EGGCantBattle. Field SWITCH of an egg
+  -- into slot 1 is legal; battle send-out is not.
   if (mon.hp or 0) <= 0 then return false, "It's out of HP!" end
   if b and (mon == b.player or mon == b.player2) then
     return false, "Already in battle!"
   end
+  if mon.isEgg then return false, "An EGG can't battle!" end
   local slot = (b and b.switchSlot) or "player"
   if slot ~= "player" and slot ~= "player2" then slot = "player" end
   local outgoing = b and b[slot]
@@ -10387,6 +21311,11 @@ function Game3:switchTo(index)
     outgoing.leechSeedSlot = nil
     outgoing.leechSeedFrom = nil
     outgoing.foresight = nil
+    outgoing.rooted = nil
+    outgoing.perishSong = nil
+    outgoing.uproarTurns = nil
+    outgoing.uproarMove = nil
+    self:restoreSpeciesTypes(outgoing)
   end
   if b then
     b[slot] = mon
@@ -10413,6 +21342,10 @@ function Game3:switchTo(index)
   mon.leechSeedSlot = nil
   mon.leechSeedFrom = nil
   mon.foresight = nil
+  mon.rooted = nil
+  mon.perishSong = nil
+  mon.uproarTurns = nil
+  mon.uproarMove = nil
   if type(mon.moves) ~= "table" or #mon.moves < 1 then
     mon.moves = self:movesFor(mon.species, mon.level)
   end
@@ -10516,7 +21449,7 @@ function Game3:harvestCaught()
   self:ensurePc()
   for b = 1, Game3.BOX_COUNT do
     local box = self.pc[b] or {}
-    for i = 1, #box do take(box[i]) end
+    for i = 1, Game3.BOX_SIZE do take(box[i]) end
   end
 end
 
@@ -10551,6 +21484,58 @@ function Game3:hoennDexOf(species)
   return row and tonumber(row.hoennDex)
 end
 
+function Game3:nationalDexOf(species)
+  local row = self:speciesRow(species)
+  return row and tonumber(row.nationalDex)
+end
+
+function Game3:dexListNumber(species)
+  if self:hasNationalDex() then
+    return self:nationalDexOf(species) or species
+  end
+  return self:hoennDexOf(species) or species
+end
+
+-- sub_8091458 UNITS_IMPERIAL: dm → feet/inches.
+function Game3.dexHeightText(height)
+  height = tonumber(height) or 0
+  local inches = math.floor((height * 10000) / 254)
+  if inches % 10 >= 5 then inches = inches + 10 end
+  local feet = math.floor(inches / 120)
+  inches = math.floor((inches - feet * 120) / 10)
+  return ("%d'%02d\""):format(feet, inches)
+end
+
+-- sub_8091564 UNITS_IMPERIAL: hectograms → lbs with one tenth.
+function Game3.dexWeightText(weight)
+  weight = tonumber(weight) or 0
+  local lbs = math.floor((weight * 100000) / 4536)
+  if lbs % 10 >= 5 then lbs = lbs + 10 end
+  local whole = math.floor(lbs / 100)
+  local tenth = math.floor((lbs % 100) / 10)
+  return ("%d.%d lbs."):format(whole, tenth)
+end
+
+function Game3.addedToDexText(name)
+  return ("%s's data was\nadded to the POKeDEX."):format(name or "POKeMON")
+end
+
+function Game3:dexCategoryText(species, owned)
+  if not owned then return "????? POKeMON" end
+  local row = self:speciesRow(species)
+  local cat = row and row.category
+  if type(cat) ~= "string" or cat == "" then return "????? POKeMON" end
+  return cat .. " POKeMON"
+end
+
+function Game3:dexFlavorText(species, page, owned)
+  if not owned then return "" end
+  local row = self:speciesRow(species)
+  if not row then return "" end
+  if (page or 0) >= 1 then return row.dexPage2 or "" end
+  return row.dexPage1 or ""
+end
+
 function Game3:hasHoennDexTable()
   local by = self.data and self.data.pokemon and self.data.pokemon.byIndex
   if type(by) ~= "table" then return false end
@@ -10563,7 +21548,11 @@ end
 function Game3:inCurrentDex(species)
   species = tonumber(species)
   if not species or species < 1 then return false end
-  if self:hasNationalDex() then return species <= Game3.NATIONAL_DEX_COUNT end
+  if self:hasNationalDex() then
+    local n = self:nationalDexOf(species)
+    if n ~= nil then return n >= 1 and n <= Game3.NATIONAL_DEX_COUNT end
+    return true
+  end
   local n = self:hoennDexOf(species)
   if n then return n >= 1 and n <= Game3.HOENN_DEX_COUNT end
   if self:hasHoennDexTable() then return false end
@@ -10641,7 +21630,19 @@ function Game3:dexEntries()
     if yes and self:inCurrentDex(id) then have[id] = true end
   end
   for id, _ in pairs(have) do ids[#ids + 1] = id end
-  table.sort(ids)
+  local national = self:hasNationalDex()
+  table.sort(ids, function(a, b)
+    local ka, kb
+    if national then
+      ka = self:nationalDexOf(a) or a
+      kb = self:nationalDexOf(b) or b
+    else
+      ka = self:hoennDexOf(a) or a
+      kb = self:hoennDexOf(b) or b
+    end
+    if ka ~= kb then return ka < kb end
+    return a < b
+  end)
   local list = {}
   for i = 1, #ids do
     local id = ids[i]
@@ -10683,7 +21684,241 @@ function Game3:openDex()
   return true
 end
 
+function Game3:openDexEntry(species, opts)
+  opts = opts or {}
+  species = tonumber(species)
+  if not species then return false end
+  local owned = opts.owned
+  if owned == nil then owned = self:hasCaught(species) end
+  if opts.fromCatch then
+    local b = self.battle
+    if not b then return false end
+    b.kind = "dex_entry"
+    b.dexSpecies = species
+    b.dexPage = 0
+    b.dexFromCatch = true
+    b.owned = true
+    b.text = nil
+    b.queue = nil
+    self:playMonCry(species)
+    return true
+  end
+  local f = self.field or {}
+  self.field = {
+    kind = "dex_entry",
+    species = species,
+    page = 0,
+    screen = Game3.DEX_SCREEN_INFO,
+    bar = Game3.DEX_SCREEN_INFO,
+    owned = owned and true or false,
+    list = opts.list or f.list,
+    listCursor = opts.listCursor or f.cursor or 0,
+  }
+  return true
+end
+
+function Game3:closeDexEntry()
+  local f = self.field
+  if f and f.kind == "dex_entry" then
+    self.field = {
+      kind = "dex",
+      cursor = f.listCursor or 0,
+      list = f.list or self:dexEntries(),
+    }
+    return true
+  end
+  local b = self.battle
+  if b and b.kind == "dex_entry" then
+    b.dexSpecies = nil
+    b.dexPage = nil
+    b.dexFromCatch = nil
+    self:openCaughtNickAsk()
+    return true
+  end
+  return false
+end
+
+function Game3.giveCaughtNickText(name)
+  return Game3.TEXT_GIVE_CAUGHT_NICK:format(name or "POKeMON")
+end
+
+-- atkF3_trygivecaughtmonnick. Wally's tutorial skips it.
+function Game3:openCaughtNickAsk()
+  local b = self.battle
+  if not (b and b.caught) then return self:finishBattle() end
+  if b.wallyTutorial or not b.askCaughtNick then
+    return self:finishBattle()
+  end
+  b.askCaughtNick = nil
+  local mon = b.caughtMon
+  local name = (mon and mon.name) or "POKeMON"
+  b.kind = "catch_nick"
+  b.cursor = 0
+  b.text = Game3.giveCaughtNickText(name)
+  b.queue = nil
+  b.printSrc = nil
+  b.textPage = 0
+  return true
+end
+
+function Game3:answerCaughtNick(yes)
+  local b = self.battle
+  local mon = b and b.caughtMon
+  if yes and mon then
+    self:finishBattle()
+    self:openNickname({ mon = mon, fromCatch = true })
+    return true
+  end
+  return self:finishBattle()
+end
+
+function Game3.dexAffineScale(pa)
+  pa = tonumber(pa) or Game3.DEX_AFFINE_ONE
+  if pa < 1 then pa = Game3.DEX_AFFINE_ONE end
+  return Game3.DEX_AFFINE_ONE / pa
+end
+
+function Game3:stepDexList(f)
+  if Input:wasPressed("b") or Input:wasPressed("start") then
+    self.field = { kind = "menu", cursor = 0 }
+    return
+  end
+  local list = f.list or {}
+  local n = #list
+  if n < 1 then n = 1 end
+  if Input:wasPressed("down") then
+    f.cursor = ((f.cursor or 0) + 1) % n
+  elseif Input:wasPressed("up") then
+    f.cursor = ((f.cursor or 0) - 1) % n
+    if f.cursor < 0 then f.cursor = n - 1 end
+  elseif Input:wasPressed("a") then
+    local row = list[(f.cursor or 0) + 1]
+    if row then
+      self:openDexEntry(row.id, {
+        list = list,
+        listCursor = f.cursor or 0,
+        owned = row.caught,
+      })
+    end
+  end
+end
+
+function Game3:stepDexEntry(state)
+  if not state then return end
+  local fromCatch = state.dexFromCatch or state.fromCatch
+  local owned = state.owned
+  if owned == nil then
+    owned = self:hasCaught(state.dexSpecies or state.species)
+  end
+  if fromCatch then
+    if Input:wasPressed("b") then
+      self:closeDexEntry()
+      return
+    end
+    if not Input:wasPressed("a") then return end
+    local page = state.dexPage or state.page or 0
+    if page < 1 then
+      state.dexPage = 1
+      self:playSe(Game3.SE_PIN)
+      return
+    end
+    self:closeDexEntry()
+    return
+  end
+  local screen = state.screen or Game3.DEX_SCREEN_INFO
+  if screen ~= Game3.DEX_SCREEN_INFO then
+    if Input:wasPressed("b") then
+      state.screen = Game3.DEX_SCREEN_INFO
+      state.bar = Game3.DEX_SCREEN_INFO
+      self:playSe(Game3.SE_PC_OFF)
+      return
+    end
+    if Input:wasPressed("left") then
+      if screen == Game3.DEX_SCREEN_CRY then
+        state.screen = Game3.DEX_SCREEN_AREA
+        state.bar = Game3.DEX_SCREEN_AREA
+        self:playSe(Game3.SE_DEX_PAGE)
+      elseif screen == Game3.DEX_SCREEN_SIZE then
+        state.screen = Game3.DEX_SCREEN_CRY
+        state.bar = Game3.DEX_SCREEN_CRY
+        self:playSe(Game3.SE_DEX_PAGE)
+      elseif screen == Game3.DEX_SCREEN_AREA then
+        state.screen = Game3.DEX_SCREEN_INFO
+        state.bar = Game3.DEX_SCREEN_INFO
+        self:playSe(Game3.SE_DEX_PAGE)
+      end
+      return
+    end
+    if Input:wasPressed("right") then
+      if screen == Game3.DEX_SCREEN_AREA then
+        state.screen = Game3.DEX_SCREEN_CRY
+        state.bar = Game3.DEX_SCREEN_CRY
+        self:playSe(Game3.SE_DEX_PAGE)
+      elseif screen == Game3.DEX_SCREEN_CRY then
+        if owned then
+          state.screen = Game3.DEX_SCREEN_SIZE
+          state.bar = Game3.DEX_SCREEN_SIZE
+          self:playSe(Game3.SE_DEX_PAGE)
+        else
+          self:playSe(Game3.SE_FAILURE)
+        end
+      end
+      return
+    end
+    if screen == Game3.DEX_SCREEN_CRY and Input:wasPressed("a") then
+      self:playMonCry(state.species)
+      return
+    end
+    return
+  end
+  if Input:wasPressed("b") then
+    self:closeDexEntry()
+    return
+  end
+  if Input:wasPressed("left") then
+    local bar = state.bar or Game3.DEX_SCREEN_INFO
+    if bar > Game3.DEX_SCREEN_INFO then
+      state.bar = bar - 1
+      self:playSe(Game3.SE_DEX_PAGE)
+    end
+    return
+  end
+  if Input:wasPressed("right") then
+    local bar = state.bar or Game3.DEX_SCREEN_INFO
+    if bar < Game3.DEX_SCREEN_SIZE then
+      state.bar = bar + 1
+      self:playSe(Game3.SE_DEX_PAGE)
+    end
+    return
+  end
+  if not Input:wasPressed("a") then return end
+  local bar = state.bar or Game3.DEX_SCREEN_INFO
+  if bar == Game3.DEX_SCREEN_INFO then
+    if owned then
+      local page = state.page or 0
+      state.page = 1 - page
+      self:playSe(Game3.SE_PIN)
+    end
+    return
+  end
+  if bar == Game3.DEX_SCREEN_SIZE and not owned then
+    self:playSe(Game3.SE_FAILURE)
+    return
+  end
+  if bar == Game3.DEX_SCREEN_CRY then
+    self:playMonCry(state.species)
+  end
+  state.screen = bar
+  self:playSe(Game3.SE_PIN)
+end
+
 function Game3:startMenuItems()
+  if self:inSafariMode() then
+    return {
+      "RETIRE", "POKeDEX", "POKeMON", "BAG",
+      self:playerName(), "OPTION", "EXIT",
+    }
+  end
   local items = {}
   if self:hasPokedex() then items[#items + 1] = "POKeDEX" end
   items[#items + 1] = "POKeMON"
@@ -10720,8 +21955,20 @@ function Game3:openBag()
   return true
 end
 
-function Game3:openPokeNav()
-  self.field = { kind = "pokenav", text = "HOENN region map." }
+-- PlayerHandleOpenBag → sub_80A6DCC RETURN_TO_BATTLE: same pack, pockets,
+-- and CLOSE BAG as the field bag.
+function Game3:openBattleBag()
+  local b = self.battle
+  if not b then return false end
+  local pocket = b.bagPocket or self.lastBagPocket
+  if type(pocket) ~= "number"
+      or pocket < Game3.POCKET_ITEMS or pocket > Game3.POCKET_KEY then
+    pocket = self:firstFilledPocket()
+  end
+  b.kind = "bag"
+  b.bagPocket = pocket
+  b.bagCursor = 0
+  self.lastBagPocket = pocket
   return true
 end
 
@@ -10748,6 +21995,13 @@ function Game3:tmhmMove(item)
   return list[tm + 1]
 end
 
+-- item_menu.c prints gMoveNames[ItemIdToBattleMoveId] next to the TM/HM.
+function Game3:tmhmMoveName(item)
+  local moveId = self:tmhmMove(item)
+  if not moveId then return nil end
+  return self:moveName(moveId)
+end
+
 function Game3:canLearnTMHM(mon, item)
   if not mon or mon.isEgg then return false end
   local tm = Game3.tmhmIndex(item)
@@ -10760,8 +22014,106 @@ function Game3:canLearnTMHM(mon, item)
   return math.floor(word / (2 ^ bit)) % 2 == 1
 end
 
-function Game3:openPartyTeach(item)
-  self.field = { kind = "party_teach", cursor = 0, item = item }
+-- pokemon_menu.c sub_808AE8C: DrawMonDescriptorStatus over the HP bar.
+-- Egg / !CanMonLearnTMHM is 0x9A NOT ABLE, pokemon_has_move is 0xA8
+-- LEARNED, otherwise 0x8C ABLE.
+function Game3:tmhmPartyLabel(mon, item)
+  if not mon then return nil end
+  local moveId = self:tmhmMove(item)
+  if not moveId then return nil end
+  if not self:canLearnTMHM(mon, item) then return "NOT ABLE" end
+  if self:knowsMove(mon, moveId) then return "LEARNED" end
+  return "ABLE"
+end
+
+function Game3:openPartyTeach(item, from)
+  if not from then
+    from = "field"
+    if self.field and (self.field.kind == "bag" or self.field.from == "bag") then
+      from = "bag"
+    end
+  end
+  self.field = { kind = "party_teach", cursor = 0, item = item, from = from }
+  return true
+end
+
+-- pokemon_menu.c sub_808B020 ITEM_USE_SINGLE_MON, prompt OtherText_UseWhat.
+function Game3:openPartyUse(item)
+  local from = "field"
+  if self.field and self.field.kind == "bag" then from = "bag" end
+  self.field = {
+    kind = "party_use",
+    cursor = 0,
+    item = item,
+    from = from,
+    prompt = "Use on which POKeMON?",
+  }
+  return true
+end
+
+function Game3:leavePartyItemUse()
+  local f = self.field
+  -- SELECT-registered use has no bag underneath; B closes to the field.
+  -- Bag USE (and party_teach with no from) fades back to the pack.
+  if f and f.from == "field" then
+    self:closeField()
+    return true
+  end
+  return self:openBag()
+end
+
+function Game3:chooseUseMon(index)
+  local f = self.field
+  local item = f and f.item
+  local from = f and f.from
+  local mon = (self.party or {})[index]
+  if not mon then return false end
+  -- sub_808B0C0: IS_EGG → SE_FAILURE and stay on the picker.
+  if mon.isEgg then return false end
+  return self:presentItemUseResult(mon, item, from, index)
+end
+
+function Game3:presentItemUseResult(mon, item, from, index, moveIndex)
+  local ok, msg, extra = self:useItemOnMon(mon, item, moveIndex)
+  if extra == "pick_move" then
+    local prompt = Game3.PP_UP[item] and "Boost PP of which move?"
+      or "Restore which move?"
+    self.field = {
+      kind = "party_pp",
+      cursor = 0,
+      monIndex = index,
+      item = item,
+      from = from,
+      prompt = prompt,
+    }
+    return true
+  end
+  local thenPending = (self.pendingLearn and self.pendingLearn[1] ~= nil)
+      or (self.pendingEvo and self.pendingEvo[1] ~= nil)
+  if from == "bag" and (thenPending or (ok and Game3.EVO_STONE[item])) then
+    self.itemUseThenBag = true
+  else
+    self.itemUseThenBag = nil
+  end
+  -- DoEvolutionStoneItemEffect: no success text, BeginEvolutionScene.
+  if ok and Game3.EVO_STONE[item] then
+    if self:startPendingEvolve() then
+      if self.field then
+        self.field.thenBag = from == "bag" or nil
+      end
+      return true
+    end
+  end
+  local candy = self.candyGrowth
+  self.candyGrowth = nil
+  if ok then self:playSe(Game3.SE_USE_ITEM) end
+  self.field = {
+    kind = "talk",
+    text = msg or "It won't have any effect.",
+    thenBag = from == "bag" or nil,
+    thenPending = thenPending or nil,
+    thenCandy = candy,
+  }
   return true
 end
 
@@ -10821,14 +22173,17 @@ function Game3:openPartyAction(index)
   return true
 end
 
-function Game3:openPartySummary(index)
-  local mon = (self.party or {})[index]
+function Game3:openPartySummary(index, mon)
+  mon = mon or (self.party or {})[index]
   if not mon then return false end
+  local fromPc = self.field and self.field.kind == "pc" and self.field or nil
   self.field = {
     kind = "party_summary",
     cursor = 0,
-    monIndex = index,
+    monIndex = index or 1,
     page = 0,
+    mon = mon,
+    fromPc = fromPc,
   }
   return true
 end
@@ -10881,9 +22236,11 @@ function Game3:drawMoneyBox()
     if kind == "menu" or kind == "bag" or kind == "option"
         or kind == "trainer_card" or kind == "save_ask"
         or kind == "party" or kind == "party_switch"
-        or kind == "party_teach" or kind == "party_action"
+        or kind == "party_teach" or kind == "party_use"
+        or kind == "party_action"
         or kind == "party_item" or kind == "party_summary"
-        or kind == "party_forget" or kind == "learn_forget"
+        or kind == "party_forget" or kind == "party_pp"
+        or kind == "learn_forget"
         or kind == "learn_yesno" or kind == "learn_stop"
         or kind == "fishing" then
       return
@@ -10897,17 +22254,37 @@ function Game3:drawMoneyBox()
   self:drawText(self:moneyString(), x + 16, y + 8)
 end
 
+function Game3:drawCoinsBox()
+  local box = self.coinsBox
+  if not box then return end
+  local tile = 8
+  local x = (box.x or 0) * tile
+  local y = (box.y or 0) * tile
+  self:drawWindow(x, y, 10 * tile, 4 * tile)
+  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText(("COINS %d"):format(self:getCoins()), x + 8, y + 8)
+end
+
+-- Ruby's cries are cart samples in gCryTable, so they go through Mp2kAudio
+-- like everything else. The Gen 1/2 Sound.playCry path is only a fallback
+-- for a cache imported before the cry tables were extracted.
 function Game3:playMonCry(species, _mode)
-  local name = self:speciesName(tonumber(species) or 0)
+  species = tonumber(species) or 0
+  local engine = Mp2kSynth.newCryEngine(self.data, species)
+  if engine then
+    self.monCrySrc = Mp2kAudio.playVoice("cry", engine)
+    if self.monCrySrc then return end
+  end
   local ok, Sound = pcall(require, "src.core.Sound")
   if not ok or type(Sound) ~= "table" or not Sound.playCry then
     self.monCrySrc = nil
     return
   end
-  self.monCrySrc = Sound.playCry(self.data or {}, name)
+  self.monCrySrc = Sound.playCry(self.data or {}, self:speciesName(species))
 end
 
 function Game3:cryPlaying()
+  if Mp2kAudio.voicePlaying("cry") then return true end
   local src = self.monCrySrc
   if not src then return false end
   local playing = false
@@ -11029,9 +22406,130 @@ function Game3:createInGameTradePokemon()
   end
   self:recalcStats(mon)
   mon.hp = mon.maxHp
+  -- ROM CreateInGameTradePokemon writes gEnemyParty[0]. The party swap
+  -- is DoInGameTradeScene / sub_804BA94.
+  self.inGameTradeIncoming = mon
+  self.inGameTradeSentName = given.name or self:speciesName(given.species)
+  return true
+end
+
+function Game3:finishInGameTrade()
+  local idx = (self:varGet(0x8005) or 0) + 1
+  local mon = self.inGameTradeIncoming
+  if not mon or not self.party or not self.party[idx] then return false end
   self.party[idx] = mon
+  self.inGameTradeIncoming = nil
   self:markCaught(mon.species)
   return true
+end
+
+function Game3:doInGameTradeScene()
+  local trade = self:inGameTradeRow(self:varGet(0x8004))
+  local idx = (self:varGet(0x8005) or 0) + 1
+  local given = self.party and self.party[idx]
+  local sent = self.inGameTradeSentName
+  if not sent then
+    sent = (given and given.name) or "POKeMON"
+  end
+  local ot = (trade and trade.otName) or "TRAINER"
+  local incoming = self.inGameTradeIncoming
+  local got = (incoming and incoming.name)
+    or (trade and trade.name) or "POKeMON"
+  self:beginScriptWait()
+  self.field = {
+    kind = "trade_scene",
+    t = 0,
+    text = ("%s will be sent to %s."):format(sent, ot),
+    queue = {
+      ("%s will be sent to %s."):format(sent, ot),
+      ("Bye-bye, %s!"):format(sent),
+      ("%s sent over %s."):format(ot, got),
+      ("Take good care of %s!"):format(got),
+    },
+    qi = 1,
+    swapped = false,
+    sentSpecies = given and given.species,
+    gotSpecies = incoming and incoming.species
+      or (trade and trade.species),
+  }
+  self:playSong(Game3.MUS_EVOLUTION, true)
+  return true
+end
+
+function Game3:stepTradeScene(dt)
+  local f = self.field
+  if not (f and f.kind == "trade_scene") then return end
+  local frames = math.floor((dt or 0) * 60 + 0.0001)
+  if frames < 1 then frames = 0 end
+  local pose = Game3.tradeScenePose(f.t or 0)
+  if not pose.waitA then
+    f.t = (f.t or 0) + frames
+    pose = Game3.tradeScenePose(f.t)
+  end
+  local queue = f.queue or {}
+  local line = pose.line or 1
+  if queue[line] and f.qi ~= line then
+    f.qi = line
+    f.text = queue[line]
+    f.textPage = 0
+    f.printSrc = nil
+    if line == 3 and not f.fanfare then
+      self:playFanfare(Game3.MUS_EVOLVED)
+      f.fanfare = true
+    end
+  end
+  if pose.waitA and (Input:wasPressed("a") or Input:wasPressed("b")) then
+    if not f.swapped then
+      self:finishInGameTrade()
+      f.swapped = true
+    end
+    self:afterInGameTradeSwap()
+  end
+end
+
+-- trade.c case 72: GetEvolutionTargetSpecies type 1, then
+-- TradeEvolutionScene. Cannot B-cancel (TASK_BIT_CAN_STOP is off).
+function Game3:startTradeEvolution(mon, target)
+  if not (mon and target) then return false end
+  self.tradeEvoWait = true
+  self.evolve = {
+    mon = mon,
+    from = mon.species,
+    fromName = mon.name,
+    target = target,
+    t = 0,
+    stage = "announce",
+    cannotStop = true,
+    fromTrade = true,
+  }
+  self.field = {
+    kind = "evolve",
+    text = ("What? %s is evolving!"):format(mon.name),
+    fromTrade = true,
+  }
+  self:playSong(Game3.MUS_EVOLUTION, true)
+  return true
+end
+
+function Game3:closeTradeEvolution()
+  self.tradeEvoWait = nil
+  self.evolve = nil
+  self.field = nil
+  self:playMapMusic()
+  self:endScriptWait()
+end
+
+function Game3:afterInGameTradeSwap()
+  local idx = (self:varGet(0x8005) or 0) + 1
+  local mon = self.party and self.party[idx]
+  local target = self:checkTradeEvolution(mon)
+  if target and self:startTradeEvolution(mon, target) then
+    return true
+  end
+  self.field = nil
+  self:playMapMusic()
+  self:endScriptWait()
+  return false
 end
 
 -- pokeruby GetLeadMonIndex: first party slot that is not SPECIES_NONE
@@ -11113,6 +22611,32 @@ function Game3:incrementGameStat(id)
   self.gameStats[id] = n
 end
 
+-- pokemon_item_effect.c ITEM5_FRIENDSHIP_LOW/MID/HIGH. Negative herbal
+-- deltas skip Soothe Bell / Luxury Ball / met-location bonuses.
+function Game3:applyItemFriendship(mon, itemId)
+  if not mon or mon.isEgg then return false end
+  local deltas = Game3.ITEM_FRIENDSHIP[tonumber(itemId)]
+  if not deltas then return false end
+  local friendship = tonumber(mon.friendship) or Game3.BASE_FRIENDSHIP
+  local d = deltas[1] or 0
+  if friendship >= 200 then
+    d = deltas[3] or d
+  elseif friendship >= 100 then
+    d = deltas[2] or d
+  end
+  if d > 0 then
+    local hold = self:holdEffectOf(mon)
+    if hold == Game3.HOLD_EFFECT_HAPPINESS_UP then
+      d = math.floor(150 * d / 100)
+    end
+  end
+  friendship = friendship + d
+  if friendship < 0 then friendship = 0 end
+  if friendship > Game3.MAX_FRIENDSHIP then friendship = Game3.MAX_FRIENDSHIP end
+  mon.friendship = friendship
+  return true
+end
+
 function Game3:adjustFriendship(mon, event)
   if not mon or mon.isEgg then return false end
   event = tonumber(event) or 0
@@ -11172,6 +22696,10 @@ function Game3:maybeFaintFriendship(fainted, foe)
   if not self:isPlayerBattler(fainted) then return end
   if fainted._faintFriend then return end
   fainted._faintFriend = true
+  local r = self.battleResults
+  if r and (r.playerFaintCounter or 0) < 255 then
+    r.playerFaintCounter = (r.playerFaintCounter or 0) + 1
+  end
   local foeLevel = (foe and foe.level) or 0
   local myLevel = fainted.level or 1
   if foeLevel <= myLevel then return end
@@ -11370,6 +22898,92 @@ function Game3:runSpecial(id)
   local before = self:varGet(Gen3Script.VAR_RESULT)
   if id == Game3.SPECIAL_HEAL_PARTY then
     self:healParty()
+  elseif id == Game3.SPECIAL_SET_CABLE_CLUB_WARP then
+    return self:setCableClubWarp()
+  elseif id == Game3.SPECIAL_DO_CABLE_CLUB_WARP
+      or id == Game3.SPECIAL_SUB_80810DC then
+    self:doCableClubWarp()
+  elseif id == Game3.SPECIAL_SUB_80839A4 then
+    self:sub80839A4()
+  elseif id == Game3.SPECIAL_SUB_808347C
+      or id == Game3.SPECIAL_SUB_80834E4
+      or id == Game3.SPECIAL_SUB_808350C
+      or id == Game3.SPECIAL_SUB_8083614
+      or id == Game3.SPECIAL_SUB_80835D8 then
+    return self:cableClubNoLink()
+  elseif id == Game3.SPECIAL_CLOSE_LINK
+      or id == Game3.SPECIAL_SUB_80839D0
+      or id == Game3.SPECIAL_SUB_8083B90
+      or id == Game3.SPECIAL_SUB_8083B5C
+      or id == Game3.SPECIAL_SUB_8083B80
+      or id == Game3.SPECIAL_GET_LINK_PARTNER_NAMES
+      or id == Game3.SPECIAL_SPAWN_BERRY_BLENDER_LINK_PLAYER_SPRITES
+      or id == Game3.SPECIAL_RECORD_MIXING_PLAYER_SPOT_TRIGGERED
+      or id == Game3.SPECIAL_DO_SOFT_RESET
+      or id == Game3.SPECIAL_BATTLE_TOWER_SOFT_RESET then
+    self:softResetToBoot()
+  elseif id == Game3.SPECIAL_SUB_8083820 then
+    return self:saveGameSpecial()
+  elseif id == Game3.SPECIAL_SHOW_LINK_BATTLE_RECORDS then
+    self:showLinkBattleRecords()
+  elseif id == Game3.SPECIAL_SHOW_BATTLE_TOWER_RECORDS then
+    self:showBattleTowerRecords()
+  elseif id == Game3.SPECIAL_SUB_80BB8CC then
+    return self:recordPlayerSecretBase()
+  elseif id == Game3.SPECIAL_SUB_80BBAF0 then
+    self:warpIntoSecretBaseFromSpecial()
+  elseif id == Game3.SPECIAL_SUB_80BC440 then
+    -- ResetSecretBase slot 0; MoveOutOfSecretBase already exits.
+  elseif id == Game3.SPECIAL_SUB_80BC114 then
+    return self:isNotPlayersSecretBase()
+  elseif id == Game3.SPECIAL_GET_CUR_SECRET_BASE_REGISTRATION_VALIDITY then
+    return self:getCurSecretBaseRegistrationValidity()
+  elseif id == Game3.SPECIAL_TOGGLE_CUR_SECRET_BASE_REGISTRY
+      or id == Game3.SPECIAL_SECRET_BASE_PC_DECORATION
+      or id == Game3.SPECIAL_SECRET_BASE_PC_REGISTRY
+      or id == Game3.SPECIAL_SET_SECRET_BASE_OWNER_GFX_ID then
+    -- PC decoration / registry / owner gfx: cinema skip.
+  elseif id == Game3.SPECIAL_DO_SECRET_BASE_PC_TURN_OFF_EFFECT then
+    self:doSecretBasePCTurnOffEffect()
+  elseif id == Game3.SPECIAL_GET_SECRET_BASE_NEARBY_MAP_NAME then
+    self:getSecretBaseNearbyMapName()
+  elseif id == Game3.SPECIAL_BUFFER_SECRET_BASE_OWNER_NAME then
+    self:bufferSecretBaseOwnerName()
+  elseif id == Game3.SPECIAL_MOVE_SECRET_BASE then
+    self:moveSecretBaseSpecial()
+  elseif id == Game3.SPECIAL_SUB_8134548 then
+    return self:initBattleTowerOnFrame()
+  elseif id == Game3.SPECIAL_BATTLE_TOWER_UTIL then
+    return self:battleTowerUtil()
+  elseif id == Game3.SPECIAL_SET_BATTLE_TOWER_PROPERTY then
+    self:setBattleTowerProperty()
+  elseif id == Game3.SPECIAL_CHECK_PARTY_BATTLE_TOWER_BANLIST then
+    return self:checkPartyBattleTowerBanlist()
+  elseif id == Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY then
+    return self:chooseBattleTowerPlayerParty()
+  elseif id == Game3.SPECIAL_VALIDATE_E_READER_TRAINER then
+    return self:validateEReaderTrainer()
+  elseif id == Game3.SPECIAL_GET_BEST_BATTLE_TOWER_STREAK then
+    return self:getBestBattleTowerStreak()
+  elseif id == Game3.SPECIAL_GIVE_BATTLE_TOWER_PRIZE then
+    return self:giveBattleTowerPrize()
+  elseif id == Game3.SPECIAL_AWARD_BATTLE_TOWER_RIBBONS then
+    return self:awardBattleTowerRibbons()
+  elseif id == Game3.SPECIAL_CHOOSE_NEXT_BATTLE_TOWER_TRAINER
+      or id == Game3.SPECIAL_PRINT_BATTLE_TOWER_TRAINER_GREETING
+      or id == Game3.SPECIAL_PRINT_E_READER_TRAINER_GREETING
+      or id == Game3.SPECIAL_START_SPECIAL_BATTLE
+      or id == Game3.SPECIAL_SET_BATTLE_TOWER_PARTY
+      or id == Game3.SPECIAL_SAVE_BATTLE_TOWER_PROGRESS
+      or id == Game3.SPECIAL_DETERMINE_BATTLE_TOWER_PRIZE
+      or id == Game3.SPECIAL_REDUCE_PLAYER_PARTY_TO_THREE
+      or id == Game3.SPECIAL_BUFFER_E_READER_TRAINER_NAME
+      or id == Game3.SPECIAL_SET_E_READER_TRAINER_GFX_ID
+      or id == Game3.SPECIAL_TRY_INIT_BATTLE_TOWER_AWARD_MAN_OBJECT_EVENT
+      or id == Game3.SPECIAL_TRY_ENABLE_BRAVO_TRAINER_BATTLE_TOWER then
+    -- Tower / e-reader cinema and waitstate battles. Do not wait.
+  elseif id == Game3.SPECIAL_INIT_BIRCH_STATE then
+    return self:initBirchState()
   elseif id == Game3.SPECIAL_GET_POKEDEX_INFO then
     local seen, caught = self:dexCounts()
     self.scriptVars = self.scriptVars or {}
@@ -11383,35 +22997,157 @@ function Game3:runSpecial(id)
     self.scriptVars = self.scriptVars or {}
     self.scriptVars[Gen3Script.VAR_RESULT] = self:completedHoennPokedex() and 1 or 0
   elseif id == Game3.SPECIAL_GET_CONTEST_WINNER_IDX then
-    self:setScriptVar(Gen3Script.VAR_RESULT, (self.contest and self.contest.winner) or 0)
+    local n = self:contestWinnerIndex()
+    self:setScriptVar(0x8005, n)
+    return n
   elseif id == Game3.SPECIAL_GET_CONTEST_PLAYER_MON_IDX then
-    local idx = self.contestMonIndex or (self.contest and self.contest.monIndex) or 1
-    self:setScriptVar(Gen3Script.VAR_RESULT, idx - 1)
+    local n = self.contestPlayerMonIndex or Game3.CONTEST_PLAYER_MON_INDEX
+    self:setScriptVar(0x8004, n)
+    return n
+  elseif id == Game3.SPECIAL_GET_NPC_CONTESTANT_LOCAL_ID then
+    local which = (self.scriptVars and self.scriptVars[0x8005]) or 0
+    local localId = 100
+    if which >= 0 and which <= 2 then
+      localId = Game3.LOCALID_CONTESTANT_1 + which
+    end
+    self:setScriptVar(0x8004, localId)
+    return localId
+  elseif id == Game3.SPECIAL_GET_CONTEST_WINNER_TRAINER_NAME then
+    local mon = self:contestMonAt(self:contestWinnerIndex())
+    self:setStringVar(3, (mon and mon.trainerName) or self:playerName())
+  elseif id == Game3.SPECIAL_GET_CONTEST_WINNER_NICK then
+    local mon = self:contestMonAt(self:contestWinnerIndex())
+    self:setStringVar(1, (mon and mon.nickname) or "")
+  elseif id == Game3.SPECIAL_BUFFER_CONTEST_TRAINER_AND_MON then
+    local i = (self.scriptVars and self.scriptVars[0x8006]) or 0
+    local mon = self:contestMonAt(i)
+    self:setStringVar(1, (mon and mon.trainerName) or "")
+    self:setStringVar(3, (mon and mon.nickname) or "")
+    self:setScriptVar(0x8004, (mon and mon.species) or 0)
+  elseif id == Game3.SPECIAL_COUNT_CONTEST_MONS_BETTER then
+    local i = ((self.scriptVars and self.scriptVars[0x8006]) or 0) + 1
+    local pts = self.contestMonRound1Points or {}
+    local mine = pts[i] or 0
+    local n = 0
+    for j = 1, 4 do
+      if (pts[j] or 0) > mine then n = n + 1 end
+    end
+    self:setScriptVar(0x8004, n)
+    return n
+  elseif id == Game3.SPECIAL_SET_CONTEST_TRAINER_GFX_IDS then
+    self:setContestTrainerGfxIds(false)
   elseif id == Game3.SPECIAL_CHECK_SELECTED_MON_CONTEST then
     local idx = ((self.scriptVars and self.scriptVars[0x8004]) or 0) + 1
     local mon = self.party and self.party[idx]
-    local ok = self:canEnterContest(mon)
-    if ok then self.contestMonIndex = idx end
-    self:setScriptVar(Gen3Script.VAR_RESULT, ok and 1 or 0)
-  elseif id == Game3.SPECIAL_GET_MON_CONDITION then
-    local idx = ((self.scriptVars and self.scriptVars[0x8004]) or 0) + 1
     local cat = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_CATEGORY]) or 0
+    local rank = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_RANK]) or 0
+    local result = self:canMonParticipateInContest(mon, cat, rank)
+    if result ~= 0 then
+      self.contestMonIndex = idx
+      self:initContestMons(cat, rank)
+    end
+    self:setScriptVar(Gen3Script.VAR_RESULT, result)
+    return result
+  elseif id == Game3.SPECIAL_GET_CONTESTANT_NAMES_AT_RANK then
+    local rankI = (self.scriptVars and self.scriptVars[0x8006]) or 0
+    local mon = self:contestMonAt(rankI)
+    self:setStringVar(1, (mon and mon.trainerName) or "")
+    self:setStringVar(2, (mon and mon.nickname) or "")
+  elseif id == Game3.SPECIAL_SET_LINK_CONTEST_TRAINER_GFX then
+    self:setContestTrainerGfxIds(true)
+  elseif id == Game3.SPECIAL_GET_MON_CONDITION then
+    local i = ((self.scriptVars and self.scriptVars[0x8006]) or 0) + 1
+    local pts = self.contestMonRound1Points or {}
+    local n = pts[i] or 0
+    self:setScriptVar(0x8004, n)
+    return n
+  elseif id == Game3.SPECIAL_CAN_MON_PARTICIPATE_LINK_CONTEST then
+    local idx = self.contestMonIndex or 1
     local mon = self.party and self.party[idx]
-    self:setScriptVar(Gen3Script.VAR_RESULT, self:contestCondition(mon, cat))
+    local cat = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_CATEGORY]) or 0
+    local rank = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_RANK]) or 0
+    local n = (self:contestRibbon(mon, cat) > rank) and 1 or 0
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
   elseif id == Game3.SPECIAL_GIVE_CONTEST_RIBBON then
     local c = self.contest
     if c and c.won then
       self:giveContestRibbon(self.party[c.monIndex], c.category, c.rank)
     end
-  elseif id == Game3.SPECIAL_HAS_MON_WON_THIS_CONTEST then
-    local idx = ((self.scriptVars and self.scriptVars[0x8004]) or 0) + 1
+  elseif id == Game3.SPECIAL_SUB_80C5044 then
+    local n = self.isLinkContest and 1 or 0
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_GIVE_MON_ARTIST_RIBBON then
+    local c = self.contest
+    local mon = c and self.party and self.party[c.monIndex]
+    local n = 0
+    if mon and c and c.won and (c.rank or 0) == Game3.CONTEST_RANK_MASTER
+        and (c.player or 0) >= 800 then
+      mon.artistRibbon = true
+      n = 1
+    end
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_SHOULD_READY_CONTEST_ARTIST then
+    local c = self.contest
+    local ready = c and c.won and (c.rank or 0) == Game3.CONTEST_RANK_MASTER
+      and (c.player or 0) >= 800
+    self:setScriptVar(0x8004, ready and 1 or 0)
+    return ready and 1 or 0
+  elseif id == Game3.SPECIAL_SAVE_MUSEUM_CONTEST_PAINTING then
+    local c = self.contest
+    if c and c.won then
+      self.museumPortraits = self.museumPortraits or {}
+      local mon = self.party and self.party[c.monIndex]
+      self.museumPortraits[(c.category or 0) + 1] = (mon and mon.species) or 0
+    end
+  elseif id == Game3.SPECIAL_DOES_CONTEST_CATEGORY_HAVE_MUSEUM then
     local cat = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_CATEGORY]) or 0
-    local rank = (self.scriptVars and self.scriptVars[Game3.VAR_CONTEST_RANK]) or 0
-    local mon = self.party and self.party[idx]
-    self:setScriptVar(Gen3Script.VAR_RESULT,
-      (self:contestRibbon(mon, cat) > rank) and 1 or 0)
+    local pics = self.museumPortraits or {}
+    local n = ((pics[cat + 1] or 0) ~= 0) and 1 or 0
+    self:setScriptVar(0x8004, n)
+    return n
+  elseif id == Game3.SPECIAL_COUNT_PLAYER_MUSEUM_PAINTINGS then
+    local pics = self.museumPortraits or {}
+    local n = 0
+    for i = 1, 5 do
+      if (pics[i] or 0) ~= 0 then n = n + 1 end
+    end
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
   elseif id == Game3.SPECIAL_SHOW_CONTEST_WINNER then
-    if self.sayScript then self:sayScript(self:contestResultsText()) end
+    self:showContestWinnerPainting(0)
+  elseif id == Game3.SPECIAL_SHOW_CONTEST_ENTRY_MON_PIC then
+    local i = (self.scriptVars and self.scriptVars[0x8006]) or 0
+    local mon = self:contestMonAt(i)
+    if self.sayScript then
+      self:sayScript((mon and mon.nickname) or "POKeMON")
+    end
+  elseif id == Game3.SPECIAL_GET_FIRST_FREE_POKEBLOCK_SLOT then
+    return self:getFirstFreePokeblockSlot()
+  elseif id == Game3.SPECIAL_DO_BERRY_BLENDING then
+    self:doBerryBlending()
+  elseif id == Game3.SPECIAL_OPEN_POKEBLOCK_CASE_ON_FEEDER then
+    self:openPokeblockCaseOnFeeder()
+  elseif id == Game3.SPECIAL_SHOW_BERRY_BLENDER_RECORD then
+    self:showBerryBlenderRecordWindow()
+  elseif id == Game3.SPECIAL_GET_POKEBLOCK_NAME_BY_NATURE then
+    return self:getPokeblockNameByMonNature()
+  elseif id == Game3.SPECIAL_SHOW_POKEMON_STORAGE then
+    self:showPokemonStorageSystem()
+  elseif id == Game3.SPECIAL_DO_PC_TURN_ON then
+    self:doPCTurnOnEffect()
+  elseif id == Game3.SPECIAL_DO_PC_TURN_OFF then
+    self:doPCTurnOffEffect()
+  elseif id == Game3.SPECIAL_BEDROOM_PC then
+    self:openPlayerPc(true)
+  elseif id == Game3.SPECIAL_PLAYER_PC then
+    self:openPlayerPc(false)
+  elseif id == Game3.SPECIAL_FIELD_SHOW_REGION_MAP then
+    self:fieldShowRegionMap()
+  elseif id == Game3.SPECIAL_SCRIPT_MENU_CREATE_PC_MULTICHOICE then
+    self:scriptMenuCreatePCMultichoice()
   elseif id == Game3.SPECIAL_CHECK_LEAD_MON_COOL then
     self:setScriptVar(Gen3Script.VAR_RESULT, self:leadMonContestOk("cool") and 1 or 0)
   elseif id == Game3.SPECIAL_CHECK_LEAD_MON_BEAUTY then
@@ -11426,6 +23162,10 @@ function Game3:runSpecial(id)
     self:setScriptVar(Gen3Script.VAR_RESULT, #(self.party or {}))
   elseif id == Game3.SPECIAL_GET_DAYCARE_STATE then
     self:setScriptVar(Gen3Script.VAR_RESULT, self:daycareState())
+  elseif id == Game3.SPECIAL_GET_DAYCARE_MON_NICKNAMES then
+    self:getDaycareMonNicknames()
+  elseif id == Game3.SPECIAL_GET_SELECTED_DAYCARE_MON_NICKNAME then
+    return self:getSelectedDaycareMonNickname()
   elseif id == Game3.SPECIAL_REJECT_EGG_FROM_DAYCARE then
     self:rejectDaycareEgg()
   elseif id == Game3.SPECIAL_GIVE_EGG_FROM_DAYCARE then
@@ -11455,7 +23195,27 @@ function Game3:runSpecial(id)
   elseif id == Game3.SPECIAL_MOVE_OUT_OF_SECRET_BASE then
     self:exitSecretBase()
   elseif id == Game3.SPECIAL_TURN_OFF_TV_SCREEN then
-    self.tvOn = false
+    self:turnOffTVScreen()
+  elseif id == Game3.SPECIAL_DO_TV_SHOW then
+    return self:doTVShow()
+  elseif id == Game3.SPECIAL_DO_POKE_NEWS then
+    return self:doPokeNews()
+  elseif id == Game3.SPECIAL_0X44 then
+    return self:special0x44()
+  elseif id == Game3.SPECIAL_GET_TV_SHOW_TYPE then
+    return self:getTVShowType()
+  elseif id == Game3.SPECIAL_GET_NON_MASS_OUTBREAK_TV_SHOW then
+    return self:getNonMassOutbreakActiveTVShow()
+  elseif id == Game3.SPECIAL_GET_MOM_OR_DAD_TV then
+    self:getMomOrDadStringForTVMessage()
+  elseif id == Game3.SPECIAL_RESET_TV_SHOW_STATE then
+    self.tvShowState = 0
+  elseif id == Game3.SPECIAL_CHECK_FOR_BIG_MOVIE_OR_EMERGENCY_NEWS_ON_TV then
+    local n = self:checkForBigMovieOrEmergencyNewsOnTV()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_INIT_ROAMER then
+    self:initRoamer()
   elseif id == Game3.SPECIAL_GET_PLAYER_BIG_GUY_GIRL_STRING then
     self:setStringVar(1, self:isFemale() and Game3.TEXT_BIG_GIRL or Game3.TEXT_BIG_GUY)
   elseif id == Game3.SPECIAL_GET_RIVAL_SON_DAUGHTER_STRING then
@@ -11472,8 +23232,7 @@ function Game3:runSpecial(id)
   elseif id == Game3.SPECIAL_CREATE_IN_GAME_TRADE then
     self:createInGameTradePokemon()
   elseif id == Game3.SPECIAL_DO_IN_GAME_TRADE_SCENE then
-    -- Link-cable cinema is a waitstate on hardware; the swap already
-    -- happened in CreateInGameTradePokemon.
+    self:doInGameTradeScene()
   elseif id == Game3.SPECIAL_GET_TRADE_SPECIES then
     self:getTradeSpecies()
   elseif id == Game3.SPECIAL_SAVE_PLAYER_PARTY then
@@ -11486,14 +23245,152 @@ function Game3:runSpecial(id)
     self:setScriptVar(Gen3Script.VAR_RESULT, self:isStarterInParty() and 1 or 0)
   elseif id == Game3.SPECIAL_START_WALLY_TUTORIAL_BATTLE then
     self:startWallyTutorialBattle()
-  elseif id == Game3.SPECIAL_SHOULD_TRY_REMATCH
-      or id == Game3.SPECIAL_IS_TRAINER_READY_REMATCH
-      or id == Game3.SPECIAL_IS_POKERUS_IN_PARTY then
-    self:setScriptVar(Gen3Script.VAR_RESULT, 0)
+  elseif id == Game3.SPECIAL_SHOULD_TRY_REMATCH then
+    return self:shouldTryRematchBattle()
+  elseif id == Game3.SPECIAL_IS_TRAINER_READY_REMATCH then
+    return self:isTrainerReadyForRematch()
+  elseif id == Game3.SPECIAL_START_REMATCH_BATTLE then
+    return self:startRematchBattleSpecial()
+  elseif id == Game3.SPECIAL_GET_TRAINER_BATTLE_MODE then
+    return self:getTrainerBattleMode()
+  elseif id == Game3.SPECIAL_SHOW_TRAINER_INTRO_SPEECH then
+    self:showTrainerIntroSpeech()
+  elseif id == Game3.SPECIAL_SHOW_TRAINER_NON_BATTLING_SPEECH then
+    self:showTrainerNonBattlingSpeech()
+  elseif id == Game3.SPECIAL_GET_TRAINER_FLAG then
+    return self:getTrainerFlag()
+  elseif id == Game3.SPECIAL_END_TRAINER_APPROACH then
+    return self:endTrainerApproach()
+  elseif id == Game3.SPECIAL_PLAY_TRAINER_ENCOUNTER_MUSIC then
+    -- no overworld music hook
+  elseif id == Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE then
+    return self:hasEnoughMonsForDoubleBattle()
+  elseif id == Game3.SPECIAL_SET_UP_TRAINER_MOVEMENT then
+    -- battle_setup.c SetUpTrainerMovement: facing visual only.
+  elseif id == Game3.SPECIAL_IS_POKERUS_IN_PARTY then
+    return self:isPokerusInParty()
+  elseif id == Game3.SPECIAL_IS_ENIGMA_BERRY_VALID then
+    return self:isEnigmaBerryValid()
+  elseif id == Game3.SPECIAL_GET_NAME_OF_ENIGMA_BERRY_IN_PARTY then
+    return self:getNameOfEnigmaBerryInParty()
+  elseif id == Game3.SPECIAL_GET_SHROOMISH_SIZE_RECORD then
+    self:getMonSizeRecordInfo(Game3.SPECIES_SHROOMISH, Game3.VAR_SHROOMISH_SIZE_RECORD)
+  elseif id == Game3.SPECIAL_COMPARE_SHROOMISH_SIZE then
+    return self:compareMonSize(Game3.SPECIES_SHROOMISH, Game3.VAR_SHROOMISH_SIZE_RECORD)
+  elseif id == Game3.SPECIAL_GET_BARBOACH_SIZE_RECORD then
+    self:getMonSizeRecordInfo(Game3.SPECIES_BARBOACH, Game3.VAR_BARBOACH_SIZE_RECORD)
+  elseif id == Game3.SPECIAL_COMPARE_BARBOACH_SIZE then
+    return self:compareMonSize(Game3.SPECIES_BARBOACH, Game3.VAR_BARBOACH_SIZE_RECORD)
+  elseif id == Game3.SPECIAL_SHOULD_MOVE_LILYCOVE_FAN_CLUB_MEMBER then
+    return self:shouldMoveLilycoveFanClubMember()
+  elseif id == Game3.SPECIAL_GET_NUM_MOVED_LILYCOVE_FAN_CLUB_MEMBERS then
+    return self:getNumMovedLilycoveFanClubMembers()
+  elseif id == Game3.SPECIAL_BUFFER_STREAK_TRAINER_TEXT then
+    self:bufferStreakTrainerText()
+  elseif id == Game3.SPECIAL_SUB_810FA74 then
+    self:sub810FA74()
+  elseif id == Game3.SPECIAL_UPDATE_MOVED_LILYCOVE_FAN_CLUB_MEMBERS then
+    self:updateMovedLilycoveFanClubMembers()
+  elseif id == Game3.SPECIAL_SUB_810FF48 then
+    self:sub810FF48()
+  elseif id == Game3.SPECIAL_SUB_810FF60 then
+    return self:fanClubScoreSpecial()
+  elseif id == Game3.SPECIAL_SHOW_DIPLOMA then
+    self:showDiploma()
+  elseif id == Game3.SPECIAL_ACCESS_HALL_OF_FAME_PC then
+    self:accessHallOfFamePC()
+  elseif id == Game3.SPECIAL_DO_WATERING_BERRY_TREE_ANIM then
+    self:wateringBerryTreeAnim()
+  elseif id == Game3.SPECIAL_SPAWN_CAMERA_DUMMY then
+    self:spawnCameraDummy()
+  elseif id == Game3.SPECIAL_REMOVE_CAMERA_DUMMY then
+    self:removeCameraDummy()
+  elseif id == Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_1 then
+    self:doSealedChamberShakingEffect1()
+  elseif id == Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_2 then
+    self:doSealedChamberShakingEffect2()
+  elseif id == Game3.SPECIAL_SUB_807E25C then
+    self:sub807E25C()
+  elseif id == Game3.SPECIAL_START_SOUTHERN_ISLAND_BATTLE then
+    return self:startSouthernIslandBattle() and 1 or 0
+  elseif id == Game3.SPECIAL_SET_PACIFIDLOG_TM_RECEIVED_DAY then
+    return self:setPacifidlogTMReceivedDay()
+  elseif id == Game3.SPECIAL_GET_DAYS_UNTIL_PACIFIDLOG_TM then
+    return self:getDaysUntilPacifidlogTMAvailable()
   elseif id == Game3.SPECIAL_CALCULATE_PARTY_COUNT then
     self:setScriptVar(Gen3Script.VAR_RESULT, #(self.party or {}))
   elseif id == Game3.SPECIAL_SHOW_EASY_CHAT then
     self:showEasyChatScreen()
+  elseif id == Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN then
+    local v = self:getCurrentMauvilleMan()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_HAS_BARD_SONG_CHANGED then
+    local v = self:hasBardSongBeenChanged()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_SAVE_BARD_SONG then
+    self:saveBardSongLyrics()
+  elseif id == Game3.SPECIAL_GET_HIPSTER_SPOKEN then
+    local v = self:getHipsterSpokenFlag()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_SET_HIPSTER_SPOKEN then
+    self:setHipsterSpokenFlag()
+  elseif id == Game3.SPECIAL_HIPSTER_TEACH_WORD then
+    local v = self:hipsterTeachWord()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_PLAY_BARD_SONG then
+    self:playBardSong()
+  elseif id == Game3.SPECIAL_SET_MAUVILLE_OLD_MAN_GFX then
+    self:setMauvilleOldManGfx()
+  elseif id == Game3.SPECIAL_GENERATE_GIDDY_LINE then
+    local v = self:generateGiddyLine()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_GIDDY_SHOULD_TELL_ANOTHER then
+    local v = self:giddyShouldTellAnotherTale()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_STORYTELLER_FREE_SLOT then
+    local v = self:storytellerFreeSlot()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_STORYTELLER_DISPLAY then
+    self:storytellerDisplayStory()
+  elseif id == Game3.SPECIAL_STORYTELLER_LIST_MENU then
+    self:storytellerStoryListMenu()
+  elseif id == Game3.SPECIAL_STORYTELLER_UPDATE_STAT then
+    local v = self:storytellerUpdateStat()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_STORYTELLER_INIT_STAT then
+    local v = self:storytellerInitializeRandomStat()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_STORYTELLER_ALREADY_RECORDED then
+    local v = self:storytellerAlreadyRecorded()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_TRADER_MENU_GET then
+    self:traderMenuGetDecoration()
+  elseif id == Game3.SPECIAL_GET_TRADER_TRADED then
+    local v = self:getTraderTradedFlag()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_PLAYER_HAS_NO_DECORATIONS then
+    local v = self:doesPlayerHaveNoDecorations()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_IS_DECORATION_FULL then
+    local v = self:isDecorationFull()
+    self:setScriptVar(Gen3Script.VAR_RESULT, v)
+    return v
+  elseif id == Game3.SPECIAL_TRADER_MENU_GIVE then
+    self:traderMenuGiveDecoration()
+  elseif id == Game3.SPECIAL_TRADER_DO_TRADE then
+    self:traderDoDecorationTrade()
   elseif id == Game3.SPECIAL_BUFFER_TRENDY_PHRASE then
     self:bufferTrendyPhraseString()
   elseif id == Game3.SPECIAL_IS_TRENDY_PHRASE_BORING then
@@ -11569,9 +23466,190 @@ function Game3:runSpecial(id)
     self:setTrickHouseEndRoomFlag(true)
   elseif id == Game3.SPECIAL_RESET_TRICK_HOUSE_END then
     self:setTrickHouseEndRoomFlag(false)
+  elseif id == Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR then
+    return self:hasEnoughMoneyFor()
+  elseif id == Game3.SPECIAL_PAY_MONEY_FOR then
+    self:payMoneyFor()
+  elseif id == Game3.SPECIAL_ROTATING_GATE_INIT then
+    self:rotatingGateInitPuzzle()
+  elseif id == Game3.SPECIAL_ROTATING_GATE_GFX then
+    self:rotatingGateInitGfx()
+  elseif id == Game3.SPECIAL_SET_SS_TIDAL_FLAG then
+    self:setSSTidalFlag()
+  elseif id == Game3.SPECIAL_RESET_SS_TIDAL_FLAG then
+    self:resetSSTidalFlag()
+  elseif id == Game3.SPECIAL_SUB_80C7958 then
+    self:ssTidalPorthole()
+  elseif id == Game3.SPECIAL_IS_MIRAGE_ISLAND_PRESENT then
+    local n = self:isMirageIslandPresent()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG then
+    self:updateShoalTideFlag()
+  elseif id == Game3.SPECIAL_SET_DEPARTMENT_STORE_FLOOR then
+    self:setDepartmentStoreFloorVar()
+  elseif id == Game3.SPECIAL_ENTER_SAFARI_MODE then
+    self:enterSafariMode()
+  elseif id == Game3.SPECIAL_EXIT_SAFARI_MODE then
+    self:exitSafariMode()
+  elseif id == Game3.SPECIAL_SAFARI_ZONE_GET_POKEBLOCK_NAME then
+    local n = self:safariZoneGetPokeblockNameInFeeder()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_CHECK_FREE_POKEMON_STORAGE then
+    local n = self:checkFreePokemonStorageSpace()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_SHAKE_SCREEN_IN_ELEVATOR then
+    self:shakeScreenInElevator()
+  elseif id == Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU then
+    self:showGlassWorkshopMenu()
+  elseif id == Game3.SPECIAL_SCRIPT_HATCH_MON then
+    self:scriptHatchMon()
+  elseif id == Game3.SPECIAL_EGG_HATCH then
+    self:eggHatch()
+  elseif id == Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL then
+    return self:daycareMonReceivedMail()
+  elseif id == Game3.SPECIAL_FOUND_BLACK_GLASSES then
+    local n = self:foundBlackGlasses()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_SELECT_MOVE_TUTOR_MON then
+    self:selectMoveTutorMon()
+  elseif id == Game3.SPECIAL_SELECT_MOVE then
+    self:selectMove()
+  elseif id == Game3.SPECIAL_DELETE_MON_MOVE then
+    self:deleteMonMove()
+  elseif id == Game3.SPECIAL_GET_POKEMON_NICKNAME_AND_MOVE_NAME then
+    self:getPokemonNicknameAndMoveName()
+  elseif id == Game3.SPECIAL_COUNT_POKEMON_MOVES then
+    local n = self:countPokemonMoves()
+    return n
+  elseif id == Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU then
+    self:displayMoveTutorMenu()
+  elseif id == Game3.SPECIAL_GAME_CLEAR then
+    self:gameClear()
+  elseif id == Game3.SPECIAL_UPDATE_TRAINER_FAN_CLUB_GAME_CLEAR then
+    self:updateTrainerFanClubGameClear()
+  elseif id == Game3.SPECIAL_ORB_CUTSCENE then
+    self:orbCutscene()
+  elseif id == Game3.SPECIAL_ORB_CUTSCENE_ADVANCE then
+    self:advanceOrbCutscene()
+  elseif id == Game3.SPECIAL_WAIT_WEATHER then
+    self:waitWeather()
+  elseif id == Game3.SPECIAL_START_GROUDON_KYOGRE_BATTLE then
+    self:startGroudonKyogreBattle()
+  elseif id == Game3.SPECIAL_START_RAYQUAZA_BATTLE then
+    self:startRayquazaBattle()
+  elseif id == Game3.SPECIAL_START_REGI_BATTLE then
+    self:startRegiBattle()
+  elseif id == Game3.SPECIAL_FADE_OUT_MAP_MUSIC then
+    self:fadeOutMapMusicWait()
+  elseif id == Game3.SPECIAL_DISPLAY_CURRENT_ELEVATOR_FLOOR then
+    self:displayCurrentElevatorFloor()
+  elseif id == Game3.SPECIAL_SET_SOOTOPOLIS_GYM_CRACKED_ICE then
+    self:setSootopolisGymCrackedIceMetatiles()
+  elseif id == Game3.SPECIAL_WARP_TO_LAST_WARP then
+    self:warpToWarpDestination()
+  elseif id == Game3.SPECIAL_DO_FALL_WARP then
+    self:doFallWarp()
+  elseif id == Game3.SPECIAL_SET_ROUTE_119_WEATHER then
+    self:setRoute119Weather()
+  elseif id == Game3.SPECIAL_SET_ROUTE_123_WEATHER then
+    self:setRoute123Weather()
+  elseif id == Game3.SPECIAL_GET_SLOT_MACHINE_ID then
+    return self:getSlotMachineId()
+  elseif id == Game3.SPECIAL_START_WALL_CLOCK then
+    self:startWallClock()
+  elseif id == Game3.SPECIAL_VIEW_WALL_CLOCK then
+    self:viewWallClock()
+  elseif id == Game3.SPECIAL_PLAY_ROULETTE then
+    self:playRoulette()
+  elseif id == Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER then
+    return self:rockSmashWildEncounter()
+  elseif id == Game3.SPECIAL_GABBY_AND_TY_GET_BATTLE_NUM then
+    local n = self:gabbyAndTyGetBattleNum()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_GABBY_AND_TY_AFTER_INTERVIEW then
+    self:gabbyAndTyAfterInterview()
+  elseif id == Game3.SPECIAL_GABBY_AND_TY_BEFORE_INTERVIEW then
+    self:gabbyAndTyBeforeInterview()
+  elseif id == Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS then
+    return self:doTVShowInSearchOfTrainers()
+  elseif id == Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING then
+    local n = self:ensureGabbyAndTy().valA_4 or 0
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_GABBY_AND_TY_GET_LAST_QUOTE then
+    local n = self:gabbyAndTyGetLastQuote()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_GABBY_AND_TY_GET_LAST_BATTLE_TRIVIA then
+    local n = self:gabbyAndTyGetLastBattleTrivia()
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_GET_GABBY_AND_TY_LOCAL_IDS then
+    self:getGabbyAndTyLocalIds()
+  elseif id == Game3.SPECIAL_GET_BATTLE_OUTCOME then
+    local n = self.battleOutcome or 0
+    self:setScriptVar(Gen3Script.VAR_RESULT, n)
+    return n
+  elseif id == Game3.SPECIAL_TRY_UPDATE_RUSTURF_TUNNEL_STATE then
+    return self:tryUpdateRusturfTunnelState()
+  elseif id == Game3.SPECIAL_GET_WEEK_COUNT then
+    return self:getWeekCount()
+  elseif id == Game3.SPECIAL_RETRIEVE_LOTTERY_NUMBER then
+    return self:retrieveLotteryNumber()
+  elseif id == Game3.SPECIAL_PICK_LOTTERY_CORNER_TICKET then
+    self:pickLotteryCornerTicket()
+  elseif id == Game3.SPECIAL_DO_LOTTERY_CORNER_COMPUTER_EFFECT then
+    self:doLotteryCornerComputerEffect()
+  elseif id == Game3.SPECIAL_END_LOTTERY_CORNER_COMPUTER_EFFECT then
+    self:endLotteryCornerComputerEffect()
+  elseif id == Game3.SPECIAL_BUFFER_LOTTO_TICKET_NUMBER then
+    self:bufferLottoTicketNumber()
+  elseif id == Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM1_KEY then
+    return self:foundAbandonedShipKey(Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_1_KEY)
+  elseif id == Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM2_KEY then
+    return self:foundAbandonedShipKey(Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_2_KEY)
+  elseif id == Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM4_KEY then
+    return self:foundAbandonedShipKey(Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_4_KEY)
+  elseif id == Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM6_KEY then
+    return self:foundAbandonedShipKey(Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_6_KEY)
+  elseif id == Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY then
+    return self:isGrassTypeInParty()
+  elseif id == Game3.SPECIAL_CHECK_RELICANTH_WAILORD then
+    return self:checkRelicanthWailord()
+  elseif id == Game3.SPECIAL_DO_BRAILLE_WAIT then
+    self:doBrailleWait()
+  elseif id == Game3.SPECIAL_SHAKE_CAMERA then
+    self:shakeCamera()
+  elseif id == Game3.SPECIAL_INTERVIEW_BEFORE then
+    return self:interviewBefore()
+  elseif id == Game3.SPECIAL_INTERVIEW_AFTER then
+    -- no tvShows queue yet
+  elseif id == Game3.SPECIAL_LEAD_MON_NICKNAMED then
+    return self:leadMonNicknamed()
+  elseif id == Game3.SPECIAL_SET_CONTEST_CATEGORY_STRING_VAR_FOR_INTERVIEW then
+    self:setContestCategoryStringVarForInterview()
+  elseif id == Game3.SPECIAL_TV_IS_SCRIPT_SHOW_KIND_ALREADY_IN_QUEUE then
+    return self:tvIsScriptShowKindAlreadyInQueue()
+  elseif id == Game3.SPECIAL_SAVE_GAME then
+    return self:saveGameSpecial()
+  elseif id == Game3.SPECIAL_COUNT_ALIVE_PARTY_MONS_EXCEPT_SELECTED_ONE then
+    return self:countAlivePartyMonsExceptSelectedOne()
+  elseif id == Game3.SPECIAL_EXECUTE_WHITE_OUT then
+    return self:executeWhiteOut()
+  elseif id == Game3.SPECIAL_SP0C8_WHITEOUT_MAYBE then
+    return self:sp0C8WhiteoutMaybe()
+  elseif id == Game3.SPECIAL_SCRIPT_GET_MULTIPLAYER_ID then
+    return self:scriptGetMultiplayerId()
+  elseif id == Game3.SPECIAL_SCRIPT_RANDOM then
+    return self:scriptRandom()
   elseif id >= Game3.SPECIAL_GET_BERRY_TREE_DATA
       and id <= Game3.SPECIAL_PLAYER_HAS_BERRIES then
-    self:runBerrySpecial(id)
+    return self:runBerrySpecial(id)
   end
   local after = self:varGet(Gen3Script.VAR_RESULT)
   if after ~= before then return after end
@@ -11596,40 +23674,6 @@ function Game3:addToParty(mon)
   return true
 end
 
-function Game3:ensurePc()
-  if type(self.pc) ~= "table" then self.pc = {} end
-  for b = 1, Game3.BOX_COUNT do
-    if type(self.pc[b]) ~= "table" then self.pc[b] = {} end
-  end
-end
-
-function Game3:pcFree()
-  self:ensurePc()
-  local n = 0
-  for b = 1, Game3.BOX_COUNT do
-    n = n + (Game3.BOX_SIZE - #(self.pc[b] or {}))
-  end
-  return n
-end
-
-function Game3:hasMonSpace()
-  return #(self.party or {}) < Game3.PARTY_MAX or self:pcFree() > 0
-end
-
-function Game3:sendToPc(mon)
-  if not mon then return nil end
-  self:ensurePc()
-  self:stampPlayerOt(mon)
-  for b = 1, Game3.BOX_COUNT do
-    local box = self.pc[b]
-    if #box < Game3.BOX_SIZE then
-      box[#box + 1] = self:cloneMon(mon)
-      self:markCaught(mon.species)
-      return b
-    end
-  end
-end
-
 function Game3:healthyCount(except)
   local n = 0
   local party = self.party or {}
@@ -11652,52 +23696,17 @@ function Game3:canDeposit(index)
   return true
 end
 
-function Game3:depositFromParty(index)
-  local ok, msg = self:canDeposit(index)
-  if not ok then return false, msg end
-  local mon = self.party[index]
-  local box = self:sendToPc(mon)
-  if not box then return false, "The BOX is full." end
-  table.remove(self.party, index)
-  return true, ("Deposited %s in BOX %d."):format(mon.name, box)
-end
-
-function Game3:withdrawFromBox(boxIndex, slot)
-  self:ensurePc()
-  local box = self.pc[boxIndex]
-  if type(box) ~= "table" then return false, "The BOX is empty." end
-  local mon = box[slot]
-  if not mon then return false, "There's nothing here." end
-  if not self:addToParty(mon) then return false, "Your party's full!" end
-  table.remove(box, slot)
-  return true, ("Took %s."):format(mon.name)
-end
-
-function Game3:openPc()
-  self:ensurePc()
-  self.field = { kind = "pc", mode = "root", cursor = 0, box = 1, note = nil }
-  return true
-end
-
-function Game3:tryPc()
-  local map = self.map
-  if not map then return false end
-  local dx, dy = Game3.deltaFromFacing(self.facing)
-  local x, y = self.playerX + dx, self.playerY + dy
-  if Game3.isPc(self:behaviorAt(map, x, y)) then return self:openPc() end
-  if Game3.isCounter(self:behaviorAt(map, x, y))
-      and Game3.isPc(self:behaviorAt(map, x + dx, y + dy)) then
-    return self:openPc()
-  end
-  return false
-end
-
 function Game3:tryCatch(mon, ballBonus)
   ballBonus = ballBonus or Game3.POKE_BALL_BONUS
   if ballBonus >= 255 then return true, 3 end
   local rate = (mon and mon.catchRate) or 45
   local row = mon and self:speciesRow(mon.species)
   if row and row.catchRate then rate = row.catchRate end
+  local b = self.battle
+  if b and b.safari then
+    rate = math.floor((b.safariCatchFactor or 0) * 1275 / 100)
+    if rate > 255 then rate = 255 end
+  end
   local a = Game3.catchValue(mon.hp, mon.maxHp, rate, ballBonus)
   a = math.floor(a * Game3.statusCatchMul(mon and mon.status) / 10)
   if a >= 255 then return true, 3 end
@@ -11716,6 +23725,7 @@ function Game3:throwBall(itemId)
   local b = self.battle
   if not b then return end
   itemId = itemId or Game3.ITEM_POKE_BALL
+  if b.safari then itemId = Game3.ITEM_SAFARI_BALL end
   if b.isTrainer then
     b.text = "The trainer blocked the BALL!"
     b.kind = "menu_msg"
@@ -11727,7 +23737,7 @@ function Game3:throwBall(itemId)
     return
   end
   if not self:hasMonSpace() then
-    b.text = "There's no more room for POKeMON!"
+    b.text = "The BOX is full."
     b.kind = "menu_msg"
     return
   end
@@ -11737,6 +23747,7 @@ function Game3:throwBall(itemId)
       b.kind = "menu_msg"
       return
     end
+    self:noteUsedBall(itemId)
   end
   local bonus = self:catchBallBonus(itemId, b.enemy)
   local queue = { ("You used a %s!"):format(self:itemName(itemId)) }
@@ -11747,16 +23758,26 @@ function Game3:throwBall(itemId)
     ok, shakes = self:tryCatch(b.enemy, bonus)
   end
   if ok then
+    local newDex = not b.wallyTutorial and not self:hasCaught(b.enemy.species)
     for _ = 1, 3 do queue[#queue + 1] = "The ball shook!" end
     queue[#queue + 1] = ("Gotcha! %s was caught!"):format(b.enemy.name)
+    if newDex then
+      queue[#queue + 1] = Game3.addedToDexText(b.enemy.name)
+      b.showDexEntry = b.enemy.species
+    end
     if (b.player.hp or 0) > 0 and not b.wallyTutorial then
       local texts = self:awardExp(b.player, b.enemy, b.isTrainer)
       for i = 1, #texts do queue[#queue + 1] = texts[i] end
     end
     if not b.wallyTutorial then
-      if not self:addToParty(b.enemy) then
+      b.askCaughtNick = true
+      if self:addToParty(b.enemy) then
+        b.caughtMon = self.party[#self.party]
+      else
         local box = self:sendToPc(b.enemy)
         if box then
+          local stored = self.pc[box]
+          b.caughtMon = stored and stored[#stored]
           queue[#queue + 1] = ("%s was transferred to BOX %d."):format(b.enemy.name, box)
         else
           queue[#queue + 1] = "The BOX is full."
@@ -11764,10 +23785,15 @@ function Game3:throwBall(itemId)
       end
     end
     b.caught = true
+    self:recordBattleEnd(Game3.B_OUTCOME_CAUGHT)
   else
     for _ = 1, shakes do queue[#queue + 1] = "The ball shook!" end
     queue[#queue + 1] = Game3.catchFailText(shakes)
-    if (b.player.hp or 0) > 0 and (b.enemy.hp or 0) > 0 then
+    if b.safari and (self.safariBalls or 0) == 0 then
+      queue[#queue + 1] = Game3.TEXT_SAFARI_OVER
+      self:recordBattleEnd(Game3.B_OUTCOME_NO_SAFARI_BALLS)
+      b.safariOver = true
+    elseif (b.player.hp or 0) > 0 and (b.enemy.hp or 0) > 0 then
       self:queueEnemyAction(queue)
     end
   end
@@ -11776,27 +23802,42 @@ function Game3:throwBall(itemId)
   b.kind = "text"
   b.text = queue[1]
   b.turns = (b.turns or 0) + 1
+  b.catchAnim = {
+    t = 0,
+    shakes = shakes or 0,
+    ok = ok and true or false,
+    throw = Game3.CATCH_THROW,
+    perShake = Game3.CATCH_SHAKE,
+    stars = ok and Game3.CATCH_STARS or 0,
+  }
 end
 
-function Game3:useBattleItem(itemId)
+function Game3:tickMist()
+  local b = self.battle
+  if not b then return end
+  local n = b.mistTurns or 0
+  if n > 0 then
+    b.mistTurns = n - 1
+  end
+end
+
+function Game3:failBattleItem(msg)
   local b = self.battle
   if not b then return false end
-  itemId = tonumber(itemId)
-  if Game3.isBall(itemId) then
-    self:throwBall(itemId)
-    return true
+  b.text = msg or "This can't be used now."
+  b.kind = "menu_msg"
+  return false
+end
+
+function Game3:commitBattleItem(msg, countHeal)
+  local b = self.battle
+  if countHeal then
+    local r = self.battleResults
+    if r and (r.playerHealInBattleCount or 0) < 255 then
+      r.playerHealInBattleCount = (r.playerHealInBattleCount or 0) + 1
+    end
   end
-  if not self:healAmount(itemId) and not self:statusHeal(itemId) then
-    b.text = "This can't be used now."
-    b.kind = "menu_msg"
-    return false
-  end
-  local ok, msg = self:useItemOnMon(b.player, itemId)
-  if not ok then
-    b.text = msg or "It won't have any effect."
-    b.kind = "menu_msg"
-    return false
-  end
+  self:tickMist()
   local queue = { msg }
   if (b.enemy.hp or 0) > 0 and (b.player.hp or 0) > 0 then
     self:queueEnemyAction(queue)
@@ -11807,6 +23848,80 @@ function Game3:useBattleItem(itemId)
   b.text = queue[1]
   b.turns = (b.turns or 0) + 1
   return true
+end
+
+function Game3:useBattleItem(itemId, mon, moveIndex)
+  local b = self.battle
+  if not b then return false end
+  itemId = tonumber(itemId)
+  if Game3.isBall(itemId) then
+    self:throwBall(itemId)
+    return true
+  end
+  if itemId == Game3.ITEM_POKE_DOLL or itemId == Game3.ITEM_FLUFFY_TAIL then
+    if b.isTrainer or b.chase or b.wallyTutorial then
+      return self:failBattleItem("This can't be used now.")
+    end
+    if not self:takeItem(itemId, 1) then
+      return self:failBattleItem("You have none left!")
+    end
+    b.text = ("%s used the %s!"):format(
+      self:playerName(), self:itemName(itemId))
+    b.kind = "ran"
+    return true
+  end
+  local battler = self:menuBattler() or b.player
+  local x = Game3.X_ITEM_STAT[itemId]
+  if x then
+    local st = battler.stages
+    if type(st) ~= "table" then
+      st = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+      battler.stages = st
+    end
+    if (st[x[1]] or 0) >= 6 then
+      return self:failBattleItem("It won't have any effect.")
+    end
+    if not self:takeItem(itemId, 1) then
+      return self:failBattleItem("You have none left!")
+    end
+    return self:commitBattleItem(self:raiseStat(battler, x[1], 1, x[2]))
+  end
+  if itemId == Game3.ITEM_DIRE_HIT then
+    if battler.focusEnergy then
+      return self:failBattleItem("It won't have any effect.")
+    end
+    if not self:takeItem(itemId, 1) then
+      return self:failBattleItem("You have none left!")
+    end
+    battler.focusEnergy = true
+    return self:commitBattleItem(
+      ("%s is getting pumped!"):format(battler.name))
+  end
+  if itemId == Game3.ITEM_GUARD_SPEC then
+    if (b.mistTurns or 0) > 0 then
+      return self:failBattleItem("It won't have any effect.")
+    end
+    if not self:takeItem(itemId, 1) then
+      return self:failBattleItem("You have none left!")
+    end
+    b.mistTurns = 5
+    return self:commitBattleItem(
+      ("%s became shrouded in MIST!"):format(battler.name))
+  end
+  if not self:healAmount(itemId) and not self:statusHeal(itemId)
+      and not Game3.REVIVE_FRACTION[itemId] then
+    if not Game3.PP_HEAL[itemId] then
+      return self:failBattleItem("This can't be used now.")
+    end
+  end
+  local ok, msg, extra = self:useItemOnMon(mon or b.player, itemId, moveIndex)
+  if extra == "pick_move" then
+    return false
+  end
+  if not ok then
+    return self:failBattleItem(msg or "It won't have any effect.")
+  end
+  return self:commitBattleItem(msg, self:healAmount(itemId) ~= nil)
 end
 
 local function hasStab(mon, moveType)
@@ -11828,6 +23943,20 @@ function Game3.lowKickPower(weight)
   return 120
 end
 
+-- battle_script_commands.c sFlailHpScaleToPowerTable. Scale is 48.
+function Game3.flailPower(hp, maxHp)
+  maxHp = tonumber(maxHp) or 1
+  if maxHp < 1 then maxHp = 1 end
+  hp = tonumber(hp) or 0
+  local frac = math.floor(hp * 48 / maxHp)
+  if hp > 0 and frac < 1 then frac = 1 end
+  local t = Game3.FLAIL_HP_POWER
+  for i = 1, #t, 2 do
+    if frac <= t[i] then return t[i + 1] end
+  end
+  return 20
+end
+
 function Game3:monWeight(mon)
   if not mon then return 0 end
   local w = tonumber(mon.weight)
@@ -11840,13 +23969,19 @@ end
 
 function Game3:boostedPower(attacker, move, defender)
   local power = move.power or 0
-  local effect = move.effect or 0
+  local effect = self:moveEffect(move)
   local moveType = self:attackType(attacker, move)
   if effect == Game3.EFFECT_LOW_KICK then
     power = Game3.lowKickPower(self:monWeight(defender))
   end
   if effect == Game3.EFFECT_HIDDEN_POWER then
     power = Game3.hiddenPowerPower(attacker and attacker.ivs)
+  end
+  if effect == Game3.EFFECT_FLAIL then
+    power = Game3.flailPower(attacker and attacker.hp, attacker and attacker.maxHp)
+  end
+  if effect == Game3.EFFECT_WEATHER_BALL and self:weatherBallBoosts() then
+    power = power * 2
   end
   if attacker.flashFire and moveType == Game3.TYPE_FIRE then
     power = math.floor(power * 3 / 2)
@@ -11932,10 +24067,16 @@ function Game3:canStatus(mon, status)
       and self:hasAbility(mon, Game3.ABILITY_LIMBER) then
     return false
   end
-  if status == Game3.STATUS_SLP
-      and (self:hasAbility(mon, Game3.ABILITY_INSOMNIA)
-        or self:hasAbility(mon, Game3.ABILITY_VITAL_SPIRIT)) then
-    return false
+  if status == Game3.STATUS_SLP then
+    if self:hasAbility(mon, Game3.ABILITY_INSOMNIA)
+        or self:hasAbility(mon, Game3.ABILITY_VITAL_SPIRIT) then
+      return false
+    end
+    -- UproarWakeUpCheck: any battler with STATUS2_UPROAR, unless Soundproof.
+    if self:fieldHasUproar()
+        and not self:hasAbility(mon, Game3.ABILITY_SOUNDPROOF) then
+      return false
+    end
   end
   return true
 end
@@ -12011,6 +24152,15 @@ function Game3:statusBlocks(mon, move)
       return true, texts
     end
     mon.truant = true
+  end
+  local crush = mon.infatuatedBy
+  if crush and Game3.aliveMon(crush) then
+    texts[#texts + 1] = ("%s is in love with %s!"):format(
+      mon.name, crush.name or "POKeMON")
+    if (self:gbaRandom() % 2) == 0 then
+      texts[#texts + 1] = ("%s is immobilized by love!"):format(mon.name)
+      return true, texts
+    end
   end
   return false, texts
 end
@@ -12129,6 +24279,18 @@ function Game3:useRest(attacker, texts)
     texts[#texts + 1] = ("%s is already asleep!"):format(attacker.name)
     return texts
   end
+  -- jumpifcantmakeasleep before trysetrest: uproar, then Insomnia/Vital Spirit.
+  if self:fieldHasUproar()
+      and not self:hasAbility(attacker, Game3.ABILITY_SOUNDPROOF) then
+    texts[#texts + 1] = ("But %s can't sleep in an UPROAR!"):format(
+      attacker.name)
+    return texts
+  end
+  if self:hasAbility(attacker, Game3.ABILITY_INSOMNIA)
+      or self:hasAbility(attacker, Game3.ABILITY_VITAL_SPIRIT) then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
   local hp, maxHp = attacker.hp or 0, attacker.maxHp or 0
   if maxHp < 1 or hp >= maxHp then
     texts[#texts + 1] = "But it failed!"
@@ -12139,6 +24301,90 @@ function Game3:useRest(attacker, texts)
   attacker.sleepTurns = 2
   texts[#texts + 1] = ("%s went to sleep and became healthy!"):format(
     attacker.name)
+  return texts
+end
+
+-- atkAE_healpartystatus. Heal Bell skips Soundproof battlers (and matching
+-- party slots); Aromatherapy heals everyone. status1 only.
+function Game3:useHealBell(attacker, move, texts)
+  texts = texts or {}
+  local id = (move and move.id) or 0
+  local name = (move and move.name or ""):upper()
+  local aroma = id == Game3.MOVE_AROMATHERAPY or name == "AROMATHERAPY"
+  local blocked = {}
+  local function healMon(mon)
+    if not mon or mon.isEgg then return end
+    if not aroma and self:hasAbility(mon, Game3.ABILITY_SOUNDPROOF) then
+      blocked[#blocked + 1] = mon
+      return
+    end
+    mon.status = nil
+    mon.sleepTurns = nil
+  end
+  if self:isPlayerSide(attacker) then
+    local party = self.party
+    if type(party) == "table" and #party > 0 then
+      for i = 1, #party do healMon(party[i]) end
+    else
+      healMon(attacker)
+      healMon(self:allyOf(attacker))
+    end
+  else
+    healMon(attacker)
+    healMon(self:allyOf(attacker))
+  end
+  if aroma then
+    texts[#texts + 1] = "A soothing aroma wafted through the area!"
+  else
+    texts[#texts + 1] = "A bell chimed!"
+    for i = 1, #blocked do
+      texts[#texts + 1] = ("%s's %s blocks %s!"):format(
+        blocked[i].name, Game3.abilityName(Game3.ABILITY_SOUNDPROOF),
+        (move and move.name) or "HEAL BELL")
+    end
+  end
+  return texts
+end
+
+-- atkB2_trysetperishsong. Skip Soundproof and already-perishing battlers.
+function Game3:usePerishSong(attacker, move, texts)
+  texts = texts or {}
+  local mons = self:battlers()
+  local hit = 0
+  local blocked = {}
+  for i = 1, #mons do
+    local mon = mons[i]
+    if mon then
+      if self:hasAbility(mon, Game3.ABILITY_SOUNDPROOF) then
+        blocked[#blocked + 1] = mon
+      elseif not mon.perishSong then
+        mon.perishSong = 3
+        hit = hit + 1
+      end
+    end
+  end
+  if hit < 1 then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  texts[#texts + 1] = "All affected POKeMON will faint in 3 turns!"
+  for i = 1, #blocked do
+    texts[#texts + 1] = ("%s's %s blocks %s!"):format(
+      blocked[i].name, Game3.abilityName(Game3.ABILITY_SOUNDPROOF),
+      (move and move.name) or "PERISH SONG")
+  end
+  return texts
+end
+
+-- atkD5_trysetroots.
+function Game3:useIngrain(attacker, texts)
+  texts = texts or {}
+  if attacker.rooted then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  attacker.rooted = true
+  texts[#texts + 1] = ("%s planted its roots!"):format(attacker.name)
   return texts
 end
 
@@ -12233,6 +24479,35 @@ function Game3:useForesight(attacker, defender, texts)
   return texts
 end
 
+function Game3:useAttract(attacker, defender, texts)
+  texts = texts or {}
+  if not defender then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  if self:hasAbility(defender, Game3.ABILITY_OBLIVIOUS) then
+    texts[#texts + 1] = ("%s's %s prevents attraction!"):format(
+      defender.name, Game3.abilityName(Game3.ABILITY_OBLIVIOUS))
+    return texts
+  end
+  if defender.invuln then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  if defender.infatuatedBy then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  local ag, dg = self:monGender(attacker), self:monGender(defender)
+  if ag == dg or ag == Game3.MON_GENDERLESS or dg == Game3.MON_GENDERLESS then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  defender.infatuatedBy = attacker
+  texts[#texts + 1] = ("%s fell in love!"):format(defender.name)
+  return texts
+end
+
 -- ENDTURN_LEECH_SEED: maxHP/8, min 1. Liquid Ooze hurts the sower.
 function Game3:leechSeedResidual(mon)
   if not mon or not mon.leechSeed or (mon.hp or 0) <= 0 then return {} end
@@ -12255,6 +24530,59 @@ function Game3:leechSeedResidual(mon)
   if (sower.hp or 0) <= 0 then
     texts[#texts + 1] = ("%s fainted!"):format(sower.name)
   end
+  return texts
+end
+
+-- ENDTURN_INGRAIN: maxHP/16, min 1, before leech seed.
+function Game3:ingrainResidual(mon)
+  if not mon or not mon.rooted or (mon.hp or 0) <= 0 then return {} end
+  local maxHp = mon.maxHp or 1
+  if (mon.hp or 0) >= maxHp then return {} end
+  local heal = math.max(1, math.floor(maxHp / 16))
+  mon.hp = math.min(maxHp, (mon.hp or 0) + heal)
+  return { ("%s absorbed nutrients with its roots!"):format(mon.name) }
+end
+
+-- ENDTURN_UPROAR: wake every non-Soundproof sleeper, then decrement.
+function Game3:uproarResidual(mon)
+  if not mon or (mon.uproarTurns or 0) < 1 then return {} end
+  local texts = {}
+  local mons = self:battlers()
+  for i = 1, #mons do
+    local other = mons[i]
+    if other and (other.hp or 0) > 0 and other.status == Game3.STATUS_SLP
+        and not self:hasAbility(other, Game3.ABILITY_SOUNDPROOF) then
+      other.status = nil
+      other.sleepTurns = nil
+      texts[#texts + 1] = ("%s woke up in the UPROAR!"):format(other.name)
+    end
+  end
+  mon.uproarTurns = mon.uproarTurns - 1
+  if mon.uproarTurns > 0 then
+    texts[#texts + 1] = ("%s is making an UPROAR!"):format(mon.name)
+  else
+    mon.uproarTurns = nil
+    mon.uproarMove = nil
+    texts[#texts + 1] = ("%s calmed down."):format(mon.name)
+  end
+  return texts
+end
+
+-- HandleWishPerishSongOnTurnEnd: print the current count, then decrement
+-- (or faint when the count is already 0).
+function Game3:perishSongResidual(mon)
+  if not mon or not mon.perishSong or (mon.hp or 0) <= 0 then return {} end
+  local n = mon.perishSong
+  if n <= 0 then
+    mon.hp = 0
+    mon.perishSong = nil
+    return {
+      ("%s's PERISH count fell to 0!"):format(mon.name),
+      ("%s fainted!"):format(mon.name),
+    }
+  end
+  local texts = { ("%s's PERISH count fell to %d!"):format(mon.name, n) }
+  mon.perishSong = n - 1
   return texts
 end
 
@@ -12283,6 +24611,9 @@ function Game3:holdEffectOf(mon)
   end
   if (not effect or effect == 0) and id == Game3.ITEM_SMOKE_BALL then
     effect = Game3.HOLD_EFFECT_CAN_ALWAYS_RUN
+  end
+  if (not effect or effect == 0) and id == Game3.ITEM_EVERSTONE then
+    effect = Game3.HOLD_EFFECT_PREVENT_EVOLVE
   end
   return effect or 0, param or 0
 end
@@ -12327,12 +24658,32 @@ function Game3:dealDamage(attacker, defender, move)
     end
     defender.hp = math.max(0, (defender.hp or 0) - dmg)
     self:noteBideHit(defender, attacker, dmg)
+    self:notePlayerDamaged(defender, dmg)
+    self:maybeFaintFriendship(defender, attacker)
+    return { dmg = dmg, mul = 10, crit = false, endured = endured }
+  end
+  -- pokeruby atkD8_setdamagetohealthdifference + atk69_adjustsetdamage.
+  -- Damage is targetHP - userHP. No STAB, screens, crit, or roll.
+  if (move.effect or 0) == Game3.EFFECT_ENDEAVOR then
+    local dmg = (defender.hp or 0) - (attacker.hp or 0)
+    if dmg < 1 then return { dmg = 0, mul = 0 } end
+    local endured = false
+    if defender.endured and dmg >= (defender.hp or 0) then
+      dmg = math.max(0, (defender.hp or 1) - 1)
+      endured = true
+    end
+    defender.hp = math.max(0, (defender.hp or 0) - dmg)
+    self:noteBideHit(defender, attacker, dmg)
+    self:notePlayerDamaged(defender, dmg)
     self:maybeFaintFriendship(defender, attacker)
     return { dmg = dmg, mul = 10, crit = false, endured = endured }
   end
   local physical = Game3.isPhysical(moveType)
   local attack = staged(attacker, physical and "atk" or "spa")
   if physical then
+    if self:hasAbility(attacker, Game3.ABILITY_HUSTLE) then
+      attack = math.max(1, math.floor(attack * 150 / 100))
+    end
     if self:hasAbility(attacker, Game3.ABILITY_GUTS) and attacker.status then
       attack = math.max(1, math.floor(attack * 3 / 2))
     elseif attacker.status == Game3.STATUS_BRN then
@@ -12341,6 +24692,13 @@ function Game3:dealDamage(attacker, defender, move)
     if self:hasAbility(attacker, Game3.ABILITY_HUGE_POWER)
         or self:hasAbility(attacker, Game3.ABILITY_PURE_POWER) then
       attack = attack * 2
+    end
+  else
+    if (self:hasAbility(attacker, Game3.ABILITY_PLUS)
+          and self:fieldHasAbility(Game3.ABILITY_MINUS))
+        or (self:hasAbility(attacker, Game3.ABILITY_MINUS)
+          and self:fieldHasAbility(Game3.ABILITY_PLUS)) then
+      attack = math.max(1, math.floor(attack * 150 / 100))
     end
   end
   attack = self:applyTypePower(attacker, moveType, attack)
@@ -12351,6 +24709,9 @@ function Game3:dealDamage(attacker, defender, move)
     defense = math.max(1, math.floor(defense * 3 / 2))
   end
   defense = self:applyBadgeBoost(defender, physical and 5 or 7, defense)
+  if (move.effect or 0) == Game3.EFFECT_EXPLOSION then
+    defense = math.max(1, math.floor(defense / 2))
+  end
   local power = self:boostedPower(attacker, move, defender)
   local dmg = Game3.damage(
     attacker.level, power, attack, defense,
@@ -12376,11 +24737,19 @@ function Game3:dealDamage(attacker, defender, move)
   end
   local crit = false
   local b = self.battle
-  if not (b and (b.wallyTutorial or b.chase)) then
+  if not (b and (b.wallyTutorial or b.chase))
+      and not self:hasAbility(defender, Game3.ABILITY_BATTLE_ARMOR)
+      and not self:hasAbility(defender, Game3.ABILITY_SHELL_ARMOR) then
     local denom = Game3.critDenom(move.effect, attacker.focusEnergy)
     crit = self:rand(denom) == denom
   end
   if crit then dmg = dmg * 2 end
+  if not crit then
+    local cut = self:screenDamageMul(defender, physical)
+    if cut ~= 10 then
+      dmg = math.max(1, math.floor(dmg * cut / 10))
+    end
+  end
   if move.spreadHits then
     dmg = math.max(1, math.floor(dmg / 2))
   end
@@ -12391,6 +24760,7 @@ function Game3:dealDamage(attacker, defender, move)
   end
   defender.hp = math.max(0, (defender.hp or 0) - dmg)
   self:noteBideHit(defender, attacker, dmg)
+  self:notePlayerDamaged(defender, dmg)
   self:maybeFaintFriendship(defender, attacker)
   return { dmg = dmg, mul = mul, crit = crit, endured = endured }
 end
@@ -12415,14 +24785,19 @@ function Game3:blocksStatDrop(mon, stat)
   return false
 end
 
-function Game3:dropStat(mon, stat, label, amount)
+function Game3:dropStat(mon, stat, label, amount, selfInflicted)
   amount = amount or 1
+  local b = self.battle
+  if not selfInflicted and b and self:isPlayerSide(mon)
+      and (b.mistTurns or 0) > 0 then
+    return ("%s is protected by MIST!"):format(mon.name)
+  end
   local st = mon.stages
   if type(st) ~= "table" then
     st = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
     mon.stages = st
   end
-  if self:blocksStatDrop(mon, stat) then
+  if not selfInflicted and self:blocksStatDrop(mon, stat) then
     return ("%s's %s cannot be lowered!"):format(
       mon.name, Game3.abilityName(mon.ability))
   end
@@ -12565,6 +24940,10 @@ function Game3:moveHitChance(attacker, defender, move, effect)
   acc = Game3.accuracyFromStages(acc, atkAcc, defEva)
   if self:hasAbility(attacker, Game3.ABILITY_COMPOUND_EYES) then
     acc = math.floor(acc * 130 / 100)
+  end
+  if Game3.isPhysical(self:attackType(attacker, move))
+      and self:hasAbility(attacker, Game3.ABILITY_HUSTLE) then
+    acc = math.floor(acc * 80 / 100)
   end
   if effect ~= Game3.EFFECT_OHKO
       and not self:weatherSuppressed()
@@ -12771,6 +25150,133 @@ function Game3:useBattleTeleport(attacker, texts)
   return texts
 end
 
+-- pokeruby AbilityBattleEffects ENDTURN Speed Boost. isFirstTurn == 2
+-- is the switch-in turn; battle_main decrements it at the next turn start.
+function Game3:speedBoostResidual(mon)
+  if not mon or (mon.hp or 0) <= 0 then return {} end
+  if not self:hasAbility(mon, Game3.ABILITY_SPEED_BOOST) then return {} end
+  if (mon.isFirstTurn or 0) == 2 then return {} end
+  local st = mon.stages
+  if type(st) ~= "table" then
+    st = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+    mon.stages = st
+  end
+  if (st.spe or 0) >= 6 then return {} end
+  st.spe = (st.spe or 0) + 1
+  return { ("%s's %s raised its SPEED!"):format(
+    mon.name, Game3.abilityName(Game3.ABILITY_SPEED_BOOST)) }
+end
+
+function Game3:slotOfBattler(mon)
+  local b = self.battle
+  if not b or not mon then return nil end
+  if mon == b.player then return "player" end
+  if mon == b.player2 then return "player2" end
+  if mon == b.enemy then return "enemy" end
+  if mon == b.enemy2 then return "enemy2" end
+end
+
+-- pokeruby BattleScript_EffectRoar / atk8F_forcerandomswitch.
+function Game3:useRoar(attacker, defender, texts)
+  texts = texts or {}
+  local b = self.battle
+  if not b or not defender then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  if self:hasAbility(defender, Game3.ABILITY_SUCTION_CUPS) then
+    texts[#texts + 1] = ("%s anchors itself with %s!"):format(
+      defender.name, Game3.abilityName(Game3.ABILITY_SUCTION_CUPS))
+    return texts
+  end
+  if defender.rooted then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  if not b.isTrainer then
+    local atkLv, defLv = attacker.level or 1, defender.level or 1
+    if atkLv < defLv then
+      local random = self:gbaRandom() % 256
+      local rolled = math.floor(random * (atkLv + defLv) / 256) + 1
+      if rolled <= math.floor(defLv / 4) then
+        texts[#texts + 1] = "But it failed!"
+        return texts
+      end
+    end
+    b.fled = true
+    b.forcedOut = true
+    return texts
+  end
+  local incoming
+  if self:isPlayerBattler(defender) then
+    local cands = {}
+    local party = self.party or {}
+    for i = 1, #party do
+      local mon = party[i]
+      if Game3.aliveMon(mon) and mon ~= b.player and mon ~= b.player2
+          and not mon.isEgg then
+        cands[#cands + 1] = i
+      end
+    end
+    if #cands < 1 then
+      texts[#texts + 1] = "But it failed!"
+      return texts
+    end
+    local idx = cands[self:rand(#cands)]
+    incoming = party[idx]
+    b.switchSlot = defender == b.player2 and "player2" or "player"
+    local ok, _, extra = self:switchTo(idx)
+    if not ok then
+      texts[#texts + 1] = "But it failed!"
+      return texts
+    end
+    texts[#texts + 1] = ("%s was dragged out!"):format(incoming.name)
+    for i = 1, #(extra or {}) do texts[#texts + 1] = extra[i] end
+    return texts
+  end
+  local cands = {}
+  local bench = b.phazed or {}
+  for i = 1, #bench do
+    if Game3.aliveMon(bench[i]) and bench[i] ~= defender then
+      cands[#cands + 1] = { bench = i }
+    end
+  end
+  local party = b.trainerParty or {}
+  local nextIdx = (b.trainerIndex or 1) + 1
+  if nextIdx <= #party then
+    cands[#cands + 1] = { trainer = nextIdx }
+  end
+  if #cands < 1 then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  local pick = cands[self:rand(#cands)]
+  if pick.trainer then
+    incoming = self:prepBattler(self:makeTrainerMon(party[pick.trainer]))
+    b.trainerIndex = pick.trainer
+  else
+    incoming = table.remove(bench, pick.bench)
+    incoming = self:prepBattler(incoming)
+  end
+  if not incoming then
+    texts[#texts + 1] = "But it failed!"
+    return texts
+  end
+  b.phazed = bench
+  bench[#bench + 1] = defender
+  local slot = self:slotOfBattler(defender) or "enemy"
+  b[slot] = incoming
+  self:markSeen(incoming.species)
+  self:markSentIn(incoming)
+  texts[#texts + 1] = ("%s was dragged out!"):format(incoming.name)
+  local foe = Game3.aliveMon(b.player) and b.player or b.player2
+  if foe then
+    local extra = self:activateEnter(incoming, foe)
+    for i = 1, #extra do texts[#texts + 1] = extra[i] end
+  end
+  return texts
+end
+
 function Game3:noteBideHit(defender, attacker, dmg)
   if defender and defender.bideTurns and (dmg or 0) > 0 then
     defender.bideTaken = (defender.bideTaken or 0) + dmg
@@ -12785,6 +25291,8 @@ function Game3:cancelMultiTurn(mon)
   mon.bideTurns = nil
   mon.bideTaken = nil
   mon.bideFrom = nil
+  mon.uproarTurns = nil
+  mon.uproarMove = nil
 end
 
 -- pokeruby setbide / BattleScript_Bide*: two stored turns, then 2x HP.
@@ -12885,6 +25393,11 @@ function Game3:useOhko(attacker, defender, move, texts)
     texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
     return texts
   end
+  if self:hasAbility(defender, Game3.ABILITY_STURDY) then
+    texts[#texts + 1] = ("%s was protected by %s!"):format(
+      defender.name, Game3.abilityName(Game3.ABILITY_STURDY))
+    return texts
+  end
   local chance = Game3.ohkoChance(attacker.level, defender.level)
   if chance < 1 then
     texts[#texts + 1] = "But it failed!"
@@ -12895,6 +25408,7 @@ function Game3:useOhko(attacker, defender, move, texts)
     return texts
   end
   defender.hp = 0
+  self:notePlayerDamaged(defender, 1)
   self:maybeFaintFriendship(defender, attacker)
   texts[#texts + 1] = "It's a one-hit KO!"
   texts[#texts + 1] = ("%s fainted!"):format(defender.name)
@@ -12927,6 +25441,87 @@ function Game3:fieldHasSport(key)
   return false
 end
 
+function Game3:battlers()
+  local b = self.battle
+  if not b then return {} end
+  local out = {}
+  if b.player then out[#out + 1] = b.player end
+  if b.player2 then out[#out + 1] = b.player2 end
+  if b.enemy then out[#out + 1] = b.enemy end
+  if b.enemy2 then out[#out + 1] = b.enemy2 end
+  return out
+end
+
+-- Plus / Minus: AbilityBattleEffects(ABILITYEFFECT_FIELD_SPORT).
+-- Fainted battlers still count.
+function Game3:fieldHasAbility(id)
+  local mons = self:battlers()
+  for i = 1, #mons do
+    if self:hasAbility(mons[i], id) then return true end
+  end
+  return false
+end
+
+function Game3:fieldHasUproar()
+  local mons = self:battlers()
+  for i = 1, #mons do
+    if mons[i] and (mons[i].uproarTurns or 0) > 0 then return true end
+  end
+  return false
+end
+
+function Game3:battlerWithAbility(id)
+  local mons = self:battlers()
+  for i = 1, #mons do
+    if self:hasAbility(mons[i], id) then return mons[i] end
+  end
+end
+
+function Game3:countAbilityExcept(except, id)
+  local n = 0
+  local mons = self:battlers()
+  for i = 1, #mons do
+    if mons[i] and mons[i] ~= except and self:hasAbility(mons[i], id) then
+      n = n + 1
+    end
+  end
+  return n
+end
+
+function Game3:countAbilityOpponents(attacker, id)
+  local n = 0
+  local foes = self:foesOf(attacker)
+  for i = 1, #foes do
+    if self:hasAbility(foes[i], id) then n = n + 1 end
+  end
+  return n
+end
+
+function Game3.isSoundMove(move)
+  local id = type(move) == "table" and (move.id or 0) or (move or 0)
+  return Game3.SOUND_MOVES[id] == true
+end
+
+-- pokeruby atk03_ppreduce + Pressure.
+function Game3:pressurePpCost(attacker, defender, move)
+  local n = 1
+  local t = (move and move.target) or 0
+  if t == Game3.TARGET_FOES_AND_ALLY then
+    n = n + self:countAbilityExcept(attacker, Game3.ABILITY_PRESSURE)
+  elseif t == Game3.TARGET_BOTH or t == Game3.TARGET_OPPONENTS_FIELD then
+    n = n + self:countAbilityOpponents(attacker, Game3.ABILITY_PRESSURE)
+  elseif attacker ~= defender
+      and self:hasAbility(defender, Game3.ABILITY_PRESSURE) then
+    n = n + 1
+  end
+  -- PressurePPLoseOnUsingPerishSong: +1 per other Pressure (TARGET_USER
+  -- skips the defender branch above). Deducted even if the move fails.
+  if self:moveEffect(move) == Game3.EFFECT_PERISH_SONG then
+    n = n + self:countAbilityExcept(attacker, Game3.ABILITY_PRESSURE)
+  end
+  return n
+end
+
 function Game3.weatherStartText(kind)
   if kind == Game3.WEATHER_RAIN then return "It started to rain!" end
   if kind == Game3.WEATHER_SUN then return "The sunlight turned harsh!" end
@@ -12943,6 +25538,98 @@ function Game3.weatherEndText(kind)
   return "The weather cleared."
 end
 
+function Game3:restoreSpeciesTypes(mon)
+  if not mon then return end
+  local row = self:speciesRow(mon.species) or {}
+  if row.type1 == nil then return end
+  mon.type1 = row.type1
+  mon.type2 = row.type2 or row.type1
+end
+
+function Game3:restorePartySpeciesTypes()
+  local party = self.party
+  if type(party) ~= "table" then return end
+  for i = 1, #party do
+    self:restoreSpeciesTypes(party[i])
+  end
+end
+
+-- pokeruby CastformDataTypeChange. Form ids: 0 none, 1 Normal, 2 Fire,
+-- 3 Water, 4 Ice. Cloud Nine / Air Lock revert a transformed Castform.
+-- Sandstorm is not a Forecast weather, so it also reverts.
+function Game3:castformDataTypeChange(mon)
+  if not mon then return Game3.CASTFORM_NO_CHANGE end
+  if mon.species ~= Game3.SPECIES_CASTFORM then return Game3.CASTFORM_NO_CHANGE end
+  if not self:hasAbility(mon, Game3.ABILITY_FORECAST) then
+    return Game3.CASTFORM_NO_CHANGE
+  end
+  if (mon.hp or 0) == 0 then return Game3.CASTFORM_NO_CHANGE end
+  local t1, t2 = mon.type1, mon.type2
+  if self:weatherSuppressed() then
+    if t1 ~= Game3.TYPE_NORMAL and t2 ~= Game3.TYPE_NORMAL then
+      mon.type1, mon.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+      return Game3.CASTFORM_TO_NORMAL
+    end
+    return Game3.CASTFORM_NO_CHANGE
+  end
+  local w = self.battle and self.battle.weather
+  local formChange = Game3.CASTFORM_NO_CHANGE
+  local weatherForm = w == Game3.WEATHER_RAIN
+    or w == Game3.WEATHER_SUN
+    or w == Game3.WEATHER_HAIL
+  if not weatherForm and t1 ~= Game3.TYPE_NORMAL and t2 ~= Game3.TYPE_NORMAL then
+    mon.type1, mon.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+    formChange = Game3.CASTFORM_TO_NORMAL
+  end
+  if w == Game3.WEATHER_SUN and t1 ~= Game3.TYPE_FIRE and t2 ~= Game3.TYPE_FIRE then
+    mon.type1, mon.type2 = Game3.TYPE_FIRE, Game3.TYPE_FIRE
+    formChange = Game3.CASTFORM_TO_FIRE
+  end
+  if w == Game3.WEATHER_RAIN and t1 ~= Game3.TYPE_WATER and t2 ~= Game3.TYPE_WATER then
+    mon.type1, mon.type2 = Game3.TYPE_WATER, Game3.TYPE_WATER
+    formChange = Game3.CASTFORM_TO_WATER
+  end
+  if w == Game3.WEATHER_HAIL and t1 ~= Game3.TYPE_ICE and t2 ~= Game3.TYPE_ICE then
+    mon.type1, mon.type2 = Game3.TYPE_ICE, Game3.TYPE_ICE
+    formChange = Game3.CASTFORM_TO_ICE
+  end
+  return formChange
+end
+
+function Game3:applyCastformChange(mon)
+  local form = self:castformDataTypeChange(mon)
+  if form == Game3.CASTFORM_NO_CHANGE then return nil end
+  return ("%s transformed!"):format(mon.name)
+end
+
+function Game3:tryForecastForms()
+  local texts = {}
+  local b = self.battle
+  if not b then return texts end
+  local mons = { b.player, b.player2, b.enemy, b.enemy2 }
+  for i = 1, 4 do
+    local line = self:applyCastformChange(mons[i])
+    if line then texts[#texts + 1] = line end
+  end
+  return texts
+end
+
+-- atkE9_setweatherballtype: type follows weather; any weather doubles.
+function Game3:weatherBallType()
+  if not self:weatherBallBoosts() then return Game3.TYPE_NORMAL end
+  local w = self.battle and self.battle.weather
+  if w == Game3.WEATHER_RAIN then return Game3.TYPE_WATER end
+  if w == Game3.WEATHER_SAND then return Game3.TYPE_ROCK end
+  if w == Game3.WEATHER_SUN then return Game3.TYPE_FIRE end
+  if w == Game3.WEATHER_HAIL then return Game3.TYPE_ICE end
+  return Game3.TYPE_NORMAL
+end
+
+function Game3:weatherBallBoosts()
+  if self:weatherSuppressed() then return false end
+  return (self.battle and self.battle.weather) ~= nil
+end
+
 function Game3:setWeather(kind, turns)
   local b = self.battle
   if not b or not kind then return false, "But it failed!" end
@@ -12950,6 +25637,76 @@ function Game3:setWeather(kind, turns)
   b.weather = kind
   b.weatherTurns = turns
   return true, Game3.weatherStartText(kind)
+end
+
+function Game3:screenSide(mon)
+  return self:isPlayerBattler(mon) and "player" or "enemy"
+end
+
+function Game3:sideAliveCount(mon)
+  local b = self.battle
+  if not b then return 1 end
+  local a, c
+  if self:isPlayerBattler(mon) then
+    a, c = b.player, b.player2
+  else
+    a, c = b.enemy, b.enemy2
+  end
+  local n = 0
+  if Game3.aliveMon(a) then n = n + 1 end
+  if Game3.aliveMon(c) then n = n + 1 end
+  return n
+end
+
+-- calculate_base_damage.c: screens halve (2/3 in doubles when both
+-- defenders are up). Crits (gCritMultiplier == 2) skip them.
+function Game3:screenDamageMul(defender, physical)
+  local b = self.battle
+  local row = b and b.screens and b.screens[self:screenSide(defender)]
+  if type(row) ~= "table" then return 10 end
+  local kind = physical and "reflect" or "lightScreen"
+  if (row[kind] or 0) < 1 then return 10 end
+  if b.doubles and self:sideAliveCount(defender) >= 2 then return 20 / 3 end
+  return 5
+end
+
+function Game3:setSideScreen(mon, kind)
+  local b = self.battle
+  if not (b and mon and kind) then return "But it failed!" end
+  b.screens = b.screens or {}
+  local side = self:screenSide(mon)
+  local row = b.screens[side] or {}
+  b.screens[side] = row
+  if (row[kind] or 0) > 0 then return "But it failed!" end
+  row[kind] = Game3.SCREEN_TURNS
+  if kind == "lightScreen" then return "LIGHT SCREEN raised SP. DEF!" end
+  return "REFLECT raised DEFENSE!"
+end
+
+function Game3:tickScreens()
+  local b = self.battle
+  local screens = b and b.screens
+  if type(screens) ~= "table" then return {} end
+  local texts = {}
+  local sides = { "player", "enemy" }
+  local kinds = { "reflect", "lightScreen" }
+  for s = 1, #sides do
+    local row = screens[sides[s]]
+    if type(row) == "table" then
+      for k = 1, #kinds do
+        local kind = kinds[k]
+        if (row[kind] or 0) > 0 then
+          row[kind] = row[kind] - 1
+          if row[kind] <= 0 then
+            row[kind] = nil
+            local name = kind == "reflect" and "REFLECT" or "LIGHT SCREEN"
+            texts[#texts + 1] = ("%s wore off!"):format(name)
+          end
+        end
+      end
+    end
+  end
+  return texts
 end
 
 function Game3:weatherKindForEffect(effect)
@@ -13029,6 +25786,8 @@ function Game3:tickWeather()
       texts[#texts + 1] = Game3.weatherEndText(b.weather)
       b.weather = nil
       b.weatherTurns = nil
+      local extra = self:tryForecastForms()
+      for i = 1, #extra do texts[#texts + 1] = extra[i] end
     end
   end
   return texts
@@ -13066,6 +25825,7 @@ function Game3:activateEnter(mon, foe)
   local texts = {}
   if not mon or not foe then return texts end
   mon.truant = nil
+  mon.isFirstTurn = 2
   if self:hasAbility(mon, Game3.ABILITY_TRACE) and (foe.ability or 0) > 0
       and foe.ability ~= Game3.ABILITY_TRACE then
     mon.ability = foe.ability
@@ -13073,15 +25833,62 @@ function Game3:activateEnter(mon, foe)
       mon.name, foe.name, Game3.abilityName(mon.ability))
   end
   if self:hasAbility(mon, Game3.ABILITY_INTIMIDATE) then
+    local before = foe.stages and foe.stages.atk or 0
     texts[#texts + 1] = self:dropStat(foe, "atk", "ATTACK")
-    if not self:blocksStatDrop(foe, "atk") then
+    local after = foe.stages and foe.stages.atk or 0
+    if after < before then
       texts[#texts] = ("%s's INTIMIDATE cuts %s's ATTACK!"):format(
         mon.name, foe.name)
     end
   end
   local weather = self:tryWeatherAbility(mon)
   if weather then texts[#texts + 1] = weather end
+  local extra = self:tryForecastForms()
+  for i = 1, #extra do texts[#texts + 1] = extra[i] end
+  -- ABILITYEFFECT_IMMUNITY after Trace / switch-in abilities.
+  local cured = self:abilityImmunityCure(mon)
+  if cured then texts[#texts + 1] = cured end
   return texts
+end
+
+-- AbilityBattleEffects(ABILITYEFFECT_IMMUNITY). English BattleText_* names
+-- (poison / sleep / paralysis / burn / ice / confusion / love).
+function Game3:abilityImmunityCure(mon)
+  if not mon then return nil end
+  local problem
+  if self:hasAbility(mon, Game3.ABILITY_IMMUNITY)
+      and mon.status == Game3.STATUS_PSN then
+    problem = "poison"
+    mon.status = nil
+  elseif self:hasAbility(mon, Game3.ABILITY_OWN_TEMPO)
+      and (mon.confuseTurns or 0) > 0 then
+    problem = "confusion"
+    mon.confuseTurns = nil
+  elseif self:hasAbility(mon, Game3.ABILITY_LIMBER)
+      and mon.status == Game3.STATUS_PAR then
+    problem = "paralysis"
+    mon.status = nil
+  elseif (self:hasAbility(mon, Game3.ABILITY_INSOMNIA)
+        or self:hasAbility(mon, Game3.ABILITY_VITAL_SPIRIT))
+      and mon.status == Game3.STATUS_SLP then
+    problem = "sleep"
+    mon.status = nil
+    mon.sleepTurns = nil
+  elseif self:hasAbility(mon, Game3.ABILITY_WATER_VEIL)
+      and mon.status == Game3.STATUS_BRN then
+    problem = "burn"
+    mon.status = nil
+  elseif self:hasAbility(mon, Game3.ABILITY_MAGMA_ARMOR)
+      and mon.status == Game3.STATUS_FRZ then
+    problem = "ice"
+    mon.status = nil
+  elseif self:hasAbility(mon, Game3.ABILITY_OBLIVIOUS) and mon.infatuatedBy then
+    problem = "love"
+    mon.infatuatedBy = nil
+  end
+  if not problem then return nil end
+  return ("%s's %s cured its %s problem!"):format(
+    mon.name, Game3.abilityName(mon.ability), problem)
 end
 
 function Game3:trySynchronize(from, to, status)
@@ -13191,6 +25998,16 @@ function Game3:onContact(attacker, defender, texts)
     texts[#texts + 1] = ("%s was hurt by %s's %s!"):format(
       attacker.name, defender.name, Game3.abilityName(Game3.ABILITY_ROUGH_SKIN))
   end
+  if (attacker.hp or 0) <= 0 then return end
+  if self:hasAbility(defender, Game3.ABILITY_EFFECT_SPORE)
+      and (self:gbaRandom() % 10) == 0 then
+    local pick = self:rand(3)
+    local status = Game3.STATUS_PSN
+    if pick == 2 then status = Game3.STATUS_PAR
+    elseif pick == 3 then status = Game3.STATUS_SLP end
+    local line = self:applyStatus(attacker, status)
+    if line then texts[#texts + 1] = line end
+  end
   local function proc(ability, status)
     if self:hasAbility(defender, ability) and self:rand(100) <= 30 then
       local line = self:applyStatus(attacker, status)
@@ -13200,12 +26017,51 @@ function Game3:onContact(attacker, defender, texts)
   proc(Game3.ABILITY_STATIC, Game3.STATUS_PAR)
   proc(Game3.ABILITY_FLAME_BODY, Game3.STATUS_BRN)
   proc(Game3.ABILITY_POISON_POINT, Game3.STATUS_PSN)
+  if self:hasAbility(defender, Game3.ABILITY_CUTE_CHARM)
+      and (defender.hp or 0) > 0
+      and (self:gbaRandom() % 3) == 0
+      and not self:hasAbility(attacker, Game3.ABILITY_OBLIVIOUS)
+      and not attacker.infatuatedBy then
+    local ag, dg = self:monGender(attacker), self:monGender(defender)
+    if ag ~= dg and ag ~= Game3.MON_GENDERLESS
+        and dg ~= Game3.MON_GENDERLESS then
+      attacker.infatuatedBy = defender
+      texts[#texts + 1] = ("%s's %s infatuated %s!"):format(
+        defender.name, Game3.abilityName(Game3.ABILITY_CUTE_CHARM),
+        attacker.name)
+    end
+  end
+end
+
+-- pokeruby AbilityBattleEffects(ABILITYEFFECT_CONTACT) Color Change.
+-- Lives in the CONTACT case but does not check F_MAKES_CONTACT: any
+-- damaging hit that is not Struggle, not no-effect, not already that
+-- type, and leaves the defender standing.
+function Game3:tryColorChange(attacker, defender, move, texts)
+  if not defender or not move or type(texts) ~= "table" then return end
+  if not self:hasAbility(defender, Game3.ABILITY_COLOR_CHANGE) then return end
+  if (move.id or 0) == Game3.MOVE_STRUGGLE then return end
+  if (move.power or 0) == 0 then return end
+  if (defender.hp or 0) == 0 then return end
+  local moveType = self:attackType(attacker, move)
+  if (defender.type1 or 0) == moveType then return end
+  if (defender.type2 or 0) == moveType then return end
+  defender.type1 = moveType
+  defender.type2 = moveType
+  texts[#texts + 1] = ("%s's %s made it the %s type!"):format(
+    defender.name,
+    Game3.abilityName(Game3.ABILITY_COLOR_CHANGE),
+    Game3.typeName(moveType))
 end
 
 function Game3:useMove(attacker, defender, move, extra)
   local texts = extra and {}
     or { ("%s used %s!"):format(attacker.name, move.name or "TACKLE") }
-  local effect = move.effect or 0
+  if self:isPlayerBattler(attacker) then
+    local r = self.battleResults
+    if r then r.lastUsedMove = tonumber(move and move.id) or 0 end
+  end
+  local effect = self:moveEffect(move)
   local power = move.power or 0
   local finishing = attacker.charging ~= nil
   if not extra then
@@ -13215,8 +26071,9 @@ function Game3:useMove(attacker, defender, move, extra)
         attacker.charging = nil
         attacker.invuln = nil
       end
-    else
-      move.pp = math.max(0, (move.pp or 1) - 1)
+    elseif (attacker.uproarTurns or 0) < 1 then
+      move.pp = math.max(0, (move.pp or 1) - self:pressurePpCost(
+        attacker, defender, move))
       if effect ~= Game3.EFFECT_PROTECT and effect ~= Game3.EFFECT_ENDURE then
         attacker.protectStreak = 0
       end
@@ -13231,10 +26088,31 @@ function Game3:useMove(attacker, defender, move, extra)
     if effect == Game3.EFFECT_REST then
       return self:useRest(attacker, texts)
     end
+    if effect == Game3.EFFECT_HEAL_BELL then
+      return self:useHealBell(attacker, move, texts)
+    end
+    if effect == Game3.EFFECT_PERISH_SONG then
+      return self:usePerishSong(attacker, move, texts)
+    end
+    if effect == Game3.EFFECT_INGRAIN then
+      return self:useIngrain(attacker, texts)
+    end
     local kind = self:weatherKindForEffect(effect)
     if kind then
       local ok, msg = self:setWeather(kind, Game3.WEATHER_TURNS)
       texts[#texts + 1] = msg
+      if ok then
+        local extra = self:tryForecastForms()
+        for i = 1, #extra do texts[#texts + 1] = extra[i] end
+      end
+      return texts
+    end
+    if effect == Game3.EFFECT_LIGHT_SCREEN then
+      texts[#texts + 1] = self:setSideScreen(attacker, "lightScreen")
+      return texts
+    end
+    if effect == Game3.EFFECT_REFLECT then
+      texts[#texts + 1] = self:setSideScreen(attacker, "reflect")
       return texts
     end
     if effect == Game3.EFFECT_MUD_SPORT
@@ -13279,18 +26157,71 @@ function Game3:useMove(attacker, defender, move, extra)
       end
     end
   end
-  if not defender then return texts end
+  local function noteUserFaint()
+    if (attacker.hp or 0) > 0 then return end
+    local line = ("%s fainted!"):format(attacker.name)
+    for i = 1, #texts do
+      if texts[i] == line then return end
+    end
+    texts[#texts + 1] = line
+  end
+  if effect == Game3.EFFECT_EXPLOSION then
+    local damp = self:battlerWithAbility(Game3.ABILITY_DAMP)
+    if damp then
+      if not extra then
+        texts[#texts + 1] = ("%s's %s prevents %s from using %s!"):format(
+          damp.name, Game3.abilityName(Game3.ABILITY_DAMP),
+          attacker.name, move.name or "EXPLOSION")
+      end
+      return texts
+    end
+    if not extra then attacker.hp = 0 end
+  end
+  if not defender then
+    noteUserFaint()
+    return texts
+  end
+  if Game3.isSoundMove(move)
+      and self:hasAbility(defender, Game3.ABILITY_SOUNDPROOF) then
+    texts[#texts + 1] = ("%s's %s blocks %s!"):format(
+      defender.name, Game3.abilityName(Game3.ABILITY_SOUNDPROOF),
+      move.name or "the attack")
+    noteUserFaint()
+    return texts
+  end
   if effect == Game3.EFFECT_NATURE_POWER then
     return self:useNaturePower(attacker, defender, texts)
   end
   if defender.protected then
     self:armRage(attacker, effect, false)
     texts[#texts + 1] = ("%s protected itself!"):format(defender.name)
+    noteUserFaint()
     return texts
+  end
+  if effect == Game3.EFFECT_ROAR then
+    if self:hasAbility(defender, Game3.ABILITY_SUCTION_CUPS) then
+      texts[#texts + 1] = ("%s anchors itself with %s!"):format(
+        defender.name, Game3.abilityName(Game3.ABILITY_SUCTION_CUPS))
+      return texts
+    end
+    if defender.rooted then
+      texts[#texts + 1] = "But it failed!"
+      return texts
+    end
+  end
+  -- BattleScript_EffectEndeavor: setdamagetohealthdifference before
+  -- accuracycheck (so Fly / Dig is a miss only when the HP check passes).
+  if effect == Game3.EFFECT_ENDEAVOR then
+    if (defender.hp or 0) <= (attacker.hp or 0) then
+      self:armRage(attacker, effect, false)
+      texts[#texts + 1] = "But it failed!"
+      return texts
+    end
   end
   if defender.invuln and not self:hitsInvuln(move, defender.invuln) then
     self:armRage(attacker, effect, false)
     texts[#texts + 1] = "The attack missed!"
+    noteUserFaint()
     return texts
   end
   if effect ~= Game3.EFFECT_OHKO then
@@ -13303,6 +26234,7 @@ function Game3:useMove(attacker, defender, move, extra)
       else
         texts[#texts + 1] = "The attack missed!"
       end
+      noteUserFaint()
       return texts
     end
   end
@@ -13334,6 +26266,12 @@ function Game3:useMove(attacker, defender, move, extra)
   end
   if effect == Game3.EFFECT_FORESIGHT then
     return self:useForesight(attacker, defender, texts)
+  end
+  if effect == Game3.EFFECT_ATTRACT then
+    return self:useAttract(attacker, defender, texts)
+  end
+  if effect == Game3.EFFECT_ROAR then
+    return self:useRoar(attacker, defender, texts)
   end
   if power > 0 then
     local hits = self:hitCountFor(effect)
@@ -13386,7 +26324,15 @@ function Game3:useMove(attacker, defender, move, extra)
         attacker.hp = math.max(0, (attacker.hp or 0) - recoil)
         texts[#texts + 1] = ("%s is hit with recoil!"):format(attacker.name)
       end
+      if effect == Game3.EFFECT_OVERHEAT then
+        texts[#texts + 1] = self:dropStat(attacker, "spa", "SP. ATK", 2, true)
+      end
       self:tickRage(defender, total, texts)
+      if effect == Game3.EFFECT_UPROAR and not attacker.uproarTurns then
+        attacker.uproarTurns = (self:gbaRandom() % 4) + 2
+        attacker.uproarMove = move
+        texts[#texts + 1] = ("%s caused an UPROAR!"):format(attacker.name)
+      end
     end
   elseif Game3.statDownSpec(effect) then
     return self:useStatDownMove(defender, move, effect, texts)
@@ -13409,6 +26355,7 @@ function Game3:useMove(attacker, defender, move, extra)
   end
   if hit and (defender.hp or 0) > 0 then
     self:applyHitSecondaries(attacker, defender, move, effect, texts)
+    self:tryColorChange(attacker, defender, move, texts)
   end
   if hit and Game3.isContact(move) then
     self:onContact(attacker, defender, texts)
@@ -13423,6 +26370,9 @@ function Game3:useMove(attacker, defender, move, extra)
 end
 
 function Game3:pickEnemyMove(mon)
+  if mon and (mon.uproarTurns or 0) > 0 and mon.uproarMove then
+    return mon.uproarMove
+  end
   if mon and mon.charging and mon.charging.move then
     return mon.charging.move
   end
@@ -13512,6 +26462,9 @@ function Game3:beginTurn(playerMove, chosen)
       mon.flinch = nil
       mon.protected = nil
       mon.endured = nil
+      if type(mon.isFirstTurn) == "number" and mon.isFirstTurn > 0 then
+        mon.isFirstTurn = mon.isFirstTurn - 1
+      end
     end
   end
   local turnRoll = self:rand(65536) - 1
@@ -13527,6 +26480,9 @@ function Game3:beginTurn(playerMove, chosen)
     }
   end
   local function moveFor(mon)
+    if (mon.uproarTurns or 0) > 0 and mon.uproarMove then
+      return mon.uproarMove, chosen
+    end
     if mon == lead then return playerMove, chosen end
     if mon == b.player and b.pendingMove then
       return b.pendingMove, b.pendingTarget
@@ -13595,8 +26551,9 @@ function Game3:beginTurn(playerMove, chosen)
       return
     end
     move.spreadHits = #targets > 1
+    local exploding = self:moveEffect(move) == Game3.EFFECT_EXPLOSION
     for i = 1, #targets do
-      if (attacker.hp or 0) <= 0 then break end
+      if (attacker.hp or 0) <= 0 and not exploding then break end
       if Game3.aliveMon(targets[i]) then
         local texts = self:useMove(attacker, targets[i], move, i > 1)
         for j = 1, #texts do queue[#queue + 1] = texts[j] end
@@ -13618,11 +26575,19 @@ function Game3:beginTurn(playerMove, chosen)
   if not b.fled then
     local function residual(mon)
       if not mon then return end
-      local texts = self:leechSeedResidual(mon)
+      local texts = self:ingrainResidual(mon)
+      for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      texts = self:leechSeedResidual(mon)
       for i = 1, #texts do queue[#queue + 1] = texts[i] end
       texts = self:statusResidual(mon)
       for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      texts = self:speedBoostResidual(mon)
+      for i = 1, #texts do queue[#queue + 1] = texts[i] end
       texts = self:tickHeldItem(mon)
+      for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      texts = self:uproarResidual(mon)
+      for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      texts = self:perishSongResidual(mon)
       for i = 1, #texts do queue[#queue + 1] = texts[i] end
     end
     residual(b.player)
@@ -13631,6 +26596,8 @@ function Game3:beginTurn(playerMove, chosen)
     residual(b.enemy2)
     local wtexts = self:tickWeather()
     for i = 1, #wtexts do queue[#queue + 1] = wtexts[i] end
+    local stexts = self:tickScreens()
+    for i = 1, #stexts do queue[#queue + 1] = stexts[i] end
     local function awardFoe(foe)
       if not foe or (foe.hp or 0) > 0 or foe.expPaid then return end
       local winner = Game3.aliveMon(b.player) and b.player
@@ -13643,6 +26610,7 @@ function Game3:beginTurn(playerMove, chosen)
     awardFoe(b.enemy)
     awardFoe(b.enemy2)
   end
+  self:tickMist()
   b.turns = (b.turns or 0) + 1
   b.queue = queue
   b.qi = 1
@@ -13671,16 +26639,36 @@ end
 function Game3:afterBattleMessages()
   local b = self.battle
   if self:startPendingLearn() then return end
-  if self:startPendingEvolve() then return end
   if b.pickupDone then
     self:endBattle()
     return
   end
   if b.fled then
+    local outcome = Game3.B_OUTCOME_RAN
+    if b.safari then
+      outcome = Game3.B_OUTCOME_MON_FLED
+    elseif b.forcedOut then
+      outcome = Game3.B_OUTCOME_PLAYER_TELEPORTED
+    end
+    self:recordBattleEnd(outcome)
+    self:endBattle()
+    return
+  end
+  if b.safariOver then
     self:endBattle()
     return
   end
   if b.caught then
+    if b.showDexEntry then
+      local species = b.showDexEntry
+      b.showDexEntry = nil
+      self:openDexEntry(species, { fromCatch = true })
+      return
+    end
+    if b.askCaughtNick then
+      self:openCaughtNickAsk()
+      return
+    end
     self:finishBattle()
   elseif (not Game3.aliveMon(b.enemy) and not Game3.aliveMon(b.enemy2))
       or (b.doubles and (not Game3.aliveMon(b.enemy) or not Game3.aliveMon(b.enemy2))) then
@@ -13700,6 +26688,7 @@ function Game3:afterBattleMessages()
         self:afterFaintContinue()
       end
     elseif noEnemies then
+      self:recordBattleEnd(Game3.B_OUTCOME_WON)
       self:finishBattle()
     else
       self:afterFaintContinue()
@@ -13720,11 +26709,38 @@ function Game3:stepBattle(dt)
     b.animT = b.animT - dt
     if b.animT < 0 then b.animT = 0 end
   end
+  if b.catchAnim then
+    b.catchAnim.t = (b.catchAnim.t or 0) + dt
+  end
+  if b.kind == "dex_entry" then
+    self:stepDexEntry(b)
+    return
+  end
+  if b.kind == "catch_nick" then
+    self:stepPrinter(b, dt)
+    if Input:wasPressed("up") or Input:wasPressed("down") then
+      b.cursor = 1 - (b.cursor or 0)
+    elseif Input:wasPressed("a") then
+      if self:printerBusy(b) then
+        self:printerFinish(b)
+        return
+      end
+      self:answerCaughtNick((b.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      if self:printerBusy(b) then
+        self:printerFinish(b)
+        return
+      end
+      self:answerCaughtNick(false)
+    end
+    return
+  end
   if b.kind == "intro" or b.kind == "menu_msg" or b.kind == "text"
       or b.kind == "ran" or b.kind == "won_trainer" or b.kind == "blackout"
       or b.kind == "switch_ask" or b.kind == "evolve"
       or b.kind == "learn_yesno" or b.kind == "learn_stop"
-      or b.kind == "learn_msg" or b.kind == "learn_forget" then
+      or b.kind == "learn_msg" or b.kind == "learn_forget"
+      or b.kind == "catch_nick" then
     self:stepPrinter(b, dt)
   end
   if b.kind == "evolve" then
@@ -13845,15 +26861,25 @@ function Game3:stepBattle(dt)
     elseif Input:wasPressed("down") or Input:wasPressed("up") then
       b.cursor = (b.cursor + 2) % 4
     elseif Input:wasPressed("a") then
-      if b.cursor == 0 then
+      if b.safari then
+        if b.cursor == 0 then
+          self:throwBall(Game3.ITEM_SAFARI_BALL)
+        elseif b.cursor == 1 then
+          self:safariThrowPokeblock(0)
+        elseif b.cursor == 2 then
+          self:safariGoNear()
+        elseif b.cursor == 3 then
+          b.text = "Got away safely!"
+          b.kind = "ran"
+        end
+      elseif b.cursor == 0 then
         b.kind = "fight"
-        b.fightCursor = 0
       elseif b.cursor == 1 then
-        b.kind = "bag"
-        b.bagCursor = 0
+        self:openBattleBag()
       elseif b.cursor == 2 then
         b.kind = "party"
         b.partyCursor = 0
+        b.itemUse = nil
       elseif b.cursor == 3 then
         if b.isTrainer or b.chase or b.wallyTutorial then
           b.text = (b.chase or b.wallyTutorial)
@@ -13869,11 +26895,23 @@ function Game3:stepBattle(dt)
     return
   end
   if b.kind == "bag" then
-    local list = self:battleBagList()
-    local n = #list
-    if n < 1 then n = 1 end
+    local pocket = b.bagPocket or self.lastBagPocket or self:firstFilledPocket()
+    if pocket < Game3.POCKET_ITEMS then pocket = Game3.POCKET_ITEMS end
+    if pocket > Game3.POCKET_KEY then pocket = Game3.POCKET_KEY end
+    b.bagPocket = pocket
+    self.lastBagPocket = pocket
+    local list = self:bagSlotsIn(pocket)
+    local n = #list + 1
     if Input:wasPressed("b") then
       b.kind = "menu"
+    elseif Input:wasPressed("right") then
+      b.bagPocket = Game3.wrapPocket(pocket, 1)
+      b.bagCursor = 0
+      self.lastBagPocket = b.bagPocket
+    elseif Input:wasPressed("left") then
+      b.bagPocket = Game3.wrapPocket(pocket, -1)
+      b.bagCursor = 0
+      self.lastBagPocket = b.bagPocket
     elseif Input:wasPressed("down") then
       b.bagCursor = ((b.bagCursor or 0) + 1) % n
     elseif Input:wasPressed("up") then
@@ -13882,8 +26920,11 @@ function Game3:stepBattle(dt)
     elseif Input:wasPressed("a") then
       local slot = list[(b.bagCursor or 0) + 1]
       if not slot then
-        b.text = "The BAG is empty."
-        b.kind = "menu_msg"
+        b.kind = "menu"
+      elseif Game3.needsBattleParty(slot.id) then
+        b.kind = "party"
+        b.itemUse = slot.id
+        b.partyCursor = 0
       else
         self:useBattleItem(slot.id)
       end
@@ -13896,6 +26937,9 @@ function Game3:stepBattle(dt)
     if Input:wasPressed("b") then
       if b.mustSwitch then
         return
+      elseif b.itemUse then
+        b.itemUse = nil
+        b.kind = "bag"
       elseif b.shiftSwitch then
         b.shiftSwitch = false
         self:sendTrainerReplacement()
@@ -13908,8 +26952,34 @@ function Game3:stepBattle(dt)
       b.partyCursor = ((b.partyCursor or 0) - 1) % n
       if b.partyCursor < 0 then b.partyCursor = n - 1 end
     elseif Input:wasPressed("a") then
+      if b.itemUse and not b.mustSwitch then
+        local party = self.party or {}
+        local index = (b.partyCursor or 0) + 1
+        local target = party[index]
+        if target and target.isEgg then
+          self:failBattleItem("It won't have any effect.")
+          b.partyMsg = true
+          return
+        end
+        if Game3.needsMovePick(b.itemUse) then
+          b.kind = "item_pp"
+          b.ppIndex = index
+          b.ppCursor = 0
+          return
+        end
+        if self:useBattleItem(b.itemUse, target) then
+          b.itemUse = nil
+        end
+        return
+      end
       local ok, msg, extra = self:switchTo((b.partyCursor or 0) + 1)
-      if not ok then return end
+      if not ok then
+        -- ROM DisplayPartyMenuMessage then Task_80954C0 (stay on party).
+        b.text = msg or "It won't have any effect."
+        b.kind = "menu_msg"
+        b.partyMsg = true
+        return
+      end
       if b.shiftSwitch then
         b.shiftSwitch = false
         self:sendTrainerReplacement()
@@ -13929,25 +26999,61 @@ function Game3:stepBattle(dt)
     end
     return
   end
+  if b.kind == "item_pp" then
+    local mon = (self.party or {})[b.ppIndex or 1]
+    local moves = mon and mon.moves or {}
+    local n = #moves + 1
+    if n < 1 then n = 1 end
+    if Input:wasPressed("b") then
+      b.kind = "party"
+      return
+    elseif Input:wasPressed("down") then
+      b.ppCursor = ((b.ppCursor or 0) + 1) % n
+    elseif Input:wasPressed("up") then
+      b.ppCursor = ((b.ppCursor or 0) - 1) % n
+      if b.ppCursor < 0 then b.ppCursor = n - 1 end
+    elseif Input:wasPressed("a") then
+      local slot = (b.ppCursor or 0) + 1
+      if slot > #moves then
+        b.kind = "party"
+        return
+      end
+      if self:useBattleItem(b.itemUse, mon, slot) then
+        b.itemUse = nil
+      else
+        b.kind = "party"
+      end
+    end
+    return
+  end
   if b.kind == "fight" then
     local battler = self:menuBattler() or b.player
     local n = #((battler and battler.moves) or {})
     if n < 1 then n = 1 end
+    local dir = Input:wasPressed("left") and "left"
+      or Input:wasPressed("right") and "right"
+      or Input:wasPressed("up") and "up"
+      or Input:wasPressed("down") and "down" or nil
+    -- sub_802CA60: a live dest cursor means SELECT already marked a slot.
+    -- A / SELECT swap (if dest ~= source); B cancels; D-pad moves dest.
+    if b.moveSwap ~= nil then
+      if Input:wasPressed("a") or Input:wasPressed("select") then
+        if b.moveSwap ~= (b.fightCursor or 0) then
+          self:swapMoveSlots(battler, b.fightCursor or 0, b.moveSwap)
+        end
+        b.fightCursor = b.moveSwap
+        b.moveSwap = nil
+      elseif Input:wasPressed("b") then
+        b.moveSwap = nil
+      elseif dir then
+        b.moveSwap = Game3.moveCursorStep(b.moveSwap, dir, n)
+      end
+      return
+    end
     if Input:wasPressed("b") then
       b.kind = "menu"
-    elseif Input:wasPressed("down") then
-      b.fightCursor = ((b.fightCursor or 0) + 1) % 4
-      if b.fightCursor >= n then b.fightCursor = 0 end
-    elseif Input:wasPressed("up") then
-      b.fightCursor = ((b.fightCursor or 0) - 1) % 4
-      if b.fightCursor < 0 then b.fightCursor = math.max(0, n - 1) end
-      if b.fightCursor >= n then b.fightCursor = math.max(0, n - 1) end
-    elseif Input:wasPressed("right") or Input:wasPressed("left") then
-      -- ROM fight list is vertical; left/right still wrap one slot.
-      local d = Input:wasPressed("right") and 1 or -1
-      b.fightCursor = ((b.fightCursor or 0) + d) % 4
-      if b.fightCursor >= n then b.fightCursor = 0 end
-      if b.fightCursor < 0 then b.fightCursor = math.max(0, n - 1) end
+    elseif dir then
+      b.fightCursor = Game3.moveCursorStep(b.fightCursor, dir, n)
     elseif Input:wasPressed("a") then
       local move = battler and battler.moves and battler.moves[b.fightCursor + 1]
       if not move then return end
@@ -13965,6 +27071,9 @@ function Game3:stepBattle(dt)
           self:queueBattlerMove(move)
         end
       end
+    elseif Input:wasPressed("select") and n > 1 then
+      -- HandleAction_ChooseMove SELECT: ignored with one move or in link.
+      b.moveSwap = Game3.moveSwapDest(b.fightCursor or 0)
     end
     return
   end
@@ -13990,6 +27099,10 @@ function Game3:stepBattle(dt)
   if b.kind == "intro" or b.kind == "menu_msg" then
     if b.kind == "intro" then
       self:dismissIntro()
+    elseif b.itemUse or b.partyMsg then
+      b.partyMsg = nil
+      b.kind = "party"
+      b.text = nil
     else
       b.kind = "menu"
       b.text = nil
@@ -13997,6 +27110,7 @@ function Game3:stepBattle(dt)
   elseif b.kind == "text" then
     self:advanceBattleText()
   elseif b.kind == "ran" then
+    self:recordBattleEnd(Game3.B_OUTCOME_RAN)
     self:endBattle()
   elseif b.kind == "won_trainer" then
     self:confirmTrainerWin()
@@ -14043,9 +27157,78 @@ function Game3.fontCode(ch)
   if ch == "-" then return 0xAE end
   if ch == "'" then return 0xB4 end
   if ch == "," then return 0xB8 end
-  if ch == "/" then return 0xAE end
+  if ch == "/" then return 0xBA end
   if ch == ":" then return 0xF0 end
   return 0x00
+end
+
+function Game3.stdWindowRect(left, top, right, bottom)
+  local t = Game3.MENU_TILE
+  left = tonumber(left) or 0
+  top = tonumber(top) or 0
+  right = tonumber(right) or left
+  bottom = tonumber(bottom) or top
+  return left * t, top * t, (right - left + 1) * t, (bottom - top + 1) * t
+end
+
+function Game3.font3Widths(spec)
+  local w = spec and spec.widths
+  if type(w) == "table" and #w >= 254 then return w end
+  return Game3.FONT3_WIDTHS
+end
+
+function Game3.glyphWidth(code, widths)
+  widths = widths or Game3.FONT3_WIDTHS
+  code = math.floor(tonumber(code) or 0)
+  if code < 0 then code = 0 elseif code > 255 then code = 255 end
+  return tonumber(widths[code + 1]) or Game3.MSG_GLYPH_PX
+end
+
+-- Walk a decoded Latin string the same way drawText does, including é/♂/♀.
+function Game3.forEachGlyph(text, fn)
+  text = tostring(text or "")
+  local i = 1
+  while i <= #text do
+    local b = text:byte(i)
+    local ch = text:sub(i, i)
+    local skip = 1
+    local code
+    if b == 0xC3 and i < #text then
+      local n = text:byte(i + 1)
+      if n == 0xA9 or n == 0xA8 or n == 0xAA or n == 0xAB then
+        ch = "e"
+        skip = 2
+      elseif n == 0x89 or n == 0x88 or n == 0x8A or n == 0x8B then
+        ch = "E"
+        skip = 2
+      end
+    elseif b == 0xE2 and i + 2 <= #text and text:byte(i + 1) == 0x99 then
+      local n = text:byte(i + 2)
+      if n == 0x82 then
+        code = Game3.FONT_MALE
+        skip = 3
+      elseif n == 0x80 then
+        code = Game3.FONT_FEMALE
+        skip = 3
+      end
+    end
+    if not code then code = Game3.fontCode(ch) end
+    fn(code, i, skip)
+    i = i + skip
+  end
+end
+
+function Game3.textWidth(text, widths)
+  widths = widths or Game3.FONT3_WIDTHS
+  local n = 0
+  Game3.forEachGlyph(text, function(code)
+    n = n + Game3.glyphWidth(code, widths)
+  end)
+  return n
+end
+
+function Game3:font3WidthTable()
+  return Game3.font3Widths(self.data and self.data.font)
 end
 
 function Game3:fontImage()
@@ -14068,6 +27251,48 @@ function Game3:uiFont()
   return self._uiFont or nil
 end
 
+function Game3:fontInkShader()
+  if self._fontInkShader ~= nil then return self._fontInkShader or nil end
+  local G = love and love.graphics
+  if not (G and G.newShader) then
+    self._fontInkShader = false
+    return nil
+  end
+  local ok, shader = pcall(G.newShader, Game3.FONT_INK_SHADER)
+  self._fontInkShader = (ok and shader) or false
+  return self._fontInkShader or nil
+end
+
+function Game3.shadowForInk(ink)
+  local r = (ink and ink[1]) or 0
+  local g = (ink and ink[2]) or 0
+  local b = (ink and ink[3]) or 0
+  if r + g + b > 1.5 then return Game3.BATTLE_TEXT_SHADOW end
+  return Game3.TEXT_SHADOW
+end
+
+function Game3:setTextInk(ink)
+  local c = ink or Game3.TEXT_INK
+  love.graphics.setColor(c[1], c[2], c[3], c[4] or 1)
+end
+
+-- Recolor FONT3: current colour is fg, shadowForInk is 0xE. No shader
+-- means the sheet is already black+gray, so draw it un-tinted.
+function Game3:bindFontInk(cr, cg, cb, ca)
+  local shader = self:fontInkShader()
+  if not shader then
+    love.graphics.setColor(1, 1, 1, 1)
+    return nil
+  end
+  local sh = Game3.shadowForInk({ cr, cg, cb, ca })
+  if shader.send then
+    pcall(shader.send, shader, "shadowColor",
+      { sh[1], sh[2], sh[3], sh[4] or 1 })
+  end
+  love.graphics.setColor(cr, cg, cb, ca)
+  return shader
+end
+
 function Game3:drawFallbackText(text, x, y)
   local G = love.graphics
   local font = self:uiFont()
@@ -14085,8 +27310,15 @@ function Game3:drawGlyph(code, x, y)
   local quad, gw = self:fontQuad(code)
   if img and quad then
     local G = love.graphics
-    G.setColor(1, 1, 1, 1)
+    local cr, cg, cb, ca = 1, 1, 1, 1
+    if G.getColor then cr, cg, cb, ca = G.getColor() end
+    local prev
+    if G.getShader then prev = G.getShader() end
+    local shader = self:bindFontInk(cr, cg, cb, ca)
+    if shader then G.setShader(shader) end
     G.draw(img, quad, x, y)
+    if shader and G.setShader then G.setShader(prev) end
+    G.setColor(cr, cg, cb, ca)
   end
   return gw or 8
 end
@@ -14126,7 +27358,10 @@ function Game3:drawText(text, x, y)
   if G.getColor then
     cr, cg, cb, ca = G.getColor()
   end
-  G.setColor(1, 1, 1, 1)
+  local prevShader
+  if G.getShader then prevShader = G.getShader() end
+  local shader = self:bindFontInk(cr, cg, cb, ca)
+  if shader then G.setShader(shader) end
   local gx = x
   local i = 1
   while i <= #text do
@@ -14154,13 +27389,15 @@ function Game3:drawText(text, x, y)
       end
     end
     if not code then code = Game3.fontCode(ch) end
-    local quad, gw = self:fontQuad(code)
+    local quad = self:fontQuad(code)
+    local advance = Game3.glyphWidth(code, self:font3WidthTable())
     if quad then
       G.draw(img, quad, gx, y)
     end
-    gx = gx + (gw or 8)
+    gx = gx + advance
     i = i + skip
   end
+  if shader and G.setShader then G.setShader(prevShader) end
   G.setColor(cr, cg, cb, ca)
 end
 
@@ -14169,22 +27406,35 @@ function Game3:textDelay()
   return Game3.TEXT_DELAY[n] or Game3.TEXT_DELAY[2]
 end
 
+function Game3.dialoguePageText(text, page, widths)
+  local lines = Game3.wrapDialogue(text, nil, widths)
+  page = page or 0
+  local chunk = {}
+  for i = 1, Game3.MSG_LINES do
+    if lines[page + i] then chunk[#chunk + 1] = lines[page + i] end
+  end
+  return table.concat(chunk, "\n")
+end
+
 function Game3:printerBusy(box)
   if type(box) ~= "table" or not box.printLive then return false end
-  local text = box.fullText or box.text or ""
-  return (box.printN or 0) < #text
+  local page = Game3.dialoguePageText(box.fullText or box.text or "",
+    box.textPage or 0, self:font3WidthTable())
+  return (box.printN or 0) < #page
 end
 
 function Game3:printedText(box)
   if type(box) ~= "table" then return "" end
-  local text = box.fullText or box.text or ""
-  if not box.printLive then return text end
-  return text:sub(1, box.printN or 0)
+  local page = Game3.dialoguePageText(box.fullText or box.text or "",
+    box.textPage or 0, self:font3WidthTable())
+  if not box.printLive then return page end
+  return page:sub(1, box.printN or 0)
 end
 
-function Game3.wrapDialogue(text, maxPx)
+function Game3.wrapDialogue(text, maxPx, widths)
   maxPx = maxPx or Game3.MSG_WIDTH_PX
-  local gw = Game3.MSG_GLYPH_PX
+  widths = widths or Game3.FONT3_WIDTHS
+  local spaceW = Game3.glyphWidth(0x00, widths)
   text = tostring(text or ""):gsub("\r\n", "\n")
   local lines = {}
   local function emit(line)
@@ -14197,24 +27447,29 @@ function Game3.wrapDialogue(text, maxPx)
       line, width = "", 0
     end
     local function take(word)
-      local wpx = #word * gw
-      if line ~= "" and width + gw + wpx > maxPx then
+      local wpx = Game3.textWidth(word, widths)
+      if line ~= "" and width + spaceW + wpx > maxPx then
         flush()
       end
       if line == "" and wpx > maxPx then
-        local col = math.max(1, math.floor(maxPx / gw))
-        while #word > col do
-          emit(word:sub(1, col))
-          word = word:sub(col + 1)
-        end
-        line, width = word, #word * gw
+        local chunk, chunkW = "", 0
+        Game3.forEachGlyph(word, function(code, i, skip)
+          local gw = Game3.glyphWidth(code, widths)
+          if chunk ~= "" and chunkW + gw > maxPx then
+            emit(chunk)
+            chunk, chunkW = "", 0
+          end
+          chunk = chunk .. word:sub(i, i + skip - 1)
+          chunkW = chunkW + gw
+        end)
+        line, width = chunk, chunkW
         return
       end
       if line == "" then
         line, width = word, wpx
       else
         line = line .. " " .. word
-        width = width + gw + wpx
+        width = width + spaceW + wpx
       end
     end
     for word in para:gmatch("%S+") do
@@ -14242,8 +27497,23 @@ end
 
 function Game3:dialogueHasMore(box)
   if type(box) ~= "table" then return false end
-  local lines = Game3.wrapDialogue(box.fullText or box.text or "")
+  local lines = Game3.wrapDialogue(box.fullText or box.text or "",
+    nil, self:font3WidthTable())
   return (box.textPage or 0) + Game3.MSG_LINES < #lines
+end
+
+-- Std_MsgboxYesNo is message + waitmessage, then yesnobox. Extra wrapped
+-- lines (lost \p) must page on A before the YES/NO window can steal it.
+function Game3:yesNoReady(box)
+  return not self:printerBusy(box) and not self:dialogueHasMore(box)
+end
+
+function Game3:holdYesNoForDialogue(box)
+  if type(box) ~= "table" or self:yesNoReady(box) then return false end
+  if Input:wasPressed("a") or Input:wasPressed("b") then
+    self:advanceDialogue(box)
+  end
+  return true
 end
 
 function Game3:advanceDialogue(box)
@@ -14254,26 +27524,24 @@ function Game3:advanceDialogue(box)
   end
   if self:dialogueHasMore(box) then
     box.textPage = (box.textPage or 0) + Game3.MSG_LINES
+    box.printSrc = nil
+    box.printN = 0
     return true
   end
   return false
 end
 
-function Game3:drawDialogue(box, x, y)
+function Game3:drawDialogue(box, x, y, ink)
   if type(box) ~= "table" then return end
-  local page = box.textPage or 0
-  local source
-  if page > 0 then
-    source = box.fullText or box.text or ""
-  else
-    source = self:printedText(box)
-  end
-  local lines = Game3.wrapDialogue(source)
-  love.graphics.setColor(0.10, 0.10, 0.12, 1)
-  for i = 0, Game3.MSG_LINES - 1 do
-    local line = lines[page + i + 1]
+  x = x or Game3.DLG_TEXT_COL * Game3.MENU_TILE
+  y = y or Game3.DLG_TEXT_ROW * Game3.MENU_TILE
+  local lines = Game3.wrapDialogue(self:printedText(box), nil,
+    self:font3WidthTable())
+  self:setTextInk(ink or Game3.TEXT_INK)
+  for i = 1, Game3.MSG_LINES do
+    local line = lines[i]
     if line and line ~= "" then
-      self:drawText(line, x, y + i * Game3.MSG_LINE_H)
+      self:drawText(line, x, y + (i - 1) * Game3.MSG_LINE_H)
     end
   end
   if self:dialogueHasMore(box) and not self:printerBusy(box) then
@@ -14284,8 +27552,9 @@ end
 function Game3:printerFinish(box)
   if type(box) ~= "table" then return end
   local text = box.fullText or box.text or ""
-  box.printN = #text
   box.fullText = text
+  box.printN = #Game3.dialoguePageText(text, box.textPage or 0,
+    self:font3WidthTable())
 end
 
 function Game3:stepPrinter(box, dt)
@@ -14293,30 +27562,84 @@ function Game3:stepPrinter(box, dt)
   dt = dt or 0
   if dt <= 0 then return end
   local text = box.text or ""
-  if box.printSrc ~= text then
-    box.printSrc = text
+  local page = box.textPage or 0
+  local key = text .. "\0" .. tostring(page)
+  if box.printSrc ~= key then
+    box.printSrc = key
     box.fullText = text
     box.printN = 0
     box.printWait = 0
-    box.textPage = 0
   end
   box.printLive = true
-  if (box.printN or 0) >= #text then return end
+  local pageText = Game3.dialoguePageText(text, page, self:font3WidthTable())
+  if (box.printN or 0) >= #pageText then return end
   local delay = self:textDelay()
   if Input:isDown("a") or Input:isDown("b") then delay = 0 end
   if delay <= 0 then
-    box.printN = #text
+    box.printN = #pageText
     return
   end
   box.printWait = (box.printWait or 0) + dt
-  while box.printWait >= delay and (box.printN or 0) < #text do
+  while box.printWait >= delay and (box.printN or 0) < #pageText do
     box.printWait = box.printWait - delay
     box.printN = (box.printN or 0) + 1
   end
 end
 
+-- Generated window chrome, keyed the same way as the boot cinema PNGs so a
+-- cache from before the UI import just falls back to the flat rectangles.
+function Game3:uiPic(name)
+  local ui = self.data and self.data.ui
+  local path = ui and ui[name]
+  if type(path) ~= "string" then return nil end
+  self._uiCache = self._uiCache or {}
+  if self._uiCache[name] ~= nil then return self._uiCache[name] or nil end
+  local img = self:grabImage(path)
+  self._uiCache[name] = img or false
+  return img
+end
+
+-- text_window.c TextWindow_GetFrameGraphics clamps unknown styles to frame 1.
+function Game3:windowFrameStyle()
+  local style = tonumber((self.options or {}).windowFrame) or 0
+  if style < 0 or style >= Game3.WINDOW_FRAME_STYLES then return 0 end
+  return math.floor(style)
+end
+
+function Game3:windowFrameQuad(sheet, col, row, style)
+  self._frameQuads = self._frameQuads or {}
+  local key = style .. ":" .. col .. ":" .. row
+  local quad = self._frameQuads[key]
+  if not quad then
+    local T = Game3.MENU_TILE
+    quad = love.graphics.newQuad(col * T, (style * 3 + row) * T, T, T,
+      sheet:getDimensions())
+    self._frameQuads[key] = quad
+  end
+  return quad
+end
+
+-- text_window.c DrawStandardFrame: the 9 ROM tiles are corners, edges and a
+-- fill, repeated across the rect. Rects here are already tile-aligned.
 function Game3:drawWindow(x, y, w, h)
   local G = love.graphics
+  local sheet = self:uiPic("frames")
+  if sheet then
+    local T = Game3.MENU_TILE
+    local style = self:windowFrameStyle()
+    local cols = math.max(2, math.floor(w / T))
+    local rows = math.max(2, math.floor(h / T))
+    G.setColor(1, 1, 1, 1)
+    for r = 0, rows - 1 do
+      local sy = (r == 0) and 0 or ((r == rows - 1) and 2 or 1)
+      for c = 0, cols - 1 do
+        local sx = (c == 0) and 0 or ((c == cols - 1) and 2 or 1)
+        G.draw(sheet, self:windowFrameQuad(sheet, sx, sy, style),
+          x + c * T, y + r * T)
+      end
+    end
+    return
+  end
   -- pokeruby WINDOW_NORMAL: black outer, white fill, 2px blue inner frame.
   G.setColor(0.06, 0.06, 0.08, 1)
   G.rectangle("fill", x, y, w, h)
@@ -14329,11 +27652,22 @@ function Game3:drawWindow(x, y, w, h)
   G.rectangle("fill", x + w - 4, y + 2, 2, h - 4)
 end
 
--- pokeruby GetStringWidthInTilesForScriptMenu: 8px glyphs, ceil to tiles.
-function Game3.stringWidthTiles(text)
-  local n = #tostring(text or "")
-  if n < 1 then return 1 end
-  return math.floor((n * Game3.MSG_GLYPH_PX + 7) / Game3.MENU_TILE)
+function Game3:drawStdWindow(left, top, right, bottom)
+  local x, y, w, h = Game3.stdWindowRect(left, top, right, bottom)
+  self:drawWindow(x, y, w, h)
+end
+
+function Game3:drawDialogueFrame()
+  self:drawStdWindow(
+    Game3.DLG_FRAME_LEFT, Game3.DLG_FRAME_TOP,
+    Game3.DLG_FRAME_RIGHT, Game3.DLG_FRAME_BOTTOM)
+end
+
+-- pokeruby GetStringWidthInTilesForScriptMenu: GetStringWidth, ceil to 8px.
+function Game3.stringWidthTiles(text, widths)
+  local px = Game3.textWidth(text, widths)
+  if px < 1 then return 1 end
+  return math.floor((px + Game3.MENU_TILE - 1) / Game3.MENU_TILE)
 end
 
 -- pokeruby script_menu.c DrawMultichoiceMenu: left/top/right/bottom tiles.
@@ -14370,7 +27704,7 @@ function Game3:drawMenuListWindow(left, top, labels, cursor, perRow)
   if cols > 1 then
     local width = 1
     for i = 1, count do
-      local w = Game3.stringWidthTiles(labels[i])
+    local w = Game3.stringWidthTiles(labels[i], self:font3WidthTable())
       if w > width then width = w end
     end
     left0 = tonumber(left) or 0
@@ -14427,14 +27761,338 @@ function Game3:drawYesNoWindow(left, top, cursor)
   end
 end
 
-function Game3:drawCursor(x, y)
+function Game3:drawCursor(x, y, color)
   local G = love.graphics
-  G.setColor(0.22, 0.22, 0.28, 1)
+  if color then
+    G.setColor(color[1], color[2], color[3], color[4] or 1)
+  else
+    G.setColor(0.22, 0.22, 0.28, 1)
+  end
   if G.polygon then
     G.polygon("fill", x, y + 2, x, y + 12, x + 6, y + 7)
   else
     G.rectangle("fill", x, y + 4, 6, 6)
   end
+end
+
+-- battle_controller_player.c: a 1px red outline around the command / move,
+-- not the field triangle. menu.pal index 2.
+function Game3:drawBattleCursor(x, y, w, h, color)
+  local G = love.graphics
+  local c = color or Game3.BATTLE_CURSOR
+  G.setColor(c[1], c[2], c[3], c[4] or 1)
+  G.rectangle("line", x, y, w, h or 14)
+end
+
+function Game3:drawStarterChoose(f)
+  local G = love.graphics
+  G.setColor(0.42, 0.72, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  G.setColor(0.33, 0.60, 0.28, 1)
+  for row = 0, Game3.SCREEN_H - 1, 8 do
+    G.rectangle("fill", 0, row, Game3.SCREEN_W, 2)
+  end
+  local spec = Game3.spriteSpec(self.data and self.data.sprites, Game3.GFX_BIRCHS_BAG)
+  local img = spec and self:spriteImage(Game3.GFX_BIRCHS_BAG)
+  G.setColor(1, 1, 1, 1)
+  if img then
+    local w = spec.width or 16
+    G.draw(img, self:owQuad(spec, img, 0), 12, 36, 0, 80 / w, 80 / w)
+  else
+    G.setColor(0.48, 0.30, 0.16, 1)
+    G.rectangle("fill", 16, 48, 64, 80)
+    G.setColor(0.32, 0.20, 0.10, 1)
+    G.rectangle("fill", 24, 40, 48, 16)
+  end
+  local bounce = math.floor(math.sin((self.playSeconds or 0) * 8) * 4 + 0.5)
+  local cursor = f.cursor or 1
+  if f.kind == "starter_yesno" then cursor = f.pick or cursor end
+  for i = 1, #Game3.STARTER_BALL_XY do
+    local xy = Game3.STARTER_BALL_XY[i]
+    local x, y = xy[1], xy[2]
+    if (i - 1) == cursor then y = y + bounce end
+    G.setColor(0.93, 0.22, 0.22, 1)
+    if G.circle then
+      G.circle("fill", x, y, 8)
+      G.setColor(1, 1, 1, 1)
+      G.circle("fill", x, y - 2, 3)
+      G.setColor(0.12, 0.12, 0.14, 1)
+      G.rectangle("fill", x - 8, y - 1, 16, 2)
+    else
+      G.rectangle("fill", x - 8, y - 8, 16, 16)
+    end
+    if (i - 1) == cursor then
+      self:drawCursor(x - 20, y - 6)
+    end
+  end
+  if f.kind == "starter_yesno" then
+    self:drawStdWindow(1, 14, 20, 19)
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(f.text or "", 16, 120)
+    self:drawStdWindow(22, 8, 29, 13)
+    local labels = { "YES", "NO" }
+    for i = 0, 1 do
+      local y = 72 + i * 16
+      if i == (f.cursor or 0) then self:drawCursor(180, y) end
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText(labels[i + 1], 190, y)
+    end
+  end
+end
+
+function Game3:drawMartMenu(f)
+  local G = love.graphics
+  local mode = f.mode or "root"
+  local function drawRows(labels, cursor, left, top, right, bottom)
+    self:drawStdWindow(left, top, right, bottom)
+    for i = 1, #labels do
+      local y = top * 8 + 8 + (i - 1) * 16
+      if (i - 1) == (cursor or 0) then self:drawCursor(left * 8 + 8, y) end
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText(labels[i], left * 8 + 18, y)
+    end
+  end
+  if mode == "root" then
+    local labels = f.martKind == "decor" and { "BUY", "QUIT" } or { "BUY", "SELL", "QUIT" }
+    local bottom = f.martKind == "decor" and 5 or 7
+    drawRows(labels, f.cursor, 0, 0, 10, bottom)
+    return
+  end
+  self:drawStdWindow(14, 0, 29, 13)
+  local selling = mode == "sell" or (mode == "qty" and f.qtyFrom == "sell")
+  local list = selling and (f.sellSlots or {}) or (f.items or {})
+  local cursor = (mode == "qty") and (f.listCursor or 0) or (f.cursor or 0)
+  local vis = 6
+  local start = cursor
+  if start > math.max(0, #list - vis) then start = math.max(0, #list - vis) end
+  for i = 0, vis - 1 do
+    local item = list[start + i + 1]
+    local y = 8 + i * 16
+    if (start + i) == cursor then self:drawCursor(120, y) end
+    G.setColor(0.10, 0.10, 0.12, 1)
+    if item then
+      local name, price
+      if selling then
+        name = self:itemName(item.id)
+        price = math.floor((self:itemPrice(item.id) or 0) / 2)
+      elseif f.martKind == "decor" then
+        name, price = self:decorationName(item), self:decorationPrice(item)
+      else
+        name, price = self:itemName(item), self:itemPrice(item)
+      end
+      self:drawText(name or "", 130, y)
+      self:drawText(("$%d"):format(price or 0), 190, y)
+    end
+  end
+  if mode == "qty" then
+    self:drawStdWindow(1, 11, 13, 16)
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(("x%d"):format(f.qty or 1), 16, 96)
+    local id = f.qtyItem
+    local unit = 0
+    if f.qtyFrom == "sell" then
+      unit = math.floor((self:itemPrice(id) or 0) / 2)
+    elseif f.martKind == "decor" then
+      unit = self:decorationPrice(id)
+    else
+      unit = self:itemPrice(id)
+    end
+    self:drawText(("$%d"):format(unit * (f.qty or 1)), 16, 112)
+  end
+  if f.note then
+    self:drawStdWindow(0, 14, 29, 19)
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(f.note, 8, 120)
+  end
+end
+
+function Game3:drawStarterChoose(f)
+  local G = love.graphics
+  G.setColor(0.42, 0.74, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  G.setColor(0.32, 0.62, 0.28, 1)
+  for y = 0, Game3.SCREEN_H, 8 do
+    G.rectangle("fill", 0, y, Game3.SCREEN_W, 3)
+  end
+  if self.drawOwSprite then
+    self:drawOwSprite(Game3.GFX_BIRCHS_BAG, 3.5, 6.5, "south", false, 0, 0)
+  end
+  local pick = f.cursor or 1
+  if f.kind == "starter_yesno" then pick = f.pick or pick end
+  local bounce = math.floor(math.sin((self.playSeconds or 0) * 10) * 3 + 0.5)
+  for i = 1, #Game3.STARTERS do
+    local xy = Game3.STARTER_BALL_XY[i] or { 120, 80 }
+    local x, y = xy[1], xy[2]
+    if (i - 1) == pick then y = y - 4 - bounce end
+    G.setColor(0.93, 0.22, 0.22, 1)
+    G.circle("fill", x, y, 8)
+    G.setColor(1, 1, 1, 1)
+    G.circle("fill", x, y, 7)
+    G.setColor(0.93, 0.22, 0.22, 1)
+    G.rectangle("fill", x - 7, y - 2, 14, 4)
+    G.setColor(0.12, 0.12, 0.14, 1)
+    G.circle("fill", x, y, 2)
+    if (i - 1) == pick then
+      G.setColor(0.98, 0.82, 0.22, 1)
+      G.polygon("fill", x - 4, y - 16, x + 4, y - 16, x, y - 10)
+    end
+  end
+  self:drawDialogueFrame()
+  G.setColor(0.10, 0.10, 0.12, 1)
+  if f.kind == "starter_yesno" then
+    self:drawText(f.text or "So you want this POKeMON?", 10, 116)
+    local labels = { "YES", "NO" }
+    for i = 0, 1 do
+      local y = 134 + i * 10
+      if i == (f.cursor or 0) then self:drawCursor(8, y) end
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText(labels[i + 1], 18, y)
+    end
+  else
+    self:drawText("Choose a POKeMON!", 10, 116)
+    self:drawText(self:speciesName(Game3.STARTERS[(pick or 0) + 1]), 10, 132)
+  end
+end
+
+function Game3:drawMartMenu(f)
+  local G = love.graphics
+  local mode = f.mode or "root"
+  G.setColor(0.10, 0.10, 0.12, 1)
+  if mode == "root" then
+    local labels = f.martKind == "decor" and { "BUY", "QUIT" }
+      or { "BUY", "SELL", "QUIT" }
+    local bottom = #labels * 2 + 1
+    self:drawStdWindow(0, 0, 10, bottom)
+    for i = 0, #labels - 1 do
+      local y = 8 + i * 16
+      if i == (f.cursor or 0) then self:drawCursor(8, y) end
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText(labels[i + 1], 18, y)
+    end
+    return
+  end
+  self:drawStdWindow(14, 0, 29, 13)
+  local list, nameOf, priceOf
+  if mode == "sell" or (mode == "qty" and f.qtyFrom == "sell") then
+    list = f.sellSlots or self:martSellSlots()
+    nameOf = function(slot) return self:itemName(slot.id) end
+    priceOf = function(slot)
+      return math.floor((self:itemPrice(slot.id) or 0) / 2)
+    end
+  else
+    list = f.items or {}
+    nameOf = function(id)
+      if f.martKind == "decor" then return self:decorationName(id) end
+      return self:itemName(id)
+    end
+    priceOf = function(id)
+      if f.martKind == "decor" then return self:decorationPrice(id) end
+      return self:itemPrice(id)
+    end
+  end
+  local start = f.listCursor or f.cursor or 0
+  if mode ~= "qty" then start = f.cursor or 0 end
+  local rows = 6
+  if #list < 1 then
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("There's nothing here.", 120, 16)
+  else
+    for i = 0, rows - 1 do
+      local row = list[start + i + 1]
+      local y = 8 + i * 16
+      if i == 0 and mode ~= "qty" then self:drawCursor(116, y) end
+      G.setColor(0.10, 0.10, 0.12, 1)
+      if row then
+        local name = nameOf(row)
+        local price = priceOf(row)
+        self:drawText(name, 126, y)
+        self:drawText(("$%d"):format(price or 0), 188, y)
+      end
+    end
+  end
+  if mode == "qty" then
+    local qty = f.qty or 1
+    local unit = 0
+    if f.qtyFrom == "sell" then
+      unit = math.floor((self:itemPrice(f.qtyItem) or 0) / 2)
+    elseif f.martKind == "decor" then
+      unit = self:decorationPrice(f.qtyItem)
+    else
+      unit = self:itemPrice(f.qtyItem)
+    end
+    self:drawStdWindow(0, 8, 13, 13)
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(("x %d"):format(qty), 12, 80)
+    self:drawText(("$%d"):format(unit * qty), 12, 96)
+  end
+  if f.note then
+    self:drawDialogueFrame()
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(f.note, 10, 128)
+  end
+end
+
+-- battle_controller_player.c move selection: the four moves are a 2x2 grid
+-- where bit 0 is the column and bit 1 the row. A press flips its bit only
+-- when the slot it would land on actually holds a move, so the cursor never
+-- wraps and never lands on an empty slot.
+function Game3.moveCursorStep(cursor, dir, count)
+  local bit = (dir == "left" or dir == "right") and 1 or 2
+  local toward = (dir == "right" or dir == "down") and 1 or 0
+  cursor = cursor or 0
+  if math.floor(cursor / bit) % 2 == toward then return cursor end
+  local moved = (toward == 1) and (cursor + bit) or (cursor - bit)
+  if moved >= (count or 0) then return cursor end
+  return moved
+end
+
+-- HandleAction_ChooseMove SELECT: dest starts at slot 0 unless the
+-- source already is 0, then source+1. Never opens on the same slot.
+function Game3.moveSwapDest(source)
+  source = source or 0
+  if source ~= 0 then return 0 end
+  return source + 1
+end
+
+-- sub_802CA60: swap the two move records (id, PP, max PP travel
+-- together). The battler is the party slot, so the order sticks after
+-- the fight, matching the cart's party write (skipped only while
+-- STATUS2_TRANSFORMED, which this port does not implement yet).
+function Game3:swapMoveSlots(battler, a, b)
+  if not battler or a == b then return false end
+  local moves = battler.moves
+  if type(moves) ~= "table" then return false end
+  local i, j = (a or 0) + 1, (b or 0) + 1
+  if not (moves[i] and moves[j]) then return false end
+  moves[i], moves[j] = moves[j], moves[i]
+  return true
+end
+
+-- battle_bg.c LoadBattleTextboxAndBackground: the bar is a band of the
+-- cart's own tilemap. `layout` is Message, Actions or Moves; returns false
+-- when the cache predates the UI import so callers can fall back.
+function Game3:drawBattleBar(layout)
+  local img = self:uiPic("battle" .. layout)
+  if not img then return false end
+  local G = love.graphics
+  -- skip0 in the extractor leaves colour 0 as holes. Pal index 7 is the
+  -- light fill the opaque command-window tiles use.
+  local fill = Game3.BATTLE_BAR_FILL
+  G.setColor(fill[1], fill[2], fill[3], 1)
+  G.rectangle("fill", 0, Game3.BATTLE_BAR_Y, Game3.SCREEN_W, Game3.BATTLE_BAR_H)
+  G.setColor(1, 1, 1, 1)
+  G.draw(img, 0, Game3.BATTLE_BAR_Y)
+  return true
+end
+
+-- menu.pal frame/fill when gBattleTextboxTilemap is not in the cache.
+function Game3:drawBattlePanel(x, y, w, h)
+  local G = love.graphics
+  local frame, fill = Game3.BATTLE_BAR_FRAME, Game3.BATTLE_BAR_FILL
+  G.setColor(frame[1], frame[2], frame[3], 1)
+  G.rectangle("fill", x, y, w, h)
+  G.setColor(fill[1], fill[2], fill[3], 1)
+  G.rectangle("fill", x + 2, y + 2, w - 4, h - 4)
 end
 
 function Game3:drawHpBar(x, y, w, hp, maxHp)
@@ -14507,57 +28165,89 @@ function Game3:drawBattleBackground()
   G.ellipse("fill", 56, 96, 52, 12)
 end
 
+-- Interiors measured off the extracted frames. The cart bakes "Lv" and the
+-- EXP track into the art, so the level digits and the EXP fill are placed
+-- to line up with them. FONT3 is 8x16, while the ROM draws the HP numbers
+-- with a narrow healthbox font that is not extracted yet, so those sit on
+-- the bar's row instead of on a third line.
+Game3.HEALTHBOX_LAYOUT = {
+  player = {
+    frame = "healthboxPlayer",
+    nameX = 14, nameY = 2, levelX = 82, levelY = 2,
+    barX = 14, barY = 21, barW = 46,
+    hpTextX = 64, hpTextY = 16,
+    expX = 32, expY = 35, expW = 68,
+    fallbackW = 128, fallbackH = 40,
+  },
+  enemy = {
+    frame = "healthboxEnemy",
+    nameX = 6, nameY = 2, levelX = 74, levelY = 2,
+    barX = 26, barY = 19, barW = 60,
+    statusX = 6, statusY = 15, statusBarX = 44,
+    caughtX = 88, caughtY = 8,
+    fallbackW = 110, fallbackH = 28,
+  },
+}
+
 function Game3:drawHealthbox(mon, x, y, kind)
   if not mon then return end
   local G = love.graphics
   local player = kind == "player"
-  local w = player and 118 or 110
-  local h = player and 42 or 28
-  G.setColor(0.22, 0.22, 0.26, 1)
-  G.rectangle("fill", x, y, w, h)
-  G.setColor(0.97, 0.97, 0.90, 1)
-  G.rectangle("fill", x + 1, y + 1, w - 2, h - 2)
+  local L = Game3.HEALTHBOX_LAYOUT[player and "player" or "enemy"]
+  local frame = self:uiPic(L.frame)
+  if frame then
+    G.setColor(1, 1, 1, 1)
+    G.draw(frame, x, y)
+  else
+    local w, h = L.fallbackW, L.fallbackH
+    G.setColor(0.22, 0.22, 0.26, 1)
+    G.rectangle("fill", x, y, w, h)
+    G.setColor(0.97, 0.97, 0.90, 1)
+    G.rectangle("fill", x + 1, y + 1, w - 2, h - 2)
+  end
   G.setColor(0.10, 0.10, 0.12, 1)
   local name = mon.name or "POKeMON"
-  self:drawText(name, x + 6, y + 2)
+  self:drawText(name, x + L.nameX, y + L.nameY)
   local gend = self:monGender(mon)
-  local gx = x + 6 + #name * 8 + 2
+  local gx = x + L.nameX + Game3.textWidth(name) + 2
   if gend == Game3.MON_MALE then
-    self:drawGlyph(Game3.FONT_MALE, gx, y + 2)
+    self:drawGlyph(Game3.FONT_MALE, gx, y + L.nameY)
   elseif gend == Game3.MON_FEMALE then
-    self:drawGlyph(Game3.FONT_FEMALE, gx, y + 2)
+    self:drawGlyph(Game3.FONT_FEMALE, gx, y + L.nameY)
   end
-  if not player and self:hasCaught(mon.species) then
-    G.setColor(0.85, 0.22, 0.22, 1)
-    if G.circle then
-      G.circle("fill", x + w - 8, y + 8, 3)
-      G.setColor(0.97, 0.97, 0.90, 1)
-      G.circle("fill", x + w - 9, y + 7, 1)
-    else
-      G.rectangle("fill", x + w - 11, y + 5, 6, 6)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  -- The frame already draws "Lv", so only the digits go here.
+  self:drawText(tostring(mon.level or 1), x + L.levelX, y + L.levelY)
+  local barX = L.barX
+  if not player then
+    if self:hasCaught(mon.species) then
+      G.setColor(0.85, 0.22, 0.22, 1)
+      if G.circle then
+        G.circle("fill", x + L.caughtX, y + L.caughtY, 3)
+        G.setColor(0.97, 0.97, 0.90, 1)
+        G.circle("fill", x + L.caughtX - 1, y + L.caughtY - 1, 1)
+      else
+        G.rectangle("fill", x + L.caughtX - 3, y + L.caughtY - 3, 6, 6)
+      end
+    end
+    local tag = Game3.statusTag(mon.status)
+    if tag ~= "" then
+      G.setColor(0.70, 0.22, 0.22, 1)
+      self:drawText(tag, x + L.statusX, y + L.statusY)
+      barX = L.statusBarX
     end
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
-  self:drawText(("Lv%d"):format(mon.level or 1), x + w - 40, y + 2)
-  local tag = Game3.statusTag(mon.status)
-  if tag ~= "" then
-    G.setColor(0.70, 0.22, 0.22, 1)
-    self:drawText(tag, x + 6, y + 14)
-  end
-  G.setColor(0.10, 0.10, 0.12, 1)
-  self:drawText("HP", x + 6, y + (player and 16 or 14))
-  self:drawHpBar(x + 22, y + (player and 20 or 18), w - 30, mon.hp, mon.maxHp)
+  local barW = L.barW - (barX - L.barX)
+  self:drawHpBar(x + barX, y + L.barY, barW, mon.hp, mon.maxHp)
   if player then
     G.setColor(0.10, 0.10, 0.12, 1)
     self:drawText(("%d/%d"):format(mon.hp or 0, mon.maxHp or 0),
-      x + w - 50, y + 24)
+      x + L.hpTextX, y + L.hpTextY)
     local fill = Game3.expBarFill(mon)
-    G.setColor(0.12, 0.12, 0.14, 1)
-    G.rectangle("fill", x + 22, y + 34, w - 30, 3)
-    local ew = math.floor((w - 30) * fill)
+    local ew = math.floor(L.expW * fill)
     if ew > 0 then
       G.setColor(0.32, 0.62, 0.95, 1)
-      G.rectangle("fill", x + 22, y + 34, ew, 3)
+      G.rectangle("fill", x + L.expX, y + L.expY, ew, 2)
     end
   end
 end
@@ -14588,6 +28278,10 @@ end
 function Game3:drawBattle()
   local G = love.graphics
   local b = self.battle
+  if b and b.kind == "dex_entry" then
+    self:drawDexEntry(b)
+    return
+  end
   local slide = 1
   if b and b.kind == "intro" then
     slide = b.introT or 0
@@ -14597,13 +28291,35 @@ function Game3:drawBattle()
   local lunge = 0
   if hit > 0 then lunge = math.floor(8 * math.sin(hit / 0.28 * math.pi) + 0.5) end
   local flash = hit > 0 and math.floor(hit * 24) % 2 == 1
+  local catch = b and b.catchAnim
+  local catchT = catch and (catch.t or 0) or 0
+  local catchDur = 0
+  if catch then
+    catchDur = (catch.throw or Game3.CATCH_THROW)
+      + (catch.shakes or 0) * (catch.perShake or Game3.CATCH_SHAKE)
+      + (catch.stars or 0)
+  end
+  local catching = catch and catchDur > 0 and catchT < catchDur
   self:drawBattleBackground()
   if b and b.enemy then
     local drop = ((b.enemy.hp or 0) <= 0) and 28 or 0
     local px, py = self:battlerTopLeft("enemy", b.enemy.species, "front")
     px = px + math.floor((1 - slide) * 90) + lunge
-    self:drawBattlePic(b.enemy.species, "front", px, py + (flash and 1 or 0),
-      1, drop, flash)
+    local throw = catch and (catch.throw or Game3.CATCH_THROW) or 0
+    local hideEnemy = catching and catchT >= throw * 0.85
+    if not hideEnemy then
+      self:drawBattlePic(b.enemy.species, "front", px, py + (flash and 1 or 0),
+        1, drop, flash)
+    end
+    if hit > 0 then
+      local burst = 6 + math.floor((1 - hit / 0.28) * 10)
+      G.setColor(1, 1, 0.55, hit / 0.28)
+      if G.circle then
+        G.circle("fill", px + 32, py + 32, burst)
+      else
+        G.rectangle("fill", px + 24, py + 24, burst, burst)
+      end
+    end
     local hx, hy = self:healthboxXY("enemy")
     self:drawHealthbox(b.enemy, hx, hy, "enemy")
   end
@@ -14639,115 +28355,172 @@ function Game3:drawBattle()
     local hx, hy = self:healthboxXY("player2")
     self:drawHealthbox(b.player2, hx, hy, "player")
   end
-  G.setColor(0.18, 0.18, 0.22, 1)
-  if b and b.kind == "menu" then
-    self:drawWindow(0, 112, 120, 48)
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("What will", 8, 118)
-    local pname = (b.player and b.player.name) or "POKeMON"
-    self:drawText(pname .. " do?", 8, 134)
-    self:drawWindow(120, 112, 120, 48)
-    local labels = { "FIGHT", "BAG", "POKeMON", "RUN" }
-    for i = 0, 3 do
-      local x = 128 + (i % 2) * 56
-      local y = 118 + math.floor(i / 2) * 16
-      if i == b.cursor then
-        self:drawCursor(x, y)
+  if catching then
+    local epx, epy = self:battlerTopLeft("enemy", b.enemy.species, "front")
+    epx = epx + 24
+    epy = epy + 24
+    local ppx, ppy = 40, 90
+    local throw = catch.throw or Game3.CATCH_THROW
+    local bx, by = epx, epy
+    if catchT < throw then
+      local u = catchT / throw
+      bx = ppx + (epx - ppx) * u
+      by = ppy + (epy - ppy) * u - math.sin(u * math.pi) * 28
+    else
+      local shakeT = catchT - throw
+      local per = catch.perShake or Game3.CATCH_SHAKE
+      local shakeN = math.floor(shakeT / per)
+      local frac = shakeT / per - shakeN
+      if shakeN < (catch.shakes or 0) then
+        bx = epx + math.sin(frac * math.pi * 6) * 6
+        by = epy
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      self:drawText(labels[i + 1], x + 10, y)
     end
-  else
-  self:drawWindow(0, 112, Game3.SCREEN_W, 48)
-  if b and b.kind == "fight" then
+    G.setColor(0.93, 0.22, 0.22, 1)
+    if G.circle then
+      G.circle("fill", bx, by, 7)
+      G.setColor(1, 1, 1, 1)
+      G.circle("fill", bx, by - 2, 3)
+      G.setColor(0.12, 0.12, 0.14, 1)
+      G.rectangle("fill", bx - 7, by - 1, 14, 2)
+    else
+      G.rectangle("fill", bx - 7, by - 7, 14, 14)
+    end
+    if catch.ok and catchT > throw + (catch.shakes or 0) * (catch.perShake or Game3.CATCH_SHAKE) then
+      local spark = 4 + math.floor((catchT % 0.2) * 20)
+      G.setColor(1, 1, 0.45, 0.85)
+      if G.circle then
+        G.circle("line", bx, by, spark + 4)
+        G.circle("line", bx, by, spark + 8)
+      end
+    end
+  end
+  if b and b.kind == "menu" then
+    if not self:drawBattleBar("Actions") then
+      self:drawBattlePanel(0, Game3.BATTLE_BAR_Y, 136, Game3.BATTLE_BAR_H)
+      self:drawBattlePanel(136, Game3.BATTLE_BAR_Y, 104, Game3.BATTLE_BAR_H)
+    end
+    self:setTextInk(Game3.BATTLE_TEXT_INK)
+    self:drawText("What will", 8, Game3.BATTLE_ACTION_Y)
+    local pname = (b.player and b.player.name) or "POKeMON"
+    self:drawText(pname .. " do?", 8, Game3.BATTLE_ACTION_Y + Game3.BATTLE_ACTION_ROW)
+    local labels = { "FIGHT", "BAG", "POKeMON", "RUN" }
+    if b.safari then
+      labels = { "BALL", "POKeBLOCK", "GO NEAR", "RUN" }
+    end
+    for i = 0, 3 do
+      local x = Game3.BATTLE_ACTION_X + (i % 2) * Game3.BATTLE_ACTION_COL
+      local y = Game3.BATTLE_ACTION_Y + math.floor(i / 2) * Game3.BATTLE_ACTION_ROW
+      if i == b.cursor then
+        self:drawBattleCursor(x, y, Game3.BATTLE_ACTION_COL - 4)
+      end
+      self:setTextInk(Game3.BATTLE_TEXT_INK)
+      self:drawText(labels[i + 1], x + 4, y)
+    end
+  elseif b and b.kind == "fight" then
     local battler = self:menuBattler() or b.player
     local moves = (battler and battler.moves) or {}
-    self:drawWindow(0, 112, 152, 48)
-    self:drawWindow(152, 112, 88, 48)
+    if not self:drawBattleBar("Moves") then
+      self:drawBattlePanel(0, Game3.BATTLE_BAR_Y, 176, Game3.BATTLE_BAR_H)
+      self:drawBattlePanel(176, Game3.BATTLE_BAR_Y, 64, Game3.BATTLE_BAR_H)
+    end
+    -- 2x2, matching the cursor's bit 0 = column, bit 1 = row.
+    -- During SELECT reorder, fightCursor is the source and moveSwap the dest
+    -- (palette 0x1D vs 0x1B on the cart).
+    local source = b.fightCursor or 0
+    local dest = b.moveSwap
     for i = 0, 3 do
       local mv = moves[i + 1]
-      local y = 114 + i * 11
-      if i == (b.fightCursor or 0) then
-        self:drawCursor(6, y)
+      local x = Game3.BATTLE_MOVE_X + (i % 2) * Game3.BATTLE_MOVE_COL
+      local y = Game3.BATTLE_MOVE_Y + math.floor(i / 2) * Game3.BATTLE_MOVE_ROW
+      if dest ~= nil then
+        if i == dest then
+          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8)
+        elseif i == source then
+          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8, 14,
+            { 0.55, 0.55, 0.62, 1 })
+        end
+      elseif i == source then
+        self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      if mv then
-        self:drawText(mv.name or "-", 16, y)
-      else
-        self:drawText("-", 16, y)
-      end
+      self:setTextInk(Game3.BATTLE_TEXT_INK)
+      self:drawText(mv and (mv.name or "-") or "-", x + 4, y)
     end
-    local cur = moves[(b.fightCursor or 0) + 1]
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("TYPE/", 160, 118)
-    self:drawText(cur and Game3.typeName(cur.type) or "???", 160, 130)
-    self:drawText("PP", 160, 142)
-    if cur then
-      self:drawText(("%d/%d"):format(cur.pp or 0, cur.maxPp or 0), 184, 142)
+    local ix = Game3.BATTLE_MOVE_INFO_X
+    self:setTextInk(Game3.BATTLE_TEXT_INK)
+    if dest ~= nil then
+      self:drawText(Game3.TEXT_SWITCH_WHICH, ix, Game3.BATTLE_MOVE_Y)
+      self:drawText(Game3.TEXT_SWITCH_WHICH_2, ix,
+        Game3.BATTLE_MOVE_Y + Game3.BATTLE_MOVE_ROW)
     else
-      self:drawText("--", 184, 142)
+      local cur = moves[source + 1]
+      self:drawText("PP", ix, Game3.BATTLE_MOVE_Y)
+      if cur then
+        self:drawText(("%d/%d"):format(cur.pp or 0, cur.maxPp or 0), ix + 18,
+          Game3.BATTLE_MOVE_Y)
+      else
+        self:drawText("--", ix + 18, Game3.BATTLE_MOVE_Y)
+      end
+      self:drawText(cur and Game3.typeName(cur.type) or "???", ix,
+        Game3.BATTLE_MOVE_Y + Game3.BATTLE_MOVE_ROW)
     end
-  elseif b and b.kind == "target" then
+  elseif b and b.kind == "bag" then
+    -- item_menu.c RETURN_TO_BATTLE: the same pack screen as the field.
+    self:drawBag({
+      pocket = b.bagPocket or self.lastBagPocket or Game3.POCKET_ITEMS,
+      cursor = b.bagCursor or 0,
+    })
+  else
+  if not self:drawBattleBar("Message") then
+    self:drawBattlePanel(0, Game3.BATTLE_BAR_Y, Game3.SCREEN_W, Game3.BATTLE_BAR_H)
+  end
+  if b and b.kind == "target" then
     local list = b.targetList or {}
-    G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText("Aim at", 8, 118)
+    self:setTextInk(Game3.BATTLE_TEXT_INK)
+    self:drawText("Aim at", 8, Game3.BATTLE_ACTION_Y)
     for i = 1, #list do
       local mon = list[i]
-      local y = 118 + i * 14
+      local y = Game3.BATTLE_ACTION_Y + i * Game3.BATTLE_ACTION_ROW
       if i - 1 == (b.targetCursor or 0) then
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      self:setTextInk(Game3.BATTLE_TEXT_INK)
       if mon then self:drawText(mon.name or "FOE", 18, y) end
     end
-  elseif b and b.kind == "bag" then
-    local list = self:battleBagList()
-    local start = b.bagCursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
-    if #list < 1 then
-        self:drawText("The BAG is empty.", 18, 120)
-    else
-      for i = 0, 1 do
-        local slot = list[start + i + 1]
-        local y = 118 + i * 16
-        if i == 0 then
-          G.setColor(0.90, 0.28, 0.22, 1)
-          self:drawCursor(8, y)
-        end
-        G.setColor(0.10, 0.10, 0.12, 1)
-        if slot then
-          self:drawText(("%s  x%d"):format(self:itemName(slot.id), slot.count or 0),
-            18, y)
-        end
-      end
-    end
-        self:drawText("A use   B back", 8, 148)
   elseif b and b.kind == "party" then
-    local party = self.party or {}
-    local start = b.partyCursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
-    for i = 0, 1 do
-      local mon = party[start + i + 1]
-      local y = 118 + i * 16
-      if i == 0 then
-        G.setColor(0.90, 0.28, 0.22, 1)
-        self:drawCursor(8, y)
-      end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      if mon then
-        self:drawText(("%s  %d/%d"):format(mon.name, mon.hp or 0, mon.maxHp or 0), 18, y)
-      end
+    -- battle_party_menu.c shows the same screen the field does.
+    -- IsDoubleBattle() selects PARTY_MENU_LAYOUT_DOUBLE (two lead boxes
+    -- stacked left); singles stay STANDARD. Both sides count slots from
+    -- zero -- that is why CANCEL is 6 and not 7 -- so b.partyCursor
+    -- passes straight through.
+    local prompt = "Choose a POKeMON."
+    if b.itemUse then prompt = "Use an item on which POKeMON?" end
+    self:drawPartyScreen({
+      kind = "party",
+      cursor = b.partyCursor or 0,
+      prompt = prompt,
+      -- The mon already out cannot be sent out again, and neither can a
+      -- fainted one; Ruby dims both instead of hiding them.
+      noCancel = b.mustSwitch and true or nil,
+      layout = b.doubles and Game3.PARTY_MENU_LAYOUT_DOUBLE or nil,
+    })
+  elseif b and b.kind == "item_pp" then
+    local mon = (self.party or {})[b.ppIndex or 1]
+    local moves = mon and mon.moves or {}
+    local actions = {}
+    for i = 1, #moves do
+      actions[i] = (moves[i] and moves[i].name) or "MOVE"
     end
-    if b.mustSwitch then
-        self:drawText("A send out", 150, 148)
-    else
-        self:drawText("A send   B back", 120, 148)
-    end
+    actions[#actions + 1] = "CANCEL"
+    self:drawPartyAction({
+      monIndex = b.ppIndex, cursor = b.ppCursor, actions = actions,
+    })
   elseif b and b.kind == "switch_ask"
-      or (b and (b.kind == "learn_yesno" or b.kind == "learn_stop")) then
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText(self:printedText(b), 10, 118)
+      or (b and (b.kind == "learn_yesno" or b.kind == "learn_stop"
+        or b.kind == "catch_nick")) then
+    self:setTextInk(Game3.BATTLE_TEXT_INK)
+    self:drawText(self:printedText(b), 10, Game3.BATTLE_ACTION_Y)
     local labels = { "YES", "NO" }
     for i = 0, 1 do
       local y = 132 + i * 10
@@ -14755,13 +28528,13 @@ function Game3:drawBattle()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      self:setTextInk(Game3.BATTLE_TEXT_INK)
       self:drawText(labels[i + 1], 18, y)
     end
   elseif b and b.kind == "learn_forget" then
     local mon = self.learnMove and self.learnMove.mon
     local moves = mon and mon.moves or {}
-    G.setColor(0.10, 0.10, 0.12, 1)
+    self:setTextInk(Game3.BATTLE_TEXT_INK)
     self:drawText("Forget which?", 8, 114)
     local n = #moves + 1
     for i = 0, n - 1 do
@@ -14770,7 +28543,7 @@ function Game3:drawBattle()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      self:setTextInk(Game3.BATTLE_TEXT_INK)
       if i < #moves then
         self:drawText((moves[i + 1] and moves[i + 1].name) or "MOVE", 18, y)
       else
@@ -14778,7 +28551,7 @@ function Game3:drawBattle()
       end
     end
   else
-    self:drawDialogue(b, 10, 118)
+    self:drawDialogue(b, nil, nil, Game3.BATTLE_TEXT_INK)
   end
   end
 end
@@ -14796,14 +28569,36 @@ function Game3:walkHeld(dt)
     return
   end
   if self.phase ~= "play" then return end
+  self:stepCinemaWaits(dt or 0)
+  self:stepScreenFade(dt or 0)
+  self:stepDoorAnim(dt or 0)
   if self.field then
     if self.field.kind == "fishing" then
       self:stepFishing(dt or 0)
       self:clampCamera()
       return
     end
+    if self.field.kind == "cable_car" then
+      self:stepCableCar(dt or 0)
+      return
+    end
+    if self.field.kind == "porthole" then
+      self:stepPorthole(dt or 0)
+      return
+    end
+    if self.field.kind == "egg_hatch" then
+      self:stepEggHatch(dt or 0)
+      return
+    end
+    if self.field.kind == "trade_scene" then
+      self:stepTradeScene(dt or 0)
+      self:stepPrinter(self.field, dt or 0)
+      return
+    end
     if self.field.kind == "talk" or self.field.kind == "script_yesno"
-        or self.field.kind == "learn_yesno" or self.field.kind == "learn_stop" then
+        or self.field.kind == "safari_retire"
+        or self.field.kind == "learn_yesno" or self.field.kind == "learn_stop"
+        or self.field.kind == "egg_nick" then
       self:stepPrinter(self.field, dt or 0)
     end
     if self.field.kind == "evolve" then
@@ -14835,6 +28630,7 @@ function Game3:walkHeld(dt)
       if self.flashAnim then
         self:stepFlashAnimDt(dt or 0)
       end
+      self:stepFanfareWait(dt or 0)
       if not self:scriptWaiting() then self:resumeMoveScript() end
       return
     end
@@ -14868,33 +28664,42 @@ function Game3:walkHeld(dt)
         self:stepNpcs(dt or 0)
         return
       end
+      if self.field then
+        self:stepNpcs(dt or 0)
+        return
+      end
       if self:tryWildEncounter() then
         self:stepNpcs(dt or 0)
         return
       end
     end
-    local dx, dy = 0, 0
-    if Input:isDown("left") then dx = -1
-    elseif Input:isDown("right") then dx = 1
-    elseif Input:isDown("up") then dy = -1
-    elseif Input:isDown("down") then dy = 1
-    end
-    if dx ~= 0 or dy ~= 0 then
-      if self.warpSettle then
-        -- Held input from the previous map must not walk us back into
-        -- the stair warp. Wait for a release.
-      else
-        self.running = self:wantRun()
-        local dir = Game3.facingFromDelta(dx, dy)
-        if dir ~= self.facing then
-          self.facing = dir
-        else
-          self:tryWalk(dx, dy)
-        end
-      end
+    -- Forced movement beats keypad (player_step). One tile per cycle.
+    if self:tryForcedMovement() then
+      -- ice / current / slide / muddy; facing may stay locked
     else
-      self.running = nil
-      self.warpSettle = nil
+      local dx, dy = 0, 0
+      if Input:isDown("left") then dx = -1
+      elseif Input:isDown("right") then dx = 1
+      elseif Input:isDown("up") then dy = -1
+      elseif Input:isDown("down") then dy = 1
+      end
+      if dx ~= 0 or dy ~= 0 then
+        if self.warpSettle then
+          -- Held input from the previous map must not walk us back into
+          -- the stair warp. Wait for a release.
+        else
+          self.running = self:wantRun()
+          local dir = Game3.facingFromDelta(dx, dy)
+          if dir ~= self.facing then
+            self.facing = dir
+          else
+            self:tryWalk(dx, dy)
+          end
+        end
+      else
+        self.running = nil
+        self.warpSettle = nil
+      end
     end
   end
   self:clampCamera()
@@ -14934,18 +28739,21 @@ function Game3:tryTalk()
     local opp = { north = "south", south = "north", west = "east", east = "west" }
     npc.facing = opp[self.facing] or "south"
     npc.talkLock = true
-    npc.facingLocked = true
+    self:revealHiddenTrainer(npc)
     self._scriptNpc = npc
     local gid = npc.graphicsId or 0
-    if gid == Game3.GFX_NURSE
-        or (gid == Game3.GFX_MOM and not npc.script) then
+    -- ROM nurse / Mom scripts own the heal. The stubs are only for maps
+    -- whose objects have no script (unit tests, missing cache).
+    if gid == Game3.GFX_NURSE and not npc.script then
       self:healParty()
       self:markHealPoint()
-      if gid == Game3.GFX_MOM then
-        self.field = { kind = "talk", text = "MOM: You should rest a bit." }
-      else
-        self.field = { kind = "talk", text = "Your POKeMON were restored to full health!" }
-      end
+      self:incrementGameStat(Game3.GAME_STAT_USED_POKECENTER)
+      self.field = { kind = "talk", text = "Your POKeMON were restored to full health!" }
+    elseif gid == Game3.GFX_MOM and not npc.script then
+      self:healParty()
+      self:markHealPoint()
+      self:incrementGameStat(Game3.GAME_STAT_RESTED_AT_HOME)
+      self.field = { kind = "talk", text = "MOM: You should rest a bit." }
     elseif gid == Game3.GFX_DAYCARE_MAN
         and (self.map and self.map.mapType) == Game3.MAP_TYPE_ROUTE then
       return self:talkDaycareMan()
@@ -14953,6 +28761,7 @@ function Game3:tryTalk()
         and (self.map and self.map.mapType) == Game3.MAP_TYPE_INDOOR then
       return self:openDaycare()
     elseif gid == Game3.GFX_TEALA
+        and not npc.script
         and (self.map and self.map.mapType) == Game3.MAP_TYPE_INDOOR then
       return self:openContest()
     elseif npc.script then
@@ -15055,6 +28864,7 @@ function Game3:presentScript(pause)
     local prompt = says[#says] or "..."
     local prior = {}
     for i = 1, #says - 1 do prior[i] = says[i] end
+    self:fadeInFromBlack()
     if #prior > 0 then
       self.field = {
         kind = "talk", text = prior[1], queue = prior, qi = 1,
@@ -15075,6 +28885,9 @@ function Game3:presentScript(pause)
   end
   if pause == "msg" then
     if #says < 1 then return self:resumeMoveScript() end
+    -- msgbox after fadescreen (TV, notebook, item text, …) must not stay
+    -- under the held TO_BLACK veil.
+    self:fadeInFromBlack()
     self.field = {
       kind = "talk", text = says[1], queue = says, qi = 1,
       thenContinue = true,
@@ -15088,9 +28901,17 @@ function Game3:presentScript(pause)
     return true
   end
   if pause == "move" or pause == "delay" or pause == "wait" then
+    -- StartWallClock / slots already own the field. Replacing them with
+    -- the queued ClockIsStopped line left field=wait after A, so the
+    -- setter never ran and waitstate never ended.
+    if pause == "wait" and self.field and self.field.kind
+        and self.field.kind ~= "wait" and self.field.kind ~= "talk" then
+      return true
+    end
     -- msgbox then waitmovement is the Route 101 shove: keep the line on
     -- screen and only start the walk after A, matching pokeruby.
     if #says > 0 then
+      self:fadeInFromBlack()
       self.field = {
         kind = "talk", text = says[1], queue = says, qi = 1,
         thenPause = pause,
@@ -15100,14 +28921,11 @@ function Game3:presentScript(pause)
     if pause == "wait" and self.phase == "battle" then
       return true
     end
-    if pause == "wait" and self.field and self.field.kind
-        and self.field.kind ~= "wait" and self.field.kind ~= "talk" then
-      return true
-    end
     self.field = { kind = pause }
     return true
   end
   if #says > 0 then
+    self:fadeInFromBlack()
     self.field = { kind = "talk", text = says[1], queue = says, qi = 1 }
     self:endScriptRun()
     return true
@@ -15154,6 +28972,12 @@ function Game3:runNpcScript(ops)
   self._scriptReturn = nil
   self._scriptLoaded = nil
   self._scriptCmp = 0
+  -- A leftover waitstate (heal, flash, unused dofieldeffect) must not
+  -- pin the next talk box: resumeMoveScript fromMsg returns without
+  -- advancing when scriptWaiting() is still true.
+  self.scriptWait = nil
+  self.waitButton = nil
+  self._waitButtonDone = nil
   self:beginScriptRun()
   local _, pause = Gen3Script.run(self, ops)
   return self:presentScript(pause)
@@ -15221,6 +29045,9 @@ function Game3:tryBgEvent()
 end
 
 function Game3:closeField()
+  if self.field and self.field.kind == "mart" then
+    self:hideMoneyBox()
+  end
   local chase = self.field and self.field.chase
   self.field = nil
   self:unlockScriptNpcs()
@@ -15232,24 +29059,36 @@ function Game3:finishFieldItem(msg)
   if self.phase == "battle" then return end
   local f = self.field
   if f and (f.kind == "fly" or f.kind == "secret_base_move"
-      or f.kind == "party_teach" or f.kind == "party_forget"
+      or f.kind == "party_teach" or f.kind == "party_use"
+      or f.kind == "party_forget" or f.kind == "party_pp"
+      or f.kind == "candy_stats" or f.kind == "mail_read"
+      or f.kind == "pokeblock_case" or f.kind == "tm_yesno"
       or f.kind == "fishing") then
     return
   end
   if msg == nil then return end
-  self.field = { kind = "talk", text = msg }
+  -- CleanUpItemMenuMessage vs CleanUpOverworldMessage: bag USE
+  -- (not giveHeld) returns to the pack after the line.
+  local fromBag = f and f.kind == "bag" and not f.giveTo
+  self.field = { kind = "talk", text = msg, thenBag = fromBag or nil }
 end
 
 function Game3:stepBag(f)
+  local pick = f.pickBerry
   local pocket = f.pocket or self.lastBagPocket or Game3.POCKET_ITEMS
-  if pocket < Game3.POCKET_ITEMS then pocket = Game3.POCKET_ITEMS end
-  if pocket > Game3.POCKET_KEY then pocket = Game3.POCKET_KEY end
+  if pick then
+    pocket = Game3.POCKET_BERRIES
+  elseif pocket < Game3.POCKET_ITEMS then pocket = Game3.POCKET_ITEMS
+  elseif pocket > Game3.POCKET_KEY then pocket = Game3.POCKET_KEY end
   f.pocket = pocket
-  self.lastBagPocket = pocket
+  if not pick then self.lastBagPocket = pocket end
   local list = self:bagSlotsIn(pocket)
-  local n = #list
-  if n < 1 then n = 1 end
-  if Input:wasPressed("b") then
+  local n = #list + 1
+  local function closeBag()
+    if pick then
+      self:finishBerryPick(0)
+      return
+    end
     if f.giveTo then
       local index = f.giveTo
       self.field = {
@@ -15261,12 +29100,17 @@ function Game3:stepBag(f)
     else
       self:backToStart("BAG")
     end
+  end
+  if Input:wasPressed("b") then
+    closeBag()
   elseif Input:wasPressed("right") then
-    f.pocket = pocket % Game3.POCKET_COUNT + 1
+    if pick then return end
+    f.pocket = Game3.wrapPocket(pocket, 1)
     f.cursor = 0
     self.lastBagPocket = f.pocket
   elseif Input:wasPressed("left") then
-    f.pocket = (pocket - 2) % Game3.POCKET_COUNT + 1
+    if pick then return end
+    f.pocket = Game3.wrapPocket(pocket, -1)
     f.cursor = 0
     self.lastBagPocket = f.pocket
   elseif Input:wasPressed("down") then
@@ -15276,16 +29120,19 @@ function Game3:stepBag(f)
     if f.cursor < 0 then f.cursor = n - 1 end
   elseif Input:wasPressed("a") then
     local slot = list[(f.cursor or 0) + 1]
-    if slot then
-      if f.giveTo then
-        local _, msg = self:giveHeldItem(f.giveTo, slot.id)
-        self:finishFieldItem(msg)
-      else
-        local _, msg = self:useFieldItem(slot.id)
-        self:finishFieldItem(msg)
-      end
+    if not slot then
+      closeBag()
+    elseif pick then
+      self:finishBerryPick(slot.id)
+    elseif f.giveTo then
+      local _, msg = self:giveHeldItem(f.giveTo, slot.id)
+      self:finishFieldItem(msg)
+    else
+      local _, msg = self:useFieldItem(slot.id)
+      self:finishFieldItem(msg)
     end
   elseif Input:wasPressed("select") then
+    if pick then return end
     local slot = list[(f.cursor or 0) + 1]
     if slot then
       local _, msg = self:toggleRegisteredItem(slot.id)
@@ -15294,10 +29141,40 @@ function Game3:stepBag(f)
   end
 end
 
+-- HandleDefaultPartyMenuInput: filled slots, then CANCEL at sprite 7
+-- (cursor 6). A on CANCEL is B.
+function Game3:partyItemUseKind(kind)
+  return kind == "party_teach" or kind == "party_use"
+end
+
+function Game3:stepPartyCursor(f, delta)
+  local n = #(self.party or {})
+  if n < 1 then n = 1 end
+  local c = f.cursor or 0
+  local cancel = self:partyItemUseKind(f.kind)
+  if delta > 0 then
+    if c < n - 1 then
+      f.cursor = c + 1
+    elseif cancel and c ~= 6 then
+      f.cursor = 6
+    else
+      f.cursor = 0
+    end
+  else
+    if c == 0 then
+      f.cursor = cancel and 6 or (n - 1)
+    elseif c == 6 then
+      f.cursor = n - 1
+    else
+      f.cursor = c - 1
+    end
+  end
+end
+
 function Game3:stepParty(f)
   if Input:wasPressed("b") then
-    if f.kind == "party_teach" then
-      self:openBag()
+    if self:partyItemUseKind(f.kind) then
+      self:leavePartyItemUse()
       return
     end
     self:backToStart("POKeMON")
@@ -15306,13 +29183,28 @@ function Game3:stepParty(f)
   local n = #(self.party or {})
   if n < 1 then n = 1 end
   if Input:wasPressed("down") then
-    f.cursor = ((f.cursor or 0) + 1) % n
+    if self:partyItemUseKind(f.kind) then
+      self:stepPartyCursor(f, 1)
+    else
+      f.cursor = ((f.cursor or 0) + 1) % n
+    end
   elseif Input:wasPressed("up") then
-    f.cursor = ((f.cursor or 0) - 1) % n
-    if f.cursor < 0 then f.cursor = n - 1 end
+    if self:partyItemUseKind(f.kind) then
+      self:stepPartyCursor(f, -1)
+    else
+      f.cursor = ((f.cursor or 0) - 1) % n
+      if f.cursor < 0 then f.cursor = n - 1 end
+    end
   elseif Input:wasPressed("a") then
+    -- sprite data[0] == 7: A on CANCEL returns B_BUTTON.
+    if self:partyItemUseKind(f.kind) and (f.cursor or 0) == 6 then
+      self:leavePartyItemUse()
+      return
+    end
     if f.kind == "party_teach" then
       self:chooseTeachMon((f.cursor or 0) + 1)
+    elseif f.kind == "party_use" then
+      self:chooseUseMon((f.cursor or 0) + 1)
     else
       self:openPartyAction((f.cursor or 0) + 1)
     end
@@ -15423,8 +29315,49 @@ function Game3:stepPartyForget(f)
   end
 end
 
+function Game3:stepPartyPp(f)
+  local mon = (self.party or {})[f.monIndex or 1]
+  local moves = mon and mon.moves or {}
+  local n = #moves + 1
+  if n < 1 then n = 1 end
+  if Input:wasPressed("b") then
+    self.field = {
+      kind = "party_use",
+      cursor = (f.monIndex or 1) - 1,
+      item = f.item,
+      from = f.from,
+      prompt = "Use on which POKeMON?",
+    }
+    return
+  end
+  if Input:wasPressed("down") then
+    f.cursor = ((f.cursor or 0) + 1) % n
+  elseif Input:wasPressed("up") then
+    f.cursor = ((f.cursor or 0) - 1) % n
+    if f.cursor < 0 then f.cursor = n - 1 end
+  elseif Input:wasPressed("a") then
+    local slot = (f.cursor or 0) + 1
+    if slot > #moves then
+      self.field = {
+        kind = "party_use",
+        cursor = (f.monIndex or 1) - 1,
+        item = f.item,
+        from = f.from,
+        prompt = "Use on which POKeMON?",
+      }
+      return
+    end
+    self:presentItemUseResult(mon, f.item, f.from, f.monIndex, slot)
+  end
+end
+
 function Game3:stepPartySummary(f)
   if Input:wasPressed("b") or Input:wasPressed("a") then
+    if f.fromPc then
+      self.field = f.fromPc
+      if self.field.kind == "pc" then self:pcRefreshMsg() end
+      return
+    end
     self:openPartyAction(f.monIndex or 1)
   elseif Input:wasPressed("right") then
     f.page = ((f.page or 0) + 1) % Game3.PARTY_SUMMARY_PAGES
@@ -15439,7 +29372,12 @@ function Game3:stepField()
   if not f then return end
   if f.kind == "move" or f.kind == "delay" or f.kind == "wait"
       or f.kind == "trainer_approach" or f.kind == "evolve"
-      or f.kind == "fishing" then
+      or f.kind == "fishing" or f.kind == "cable_car"
+      or f.kind == "egg_hatch" or f.kind == "porthole" then
+    return
+  end
+  if f.kind == "trade_scene" then
+    self:stepTradeScene()
     return
   end
   if f.kind == "talk" then
@@ -15453,6 +29391,36 @@ function Game3:stepField()
         f.text = queue[f.qi]
         f.textPage = 0
         f.printSrc = nil
+      elseif f.thenSafariExit then
+        self:leaveSafari()
+      elseif f.thenWhiteout then
+        self:blackout()
+      elseif f.thenTmAsk then
+        self:openTmYesNo()
+      elseif f.thenEggHatch then
+        self:eggHatch()
+      elseif f.thenEggNick then
+        self:openEggNickAsk()
+      elseif f.thenCandy then
+        self.field = {
+          kind = "candy_stats",
+          growth = f.thenCandy,
+          page = 0,
+          thenBag = f.thenBag,
+          thenPending = f.thenPending,
+        }
+      elseif f.thenPending then
+        if f.thenBag then self.itemUseThenBag = true end
+        if self:startPendingLearn() then return end
+        if self:startPendingEvolve() then return end
+        if f.thenBag then
+          self.itemUseThenBag = nil
+          self:openBag()
+        else
+          self:closeField()
+        end
+      elseif f.thenBag then
+        self:openBag()
       elseif f.thenYesNo then
         self:openScriptYesNo(f.thenYesNo)
       elseif f.thenLearnAsk then
@@ -15490,10 +29458,7 @@ function Game3:stepField()
     return
   end
   if f.kind == "pokenav" then
-    if Input:wasPressed("a") or Input:wasPressed("b")
-        or Input:wasPressed("start") then
-      self:backToStart("POKeNAV")
-    end
+    self:stepRegionMap(f)
     return
   end
   if f.kind == "save_ask" then
@@ -15514,7 +29479,7 @@ function Game3:stepField()
     self:stepBag(f)
     return
   end
-  if f.kind == "party" or f.kind == "party_teach" then
+  if f.kind == "party" or f.kind == "party_teach" or f.kind == "party_use" then
     self:stepParty(f)
     return
   end
@@ -15530,77 +29495,16 @@ function Game3:stepField()
     self:stepPartyForget(f)
     return
   end
+  if f.kind == "party_pp" then
+    self:stepPartyPp(f)
+    return
+  end
   if f.kind == "party_summary" then
     self:stepPartySummary(f)
     return
   end
   if f.kind == "pc" then
-    local mode = f.mode or "root"
-    if mode == "root" then
-      if Input:wasPressed("b") then
-        self:closeField()
-      elseif Input:wasPressed("down") then
-        f.cursor = ((f.cursor or 0) + 1) % 3
-      elseif Input:wasPressed("up") then
-        f.cursor = ((f.cursor or 0) - 1) % 3
-        if f.cursor < 0 then f.cursor = 2 end
-      elseif Input:wasPressed("a") then
-        local c = f.cursor or 0
-        if c == 0 then
-          f.mode = "box"
-          f.cursor = 0
-          f.note = nil
-        elseif c == 1 then
-          f.mode = "party"
-          f.cursor = 0
-          f.note = nil
-        else
-          self:closeField()
-        end
-      end
-    elseif mode == "box" then
-      self:ensurePc()
-      local box = self.pc[f.box] or {}
-      local n = #box
-      if n < 1 then n = 1 end
-      if Input:wasPressed("b") then
-        f.mode = "root"
-        f.cursor = 0
-      elseif Input:wasPressed("left") then
-        f.box = ((f.box or 1) - 2) % Game3.BOX_COUNT + 1
-        f.cursor = 0
-      elseif Input:wasPressed("right") then
-        f.box = (f.box or 1) % Game3.BOX_COUNT + 1
-        f.cursor = 0
-      elseif Input:wasPressed("down") then
-        f.cursor = ((f.cursor or 0) + 1) % n
-      elseif Input:wasPressed("up") then
-        f.cursor = ((f.cursor or 0) - 1) % n
-        if f.cursor < 0 then f.cursor = n - 1 end
-      elseif Input:wasPressed("a") then
-        local ok, msg = self:withdrawFromBox(f.box, (f.cursor or 0) + 1)
-        f.note = msg
-        local left = #(self.pc[f.box] or {})
-        if f.cursor >= left and left > 0 then f.cursor = left - 1 end
-      end
-    else
-      local n = #(self.party or {})
-      if n < 1 then n = 1 end
-      if Input:wasPressed("b") then
-        f.mode = "root"
-        f.cursor = 1
-      elseif Input:wasPressed("down") then
-        f.cursor = ((f.cursor or 0) + 1) % n
-      elseif Input:wasPressed("up") then
-        f.cursor = ((f.cursor or 0) - 1) % n
-        if f.cursor < 0 then f.cursor = n - 1 end
-      elseif Input:wasPressed("a") then
-        local ok, msg = self:depositFromParty((f.cursor or 0) + 1)
-        f.note = msg
-        local left = #(self.party or {})
-        if f.cursor >= left and left > 0 then f.cursor = left - 1 end
-      end
-    end
+    self:stepPc()
     return
   end
   if f.kind == "gender" then
@@ -15639,7 +29543,8 @@ function Game3:stepField()
         f.name = name:sub(1, math.max(0, #name - 1))
       else
         local name = f.name or ""
-        if #name < Game3.NICKNAME_LEN then f.name = name .. key end
+        local maxLen = f.nameBox and Game3.BOX_NAME_LEN or Game3.NICKNAME_LEN
+        if #name < maxLen then f.name = name .. key end
       end
     end
     return
@@ -15651,6 +29556,10 @@ function Game3:stepField()
     elseif Input:wasPressed("up") then
       f.cursor = ((f.cursor or 0) - 1) % n
       if f.cursor < 0 then f.cursor = n - 1 end
+    elseif Input:wasPressed("right") then
+      f.cursor = math.min(n - 1, (f.cursor or 0) + 1)
+    elseif Input:wasPressed("left") then
+      f.cursor = math.max(0, (f.cursor or 0) - 1)
     elseif Input:wasPressed("a") then
       local species = Game3.STARTERS[(f.cursor or 0) + 1]
       f.kind = "starter_yesno"
@@ -15689,7 +29598,129 @@ function Game3:stepField()
     end
     return
   end
+  if f.kind == "clock_set" then
+    if Input:wasPressed("left") then
+      self:advanceClock(-1)
+    elseif Input:wasPressed("right") then
+      self:advanceClock(1)
+    elseif Input:wasPressed("up") then
+      for _ = 1, 60 do self:advanceClock(1) end
+    elseif Input:wasPressed("down") then
+      for _ = 1, 60 do self:advanceClock(-1) end
+    elseif Input:wasPressed("a") then
+      f.kind = "clock_yesno"
+      f.cursor = 0
+    end
+    return
+  end
+  if f.kind == "clock_yesno" then
+    if Input:wasPressed("up") or Input:wasPressed("down") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      if (f.cursor or 0) == 0 then
+        self:confirmWallClock()
+      else
+        f.kind = "clock_set"
+      end
+    elseif Input:wasPressed("b") then
+      f.kind = "clock_set"
+    end
+    return
+  end
+  if f.kind == "clock_view" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self:closeWallClock()
+    end
+    return
+  end
+  if f.kind == "diploma" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self:closeDiploma()
+    end
+    return
+  end
+  if f.kind == "link_records" or f.kind == "tower_records" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self:closeField()
+    end
+    return
+  end
+  if f.kind == "hof_pc" then
+    if Input:wasPressed("b") then
+      self:closeHofPc()
+    elseif Input:wasPressed("a") then
+      self:hofPcAdvance()
+    end
+    return
+  end
+  if f.kind == "slots" then
+    if f.windows then
+      if Input:wasPressed("a") then
+        f.windows = nil
+        f.payout = nil
+      elseif Input:wasPressed("b") then
+        self:closeSlots()
+      end
+      return
+    end
+    if Input:wasPressed("left") then
+      f.bet = math.max(1, (f.bet or 1) - 1)
+    elseif Input:wasPressed("right") then
+      f.bet = math.min(3, (f.bet or 1) + 1)
+    elseif Input:wasPressed("a") then
+      if f.replay or self:getCoins() >= (f.bet or 1) then
+        self:spinSlots()
+      end
+    elseif Input:wasPressed("b") then
+      self:closeSlots()
+    end
+    return
+  end
+  if f.kind == "roulette" then
+    if Input:wasPressed("up") then
+      self:moveRouletteCursor(0)
+    elseif Input:wasPressed("down") then
+      self:moveRouletteCursor(1)
+    elseif Input:wasPressed("left") then
+      self:moveRouletteCursor(2)
+    elseif Input:wasPressed("right") then
+      self:moveRouletteCursor(3)
+    elseif Input:wasPressed("a") then
+      self:spinRoulette()
+    elseif Input:wasPressed("b") then
+      self:closeRoulette()
+    end
+    return
+  end
+  if f.kind == "bard_song" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self.field = nil
+      self:endScriptWait()
+    end
+    return
+  end
+  if f.kind == "mauville_menu" then
+    local n = #(f.labels or {})
+    if n < 1 then n = 1 end
+    if Input:wasPressed("down") then
+      local nxt = (f.cursor or 0) + 1
+      if nxt >= n then f.cursor = 0 else f.cursor = nxt end
+    elseif Input:wasPressed("up") then
+      local prev = (f.cursor or 0) - 1
+      if prev < 0 then f.cursor = n - 1 else f.cursor = prev end
+    elseif Input:wasPressed("a") then
+      self:pickMauvilleMenu(f.cursor or 0)
+    elseif Input:wasPressed("b") then
+      if f.bPressed ~= nil then
+        self:pickMauvilleMenu(f.bPressed)
+      else
+        self:pickMauvilleMenu(#(f.labels or { "CANCEL" }) - 1)
+      end
+    end
+    return
+  end
   if f.kind == "script_yesno" then
+    if self:holdYesNoForDialogue(f) then return end
     if Input:wasPressed("down") or Input:wasPressed("up") then
       f.cursor = 1 - (f.cursor or 0)
     elseif Input:wasPressed("a") then
@@ -15699,7 +29730,19 @@ function Game3:stepField()
     end
     return
   end
+  if f.kind == "safari_retire" then
+    if self:holdYesNoForDialogue(f) then return end
+    if Input:wasPressed("down") or Input:wasPressed("up") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      self:answerSafariRetire((f.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      self:answerSafariRetire(false)
+    end
+    return
+  end
   if f.kind == "learn_yesno" then
+    if self:holdYesNoForDialogue(f) then return end
     if Input:wasPressed("down") or Input:wasPressed("up") then
       f.cursor = 1 - (f.cursor or 0)
     elseif Input:wasPressed("a") then
@@ -15709,7 +29752,69 @@ function Game3:stepField()
     end
     return
   end
+  if f.kind == "tm_yesno" then
+    if self:holdYesNoForDialogue(f) then return end
+    if Input:wasPressed("down") or Input:wasPressed("up") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      self:answerTmYesNo((f.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      self:answerTmYesNo(false)
+    end
+    return
+  end
+  if f.kind == "egg_nick" then
+    if self:holdYesNoForDialogue(f) then return end
+    if Input:wasPressed("down") or Input:wasPressed("up") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      self:answerEggNick((f.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      self:answerEggNick(false)
+    end
+    return
+  end
+  if f.kind == "candy_stats" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      if (f.page or 0) < 1 then
+        f.page = 1
+        return
+      end
+      if f.thenPending then
+        if f.thenBag then self.itemUseThenBag = true end
+        if self:startPendingLearn() then return end
+        if self:startPendingEvolve() then return end
+      end
+      if f.thenBag then
+        self.itemUseThenBag = nil
+        self:openBag()
+      else
+        self:closeField()
+      end
+    end
+    return
+  end
+  if f.kind == "mail_read" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      if f.thenBag then self:openBag() else self:closeField() end
+    end
+    return
+  end
+  if f.kind == "pokeblock_case" then
+    local n = #(f.labels or { "CANCEL" })
+    if n < 1 then n = 1 end
+    if Input:wasPressed("down") then
+      f.cursor = ((f.cursor or 0) + 1) % n
+    elseif Input:wasPressed("up") then
+      f.cursor = ((f.cursor or 0) - 1) % n
+      if f.cursor < 0 then f.cursor = n - 1 end
+    elseif Input:wasPressed("a") or Input:wasPressed("b") then
+      if f.thenBag then self:openBag() else self:closeField() end
+    end
+    return
+  end
   if f.kind == "learn_stop" then
+    if self:holdYesNoForDialogue(f) then return end
     if Input:wasPressed("down") or Input:wasPressed("up") then
       f.cursor = 1 - (f.cursor or 0)
     elseif Input:wasPressed("a") then
@@ -15737,6 +29842,7 @@ function Game3:stepField()
     return
   end
   if f.kind == "script_choice" then
+    if self:holdYesNoForDialogue(f) then return end
     local n = #(f.labels or {})
     if n < 1 then n = 1 end
     local cols = tonumber(f.perRow) or 0
@@ -15849,6 +29955,7 @@ function Game3:stepField()
     if n < 1 then n = 1 end
     if Input:wasPressed("b") then
       if f.scripted then
+        self:setScriptVar(0x8004, Game3.PARTY_MENU_CANCEL)
         self.field = nil
         self:endScriptWait()
       else
@@ -15922,26 +30029,79 @@ function Game3:stepField()
     local moves = mon and mon.moves or {}
     local n = #moves
     if n < 1 then n = 1 end
+    local phase = (c and c.phase) or "select"
+    if phase == "text" then
+      if Input:wasPressed("a") or Input:wasPressed("b") then
+        if not Contest3.advanceText(c) then
+          if c.done then
+            self:finishContest()
+          else
+            c.phase = "select"
+          end
+        end
+      end
+      return
+    end
+    if Input:wasPressed("down") then
+      f.cursor = ((f.cursor or 0) + 1) % n
+    elseif Input:wasPressed("up") then
+      f.cursor = ((f.cursor or 0) - 1) % n
+      if f.cursor < 0 then f.cursor = n - 1 end
+    elseif Input:wasPressed("a") then
+      -- ROM confirms the highlighted move. B does not cancel.
+      self:playContestMove((f.cursor or 0) + 1)
+    end
+    return
+  end
+  if f.kind == "contest_results" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      if f.scripted or self:scriptWaiting() then
+        self.field = nil
+        self:endScriptWait()
+      else
+        self.field = { kind = "talk", text = self:contestResultsText() }
+      end
+    end
+    return
+  end
+  if f.kind == "contest_winner" then
+    if Input:wasPressed("a") or Input:wasPressed("b") then
+      self.field = nil
+      self:endScriptWait()
+    end
+    return
+  end
+  if f.kind == "blender_berry" then
+    local slots = f.slots or self:bagSlotsIn(Game3.POCKET_BERRIES)
+    local n = #slots
+    if n < 1 then n = 1 end
     if Input:wasPressed("b") then
-      -- Appeals cannot be cancelled mid-contest.
+      self.field = nil
+      self:endScriptWait()
     elseif Input:wasPressed("down") then
       f.cursor = ((f.cursor or 0) + 1) % n
     elseif Input:wasPressed("up") then
       f.cursor = ((f.cursor or 0) - 1) % n
       if f.cursor < 0 then f.cursor = n - 1 end
     elseif Input:wasPressed("a") then
-      self:applyContestTurn((f.cursor or 0) + 1)
+      self:pickBlenderBerry(f.cursor or 0)
     end
     return
   end
-  if f.kind == "contest_results" then
-    if Input:wasPressed("a") or Input:wasPressed("b") then
-      if f.scripted then
-        self.field = nil
-        self:endScriptWait()
-      else
-        self.field = { kind = "talk", text = self:contestResultsText() }
-      end
+  if f.kind == "player_pc" then
+    local labels = f.labels or { "TURN OFF" }
+    local n = #labels
+    if n < 1 then n = 1 end
+    if Input:wasPressed("b") then
+      self.field = nil
+      self:endScriptWait()
+    elseif Input:wasPressed("down") then
+      f.cursor = ((f.cursor or 0) + 1) % n
+    elseif Input:wasPressed("up") then
+      f.cursor = ((f.cursor or 0) - 1) % n
+      if f.cursor < 0 then f.cursor = n - 1 end
+    elseif Input:wasPressed("a") then
+      self:pickPlayerPc(f.cursor or 0)
     end
     return
   end
@@ -15983,11 +30143,81 @@ function Game3:stepField()
     end
     return
   end
+  if f.kind == "move_tutor_mon" then
+    local n = #(self.party or {})
+    if n < 1 then n = 1 end
+    if Input:wasPressed("b") then
+      self:pickMoveTutorMon(Game3.PARTY_MENU_CANCEL)
+    elseif Input:wasPressed("down") then
+      f.cursor = ((f.cursor or 0) + 1) % n
+    elseif Input:wasPressed("up") then
+      f.cursor = ((f.cursor or 0) - 1) % n
+      if f.cursor < 0 then f.cursor = n - 1 end
+    elseif Input:wasPressed("a") then
+      self:pickMoveTutorMon(f.cursor or 0)
+    end
+    return
+  end
+  if f.kind == "move_tutor_list" then
+    local n = #(f.labels or {})
+    if n < 1 then n = 1 end
+    if Input:wasPressed("down") then
+      local nxt = (f.cursor or 0) + 1
+      if nxt >= n then f.cursor = 0 else f.cursor = nxt end
+    elseif Input:wasPressed("up") then
+      local prev = (f.cursor or 0) - 1
+      if prev < 0 then f.cursor = n - 1 else f.cursor = prev end
+    elseif Input:wasPressed("a") then
+      self:pickMoveTutorList(f.cursor or 0)
+    elseif Input:wasPressed("b") then
+      self:openTutorGiveUp()
+    end
+    return
+  end
+  if f.kind == "move_deleter" then
+    local n = #(f.labels or {})
+    if n < 1 then n = 1 end
+    if Input:wasPressed("down") then
+      local nxt = (f.cursor or 0) + 1
+      if nxt >= n then f.cursor = 0 else f.cursor = nxt end
+    elseif Input:wasPressed("up") then
+      local prev = (f.cursor or 0) - 1
+      if prev < 0 then f.cursor = n - 1 else f.cursor = prev end
+    elseif Input:wasPressed("a") then
+      self:pickMoveDeleter(f.cursor or 0)
+    elseif Input:wasPressed("b") then
+      self:pickMoveDeleter(Game3.MOVE_DELETER_CANCEL)
+    end
+    return
+  end
+  if f.kind == "tutor_confirm" then
+    if self:holdYesNoForDialogue(f) then return end
+    if Input:wasPressed("down") or Input:wasPressed("up") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      self:answerTutorConfirm((f.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      self:answerTutorConfirm(false)
+    end
+    return
+  end
+  if f.kind == "tutor_giveup" then
+    if self:holdYesNoForDialogue(f) then return end
+    if Input:wasPressed("down") or Input:wasPressed("up") then
+      f.cursor = 1 - (f.cursor or 0)
+    elseif Input:wasPressed("a") then
+      self:answerTutorGiveUp((f.cursor or 0) == 0)
+    elseif Input:wasPressed("b") then
+      self:answerTutorGiveUp(false)
+    end
+    return
+  end
   if f.kind == "daycare_send" then
     local n = #(self.party or {})
     if n < 1 then n = 1 end
     if Input:wasPressed("b") then
       if f.scripted then
+        self:setScriptVar(0x8004, Game3.PARTY_MENU_CANCEL)
         self.field = nil
         self:endScriptWait()
       else
@@ -16042,51 +30272,65 @@ function Game3:stepField()
     return
   end
   if f.kind == "fly" then
-    local list = f.list or {}
-    local n = #list
-    if n < 1 then n = 1 end
-    if Input:wasPressed("b") then
-      self:closeField()
-    elseif Input:wasPressed("down") then
-      f.cursor = ((f.cursor or 0) + 1) % n
-    elseif Input:wasPressed("up") then
-      f.cursor = ((f.cursor or 0) - 1) % n
-      if f.cursor < 0 then f.cursor = n - 1 end
-    elseif Input:wasPressed("a") then
-      local dest = list[(f.cursor or 0) + 1]
-      if dest then
-        local _, msg = self:flyTo(dest)
-        self.field = { kind = "talk", text = msg }
-      end
-    end
+    self:stepRegionMap(f)
     return
   end
   if f.kind == "mart" then
-    local n = #(f.items or {})
-    if n < 1 then n = 1 end
-    if Input:wasPressed("b") then
+    local mode = f.mode or "root"
+    local function leaveMart()
+      self:hideMoneyBox()
       if self._scriptPause then
         self:resumeMoveScript()
       else
         self:closeField()
       end
-    elseif Input:wasPressed("down") then
-      f.cursor = ((f.cursor or 0) + 1) % n
-    elseif Input:wasPressed("up") then
-      f.cursor = ((f.cursor or 0) - 1) % n
-      if f.cursor < 0 then f.cursor = n - 1 end
-    elseif Input:wasPressed("a") then
-      local id = (f.items or {})[(f.cursor or 0) + 1]
-      local _, msg = self:buyMartItem(id)
-      f.note = msg
     end
-    return
-  end
-  if f.kind == "dex" then
-    if Input:wasPressed("b") or Input:wasPressed("start") then
-      self.field = { kind = "menu", cursor = 0 }
-    else
-      local list = f.list or {}
+    local function rootLabels()
+      if f.martKind == "decor" then return { "BUY", "QUIT" } end
+      return { "BUY", "SELL", "QUIT" }
+    end
+    if Input:wasPressed("b") then
+      if mode == "root" then
+        leaveMart()
+      elseif mode == "qty" then
+        f.mode = f.qtyFrom or "buy"
+        f.qty = nil
+        f.qtyItem = nil
+        f.cursor = f.listCursor or 0
+      else
+        f.mode = "root"
+        f.cursor = 0
+        f.note = nil
+        self:hideMoneyBox()
+      end
+    elseif mode == "root" then
+      local labels = rootLabels()
+      local n = #labels
+      if Input:wasPressed("down") then
+        f.cursor = ((f.cursor or 0) + 1) % n
+      elseif Input:wasPressed("up") then
+        f.cursor = ((f.cursor or 0) - 1) % n
+        if f.cursor < 0 then f.cursor = n - 1 end
+      elseif Input:wasPressed("a") then
+        local name = labels[(f.cursor or 0) + 1]
+        if name == "QUIT" then
+          leaveMart()
+        elseif name == "SELL" then
+          f.mode = "sell"
+          f.cursor = 0
+          f.sellSlots = self:martSellSlots()
+          f.note = nil
+          self:showMoneyBox(0, 0)
+        else
+          f.mode = "buy"
+          f.cursor = 0
+          f.note = nil
+          self:showMoneyBox(0, 0)
+        end
+      end
+    elseif mode == "buy" or mode == "sell" then
+      local list = mode == "sell" and (f.sellSlots or self:martSellSlots())
+        or (f.items or {})
       local n = #list
       if n < 1 then n = 1 end
       if Input:wasPressed("down") then
@@ -16094,8 +30338,83 @@ function Game3:stepField()
       elseif Input:wasPressed("up") then
         f.cursor = ((f.cursor or 0) - 1) % n
         if f.cursor < 0 then f.cursor = n - 1 end
+      elseif Input:wasPressed("a") then
+        if mode == "sell" then
+          local slot = list[(f.cursor or 0) + 1]
+          if not slot then
+            f.note = "You have nothing to sell."
+          else
+            f.mode = "qty"
+            f.qtyFrom = "sell"
+            f.qtyItem = slot.id
+            f.qtyMax = math.min(Game3.MART_QTY_MAX, slot.count or 1)
+            f.qty = 1
+            f.listCursor = f.cursor
+          end
+        else
+          local id = list[(f.cursor or 0) + 1]
+          if not id then return end
+          if f.martKind == "decor" then
+            local _, msg = self:buyMartItem(id, f.martKind, 1)
+            f.note = msg
+            self:updateMoneyBox()
+          else
+            local unit = self:itemPrice(id)
+            local maxQty = Game3.MART_QTY_MAX
+            if unit > 0 then
+              maxQty = math.floor((self.money or 0) / unit)
+              if maxQty > Game3.MART_QTY_MAX then maxQty = Game3.MART_QTY_MAX end
+            end
+            if maxQty < 1 then
+              f.note = "You don't have enough money."
+            else
+              f.mode = "qty"
+              f.qtyFrom = "buy"
+              f.qtyItem = id
+              f.qtyMax = maxQty
+              f.qty = 1
+              f.listCursor = f.cursor
+            end
+          end
+        end
+      end
+    elseif mode == "qty" then
+      local maxQty = f.qtyMax or 1
+      if maxQty < 1 then maxQty = 1 end
+      local function bump(d)
+        f.qty = (f.qty or 1) + d
+        if f.qty < 1 then f.qty = maxQty
+        elseif f.qty > maxQty then f.qty = 1 end
+      end
+      if Input:wasPressed("right") or Input:wasPressed("up") then
+        bump(1)
+      elseif Input:wasPressed("left") or Input:wasPressed("down") then
+        bump(-1)
+      elseif Input:wasPressed("a") then
+        local qty = f.qty or 1
+        local id = f.qtyItem
+        local ok, msg
+        if f.qtyFrom == "sell" then
+          ok, msg = self:sellMartItem(id, qty)
+          f.sellSlots = self:martSellSlots()
+        else
+          ok, msg = self:buyMartItem(id, f.martKind, qty)
+        end
+        f.note = msg
+        f.mode = f.qtyFrom or "buy"
+        f.cursor = f.listCursor or 0
+        f.qty, f.qtyItem, f.qtyFrom = nil, nil, nil
+        self:updateMoneyBox()
       end
     end
+    return
+  end
+  if f.kind == "dex" then
+    self:stepDexList(f)
+    return
+  end
+  if f.kind == "dex_entry" then
+    self:stepDexEntry(f)
     return
   end
   if f.kind ~= "menu" then
@@ -16125,6 +30444,8 @@ function Game3:stepField()
       self:openPokeNav()
     elseif name == "SAVE" then
       self:openSaveAsk()
+    elseif name == "RETIRE" then
+      self:openSafariRetirePrompt()
     elseif name == "OPTION" then
       self.field = { kind = "option", cursor = 0 }
     elseif name == self:playerName() then
@@ -16136,21 +30457,27 @@ function Game3:stepField()
 end
 
 function Game3:drawStartMenu(f)
+  if self:inSafariMode() then
+    -- start_menu.c DisplaySafariBallsWindow: (0, 0, 10, 5), text at 1, 1.
+    self:drawStdWindow(0, 0, Game3.SAFARI_STOCK_RIGHT, Game3.SAFARI_STOCK_BOTTOM)
+    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("SAFARI BALLS", Game3.MENU_TILE, Game3.MENU_TILE)
+    self:drawText(("Stock: %d"):format(self.safariBalls or 0),
+      Game3.MENU_TILE, Game3.MENU_TILE * 3)
+  end
   local labels = self:startMenuItems()
   local n = #labels
-  local rowH = 14
-  local boxW = 80
-  local boxH = n * rowH + 10
-  local boxX = Game3.SCREEN_W - boxW - 2
-  local boxY = 2
-  self:drawWindow(boxX, boxY, boxW, boxH)
+  -- Menu_DrawStdWindowFrame(22, 0, 29, n * 2 + 3)
+  local bottom = n * 2 + 3
+  self:drawStdWindow(Game3.START_LEFT, Game3.START_TOP, Game3.START_RIGHT, bottom)
+  local tx = Game3.START_TEXT_COL * Game3.MENU_TILE
   for i = 0, n - 1 do
-    local y = boxY + 4 + i * rowH
+    local y = (Game3.START_TEXT_ROW + i * 2) * Game3.MENU_TILE
     if i == (f.cursor or 0) then
-      self:drawCursor(boxX + 4, y)
+      self:drawCursor(tx - Game3.MENU_TILE, y)
     end
     love.graphics.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText(labels[i + 1], boxX + 14, y)
+    self:drawText(labels[i + 1], tx, y)
   end
 end
 
@@ -16232,42 +30559,568 @@ function Game3:drawSaveAsk(f)
   end
 end
 
+function Game3:itemDescription(id)
+  local row = self:itemRow(id)
+  if row and type(row.description) == "string" and row.description ~= "" then
+    return row.description
+  end
+  return self:itemName(id)
+end
+
 function Game3:drawBag(f)
   local G = love.graphics
   local pocket = (f and f.pocket) or Game3.POCKET_ITEMS
+  local list = self:bagSlotsIn(pocket)
+  local total = #list + 1
+  local cursor = f and f.cursor or 0
+  if cursor < 0 then cursor = 0 end
+  if cursor >= total then cursor = total - 1 end
+  local rows = Game3.BAG_ROWS
+  local start = 0
+  if cursor >= rows then start = cursor - rows + 1 end
+  -- item_menu.c: tan fill, bag + pocket on the left (tiles 0-13), list on
+  -- the right from tile 14, CLOSE BAG last, description bottom-left.
   G.setColor(0.72, 0.55, 0.22, 1)
   G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
-  self:drawWindow(4, 4, 80, 52)
+  self:drawWindow(4, 4, 104, 56)
   G.setColor(0.10, 0.10, 0.12, 1)
   self:drawText("BAG", 12, 10)
-  self:drawText(Game3.POCKET_NAMES[pocket] or "ITEMS", 12, 28)
-  self:drawWindow(88, 4, 148, 120)
-  local list = self:bagSlotsIn(pocket)
-  local start = f and f.cursor or 0
-  if start < 0 then start = 0 end
-  if #list < 1 then
+  if not (f and f.pickBerry) then
+    self:drawText("<", 12, 28)
+  end
+  self:drawText(self:pocketName(pocket), 22, 28)
+  if not (f and f.pickBerry) then
+    self:drawText(">", 96, 28)
+  end
+  self:drawWindow(112, 4, 124, 152)
+  for i = 0, rows - 1 do
+    local idx = start + i
+    local y = 12 + i * 16
+    if idx == cursor then self:drawCursor(116, y) end
     G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("The BAG is empty.", 96, 20)
+    if idx < #list then
+      local slot = list[idx + 1]
+      self:drawText(("%s  x%d"):format(
+        self:itemName(slot.id), slot.count or 0), 128, y)
+    elseif idx == #list then
+      self:drawText(Game3.BAG_CLOSE, 128, y)
+    end
+  end
+  self:drawWindow(4, 104, 104, 52)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  if cursor >= #list then
+    self:drawText("Return to", 12, 112)
+    local dest = "the field."
+    if self.phase == "battle" then
+      dest = "the battle."
+    elseif f and f.giveTo then
+      dest = "the POKeMON list."
+    end
+    self:drawText(dest, 12, 128)
   else
-    for i = 0, 6 do
-      local slot = list[start + i + 1]
-      local y = 12 + i * 16
-      if i == 0 then self:drawCursor(92, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      if slot then
-        self:drawText(("%s  x%d"):format(
-          self:itemName(slot.id), slot.count or 0), 102, y)
+    local slot = list[cursor + 1]
+    if slot then
+      local moveName = self:tmhmMoveName(slot.id)
+      if moveName then
+        self:drawText(self:itemName(slot.id), 12, 112)
+        self:drawText(moveName, 12, 128)
+      else
+        self:drawText(self:itemDescription(slot.id), 12, 112)
       end
     end
   end
-  self:drawWindow(4, 128, 232, 28)
-  G.setColor(0.10, 0.10, 0.12, 1)
-  self:drawText(self:moneyString(), 12, 136)
-  if f and f.giveTo then
-    self:drawText("< > pocket  A give  B back", 88, 136)
-  else
-    self:drawText("< > pocket  A use  B back", 88, 136)
+end
+
+-- ---------- Party menu ----------
+--
+-- Ruby builds this screen out of one 116-tile sheet stamped into a tilemap
+-- (party_menu.c sub_806B9A4 / sub_806BA94). A box's state is carried by
+-- its palette rather than by different tiles, which is why there is no
+-- cursor sprite here: the selected box simply lights up.
+
+-- pokemon_icon.c sMonIconAnims, VBlanks between the two icon frames,
+-- fastest first. The last entry repeats frame 0, so it does not bob.
+Game3.ICON_BOB_DELAYS = { 6, 8, 14, 22, 0 }
+
+-- party_menu.h PARTY_MENU_LAYOUT_*. Field START POKeMON is always
+-- STANDARD. Battle party uses DOUBLE when b.doubles; LINK_DOUBLE is
+-- table-only until a real link battle is asked for.
+Game3.PARTY_MENU_LAYOUT_STANDARD = 0
+Game3.PARTY_MENU_LAYOUT_DOUBLE = 1
+Game3.PARTY_MENU_LAYOUT_LINK_DOUBLE = 2
+
+function Game3:menuArt(group)
+  local menus = self.data and self.data.menus
+  local art = menus and menus[group]
+  if type(art) ~= "table" then return nil end
+  return art
+end
+
+function Game3:menuPic(path)
+  if type(path) ~= "string" then return nil end
+  self._menuCache = self._menuCache or {}
+  if self._menuCache[path] ~= nil then return self._menuCache[path] or nil end
+  local img = self:grabImage(path)
+  self._menuCache[path] = img or false
+  return img
+end
+
+-- The tile atlas is laid out one row of tiles per palette, so a tile in a
+-- given colour is a single quad lookup.
+function Game3:partyTileQuad(sheet, id, pal)
+  self._partyQuads = self._partyQuads or {}
+  local key = id * 16 + pal
+  local quad = self._partyQuads[key]
+  if not quad then
+    quad = love.graphics.newQuad(id * 8, pal * 8, 8, 8, sheet:getDimensions())
+    self._partyQuads[key] = quad
   end
+  return quad
+end
+
+function Game3:stampPartyBox(batch, sheet, shape, tx, ty, pal)
+  if type(shape) ~= "table" then return end
+  for r = 1, #shape do
+    local row = shape[r]
+    for c = 1, #row do
+      batch:add(self:partyTileQuad(sheet, row[c], pal),
+        (tx + c - 1) * 8, (ty + r - 1) * 8)
+    end
+  end
+end
+
+-- sub_806BF24: fainted mons get their own palette, and being under the
+-- cursor shifts either colour up by four.
+function Game3:partyBoxPalette(art, mon, selected)
+  local pal = art.palNormal or 3
+  if mon and (mon.hp or 0) <= 0 then pal = art.palFainted or 5 end
+  if selected then pal = pal + (art.palSelected or 4) end
+  return pal
+end
+
+-- GetHPBarLevel, which scales the bar into eighths before bucketing it.
+function Game3:hpBarLevel(hp, maxHp)
+  hp, maxHp = tonumber(hp) or 0, tonumber(maxHp) or 0
+  if maxHp <= 0 then return 0 end
+  if hp >= maxHp then return 3 end
+  local eighths = math.floor(hp * 8 / maxHp + 0.5)
+  if eighths > 4 then return 3 end
+  if eighths == 4 then return 2 end
+  if eighths > 1 then return 1 end
+  return 0
+end
+
+-- SetMonIconAnimByHP: a mon at full health bobs fastest and one on its
+-- last legs holds still.
+function Game3:monIconFrame(mon)
+  if not mon then return 0 end
+  local hp, maxHp = mon.hp or 0, mon.maxHp or 0
+  local anim = 1
+  if hp ~= maxHp then
+    local level = self:hpBarLevel(hp, maxHp)
+    anim = ({ [3] = 2, [2] = 3, [1] = 4 })[level] or 5
+  end
+  local delay = Game3.ICON_BOB_DELAYS[anim] or 0
+  if delay <= 0 then return 0 end
+  return math.floor((self.vblank or 0) / delay) % 2
+end
+
+function Game3:drawMonIcon(species, x, y, frame)
+  local art = self:menuArt("icons")
+  local sheet = art and self:menuPic(art.atlas)
+  if not sheet then return false end
+  species = tonumber(species) or 0
+  local cols = art.columns or 20
+  local cw, ch = art.cellW or 32, art.cellH or 64
+  local fh = art.frameH or 32
+  self._iconQuads = self._iconQuads or {}
+  local key = species * 2 + (frame or 0)
+  local quad = self._iconQuads[key]
+  if not quad then
+    quad = love.graphics.newQuad(
+      (species % cols) * cw,
+      math.floor(species / cols) * ch + (frame or 0) * fh,
+      cw, fh, sheet:getDimensions())
+    self._iconQuads[key] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, x, y)
+  return true
+end
+
+-- gStatusGfx_Icons, four tiles per condition in STATUS_ORDER.
+function Game3:drawPartyStatusIcon(art, status, x, y)
+  local sheet = self:menuPic(art.status)
+  if not sheet or not status then return false end
+  local order = art.statusOrder or {}
+  local row
+  for i = 1, #order do
+    if order[i] == status then row = i - 1 break end
+  end
+  if not row then return false end
+  local w = (art.statusTiles or 4) * 8
+  self._statusQuads = self._statusQuads or {}
+  local quad = self._statusQuads[row]
+  if not quad then
+    quad = love.graphics.newQuad(0, row * 8, w, 8, sheet:getDimensions())
+    self._statusQuads[row] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, x, y)
+  return true
+end
+
+-- DrawPartyMonBackground: STANDARD unless the caller (battle doubles)
+-- asked for another row. Field START POKeMON never sets this.
+function Game3:partyMenuLayout(f)
+  if f and type(f.layout) == "number" then return f.layout end
+  return Game3.PARTY_MENU_LAYOUT_STANDARD
+end
+
+-- Overlay layout rows onto the cached STANDARD art without mutating it.
+-- ruby41 caches have no `layouts` field; Party.layoutFields supplies them.
+function Game3:partyLayoutArt(art, layout)
+  layout = layout or Game3.PARTY_MENU_LAYOUT_STANDARD
+  if layout == Game3.PARTY_MENU_LAYOUT_STANDARD then return art end
+  local fields = art.layouts and art.layouts[layout]
+  if not fields then
+    local Party = require("src.import.RomExtractorGen3Party")
+    fields = Party.layoutFields(layout)
+  end
+  if not fields then return art end
+  return setmetatable({
+    boxAt = fields.boxAt,
+    iconAt = fields.iconAt,
+    nameAt = fields.nameAt,
+    nameBox = fields.nameBox,
+    levelAt = fields.levelAt,
+    hpBarAt = fields.hpBarAt,
+  }, { __index = art })
+end
+
+function Game3:partyBoxShape(art, layout, slot, mon)
+  local Party = require("src.import.RomExtractorGen3Party")
+  if Party.isLeadSlot(layout, slot) then return art.leadBox end
+  return mon and art.slotBox or art.emptyBox
+end
+
+function Game3:drawPartyScreen(f)
+  local art = self:menuArt("party")
+  local sheet = art and self:menuPic(art.tiles)
+  if not art or not sheet then return self:drawPartyScreenFallback(f) end
+
+  local layout = self:partyMenuLayout(f)
+  art = self:partyLayoutArt(art, layout)
+
+  local G = love.graphics
+  local party = self.party or {}
+  local cursor = f and f.cursor or 0
+  local from = f and f.kind == "party_switch" and ((f.monIndex or 1) - 1) or nil
+
+  local bg = self:menuPic(art.background)
+  if bg then
+    G.setColor(1, 1, 1, 1)
+    G.draw(bg, 0, 0)
+  else
+    G.setColor(0.16, 0.36, 0.28, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+
+  self._partyBatch = self._partyBatch
+    or G.newSpriteBatch(sheet, 512, "stream")
+  local batch = self._partyBatch
+  batch:clear()
+  for slot = 0, 5 do
+    local mon = party[slot + 1]
+    local at = (art.boxAt or {})[slot + 1]
+    if at then
+      -- A mon being moved reads as selected too, so both ends of a switch
+      -- stay lit while the player picks the destination.
+      local lit = slot == cursor or slot == from
+      local pal = self:partyBoxPalette(art, mon, lit)
+      local shape = self:partyBoxShape(art, layout, slot, mon)
+      self:stampPartyBox(batch, sheet, shape, at[1], at[2], pal)
+    end
+  end
+  G.setColor(1, 1, 1, 1)
+  G.draw(batch)
+
+  for slot = 0, 5 do
+    local mon = party[slot + 1]
+    if mon then
+      local at = (art.iconAt or {})[slot + 1]
+      if at then
+        self:drawMonIcon(mon.species, at[1], at[2], self:monIconFrame(mon))
+        self:drawPartyHeldItem(art, mon, at[1], at[2])
+      end
+      self:drawPartySlotText(art, slot, mon, f)
+    end
+  end
+
+  -- A forced switch has no way out, so Ruby offers no CANCEL.
+  if not (f and f.noCancel) then self:drawPartyCancel(art, cursor) end
+  self:drawPartyPrompt(f)
+end
+
+-- PartyMenuDoDrawHPBar: the "HP" label, six tiles of bar and the end cap,
+-- with the fill's palette chosen by how much health is left.
+function Game3:drawPartyHpBar(art, slot, mon)
+  local G = love.graphics
+  local at = (art.hpBarAt or {})[slot + 1]
+  local sheet = self:menuPic(art.hpbar)
+  if not at then return end
+  local hp, maxHp = mon.hp or 0, mon.maxHp or 0
+  local barTiles = art.hpBarTiles or 6
+  local x, y = at[1] * 8, at[2] * 8
+  if not sheet then
+    self:drawHpBar(x, y, barTiles * 8, hp, maxHp)
+    return
+  end
+
+  local labelPal = art.hpTilePal or 3
+  local label = art.hpTileLabel or 9
+  self:drawHpBarTile(sheet, label, labelPal, x - 16, y)
+  self:drawHpBarTile(sheet, label + 1, labelPal, x - 8, y)
+  self:drawHpBarTile(sheet, art.hpTileCap or 11, labelPal, x + barTiles * 8, y)
+
+  local level = self:hpBarLevel(hp, maxHp)
+  local pal = (art.hpFillPal or {})[level] or 6
+  -- The bar is filled in eighths of a tile, so scale to pixels and let each
+  -- tile take whichever of the nine fill tiles matches its own eighth.
+  local filled = 0
+  if maxHp > 0 then filled = math.floor(hp * barTiles * 8 / maxHp + 0.5) end
+  if hp > 0 and filled < 1 then filled = 1 end
+  for i = 0, barTiles - 1 do
+    local eighths = filled - i * 8
+    if eighths < 0 then eighths = 0 elseif eighths > 8 then eighths = 8 end
+    self:drawHpBarTile(sheet, eighths, pal, x + i * 8, y)
+  end
+end
+
+function Game3:drawHpBarTile(sheet, id, pal, x, y)
+  self._hpQuads = self._hpQuads or {}
+  local key = id * 16 + pal
+  local quad = self._hpQuads[key]
+  if not quad then
+    quad = love.graphics.newQuad(id * 8, pal * 8, 8, 8, sheet:getDimensions())
+    self._hpQuads[key] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, x, y)
+end
+
+-- Font 4: 8x8 cells indexed by character code, already resolved through
+-- sFontType1Map by the extractor. Used for the level and HP counts, which
+-- the ROM prints only 8 pixels tall; nicknames stay on the 8x16 font.
+function Game3:smallTextWidth(art, text)
+  local widths = art and art.fontWidths
+  if not widths then return #tostring(text or "") * 8 end
+  local total = 0
+  text = tostring(text or "")
+  for i = 1, #text do
+    total = total + (widths[Game3.fontCode(text:sub(i, i))] or 8)
+  end
+  return total
+end
+
+function Game3:drawSmallText(art, text, x, y)
+  local sheet = art and self:menuPic(art.font)
+  if not sheet then
+    self:drawText(text, x, y)
+    return
+  end
+  local G = love.graphics
+  local widths = art.fontWidths or {}
+  self._smallQuads = self._smallQuads or {}
+  text = tostring(text or "")
+  G.setColor(1, 1, 1, 1)
+  local gx = x
+  for i = 1, #text do
+    local code = Game3.fontCode(text:sub(i, i))
+    local quad = self._smallQuads[code]
+    if not quad then
+      quad = G.newQuad((code % 16) * 8, math.floor(code / 16) * 8, 8, 8,
+        sheet:getDimensions())
+      self._smallQuads[code] = quad
+    end
+    G.draw(sheet, quad, gx, y)
+    gx = gx + (widths[code] or 8)
+  end
+end
+
+-- A single tile out of gPartyMenuOrderText_Gfx. Returns false when the
+-- sheet is missing so callers can fall back to drawn text.
+function Game3:drawOrderTile(art, tile, x, y)
+  local sheet = art and self:menuPic(art.order)
+  if not (sheet and tile) then return false end
+  local cols = art.orderCols or 16
+  self._orderQuads = self._orderQuads or {}
+  local quad = self._orderQuads[tile]
+  if not quad then
+    quad = love.graphics.newQuad((tile % cols) * 8,
+      math.floor(tile / cols) * 8, 8, 8, sheet:getDimensions())
+    self._orderQuads[tile] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, x, y)
+  return true
+end
+
+-- SpriteCB_HeldItemIcon parents the icon to the mon icon sprite, so it
+-- rides along with the bob rather than sitting at a fixed offset.
+function Game3:drawPartyHeldItem(art, mon, ix, iy)
+  local item = mon and mon.item
+  if not item or item == 0 or item == Game3.ITEM_NONE then return end
+  local sheet = art and self:menuPic(art.hold)
+  if not sheet then return end
+  local frame = Game3.isMailItem(item) and (art.holdFrameMail or 1)
+    or (art.holdFrameItem or 0)
+  self._holdQuads = self._holdQuads or {}
+  local quad = self._holdQuads[frame]
+  if not quad then
+    quad = love.graphics.newQuad(frame * 8, 0, 8, 8, sheet:getDimensions())
+    self._holdQuads[frame] = quad
+  end
+  local at = art.holdAt or { 16, 22 }
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, ix + at[1], iy + at[2])
+end
+
+Game3.SPECIES_NIDORAN_F = 29
+Game3.SPECIES_NIDORAN_M = 32
+
+-- ShouldHideGenderIcon: the Nidoran lines carry their gender in the
+-- species name, so the symbol is suppressed unless the mon was renamed.
+function Game3:showsGenderIcon(mon)
+  if not mon or mon.isEgg then return false end
+  local species = mon.species
+  if species ~= Game3.SPECIES_NIDORAN_M and species ~= Game3.SPECIES_NIDORAN_F then
+    return true
+  end
+  return (mon.name or "") ~= (self:speciesName(species) or "")
+end
+
+-- PartyMenuDoPrintGenderIcon: tile 0x42 / 0x44 from GetMonGender. The
+-- switch has no MON_GENDERLESS case, so Magnemite etc. stamp nothing.
+-- makeMon never writes mon.gender; healthboxes already use monGender.
+function Game3:partyGenderTile(mon, art)
+  if not self:showsGenderIcon(mon) then return nil end
+  local gender = self:monGender(mon)
+  if gender == Game3.MON_MALE then
+    return (art and art.tileMale) or 0x42
+  end
+  if gender == Game3.MON_FEMALE then
+    return (art and art.tileFemale) or 0x44
+  end
+  return nil
+end
+
+function Game3:drawPartyGender(art, mon, lx, ly)
+  local tile = self:partyGenderTile(mon, art)
+  if not tile then return end
+  -- PartyMenuDoPrintGenderIcon sits four tiles right of the "Lv" tile.
+  self:drawOrderTile(art, tile, lx + 32, ly)
+end
+
+function Game3:drawPartySlotText(art, slot, mon, f)
+  local G = love.graphics
+  local name = (art.nameAt or {})[slot + 1]
+  local level = (art.levelAt or {})[slot + 1]
+  if not (name and level) then return end
+  G.setColor(1, 1, 1, 1)
+  -- The nickname shares gWindowTemplate_81E6CAC with the level and HP, so
+  -- it is font 4 too. It copies both tile rows where they copy only the
+  -- lower one, but every letter's upper tile is the blank, so what shows
+  -- is the same 8 pixel text.
+  self:drawSmallText(art, mon.name or "POKeMON", name[1] * 8, name[2] * 8 + 8)
+
+  -- PartyMenuDoPrintLevel puts the "Lv" tile one column left and one row
+  -- below the recorded position, with the number following it. A status
+  -- condition takes over those same tiles instead.
+  local lx, ly = (level[1] - 1) * 8, (level[2] + 1) * 8
+  local status = mon.status
+  local shown = false
+  if status and status ~= "" and status ~= "none" then
+    shown = self:drawPartyStatusIcon(art, status, lx, ly)
+  end
+  if not shown then
+    -- "Lv" is a cart tile, not text; only the number is printed, and it
+    -- starts 8 pixels in because the string carries a skip-to-x of 8.
+    if self:drawOrderTile(art, art.tileLv, lx, ly) then
+      self:drawSmallText(art, tostring(mon.level or 1), lx + 8, ly)
+    else
+      self:drawSmallText(art, ("Lv%d"):format(mon.level or 1), lx, ly)
+    end
+  end
+
+  -- Gender is printed whether the slot shows a level or a status.
+  self:drawPartyGender(art, mon, lx, ly)
+
+  -- sub_808AE8C / sub_806D668: a TM/HM teach hides the HP bar and numbers
+  -- and stamps ABLE / NOT ABLE / LEARNED in that row.
+  local able = f and f.kind == "party_teach"
+    and self:tmhmPartyLabel(mon, f.item)
+  local at = (art.hpBarAt or {})[slot + 1]
+  if able then
+    if at then
+      self:drawSmallText(art, able, (at[1] - 2) * 8, at[2] * 8)
+    end
+    return
+  end
+
+  self:drawPartyHpBar(art, slot, mon)
+
+  -- PartyMenuDoPrintHP right-aligns both numbers, on the row under the bar.
+  if at then
+    local text = ("%d/%d"):format(mon.hp or 0, mon.maxHp or 0)
+    local right = (at[1] + (art.hpBarTiles or 6) + 1) * 8
+    self:drawSmallText(art, text, right - self:smallTextWidth(art, text),
+      (at[2] + 1) * 8)
+  end
+end
+
+function Game3:drawPartyCancel(art, cursor)
+  local at = art.cancelAt or { 196, 136 }
+  love.graphics.setColor(1, 1, 1, 1)
+  if cursor == 6 then self:drawCursor(at[1] - 10, at[2]) end
+  self:drawText("CANCEL", at[1], at[2])
+end
+
+function Game3:drawPartyPrompt(f)
+  local kind = f and f.kind
+  local prompt
+  if kind == "party_switch" then prompt = "Move to where?" end
+  if kind == "party_teach" then prompt = "Teach which POKeMON?" end
+  if kind == "party_use" then prompt = "Use on which POKeMON?" end
+  if kind == "party_pp" then
+    prompt = Game3.PP_UP[f.item] and "Boost PP of which move?"
+      or "Restore which move?"
+  end
+  -- The battle party menu supplies its own line.
+  if f and f.prompt then prompt = f.prompt end
+  if not prompt then return end
+  -- The sixth slot box is stamped at tile row 13, so it runs to y 128.
+  -- Anything starting above that buries a party member. The strip below
+  -- is all that is free, and CANCEL lives in its right hand end.
+  self:drawWindow(0, 128, 184, 32)
+  love.graphics.setColor(1, 1, 1, 1)
+  self:drawText(prompt, 8, 136)
+end
+
+-- Kept for caches imported before the party art existed, and for tests
+-- that build a Game3 with no menu registry at all.
+function Game3:drawPartyScreenFallback(f)
+  local G = love.graphics
+  G.setColor(0.22, 0.48, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(4, 4, 232, 152)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  local title = "POKeMON"
+  if f and f.kind == "party_switch" then title = "Move to where?" end
+  if f and f.kind == "party_teach" then title = "Teach which?" end
+  if f and f.kind == "party_use" then title = "Use on which?" end
+  self:drawText(title, 16, 10)
+  self:drawPartySlots(f)
 end
 
 function Game3:drawPartySlots(f)
@@ -16288,7 +31141,12 @@ function Game3:drawPartySlots(f)
     G.setColor(0.10, 0.10, 0.12, 1)
     if mon then
       self:drawText(mon.name or "POKeMON", 28, y)
-      if compact then
+      local able = f and f.kind == "party_teach"
+        and self:tmhmPartyLabel(mon, f.item)
+      if able then
+        self:drawText(("Lv%d"):format(mon.level or 1), 120, y)
+        self:drawText(able, 148, y)
+      elseif compact then
         self:drawText(("%d/%d"):format(mon.hp or 0, mon.maxHp or 0), 100, y)
       else
         self:drawText(("Lv%d"):format(mon.level or 1), 120, y)
@@ -16302,17 +31160,31 @@ function Game3:drawPartySlots(f)
   end
 end
 
-function Game3:drawPartyScreen(f)
-  local G = love.graphics
-  G.setColor(0.22, 0.48, 0.38, 1)
-  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
-  self:drawWindow(4, 4, 232, 152)
-  G.setColor(0.10, 0.10, 0.12, 1)
-  local title = "POKeMON"
-  if f and f.kind == "party_switch" then title = "Move to where?" end
-  if f and f.kind == "party_teach" then title = "Teach which?" end
-  self:drawText(title, 16, 10)
-  self:drawPartySlots(f)
+function Game3:drawCandyStats(f)
+  self:drawPartyScreen({
+    kind = "party_use",
+    cursor = 0,
+    prompt = " ",
+  })
+  local growth = f.growth or {}
+  self:drawWindow(88, 0, 152, 64)
+  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  local page = f.page or 0
+  for i = 1, #growth do
+    local row = growth[i]
+    local col = i > 3 and 1 or 0
+    local line = (i - 1) % 3
+    local x = 96 + col * 72
+    local y = 6 + line * 18
+    self:drawText(row.name or "STAT", x, y)
+    local shown
+    if page < 1 then
+      shown = ("+%d"):format(row.delta or 0)
+    else
+      shown = tostring(row.value or 0)
+    end
+    self:drawText(shown, x + 48, y)
+  end
 end
 
 function Game3:drawPartyAction(f)
@@ -16339,7 +31211,7 @@ end
 
 function Game3:drawPartySummary(f)
   local G = love.graphics
-  local mon = (self.party or {})[(f and f.monIndex) or 1]
+  local mon = (f and f.mon) or (self.party or {})[(f and f.monIndex) or 1]
   local page = (f and f.page) or 0
   G.setColor(0.22, 0.38, 0.62, 1)
   G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
@@ -16409,10 +31281,331 @@ function Game3:drawPartySummary(f)
   self:drawText("< > pages  A/B back", 16, 138)
 end
 
+function Game3:drawDexList(f)
+  local G = love.graphics
+  G.setColor(0.16, 0.22, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(8, 8, 224, 144)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  local title = self:hasNationalDex() and "NATIONAL DEX" or "HOENN DEX"
+  local seen, caught = self:dexCounts()
+  self:drawText(title, 16, 14)
+  self:drawText(("SEEN %d  GOT %d"):format(seen, caught), 120, 14)
+  local list = (f and f.list) or {}
+  if #list < 1 then
+    self:drawText("No POKeMON seen yet.", 16, 40)
+    self:drawText("B back", 176, 138)
+    return
+  end
+  local cursor = f.cursor or 0
+  local rows = Game3.DEX_LIST_ROWS
+  local start = cursor
+  if start > #list - 1 then start = #list - 1 end
+  if start < 0 then start = 0 end
+  if start + rows > #list then
+    start = #list - rows
+    if start < 0 then start = 0 end
+  end
+  if cursor < start then start = cursor end
+  if cursor >= start + rows then start = cursor - rows + 1 end
+  for i = 0, rows - 1 do
+    local row = list[start + i + 1]
+    local y = 32 + i * 16
+    if start + i == cursor then
+      G.setColor(0.90, 0.28, 0.22, 1)
+      self:drawCursor(12, y)
+    end
+    G.setColor(0.10, 0.10, 0.12, 1)
+    if row then
+      local mark = row.caught and "GOT" or "SEEN"
+      local num = self:dexListNumber(row.id)
+      self:drawText(("%03d %s"):format(num, row.name), 22, y)
+      self:drawText(mark, 176, y)
+    end
+  end
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("A entry  B back", 16, 138)
+end
+
+function Game3:drawDexSelectBar(state)
+  local G = love.graphics
+  local bar = (state and (state.bar or state.screen)) or Game3.DEX_SCREEN_INFO
+  local names = Game3.DEX_SCREEN_NAMES
+  local x = 8
+  for i = 1, #names do
+    if (i - 1) == bar then
+      G.setColor(0.90, 0.28, 0.22, 1)
+      self:drawCursor(x, 138)
+    end
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(names[i], x + 10, 138)
+    x = x + 58
+  end
+end
+
+function Game3:drawDexSizeScreen(state)
+  local G = love.graphics
+  local species = (state and (state.dexSpecies or state.species)) or 0
+  local row = self:speciesRow(species) or {}
+  local monScale = Game3.dexAffineScale(row.pokemonScale)
+  local trainerScale = Game3.dexAffineScale(row.trainerScale)
+  local monOff = tonumber(row.pokemonOffset) or 0
+  local trainerOff = tonumber(row.trainerOffset) or 0
+  G.setColor(0.16, 0.22, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(4, 4, 232, 152)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText(Game3.TEXT_DEX_SIZE_COMPARED .. (self:playerName() or ""),
+    16, 12)
+  local function silhouette(pic, x, y, scale, fallbackW)
+    if pic then
+      G.setColor(0.08, 0.08, 0.10, 1)
+      self:drawSpriteCenter(pic, x, y, nil, nil, nil, nil, scale)
+    else
+      local w = math.floor((fallbackW or 48) * (scale or 1))
+      G.setColor(0.08, 0.08, 0.10, 1)
+      G.rectangle("fill", x - w / 2, y - w / 2, w, w)
+    end
+  end
+  silhouette(self:battlePic(species, "front"),
+    Game3.DEX_SIZE_MON_X, Game3.DEX_SIZE_MON_Y + monOff, monScale, 48)
+  local trainer
+  if self.cinemaPic then
+    trainer = self:isFemale() and self:cinemaPic("mayFront")
+      or self:cinemaPic("brendanFront")
+  end
+  silhouette(trainer,
+    Game3.DEX_SIZE_TRAINER_X, Game3.DEX_SIZE_TRAINER_Y + trainerOff,
+    trainerScale, 40)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("B back", 176, 138)
+end
+
+function Game3:drawDexCryScreen(state)
+  local G = love.graphics
+  local species = (state and (state.dexSpecies or state.species)) or 0
+  G.setColor(0.16, 0.22, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(4, 4, 232, 152)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText(Game3.TEXT_DEX_CRY_OF, 80, 16)
+  self:drawText(self:speciesName(species), 80, 32)
+  self:drawBattlePic(species, "front", Game3.DEX_PIC_X, Game3.DEX_PIC_Y, 1, 0, false)
+  G.setColor(0.20, 0.55, 0.28, 1)
+  G.rectangle("fill", 104, 100, 88, 24)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("PLAY", 132, 106)
+  self:drawText("A cry  B back", 16, 138)
+end
+
+function Game3:drawDexAreaScreen(state)
+  local G = love.graphics
+  G.setColor(0.16, 0.22, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(4, 4, 232, 152)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("AREA", 16, 16)
+  self:drawText("Habitat map parked.", 16, 40)
+  self:drawText("B back", 176, 138)
+end
+
+function Game3:drawDexEntry(state)
+  local G = love.graphics
+  local screen = (state and state.screen) or Game3.DEX_SCREEN_INFO
+  local fromCatch = state and (state.dexFromCatch or state.fromCatch)
+  if not fromCatch then
+    if screen == Game3.DEX_SCREEN_SIZE then
+      self:drawDexSizeScreen(state)
+      return
+    end
+    if screen == Game3.DEX_SCREEN_CRY then
+      self:drawDexCryScreen(state)
+      return
+    end
+    if screen == Game3.DEX_SCREEN_AREA then
+      self:drawDexAreaScreen(state)
+      return
+    end
+  end
+  local species = (state and (state.dexSpecies or state.species)) or 0
+  local page = (state and (state.dexPage or state.page)) or 0
+  local owned = state and state.owned
+  if owned == nil then owned = self:hasCaught(species) end
+  G.setColor(0.16, 0.22, 0.38, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  self:drawWindow(4, 4, 232, 152)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  if fromCatch then
+    self:drawText(Game3.TEXT_DEX_REGISTERED, 16, 8)
+  end
+  local num = self:dexListNumber(species)
+  local nameY = fromCatch and 24 or 12
+  self:drawText(("No. %03d"):format(num), 104, nameY)
+  self:drawText(self:speciesName(species), 104, nameY + 14)
+  self:drawText(self:dexCategoryText(species, owned), 88, nameY + 32)
+  local ht = "??'??\""
+  local wt = "????.? lbs."
+  if owned then
+    local row = self:speciesRow(species)
+    ht = Game3.dexHeightText(row and row.height)
+    wt = Game3.dexWeightText(row and row.weight)
+  end
+  self:drawText("HT  " .. ht, 104, nameY + 48)
+  self:drawText("WT  " .. wt, 104, nameY + 62)
+  self:drawBattlePic(species, "front", Game3.DEX_PIC_X, Game3.DEX_PIC_Y, 1, 0, false)
+  local flavor = self:dexFlavorText(species, page, owned)
+  local lines = Game3.wrapDialogue(flavor, 208)
+  local fy = fromCatch and 104 or 96
+  local maxLines = fromCatch and 3 or 2
+  for i = 1, math.min(maxLines, #lines) do
+    self:drawText(lines[i], 16, fy + (i - 1) * 12)
+  end
+  if not fromCatch then
+    self:drawDexSelectBar(state)
+  end
+end
+
+function Game3:drawRegionMapFlyIcons(f, mapXY)
+  local G = love.graphics
+  local flags = self.flags or {}
+  local t = f.t or 0
+  local cx = f.cursorX or Game3RegionMap.CURSOR_X_MIN
+  local cy = f.cursorY or Game3RegionMap.CURSOR_Y_MIN
+  local sel = Game3.regionMapSectionAt(cx, cy)
+  for i = 0, 15 do
+    local dest = Game3.FLY_DESTINATIONS[i + 1]
+    local visited = dest and flags[dest.flag]
+    local ex, ey = Game3.regionMapCursorForSection(i)
+    local w, h = Game3RegionMap.entrySize(i)
+    local mx, my = mapXY(ex * 8 + 4, ey * 8 + 4)
+    local iw, ih = 8, 8
+    if w == 2 then iw = 16 elseif h == 2 then ih = 16 end
+    local blink = visited and sel == i and math.floor(t / 16) % 2 == 1
+    if not blink then
+      if visited then
+        G.setColor(1, 1, 0.55, 0.85)
+      else
+        G.setColor(0.30, 0.32, 0.40, 0.55)
+      end
+      G.rectangle("fill", mx - iw / 2, my - ih / 2, iw, ih)
+    end
+  end
+  if flags[Game3.FLAG_LANDMARK_BATTLE_TOWER] then
+    local tx, ty = Game3.regionMapCursorForSection(Game3.MAPSEC_BATTLE_TOWER)
+    local mx, my = mapXY(tx * 8, ty * 8)
+    local blink = sel == Game3.MAPSEC_BATTLE_TOWER and math.floor(t / 16) % 2 == 1
+    if not blink then
+      G.setColor(0.90, 0.28, 0.22, 0.90)
+      G.rectangle("fill", mx - 8, my - 8, 16, 16)
+    end
+  end
+end
+
+function Game3:drawRegionMap(f)
+  local G = love.graphics
+  local img = self:cinemaPic("regionMap")
+  local pa = f.zoomPA or Game3RegionMap.ZOOM_PA_OUT
+  local sx = f.scrollX or 0
+  local sy = f.scrollY or 0
+  local function mapXY(mx, my)
+    return Game3RegionMap.screenXY(mx, my, sx, sy, pa)
+  end
+  if img then
+    G.setColor(1, 1, 1, 1)
+    local scale = Game3RegionMap.ZOOM_PA_OUT / pa
+    G.draw(img, Game3RegionMap.ZOOM_CX, Game3RegionMap.ZOOM_CY,
+      0, scale, scale, sx + Game3RegionMap.ZOOM_CX, sy + Game3RegionMap.ZOOM_CY)
+  else
+    G.setColor(0.05, 0.18, 0.45, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  end
+  local xmin = Game3RegionMap.CURSOR_X_MIN
+  local ymin = Game3RegionMap.CURSOR_Y_MIN
+  local cx = f.cursorX or xmin
+  local cy = f.cursorY or ymin
+  local px = f.playerX or cx
+  local py = f.playerY or cy
+  if f.flyMode or f.kind == "fly" then
+    self:drawRegionMapFlyIcons(f, mapXY)
+  end
+  local iconName = self:isFemale() and "regionMapMay" or "regionMapBrendan"
+  local pmx, pmy = mapXY(px * 8 + 4, py * 8 + 4)
+  self:drawSpriteCenter(self:cinemaPic(iconName), pmx, pmy)
+  local frame = 0
+  local t = f.t or 0
+  if math.floor(t / Game3.REGION_MAP_CURSOR_FRAMES) % 2 == 1 then
+    frame = 1
+  end
+  local curScale = (f.zoomed or f.zooming) and pa < 200 and 2 or 1
+  local cmx, cmy
+  if f.zoomed and not f.zooming then
+    cmx, cmy = Game3RegionMap.ZOOM_CX, Game3RegionMap.ZOOM_CY
+  else
+    cmx, cmy = mapXY(cx * 8 + 4, cy * 8 + 4)
+  end
+  self:drawSpriteCenter(self:cinemaPic("regionMapCursor"),
+    cmx, cmy, frame * 16, 0, 16, 16, curScale)
+  self:drawStdWindow(21, 0, 29, 3)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText("HOENN", 22 * Game3.MENU_TILE, 1 * Game3.MENU_TILE)
+  local sec = Game3.regionMapSectionAt(cx, cy)
+  local kind = self:regionMapKind(sec)
+  local fly = f.flyMode or f.kind == "fly"
+  local showName = kind ~= Game3RegionMap.KIND_NONE
+  if fly then
+    showName = kind == Game3RegionMap.KIND_FLY or kind == Game3RegionMap.KIND_SPECIAL
+  end
+  local name = ""
+  if showName then name = Game3.regionMapName(sec) end
+  local marks = {}
+  if not fly and not f.scripted and kind ~= Game3RegionMap.KIND_NONE then
+    marks = Game3RegionMap.landmarkNames(sec, Game3RegionMap.areaIndex(cx, cy),
+      self.flags)
+  end
+  local extra = 0
+  if name ~= "" and sec == Game3.MAPSEC_EVER_GRANDE
+      and self.flags and self.flags[Game3.FLAG_SYS_POKEMON_LEAGUE_FLY]
+      and fly then
+    extra = 1
+  end
+  local markLines = #marks
+  local top = 16 - markLines * 2 - extra * 2
+  if top < 14 then top = 14 end
+  self:drawStdWindow(16, top, 29, 19)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  local ty = (top + 1) * Game3.MENU_TILE
+  if name ~= "" then
+    self:drawText(name, 17 * Game3.MENU_TILE, ty)
+    ty = ty + 16
+  end
+  if extra == 1 then
+    local area = Game3RegionMap.areaIndex(cx, cy)
+    self:drawText(area == 0 and "POKeMON LEAGUE" or "POKeMON CENTER",
+      17 * Game3.MENU_TILE, ty)
+    ty = ty + 16
+  end
+  for i = 1, markLines do
+    self:drawText(marks[i], 17 * Game3.MENU_TILE, ty)
+    ty = ty + 16
+  end
+  if fly then
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("Fly to where?", 8, 0x90)
+  end
+end
+
 function Game3:drawFieldOverlay()
   local G = love.graphics
   local f = self.field
   if not f or f.kind == "move" or f.kind == "delay" or f.kind == "wait" then return end
+  if f.kind == "cable_car" then
+    self:drawCableCar(f)
+    return
+  end
+  if f.kind == "egg_hatch" then
+    self:drawEggHatch(f)
+    return
+  end
   if f.kind == "trainer_approach" then
     if f.stage == "trans" then
       local t = 1 - ((f.wait or 0) / 0.35)
@@ -16448,11 +31641,20 @@ function Game3:drawFieldOverlay()
     self:drawBag(f)
     return
   end
-  if f.kind == "party" or f.kind == "party_switch" or f.kind == "party_teach" then
+  if f.kind == "starter" or f.kind == "starter_yesno" then
+    self:drawStarterChoose(f)
+    return
+  end
+  if f.kind == "mart" then
+    self:drawMartMenu(f)
+    return
+  end
+  if f.kind == "party" or f.kind == "party_switch"
+      or f.kind == "party_teach" or f.kind == "party_use" then
     self:drawPartyScreen(f)
     return
   end
-  if f.kind == "party_forget" then
+  if f.kind == "party_forget" or f.kind == "party_pp" then
     local mon = (self.party or {})[(f.monIndex or 1)]
     local moves = mon and mon.moves or {}
     local actions = {}
@@ -16491,36 +31693,55 @@ function Game3:drawFieldOverlay()
     self:drawPartySummary(f)
     return
   end
-  if f.kind == "fishing" then
-    if (f.step or 0) < Game3.FISH_START_ROUND then return end
-    self:drawWindow(0, 112, Game3.SCREEN_W, 48)
-    self:drawDialogue(f, 10, 118)
+  if f.kind == "candy_stats" then
+    self:drawCandyStats(f)
     return
   end
-  self:drawWindow(0, 112, Game3.SCREEN_W, 48)
-  if f.kind == "dex" then
-    local list = f.list or {}
-    G.setColor(0.10, 0.10, 0.12, 1)
-    if #list < 1 then
-        self:drawText("No POKeMON seen yet.", 10, 128)
-    else
-      local start = f.cursor or 0
-      for i = 0, 1 do
-        local row = list[start + i + 1]
-        local y = 118 + i * 14
-        if i == 0 then
-          G.setColor(0.90, 0.28, 0.22, 1)
-          self:drawCursor(8, y)
-        end
-        G.setColor(0.10, 0.10, 0.12, 1)
-        if row then
-          local mark = row.caught and "GOT" or "SEEN"
-          self:drawText(("%03d %s  %s"):format(row.id, row.name, mark), 18, y)
-        end
-      end
+  if f.kind == "mail_read" then
+    self:drawPartyScreen({ kind = "party", cursor = 0 })
+    self:drawWindow(16, 40, 208, 80)
+    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(self:itemName(f.item), 32, 56)
+    self:drawText("The MAIL is blank.", 32, 80)
+    return
+  end
+  if f.kind == "pokeblock_case" then
+    self:drawMenuListWindow(0, 1, f.labels, f.cursor)
+    return
+  end
+  if f.kind == "fishing" then
+    if (f.step or 0) < Game3.FISH_START_ROUND then return end
+    self:drawDialogueFrame()
+    self:drawDialogue(f)
+    return
+  end
+  if f.kind == "trade_scene" then
+    self:drawTradeScene(f)
+    local pose = Game3.tradeScenePose(f.t)
+    if pose.text then
+      self:drawDialogueFrame()
+      self:drawDialogue(f)
     end
-        self:drawText("B back", 180, 148)
-  elseif f.kind == "daycare" then
+    return
+  end
+  if f.kind == "evolve" and (f.fromTrade or (self.evolve and self.evolve.fromTrade)) then
+    self:drawTradeEvolution(f)
+    return
+  end
+  if f.kind == "dex" then
+    self:drawDexList(f)
+    return
+  end
+  if f.kind == "dex_entry" then
+    self:drawDexEntry(f)
+    return
+  end
+  if f.kind == "pc" then
+    self:drawPc(f)
+    return
+  end
+  self:drawDialogueFrame()
+  if f.kind == "daycare" then
     local labels = { "LEAVE", "TAKE" }
     G.setColor(0.10, 0.10, 0.12, 1)
         self:drawText("DAY CARE", 8, 116)
@@ -16533,12 +31754,13 @@ function Game3:drawFieldOverlay()
       G.setColor(0.10, 0.10, 0.12, 1)
         self:drawText(labels[i], 18, y)
     end
-  elseif f.kind == "daycare_send" or f.kind == "npc_trade" then
+  elseif f.kind == "daycare_send" or f.kind == "npc_trade"
+      or f.kind == "move_tutor_mon" then
     local party = self.party or {}
     local start = f.cursor or 0
     G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(f.kind == "npc_trade" and "Which POKeMON?" or "Leave which?",
-          8, 116)
+        self:drawText(f.kind == "daycare_send" and "Leave which?"
+          or "Which POKeMON?", 8, 116)
     for i = 0, 1 do
       local mon = party[start + i + 1]
       local y = 128 + i * 12
@@ -16569,86 +31791,7 @@ function Game3:drawFieldOverlay()
       end
     end
   elseif f.kind == "fly" then
-    local list = f.list or {}
-    local start = f.cursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText("FLY where?", 8, 116)
-    if #list < 1 then
-        self:drawText("No towns visited yet.", 18, 128)
-    else
-      for i = 0, 1 do
-        local dest = list[start + i + 1]
-        local y = 128 + i * 12
-        if i == 0 then
-          G.setColor(0.90, 0.28, 0.22, 1)
-          self:drawCursor(8, y)
-        end
-        G.setColor(0.10, 0.10, 0.12, 1)
-        if dest then
-          self:drawText(dest.name or dest.mapId, 18, y)
-        end
-      end
-    end
-  elseif f.kind == "mart" then
-    local items = f.items or {}
-    local start = f.cursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(("$%d"):format(self.money or 0), 160, 116)
-    for i = 0, 1 do
-      local id = items[start + i + 1]
-      local y = 122 + i * 12
-      if i == 0 then
-        G.setColor(0.90, 0.28, 0.22, 1)
-        self:drawCursor(8, y)
-      end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      if id then
-        self:drawText(("%s  $%d"):format(self:itemName(id), self:itemPrice(id)), 18, y)
-      end
-    end
-        self:drawText(f.note or "A buy  B leave", 8, 148)
-  elseif f.kind == "pc" then
-    G.setColor(0.10, 0.10, 0.12, 1)
-    local mode = f.mode or "root"
-    if mode == "root" then
-      local labels = { "WITHDRAW", "DEPOSIT", "SEE YA" }
-      for i = 0, 2 do
-        local y = 118 + i * 10
-        if i == (f.cursor or 0) then
-          G.setColor(0.90, 0.28, 0.22, 1)
-          self:drawCursor(8, y)
-        end
-        G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(labels[i + 1], 18, y)
-      end
-    else
-        self:drawText(("BOX %d"):format(f.box or 1), 160, 116)
-      local list
-      if mode == "box" then
-        self:ensurePc()
-        list = self.pc[f.box] or {}
-      else
-        list = self.party or {}
-      end
-      local start = f.cursor or 0
-      if #list < 1 then
-        self:drawText(mode == "box" and "The BOX is empty." or "The party is empty.", 18, 128)
-      else
-        for i = 0, 1 do
-          local mon = list[start + i + 1]
-          local y = 126 + i * 10
-          if i == 0 then
-            G.setColor(0.90, 0.28, 0.22, 1)
-            self:drawCursor(8, y)
-          end
-          G.setColor(0.10, 0.10, 0.12, 1)
-          if mon then
-            self:drawText(("%s  Lv%d"):format(mon.name, mon.level or 1), 18, y)
-          end
-        end
-      end
-        self:drawText(f.note or "A pick  B back", 8, 148)
-    end
+    self:drawRegionMap(f)
   elseif f.kind == "gender" then
     G.setColor(0.10, 0.10, 0.12, 1)
         self:drawText("Are you a boy or a girl?", 10, 116)
@@ -16670,37 +31813,111 @@ function Game3:drawFieldOverlay()
     local key = keys[(f.cursor or 0) + 1] or ""
     self:drawText(key, 10, 140)
     self:drawText("A pick  B del  START end", 8, 148)
-  elseif f.kind == "starter" then
+  elseif f.kind == "clock_set" or f.kind == "clock_yesno" or f.kind == "clock_view" then
+    self:drawWindow(8, 40, 224, 112)
     G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText("Choose a POKeMON!", 10, 116)
-    for i = 1, #Game3.STARTERS do
-      local y = 126 + (i - 1) * 10
-      if (i - 1) == (f.cursor or 0) then
-        G.setColor(0.90, 0.28, 0.22, 1)
-        self:drawCursor(8, y)
-      end
-      G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(self:speciesName(Game3.STARTERS[i]), 18, y)
+    self:drawText(f.kind == "clock_view" and "WALL CLOCK" or "SET THE CLOCK", 16, 52)
+    local shown
+    if f.kind == "clock_view" then
+      shown = self:clockString()
+    else
+      shown = self:clockString({
+        hours = f.hours or 10,
+        minutes = f.minutes or 0,
+      })
     end
-  elseif f.kind == "starter_yesno" then
-    G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(f.text or "", 10, 116)
-    local labels = { "YES", "NO" }
-    for i = 0, 1 do
-      local y = 130 + i * 10
-      if i == (f.cursor or 0) then
-        self:drawCursor(8, y)
+    self:drawText(shown, 16, 72)
+    if f.kind == "clock_set" then
+      self:drawText("LEFT/RIGHT min  UP/DOWN hr", 16, 108)
+      self:drawText("A confirm", 16, 124)
+    elseif f.kind == "clock_yesno" then
+      self:drawText(Game3.TEXT_CLOCK_ASK, 16, 92)
+      local labels = { "YES", "NO" }
+      for i = 0, 1 do
+        local y = 112 + i * 14
+        if i == (f.cursor or 0) then
+          self:drawCursor(16, y)
+        end
+        G.setColor(0.10, 0.10, 0.12, 1)
+        self:drawText(labels[i + 1], 26, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(labels[i + 1], 18, y)
+    else
+      self:drawText("A/B close", 16, 124)
+    end
+  elseif f.kind == "diploma" then
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(("%s's DIPLOMA"):format(self:playerName()), 10, 100)
+    self:drawText("HOENN POKeDEX", 10, 114)
+    self:drawText("A/B close", 8, 148)
+  elseif f.kind == "link_records" then
+    self:drawLinkBattleRecords()
+  elseif f.kind == "tower_records" then
+    self:drawBattleTowerRecords()
+  elseif f.kind == "hof_pc" then
+    self:drawHofPc(f)
+  elseif f.kind == "slots" then
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("SLOT MACHINE", 10, 100)
+    self:drawText(("COINS %d  BET %d"):format(self:getCoins(), f.bet or 1), 10, 110)
+    local names = Game3.SLOT_SYM_NAME
+    if f.windows then
+      for r = 1, 3 do
+        local w = f.windows[r]
+        local row = {}
+        for k = 1, 3 do
+          row[#row + 1] = names[(w[k] or 0) + 1] or "?"
+        end
+        self:drawText(table.concat(row, " "), 10, 118 + (r - 1) * 10)
+      end
+      if (f.payout or 0) > 0 then
+        self:drawText(("PAYOUT %d"):format(f.payout), 10, 148)
+      elseif f.replay then
+        self:drawText("REPLAY", 10, 148)
+      else
+        self:drawText("A again  B exit", 8, 148)
+      end
+    else
+      self:drawText("LEFT/RIGHT bet  A spin  B exit", 8, 140)
+    end
+  elseif f.kind == "roulette" then
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("ROULETTE", 10, 100)
+    self:drawText(("COINS %d  BET %d  BALL %d/%d"):format(
+      self:getCoins(), f.minBet or 1, f.balls or 0, Game3.ROULETTE_BALLS), 8, 110)
+    local labels = Game3.ROULETTE_LABELS
+    local cur = f.cursor or 6
+    local name = labels[cur] or "?"
+    local mul = f.mult or self:rouletteMultiplier(cur, f)
+    self:drawText(("SEL %s  x%d"):format(name, self:rouletteMultiplier(cur, f)), 8, 120)
+    if f.landed then
+      local hit = f.won and ((mul == 12 and "JACKPOT") or "HIT") or "NOTHING DOING"
+      self:drawText(("%s  %s  +%d"):format(
+        hit, labels[f.landed] or "?", f.payout or 0), 8, 132)
+      if f.cleared then self:drawText("BOARD CLEARED", 8, 142) end
+    else
+      self:drawText("DPAD pick  A spin  B exit", 8, 142)
     end
   elseif f.kind == "script_yesno"
-      or f.kind == "learn_yesno" or f.kind == "learn_stop" then
-    self:drawDialogue(f, 10, 118)
-    self:drawYesNoWindow(f.boxX, f.boxY, f.cursor or 0)
+      or f.kind == "safari_retire"
+      or f.kind == "learn_yesno" or f.kind == "learn_stop"
+      or f.kind == "tm_yesno" or f.kind == "tutor_confirm" or f.kind == "tutor_giveup"
+      or f.kind == "egg_nick" then
+    self:drawDialogue(f)
+    if self:yesNoReady(f) then
+      self:drawYesNoWindow(f.boxX, f.boxY, f.cursor or 0)
+    end
   elseif f.kind == "script_choice" then
-    if f.text then self:drawDialogue(f, 10, 118) end
-    self:drawMenuListWindow(f.boxX, f.boxY, f.labels, f.cursor, f.perRow)
+    if f.text then self:drawDialogue(f) end
+    if self:yesNoReady(f) then
+      self:drawMenuListWindow(f.boxX, f.boxY, f.labels, f.cursor, f.perRow)
+    end
+  elseif f.kind == "mauville_menu" or f.kind == "move_tutor_list"
+      or f.kind == "move_deleter" or f.kind == "player_pc" then
+    if f.note then
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText(f.note, 8, 100)
+    end
+    self:drawMenuListWindow(0, 1, f.labels, f.cursor)
   elseif f.kind == "easy_chat" then
     G.setColor(0.10, 0.10, 0.12, 1)
     if f.text then self:drawText(f.text, 10, 100) end
@@ -16788,42 +32005,152 @@ function Game3:drawFieldOverlay()
     local mon = self.party and self.party[c.monIndex]
     local moves = mon and mon.moves or {}
     local start = f.cursor or 0
+    local round = (c.appealNumber or c.turn or 0) + 1
+    if round > Game3.CONTEST_TURNS then round = Game3.CONTEST_TURNS end
+    local applause = c.applauseLevel or 0
+    local meter = string.rep("*", applause) .. string.rep("-", 4 - applause)
     G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(("Appeal %d/%d  %d"):format(
-      (c.turn or 0) + 1, Game3.CONTEST_TURNS, c.player or 0), 8, 116)
+    self:drawText(("APPEAL %d/%d  Crowd %s"):format(
+      round, Game3.CONTEST_TURNS, meter), 8, 4)
+    if c.mons then
+      for row = 0, 3 do
+        local who = 0
+        while who < 4 and (c.turnOrder and c.turnOrder[who]) ~= row do
+          who = who + 1
+        end
+        if who > 3 then who = row end
+        local src = c.mons[who]
+        local st = c.status and c.status[who]
+        local y = 16 + row * 12
+        local mark = (who == (c.playerIndex or 3)) and ">" or " "
+        local pts = st and (st.pointTotal or 0) or 0
+        local hearts = Contest3.hearts(st and st.appeal or 0)
+        G.setColor(0.10, 0.10, 0.12, 1)
+        self:drawText(("%s%s  %d  %s"):format(
+          mark, (src and src.nickname) or "????", pts,
+          string.rep("<", hearts)), 8, y)
+      end
+    end
+    if c.phase == "text" then
+      local text = Contest3.currentText(c, self) or ""
+      local y = 68
+      for line in (text .. "\n"):gmatch("(.-)\n") do
+        G.setColor(0.10, 0.10, 0.12, 1)
+        self:drawText(line, 8, y)
+        y = y + 12
+      end
+      self:drawText("A continue", 160, 148)
+    else
+      G.setColor(0.10, 0.10, 0.12, 1)
+      self:drawText("Choose a move.", 8, 68)
+      for i = 0, 1 do
+        local move = moves[start + i + 1]
+        local y = 80 + i * 12
+        if i == 0 then
+          G.setColor(0.90, 0.28, 0.22, 1)
+          self:drawCursor(8, y)
+        end
+        G.setColor(0.10, 0.10, 0.12, 1)
+        if move then
+          local id = move.id or 0
+          local row = Contest3.moveRow(id)
+          local erow = Contest3.effectRow(row.e)
+          local a = Contest3.hearts(erow.a)
+          local j = Contest3.hearts(erow.j)
+          local cats = Game3.CONTEST_CAT_NAMES
+          local cat = cats[(row.c or 0) + 1] or ""
+          self:drawText(("%s %s +%d -%d"):format(
+            move.name or "MOVE", cat, a, j), 18, y)
+        end
+      end
+      local sel = moves[start + 1]
+      if sel then
+        local desc = Contest3.moveDescription(sel.id or 0)
+        local y = 108
+        for line in (desc .. "\n"):gmatch("(.-)\n") do
+          G.setColor(0.10, 0.10, 0.12, 1)
+          self:drawText(line, 8, y)
+          y = y + 12
+        end
+      end
+    end
+  elseif f.kind == "contest_results" or f.kind == "contest_winner" then
+    G.setColor(0.10, 0.10, 0.12, 1)
+        self:drawText(f.text or self:contestResultsText(), 8, 128)
+        self:drawText("A continue", 160, 148)
+  elseif f.kind == "pokenav" then
+    self:drawRegionMap(f)
+  elseif f.kind == "blender_berry" then
+    local slots = f.slots or {}
+    local start = f.cursor or 0
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText("Choose a BERRY to blend.", 8, 116)
     for i = 0, 1 do
-      local move = moves[start + i + 1]
+      local slot = slots[start + i + 1]
       local y = 128 + i * 12
       if i == 0 then
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
       G.setColor(0.10, 0.10, 0.12, 1)
-      if move then self:drawText(move.name or "MOVE", 18, y) end
+      if slot then
+        self:drawText(self:itemName(slot.id), 18, y)
+      end
     end
-  elseif f.kind == "contest_results" then
-    G.setColor(0.10, 0.10, 0.12, 1)
-        self:drawText(self:contestResultsText(), 8, 128)
-        self:drawText("A continue", 160, 148)
   else
-    self:drawDialogue(f, 10, 118)
+    self:drawDialogue(f)
   end
 end
 
 function Game3:update(dt)
+  -- Audio and tilt stay on real time so GAME SPEED does not pitch music
+  -- or fling the camera, matching Gen 1/2.
+  self:updateMusic(dt)
+  require("src.render.Tilt").update(dt)
+  local speed = self:logicSpeed()
+  FixedStep.maxAccum = math.max(0.25, speed * FixedStep.STEP * 1.5)
+  if not self._speedClock then
+    FixedStep:init(function(step) self:logicStep(step) end)
+    self._speedClock = true
+  end
+  FixedStep:update((tonumber(dt) or 0) * speed)
+end
+
+function Game3:logicStep(dt)
   Input:reconcile()
   Input:step()
+  if Input.softResetStep and Input:softResetStep() then
+    Input:reset()
+    TouchControls:reset()
+    self:softResetToBoot()
+    return
+  end
   if self.waitingCry and not self:cryPlaying() then
     self.waitingCry = nil
     self:endScriptWait()
+  end
+  if self.waitingSe and not self:sePlaying() then
+    self.waitingSe = nil
+    self:endScriptWait()
+  end
+  if self.waitingFanfare then
+    self:stepFanfareWait(dt)
   end
   if self.phase == "boot" then
     self:stepBoot(dt)
     return
   end
-  if self.phase == "play" and self.field then
+  -- OPTION ZOOM/TILT land in stepField. Size the view after that so
+  -- walkHeld's clamp (and this frame's draw) follow the new scale.
+  if self.phase == "play" and Input:wasPressed("start")
+      and self:tryAbortContestHall() then
+    -- START leaves LinkContestRoom1. The pause menu is eaten while a
+    -- waitmovement / startcontest field is up.
+  elseif self.phase == "play" and self.field then
     self:stepField()
   elseif Input:wasPressed("start") and self.phase == "play" then
+    -- START must never sit under a stuck FADE_TO_BLACK veil.
+    self:fadeInFromBlack()
     self.field = { kind = "menu", cursor = 0 }
   elseif Input:wasPressed("select") and self.phase == "play"
       and (self.walkCooldown or 0) <= 0 then
@@ -16838,7 +32165,12 @@ function Game3:update(dt)
   elseif Input:wasPressed("down") then
     self:moveScroll(1)
   end
+  if self.phase == "play" and self.map then
+    self:syncWorldView()
+    self:clampCamera()
+  end
   self:walkHeld(dt)
+  self:releaseHeldFade()
 end
 
 local function letterbox(w, h)
@@ -16870,10 +32202,11 @@ function Game3:visibleRange(map, originX, originY)
   map = map or self.map
   originX, originY = originX or 0, originY or 0
   local w, h = map.width or 0, map.height or 0
+  local vw, vh = self:viewSize()
   local x0 = math.floor(self.camX / Game3.TILE) - originX
   local y0 = math.floor(self.camY / Game3.TILE) - originY
-  local x1 = math.floor((self.camX + Game3.SCREEN_W) / Game3.TILE) - originX
-  local y1 = math.floor((self.camY + Game3.SCREEN_H) / Game3.TILE) - originY
+  local x1 = math.floor((self.camX + vw) / Game3.TILE) - originX
+  local y1 = math.floor((self.camY + vh) / Game3.TILE) - originY
   x0 = math.max(0, x0)
   y0 = math.max(0, y0)
   x1 = math.min(w - 1, x1)
@@ -16894,6 +32227,24 @@ function Game3:npcsFor(map)
   return byMap[npcKey(map)]
 end
 
+function Game3:objectEventHidden(o)
+  if not o then return true end
+  local flagged = o.flagId and o.flagId ~= 0
+    and self.flags and self.flags[o.flagId]
+  -- TrySpawnObjectEvent skips any template whose flag is set. Beaten
+  -- route trainers still stand because their defeat bit is 0x500+id,
+  -- not ObjectEventTemplate.flagId. FLAG_HIDE_* (0x2BC..) on a trainer
+  -- is a story spawn, so those stay off the map until a script clears.
+  local fid = o.flagId or 0
+  local storyHide = fid >= Game3.FLAG_HIDE_BIRCH_STARTERS_BAG
+    and fid < Game3.TRAINER_FLAG_START
+  local hidden = flagged and ((o.trainerType or 0) == 0 or storyHide)
+  local bagGone = (o.graphicsId or 0) == Game3.GFX_BIRCHS_BAG
+    and self.flags and (self.flags[Game3.FLAG_HIDE_BIRCH_STARTERS_BAG]
+      or self.flags[Game3.FLAG_SYS_POKEMON_GET])
+  return hidden or bagGone
+end
+
 function Game3:resetNpcs(map)
   map = map or self.map
   if not map then return end
@@ -16902,26 +32253,67 @@ function Game3:resetNpcs(map)
   local objects = map.objects or {}
   for i = 1, #objects do
     local o = objects[i]
-    if o then
-      local flagged = o.flagId and o.flagId ~= 0
-        and self.flags and self.flags[o.flagId]
-      -- TrySpawnObjectEvent skips any template whose flag is set. Beaten
-      -- route trainers still stand because their defeat bit is 0x500+id,
-      -- not ObjectEventTemplate.flagId. FLAG_HIDE_* (0x2BC..) on a trainer
-      -- is a story spawn, so those stay off the map until a script clears.
-      local fid = o.flagId or 0
-      local storyHide = fid >= Game3.FLAG_HIDE_BIRCH_STARTERS_BAG
-        and fid < Game3.TRAINER_FLAG_START
-      local hidden = flagged and ((o.trainerType or 0) == 0 or storyHide)
-      local bagGone = (o.graphicsId or 0) == Game3.GFX_BIRCHS_BAG
-        and self.flags and (self.flags[Game3.FLAG_HIDE_BIRCH_STARTERS_BAG]
-          or self.flags[Game3.FLAG_SYS_POKEMON_GET])
-      if not hidden and not bagGone then
-        list[#list + 1] = self:npcFromTemplate(o, i)
-      end
+    if o and not self:objectEventHidden(o) then
+      local npc = self:npcFromTemplate(o, i)
+      self:updateNpcZCoord(npc, map)
+      list[#list + 1] = npc
     end
   end
   self.npcByMap[npcKey(map)] = list
+end
+
+-- Keep live neighbor NPCs across a connection; only hide/show from flags.
+function Game3:applyNpcFlags(map)
+  map = map or self.map
+  local list = self:npcsFor(map)
+  if not list then
+    self:resetNpcs(map)
+    return
+  end
+  local objects = map.objects or {}
+  local have = {}
+  for i = 1, #list do
+    local npc = list[i]
+    if npc and npc.templateIndex then
+      have[npc.templateIndex] = npc
+      local o = objects[npc.templateIndex]
+      npc.hidden = (not o or self:objectEventHidden(o)) or nil
+    end
+  end
+  for i = 1, #objects do
+    local o = objects[i]
+    if o and not self:objectEventHidden(o) and not have[i] then
+      local npc = self:npcFromTemplate(o, i)
+      self:updateNpcZCoord(npc, map)
+      list[#list + 1] = npc
+    end
+  end
+end
+
+function Game3:warmNpcSprites(map)
+  local list = self:npcsFor(map)
+  if not list then return end
+  local sprites = self.data and self.data.sprites
+  for i = 1, #list do
+    local npc = list[i]
+    if npc and not npc.hidden then
+      local spec = Game3.spriteSpec(sprites, npc.graphicsId)
+      if spec and spec.path then self:grabImage(spec.path) end
+    end
+  end
+end
+
+function Game3:warmConnectedMaps(map)
+  map = map or self.map
+  self:eachNeighbor(map, function(dest)
+    self:layersFor(dest.tileset)
+    if not self:npcsFor(dest) then
+      self:resetNpcs(dest)
+    else
+      self:applyNpcFlags(dest)
+    end
+    self:warmNpcSprites(dest)
+  end)
 end
 
 function Game3:npcAt(map, x, y)
@@ -16930,9 +32322,6 @@ function Game3:npcAt(map, x, y)
     for i = 1, #npcs do
       local n = npcs[i]
       if n and not n.hidden and n.x == x and n.y == y then
-        if n.invisible and n.movementType == Game3.MOVEMENT_TYPE_INVISIBLE then
-          return nil
-        end
         return n
       end
     end
@@ -16979,6 +32368,22 @@ function Game3:tryNpcWalk(npc, map, dx, dy)
   end
   local nx, ny = npc.x + dx, npc.y + dy
   if not Game3.walkable(map, nx, ny) then return false end
+  -- Water is collision 0 (Surf steps on it). Land wanderers would otherwise
+  -- walk onto ponds and the ocean; Route 110 cyclists (elevation 4) left
+  -- the cycling road. Swimmers spawn on surfable tiles and stay there.
+  local srcB = self:behaviorAt(map, npc.x, npc.y)
+  local dstB = self:behaviorAt(map, nx, ny)
+  if Game3.isSurfable(srcB) ~= Game3.isSurfable(dstB) then return false end
+  local i = self:gridIndex(map, nx, ny)
+  if i and Game3.zMismatch(npc.elevation or 0, Game3.elevationOf(map.grid[i])) then
+    return false
+  end
+  -- canStep blocks elevation 1 without Surf. Object elevation 0 skips
+  -- zMismatch, so land NPCs would still stroll the shallows.
+  if i and not Game3.isSurfable(srcB)
+      and Game3.elevationOf(map.grid[i]) == 1 then
+    return false
+  end
   if Game3.warpAt(map, nx, ny) then return false end
   if nx == self.playerX and ny == self.playerY then return false end
   if self:npcAt(map, nx, ny) then return false end
@@ -16987,6 +32392,7 @@ function Game3:tryNpcWalk(npc, map, dx, dy)
   npc.x, npc.y = nx, ny
   npc.walkDuration = Game3.WALK_PERIOD
   npc.cooldown = Game3.WALK_PERIOD
+  self:updateNpcZCoord(npc, map)
   self:beginGrassRustle(nx, ny)
   return true
 end
@@ -17006,6 +32412,46 @@ function Game3:stepNpcSequence(npc, map)
   npc.wait = 0.4
 end
 
+-- ObjectEventIsTrainerAndCloseToPlayer: only while dashing, NORMAL or
+-- BURIED, Chebyshev box of trainerRange (inclusive).
+function Game3:trainerCloseAndDashing(npc)
+  if not self.running then return false end
+  if not npc then return false end
+  local tt = npc.trainerType or 0
+  if tt ~= Game3.TRAINER_TYPE_NORMAL and tt ~= Game3.TRAINER_TYPE_BURIED then
+    return false
+  end
+  local range = npc.trainerRange or 0
+  local dx = (self.playerX or 0) - (npc.x or 0)
+  local dy = (self.playerY or 0) - (npc.y or 0)
+  if dx < 0 then dx = -dx end
+  if dy < 0 then dy = -dy end
+  return dx <= range and dy <= range
+end
+
+-- FACE_DOWN_AND_* / FACE_LEFT_AND_RIGHT / … : stay put, pick a facing
+-- from the table (or limited-vector toward a dashing player).
+function Game3:stepNpcFaceLook(npc)
+  local spec = Game3.FACE_LOOK[npc.movementType]
+  if not spec then return end
+  local dir
+  if self:trainerCloseAndDashing(npc) then
+    dir = Game3.limitedVectorDir(
+      spec.vec,
+      (self.playerX or 0) - npc.x,
+      (self.playerY or 0) - npc.y)
+  end
+  if not dir then
+    local dirs = spec.dirs
+    dir = dirs[self:rand(#dirs)]
+  end
+  if not npc.facingLocked then
+    npc.facing = dir
+  end
+  local delays = Game3.MOVEMENT_DELAYS_MEDIUM
+  npc.wait = delays[self:rand(#delays)]
+end
+
 function Game3:stepNpcs(dt)
   local map = self.map
   local npcs = self:npcsFor(map)
@@ -17023,10 +32469,19 @@ function Game3:stepNpcs(dt)
           npc.placeT = (npc.placeT or 0) + dt
         else
           npc.wait = (npc.wait or 0) - dt
-          if npc.wait <= 0 then
+          local ready = npc.wait <= 0
+          if not ready and mode == "face_look" and self:trainerCloseAndDashing(npc) then
+            ready = true
+          end
+          if ready then
             if mode == "seq" then
               self:stepNpcSequence(npc, map)
               npc.wait = 0
+            elseif mode == "rotate_cw" or mode == "rotate_ccw" then
+              npc.facing = Game3.nextRotateFacing(npc.facing, mode == "rotate_cw")
+              npc.wait = Game3.ROTATE_NPC_DELAY
+            elseif mode == "face_look" then
+              self:stepNpcFaceLook(npc)
             else
               npc.wait = 0.5 + roll(12) / 10
               if mode == "look" then
@@ -17073,22 +32528,73 @@ function Game3:owQuad(spec, image, frame)
   return q
 end
 
-function Game3:drawOwSprite(graphicsId, tileX, tileY, facing, moving, t, lift)
+function Game3:drawOwSprite(graphicsId, tileX, tileY, facing, moving, t, lift, reflect, frameOverride)
   local spec = Game3.spriteSpec(self.data.sprites, graphicsId)
   local img = spec and self:spriteImage(graphicsId)
   if not img then return false end
   local pose = Game3.poseFor(spec, facing, moving, t)
   local px, py = Game3.spriteDrawPos(tileX, tileY, spec.width, spec.height, lift)
   local flip = pose.flip and true or false
+  local frame = frameOverride
+  if frame == nil then frame = pose.frame or 0 end
   local G = love.graphics
+  local quad = self:owQuad(spec, img, frame)
+  local w = spec.width or Game3.TILE
+  local h = spec.height or Game3.TILE
+  if reflect then
+    G.setColor(1, 1, 1, 0.35)
+    local sx = flip and -1 or 1
+    local ox = flip and w or 0
+    G.draw(img, quad, px + ox, Game3.reflectionDrawY(py, h), 0, sx, -1)
+    G.setColor(1, 1, 1, 1)
+    return true
+  end
   G.setColor(1, 1, 1, 1)
-  local quad = self:owQuad(spec, img, pose.frame or 0)
   if flip then
-    G.draw(img, quad, px + (spec.width or Game3.TILE), py, 0, -1, 1)
+    G.draw(img, quad, px + w, py, 0, -1, 1)
   else
     G.draw(img, quad, px, py)
   end
   return true
+end
+
+function Game3:actorReflects(tileX, tileY, hide, spriteH, map)
+  if hide then return false end
+  map = map or self.map
+  if not map then return false end
+  local x = math.floor((tileX or 0) + 0.5)
+  local y = math.floor((tileY or 0) + 0.5)
+  local h = spriteH or (Game3.TILE * 2)
+  -- ObjectEventCheckForReflectiveSurface scans ceil(height/16) tiles
+  -- south of the feet. 32px sprites also cover the tile north, and the
+  -- flipped blit sits in that box, so the pond-bank sign sees a face.
+  local south = math.floor((h + 8) / 16)
+  local north = 0
+  if h > Game3.TILE then north = 1 end
+  local dy = -north
+  while dy <= south do
+    if Game3.isReflective(self:behaviorAt(map, x, y + dy)) then
+      return true
+    end
+    dy = dy + 1
+  end
+  return false
+end
+
+function Game3:markTilesDirty()
+  self.tileWindows = {}
+  self.borderFillCache = nil
+end
+
+-- fieldmap.c GetBorderBlockAt: 2x2 wrap. 1-based index into map.border.
+function Game3.borderIndex(x, y)
+  return ((x + 1) % 2) + ((y + 1) % 2) * 2 + 1
+end
+
+function Game3.borderCell(map, x, y)
+  local b = map and map.border
+  if type(b) ~= "table" then return nil end
+  return b[Game3.borderIndex(x, y)]
 end
 
 function Game3:tileBatch(image)
@@ -17129,15 +32635,229 @@ function Game3:blitMetatile(image, mid, px, py, mode, batch)
   end
 end
 
-function Game3:drawLayer(image, map, x0, y0, x1, y1, originX, originY, topPass)
-  if not image or not map or x0 == nil then return end
-  originX, originY = originX or 0, originY or 0
+-- Remaining rectangles after punching `holes` out of [x0,y0,x1,y1].
+-- Overlay/covered border fill uses this so tree-top tiles stay in the
+-- void, not on top of the town (BG1 is transparent on paths).
+function Game3.splitAround(r, hx0, hy0, hx1, hy1, out)
+  local x0, y0, x1, y1 = r[1], r[2], r[3], r[4]
+  local ix0 = x0 > hx0 and x0 or hx0
+  local iy0 = y0 > hy0 and y0 or hy0
+  local ix1 = x1 < hx1 and x1 or hx1
+  local iy1 = y1 < hy1 and y1 or hy1
+  if ix0 >= ix1 or iy0 >= iy1 then
+    out[#out + 1] = r
+    return
+  end
+  if y0 < iy0 then out[#out + 1] = { x0, y0, x1, iy0 } end
+  if iy1 < y1 then out[#out + 1] = { x0, iy1, x1, y1 } end
+  if x0 < ix0 then out[#out + 1] = { x0, iy0, ix0, iy1 } end
+  if ix1 < x1 then out[#out + 1] = { ix1, iy0, x1, iy1 } end
+end
+
+function Game3.punchHoles(x0, y0, x1, y1, holes)
+  local rects = { { x0, y0, x1, y1 } }
+  if type(holes) ~= "table" or x1 <= x0 or y1 <= y0 then return rects end
+  for i = 1, #holes do
+    local h = holes[i]
+    if h then
+      local next = {}
+      for j = 1, #rects do
+        Game3.splitAround(rects[j], h[1], h[2], h[3], h[4], next)
+      end
+      rects = next
+    end
+  end
+  return rects
+end
+
+function Game3:mapCoverRects(map)
+  map = map or self.map
+  local holes = {}
+  if not map then return holes end
+  local t = Game3.TILE
+  holes[1] = { 0, 0, (map.width or 0) * t, (map.height or 0) * t }
+  for i = 1, #(map.connections or {}) do
+    local c = map.connections[i]
+    local dest = c and self:lookupMap(c.mapGroup, c.mapNum)
+    if dest then
+      local ox, oy = Game3.neighborOrigin(c, map, dest)
+      if ox then
+        holes[#holes + 1] = {
+          ox * t, oy * t,
+          (ox + (dest.width or 0)) * t,
+          (oy + (dest.height or 0)) * t,
+        }
+      end
+    end
+  end
+  return holes
+end
+
+function Game3.intersectRect(a, b)
+  if not (a and b) then return nil end
+  local x0 = a[1] > b[1] and a[1] or b[1]
+  local y0 = a[2] > b[2] and a[2] or b[2]
+  local x1 = a[3] < b[3] and a[3] or b[3]
+  local y1 = a[4] < b[4] and a[4] or b[4]
+  if x1 <= x0 or y1 <= y0 then return nil end
+  return { x0, y0, x1, y1 }
+end
+
+function Game3.expandRect(r, pad)
+  if not r then return nil end
+  pad = pad or 0
+  return { r[1] - pad, r[2] - pad, r[3] + pad, r[4] + pad }
+end
+
+-- GBA backup map is only MAP_OFFSET around the layout. Ocean routes still
+-- store the general tileset tree wall as that 2x2; wrap-tiling it across
+-- a survey zoom painted forest into the water void.
+function Game3:borderPad(map)
+  map = map or self.map
+  local t = map and (map.mapType or 0) or 0
+  if t == Game3.MAP_TYPE_OCEAN_ROUTE or t == Game3.MAP_TYPE_UNDERWATER then
+    return 0
+  end
+  return Game3.MAP_OFFSET * Game3.TILE
+end
+
+function Game3:borderFillRects(map, x0, y0, x1, y1, topPass)
+  local covers = self:mapCoverRects(map)
+  local pad = self:borderPad(map)
+  local view = { x0, y0, x1, y1 }
+  local clips = {}
+  for i = 1, #covers do
+    local hit = Game3.intersectRect(view, Game3.expandRect(covers[i], pad))
+    if hit then
+      if topPass then
+        local parts = Game3.punchHoles(hit[1], hit[2], hit[3], hit[4], covers)
+        for j = 1, #parts do
+          clips[#clips + 1] = parts[j]
+        end
+      else
+        clips[#clips + 1] = hit
+      end
+    end
+  end
+  return clips
+end
+
+-- Wrap-tiled 32x32 of the layout's 2x2 border, under the map body. Same
+-- job as TileRenderer:drawBorderFill / gen2 BorderFill: indoor rooms that
+-- do not fill 240x160 no longer sit on a blue void.
+-- Clipped to the GBA MAP_OFFSET ring (ocean/underwater: map body only) so
+-- survey zoom does not wallpaper trees across the water. Overlay still
+-- punches the map so BG1 tree-tops stay off Littleroot's paths.
+function Game3:drawBorderFill(image, map, topPass)
+  if not image or not map then return end
+  local b = map.border
+  if type(b) ~= "table" or #b < 4 then return end
   local G = love.graphics
+  if not G.draw then return end
+  local flip = self:tileAnimFlip() and true or false
+  local pass = topPass or "bottom"
+  local key = tostring(map.id or map) .. "|" .. tostring(image)
+    .. "|" .. pass .. "|" .. tostring(flip)
+  local cache = self.borderFillCache
+  if not (cache and cache.key == key and cache.img) then
+    local img
+    local PixelCanvas = require("src.render.PixelCanvas")
+    local okCanvas, canvas = pcall(PixelCanvas.new, 32, 32, "nearest")
+    if okCanvas and canvas and canvas.renderTo then
+      canvas:renderTo(function()
+        G.push()
+        G.origin()
+        G.setColor(1, 1, 1, 1)
+        for by = 0, 1 do
+          for bx = 0, 1 do
+            local cell = b[Game3.borderIndex(bx, by)] or 0
+            local mid = Game3.metatileOf(cell)
+            local dummy = { tileset = map.tileset, grid = { cell },
+              width = 1, height = 1 }
+            local mode = "full"
+            if topPass then
+              mode = Game3.metatileTopPassMode(
+                self:layerTypeAt(dummy, 0, 0), topPass,
+                self:topIsOverlayAt(dummy, 0, 0))
+            end
+            if mode ~= "skip" then
+              local px, py = bx * Game3.TILE, by * Game3.TILE
+              self:blitMetatile(image, mid, px, py, mode, nil)
+              self:drawAnimCorners(image, dummy, mid, px, py, topPass,
+                nil, self:behaviorAt(dummy, 0, 0), mode,
+                Game3.collisionOf(cell))
+            end
+          end
+        end
+        G.pop()
+      end)
+      local okImg, made = pcall(function()
+        return G.newImage(canvas:newImageData())
+      end)
+      img = (okImg and made) or canvas
+      if img.setWrap then img:setWrap("repeat", "repeat") end
+      if img.setFilter then img:setFilter("nearest", "nearest") end
+    end
+    self.borderFillCache = { key = key, img = img }
+    cache = self.borderFillCache
+  end
+  local tex = cache and cache.img
+  local x, y = math.floor(self.camX or 0), math.floor(self.camY or 0)
+  local vw, vh = self:viewSize()
+  local rects = self:borderFillRects(map, x, y, x + vw, y + vh, topPass)
+  G.setColor(1, 1, 1, 1)
+  if tex and tex.getWidth then
+    local q = self.borderFillQuad
+    if q and q.setViewport then
+      q:setViewport(x, y, vw, vh, 32, 32)
+    elseif G.newQuad then
+      q = G.newQuad(x, y, vw, vh, 32, 32)
+      self.borderFillQuad = q
+    end
+    if q then
+      for i = 1, #rects do
+        local r = rects[i]
+        local rw, rh = r[3] - r[1], r[4] - r[2]
+        if rw > 0 and rh > 0 then
+          q:setViewport(r[1], r[2], rw, rh, 32, 32)
+          G.draw(tex, q, r[1], r[2])
+        end
+      end
+      return
+    end
+    return
+  end
+  -- Headless / no canvas: stamp the 2x2 inside the clipped rects.
+  local t = Game3.TILE
+  for i = 1, #rects do
+    local r = rects[i]
+    local tx0 = math.floor(r[1] / t)
+    local ty0 = math.floor(r[2] / t)
+    local tx1 = math.floor((r[3] - 1) / t)
+    local ty1 = math.floor((r[4] - 1) / t)
+    for ty = ty0, ty1 do
+      for tx = tx0, tx1 do
+        local cell = b[Game3.borderIndex(tx, ty)] or 0
+        local mid = Game3.metatileOf(cell)
+        local dummy = { tileset = map.tileset, grid = { cell },
+          width = 1, height = 1 }
+        local mode = "full"
+        if topPass then
+          mode = Game3.metatileTopPassMode(
+            self:layerTypeAt(dummy, 0, 0), topPass,
+            self:topIsOverlayAt(dummy, 0, 0))
+        end
+        if mode ~= "skip" then
+          self:blitMetatile(image, mid, tx * t, ty * t, mode, nil)
+        end
+      end
+    end
+  end
+end
+
+function Game3:fillLayer(image, map, x0, y0, x1, y1, topPass, batch)
   local w = map.width or 0
   local h = map.height or 0
-  local batch = self:tileBatch(image)
-  if batch and batch.clear then batch:clear() end
-  G.setColor(1, 1, 1, 1)
   for y = y0, y1 do
     for x = x0, x1 do
       if x >= 0 and y >= 0 and x < w and y < h then
@@ -17148,12 +32868,106 @@ function Game3:drawLayer(image, map, x0, y0, x1, y1, originX, originY, topPass)
             self:topIsOverlayAt(map, x, y))
         end
         if mode ~= "skip" then
+          local cell = map.grid[y * w + x + 1]
+          local mid = Game3.metatileOf(cell)
+          local px = x * Game3.TILE
+          local py = y * Game3.TILE
+          local behavior = self:behaviorAt(map, x, y)
+          self:blitMetatile(image, mid, px, py, mode, batch)
+          self:drawAnimCorners(image, map, mid, px, py, topPass, batch,
+            behavior, mode, Game3.collisionOf(cell))
+        end
+      end
+    end
+  end
+end
+
+function Game3:tileWindow(image, map, x0, y0, x1, y1, topPass)
+  local G = love.graphics
+  if not (G and G.newSpriteBatch) then
+    self:fillLayer(image, map, x0, y0, x1, y1, topPass, nil)
+    return nil
+  end
+  local w = map.width or 0
+  local h = map.height or 0
+  local flip = self:tileAnimFlip() and true or false
+  local key = tostring(map.id or map) .. "|" .. tostring(image)
+    .. "|" .. tostring(topPass or "bottom")
+  self.tileWindows = self.tileWindows or {}
+  local win = self.tileWindows[key]
+  if win and win.flip == flip
+      and x0 >= win.x0 and y0 >= win.y0
+      and x1 <= win.x1 and y1 <= win.y1 then
+    return win.batch
+  end
+  local mx0 = math.max(0, x0 - Game3.TILE_WINDOW_MARGIN)
+  local my0 = math.max(0, y0 - Game3.TILE_WINDOW_MARGIN)
+  local mx1 = math.min(w - 1, x1 + Game3.TILE_WINDOW_MARGIN)
+  local my1 = math.min(h - 1, y1 + Game3.TILE_WINDOW_MARGIN)
+  local batch = win and win.batch
+  if not batch then
+    local ok, made = pcall(G.newSpriteBatch, image, 2048, "dynamic")
+    if not ok or not made then
+      self:fillLayer(image, map, x0, y0, x1, y1, topPass, nil)
+      return nil
+    end
+    batch = made
+  end
+  if batch.clear then batch:clear() end
+  self:fillLayer(image, map, mx0, my0, mx1, my1, topPass, batch)
+  self.tileWindows[key] = {
+    batch = batch, x0 = mx0, y0 = my0, x1 = mx1, y1 = my1, flip = flip,
+  }
+  return batch
+end
+
+function Game3:drawLayer(image, map, x0, y0, x1, y1, originX, originY, topPass)
+  if not image or not map or x0 == nil then return end
+  originX, originY = originX or 0, originY or 0
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  local dx, dy = originX * Game3.TILE, originY * Game3.TILE
+  local shifted = dx ~= 0 or dy ~= 0
+  if shifted then
+    G.push()
+    G.translate(dx, dy)
+  end
+  local batch = self:tileWindow(image, map, x0, y0, x1, y1, topPass)
+  if batch then G.draw(batch) end
+  -- pokeruby DrawMetatile COVERED: after BG3, paint BG2 before sprites.
+  -- A later covered pass can skip these if layerTop was nil at load.
+  if not topPass then
+    local ground = self:layersFor(map.tileset)
+    if image == ground then
+      self:drawCoveredTops(map, x0, y0, x1, y1, 0, 0)
+    end
+  end
+  if shifted then G.pop() end
+end
+
+-- General picket fence / house walls (Route 111 Winstrate, etc.): dirt on
+-- the bottom four tiles, fence on the top four, LAYER_COVERED. Painting
+-- them here with the ground atlas's neighbor (the top PNG) keeps the
+-- collision visible even when the overlay pass never runs.
+function Game3:drawCoveredTops(map, x0, y0, x1, y1, originX, originY)
+  if not map or x0 == nil then return end
+  local bottom, top = self:layersFor(map.tileset)
+  if not top or top == bottom then return end
+  originX, originY = originX or 0, originY or 0
+  local w = map.width or 0
+  local h = map.height or 0
+  local G = love.graphics
+  local batch = self:tileBatch(top)
+  if batch and batch.clear then batch:clear() end
+  G.setColor(1, 1, 1, 1)
+  for y = y0, y1 do
+    for x = x0, x1 do
+      if x >= 0 and y >= 0 and x < w and y < h then
+        if self:layerTypeAt(map, x, y) == Game3.LAYER_COVERED then
           local mid = Game3.metatileOf(map.grid[y * w + x + 1])
           local px = (originX + x) * Game3.TILE
           local py = (originY + y) * Game3.TILE
-          local behavior = self:behaviorAt(map, x, y)
-          self:blitMetatile(image, mid, px, py, mode, batch)
-          self:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior, mode)
+          self:blitMetatile(top, mid, px, py, "full", batch)
         end
       end
     end
@@ -17192,7 +33006,7 @@ function Game3.drawOrderLess(a, b)
   return false
 end
 
-function Game3:drawOneObject(o, npcs)
+function Game3:drawOneObject(o, npcs, originX, originY, map)
   local G = love.graphics
   local gid = self:resolveGraphicsId(o.graphicsId or 0)
   local spec = Game3.spriteSpec(self.data.sprites, gid)
@@ -17212,23 +33026,37 @@ function Game3:drawOneObject(o, npcs)
       t = (o.placeT or 0) % 0.5 / 0.5
     end
   end
+  local reflect = self:actorReflects(vx, vy, o.hideReflection, h, map)
+  originX, originY = originX or 0, originY or 0
+  vx = vx + originX
+  vy = vy + originY
   local lift = o.levitate or 0
   local px, py = Game3.spriteDrawPos(vx, vy, w, h, lift)
   local camX, camY = self.camX, self.camY
-  if px + w < camX or px > camX + Game3.SCREEN_W
-      or py + h < camY or py > camY + Game3.SCREEN_H then
+  local extra = reflect and h or 0
+  local vw, vh = self:viewSize()
+  if px + w < camX or px > camX + vw
+      or py + h + extra < camY or py > camY + vh then
     return
   end
   local facing = o.facing or Game3.facingFromMovementType(o.movementType)
-  if not self:drawOwSprite(gid, vx, vy, facing, moving, t, lift) then
+  local frameOverride = o.animFrame
+  if o.berryStage and o.berryStage > 0 then
+    frameOverride = Game3.berrySheetFrame(
+      o.berryStage, spec and spec.frameCount, self.playSeconds)
+  end
+  if reflect then
+    self:drawOwSprite(gid, vx, vy, facing, moving, t, lift, true, frameOverride)
+  end
+  if not self:drawOwSprite(gid, vx, vy, facing, moving, t, lift, nil, frameOverride) then
     G.setColor(0.12, 0.10, 0.16, 1)
-    G.rectangle("fill", o.x * Game3.TILE + 3, o.y * Game3.TILE + 3 - lift, 10, 13)
+    G.rectangle("fill", px + 3, py + 3, 10, 13)
     G.setColor(
       0.25 + (gid % 5) * 0.12,
       0.35 + (math.floor(gid / 5) % 5) * 0.10,
       0.70 - (gid % 4) * 0.08,
       1)
-    G.rectangle("fill", o.x * Game3.TILE + 4, o.y * Game3.TILE + 4 - lift, 8, 11)
+    G.rectangle("fill", px + 4, py + 4, 8, 11)
   end
   self:drawEmoteAt(vx, vy, o.emote, lift)
 end
@@ -17276,7 +33104,7 @@ end
 -- opaque, so a full 16x16 blit covers the body of a 16x32 OW sprite (only
 -- the hat in the top 16px remains). Draw the bottom 8px over the feet.
 -- ROM plays this once on step-in; standing in grass is static.
-function Game3:drawGrassTuftAt(map, tileX, tileY)
+function Game3:drawGrassTuftAt(map, tileX, tileY, originX, originY)
   map = map or self.map
   if not (map and map.grid and self.layerBottom) then return end
   tileX = math.floor(tileX or 0)
@@ -17290,8 +33118,9 @@ function Game3:drawGrassTuftAt(map, tileX, tileY)
   end
   if not image then return end
   local mid = Game3.metatileOf(map.grid[tileY * w + tileX + 1])
-  local px = tileX * Game3.TILE
-  local py = tileY * Game3.TILE
+  originX, originY = originX or 0, originY or 0
+  local px = (originX + tileX) * Game3.TILE
+  local py = (originY + tileY) * Game3.TILE
   local G = love.graphics
   local flip = self:tileAnimFlip()
   G.setColor(1, 1, 1, 1)
@@ -17306,23 +33135,51 @@ function Game3:drawGrassTuftAt(map, tileX, tileY)
   end
 end
 
-function Game3:drawActors()
+function Game3:drawStandingAt(px, py, sw, sh, body)
+  local billboard = self._tiltBillboard
+  if not billboard then
+    body()
+    return
+  end
+  local s = self._zoomS or 1
+  local fx = (px + sw / 2 - (self.camX or 0)) * s
+  local fy = (py + sh - (self.camY or 0)) * s
+  billboard(fx, fy, function()
+    local G = love.graphics
+    G.push()
+    G.scale(s, s)
+    G.translate(-(self.camX or 0), -(self.camY or 0))
+    body()
+    G.pop()
+  end)
+end
+
+function Game3:drawActors(overOverlay)
+  overOverlay = overOverlay and true or false
   local map = self.map
   local npcs = self:npcsFor(map)
-  local list = npcs
-  if not list then
-    list = map.objects or {}
-  end
   local actors = {}
-  for i = 1, #list do
-    local o = list[i]
-    if o and not o.hidden and not o.invisible then
-      local vx, vy = o.x, o.y
-      if npcs then vx, vy = self:npcVisual(o) end
-      local sub = o.fixedPriority and o.objSubpriority or nil
-      actors[#actors + 1] = { kind = "npc", obj = o, x = vx, y = vy, sub = sub }
+  local function addMapActors(src, ox, oy, live)
+    ox, oy = ox or 0, oy or 0
+    local list = live
+    if not list then list = src and src.objects or {} end
+    for i = 1, #list do
+      local o = list[i]
+      if o and not o.hidden and not o.invisible then
+        local vx, vy = o.x, o.y
+        if live then vx, vy = self:npcVisual(o) end
+        local sub = o.fixedPriority and o.objSubpriority or nil
+        actors[#actors + 1] = {
+          kind = "npc", obj = o, x = vx + ox, y = vy + oy,
+          ox = ox, oy = oy, npcs = live, map = src, sub = sub,
+        }
+      end
     end
   end
+  addMapActors(map, 0, 0, npcs)
+  self:eachNeighbor(map, function(dest, ox, oy)
+    addMapActors(dest, ox, oy, self:npcsFor(dest))
+  end)
   if not self.invisible then
     local px, py = self:visualTile()
     local sub = self.fixedPriority and self.objSubpriority or nil
@@ -17331,38 +33188,73 @@ function Game3:drawActors()
   table.sort(actors, Game3.drawOrderLess)
   for i = 1, #actors do
     local a = actors[i]
-    if a.kind == "player" then
-      self:drawPlayer()
-      if not self.hopping and (self.levitate or 0) <= 0 then
-        if self:grassIsRustling(self.playerX, self.playerY) then
-          self:drawGrassTuftAt(map, self.playerX, self.playerY)
+    if Game3.spriteDrawsOverOverlay(self:actorDrawElevation(a)) == overOverlay then
+    local function body()
+      if a.kind == "player" then
+        self:drawPlayer()
+        if not self.hopping and (self.levitate or 0) <= 0 then
+          if self:grassIsRustling(self.playerX, self.playerY) then
+            self:drawGrassTuftAt(map, self.playerX, self.playerY)
+          end
+          if (self.walkCooldown or 0) > 0
+              and self:grassIsRustling(self.walkFromX, self.walkFromY) then
+            self:drawGrassTuftAt(map, self.walkFromX, self.walkFromY)
+          end
         end
-        if (self.walkCooldown or 0) > 0
-            and self:grassIsRustling(self.walkFromX, self.walkFromY) then
-          self:drawGrassTuftAt(map, self.walkFromX, self.walkFromY)
+      else
+        self:drawOneObject(a.obj, a.npcs, a.ox, a.oy, a.map)
+        if (a.obj.levitate or 0) <= 0 then
+          if self:grassIsRustling(a.obj.x, a.obj.y) then
+            self:drawGrassTuftAt(a.map or map, a.obj.x, a.obj.y, a.ox, a.oy)
+          end
+          if (a.obj.cooldown or 0) > 0
+              and self:grassIsRustling(a.obj.fromX, a.obj.fromY) then
+            self:drawGrassTuftAt(a.map or map, a.obj.fromX, a.obj.fromY,
+              a.ox, a.oy)
+          end
         end
       end
+    end
+    if not self._tiltBillboard then
+      body()
     else
-      self:drawOneObject(a.obj, npcs)
-      if (a.obj.levitate or 0) <= 0 then
-        if self:grassIsRustling(a.obj.x, a.obj.y) then
-          self:drawGrassTuftAt(map, a.obj.x, a.obj.y)
-        end
-        if (a.obj.cooldown or 0) > 0
-            and self:grassIsRustling(a.obj.fromX, a.obj.fromY) then
-          self:drawGrassTuftAt(map, a.obj.fromX, a.obj.fromY)
-        end
+      local gid, spec, sw, sh, vx, vy, lift
+      if a.kind == "player" then
+        gid = self:playerGraphicsId()
+        spec = Game3.spriteSpec(self.data and self.data.sprites, gid)
+        sw = spec and spec.width or Game3.TILE
+        sh = spec and spec.height or Game3.TILE
+        vx, vy = self:visualTile()
+        lift = self.levitate or 0
+      else
+        gid = self:resolveGraphicsId(a.obj.graphicsId or 0)
+        spec = Game3.spriteSpec(self.data.sprites, gid)
+        sw = spec and spec.width or Game3.TILE
+        sh = spec and spec.height or Game3.TILE
+        vx, vy = a.x, a.y
+        lift = a.obj.levitate or 0
       end
+      local px, py = Game3.spriteDrawPos(vx, vy, sw, sh, lift)
+      self:drawStandingAt(px, py, sw, sh, body)
+    end
     end
   end
 end
 
 function Game3:drawEmoteAt(tileX, tileY, emote, lift)
-  local glyph = emote and Game3.EMOTE_GLYPH[emote]
-  if not glyph then return end
+  if not emote then return end
+  local spec = Game3.emoteSpec(self.data and self.data.sprites, emote)
+  local img = spec and self:grabImage(spec.path)
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
-        self:drawText(glyph, tileX * Game3.TILE + 4, tileY * Game3.TILE - 10 - (lift or 0))
+  if img then
+    local px, py = Game3.emoteDrawPos(tileX, tileY, lift)
+    G.draw(img, px, py)
+    return
+  end
+  local glyph = Game3.EMOTE_GLYPH[emote]
+  if not glyph then return end
+  self:drawText(glyph, tileX * Game3.TILE + 4, tileY * Game3.TILE - 10 - (lift or 0))
 end
 
 function Game3:drawPlayer()
@@ -17374,7 +33266,11 @@ function Game3:drawPlayer()
     local t = self:walkProgress()
     lift = lift + math.floor(8 * math.sin(t * math.pi) + 0.5)
   end
-  if not self:drawOwSprite(gid, vx, vy, self.facing or "south", moving, self:walkProgress(), lift) then
+  local t = self:walkProgress()
+  if self:actorReflects(vx, vy, self.hideReflection) then
+    self:drawOwSprite(gid, vx, vy, self.facing or "south", moving, t, lift, true)
+  end
+  if not self:drawOwSprite(gid, vx, vy, self.facing or "south", moving, t, lift) then
     local G = love.graphics
     local px = vx * Game3.TILE
     local py = vy * Game3.TILE - lift
@@ -17390,16 +33286,25 @@ end
 
 -- pokeruby SetFlashScanlineEffectWindowBoundaries: midpoint circle into
 -- WIN0H (left<<8 | right). Unwritten rows stay closed (full black).
-function Game3.flashScanlineWindows(centerX, centerY, radius)
+-- GBA WIN0H is u8 (0-255) over 160 scanlines. The overworld window is
+-- drawn at zoomed window pixels, so pass that size or the hole is
+-- clipped off-screen and a dark cave is pitch black.
+function Game3.flashScanlineWindows(centerX, centerY, radius, screenW, screenH)
   local dest = {}
   local r = math.floor(tonumber(radius) or 0)
   if r < 1 then return dest end
   centerX = math.floor(tonumber(centerX) or 0)
   centerY = math.floor(tonumber(centerY) or 0)
+  screenW = math.floor(tonumber(screenW) or Game3.SCREEN_W)
+  screenH = math.floor(tonumber(screenH) or Game3.SCREEN_H)
+  if screenW < 1 then screenW = Game3.SCREEN_W end
+  if screenH < 1 then screenH = Game3.SCREEN_H end
+  local maxX = 255
+  if screenW > 255 then maxX = screenW end
   local function write(y, left, right)
-    if y < 0 or y >= Game3.SCREEN_H then return end
-    if left < 0 then left = 0 elseif left > 255 then left = 255 end
-    if right < 0 then right = 0 elseif right > 255 then right = 255 end
+    if y < 0 or y >= screenH then return end
+    if left < 0 then left = 0 elseif left > maxX then left = maxX end
+    if right < 0 then right = 0 elseif right > maxX then right = maxX end
     dest[y] = { left, right }
   end
   local v2, v3 = r, 0
@@ -17418,15 +33323,200 @@ function Game3.flashScanlineWindows(centerX, centerY, radius)
   return dest
 end
 
+-- Sparkle tiles are not extracted; a twinkle at the script's map-local
+-- tile (FldEff_Sparkle adds MAP_OFFSET 7 for the GBA sprite, which we skip).
+-- Pokécenter / HoF balls are screen-space OBJs (drawPokecenterHealOverlay /
+-- drawHofRecordOverlay) mapped through gbaScreenToWorld then drawStandingAt
+-- so tilt/zoom plant them on the machine instead of the HUD letterbox.
+function Game3:drawFieldEffects()
+  local list = self.fieldEffects
+  if not list then return end
+  local G = love.graphics
+  local t = Game3.TILE
+  for i = 1, #list do
+    local fx = list[i]
+    if fx.id == Game3.FLDEFF_SPARKLE then
+      local dur = fx.dur or Game3.FLDEFF_SPARKLE_FRAMES
+      local left = fx.left or 0
+      local pulse = 0.35 + 0.65 * (left / dur)
+      local cx = (fx.x or 0) * t + t / 2
+      local cy = (fx.y or 0) * t + t / 2
+      local r = 2 + 3 * pulse
+      self:drawStandingAt(cx - r, cy - r, r * 2, r * 2, function()
+        G.setColor(1, 1, 0.55, pulse)
+        G.circle("fill", cx, cy, r)
+        G.setColor(1, 1, 1, pulse)
+        G.rectangle("fill", cx - 1, cy - r - 1, 2, r * 2 + 2)
+        G.rectangle("fill", cx - r - 1, cy - 1, r * 2 + 2, 2)
+      end)
+    end
+  end
+end
+
+function Game3:drawGbaFieldSprite(img, sx, sy, srcx, srcy, sw, sh, pulse)
+  if not img then return end
+  local iw, ih = img:getDimensions()
+  sw = sw or iw
+  sh = sh or ih
+  local wx, wy = self:gbaScreenToWorld(sx, sy)
+  -- CreateSprite x/y is the sprite centre (sprite.c adds centerToCornerVec
+  -- before OAM). drawStandingAt so a tilted overworld billboards these
+  -- the way NPCs stand on the floor; the flat path is a no-op wrapper.
+  self:drawStandingAt(wx - sw / 2, wy - sh / 2, sw, sh, function()
+    self:withGlowPulse(pulse, function()
+      self:drawSpriteCenter(img, wx, wy, srcx, srcy, sw, sh)
+    end)
+  end)
+end
+
+function Game3.ensureGlowPulseShader()
+  if Game3._glowPulseShader ~= nil then return Game3._glowPulseShader end
+  local G = love and love.graphics
+  if not (G and G.newShader) then
+    Game3._glowPulseShader = false
+    return nil
+  end
+  local ok, sh = pcall(G.newShader, [[
+    extern number f;
+    vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
+      vec4 p = Texel(tex, texture_coords);
+      p.r = p.r + (1.0 - p.r) * f;
+      p.g = p.g + (1.0 - p.g) * f;
+      return p * color;
+    }
+  ]])
+  Game3._glowPulseShader = (ok and sh) or false
+  return Game3._glowPulseShader
+end
+
+function Game3:withGlowPulse(factor, fn)
+  factor = tonumber(factor) or 0
+  if factor <= 0 then return fn() end
+  local G = love.graphics
+  local sh = Game3.ensureGlowPulseShader()
+  if not sh then return fn() end
+  sh:send("f", factor / 16)
+  G.setShader(sh)
+  fn()
+  G.setShader()
+end
+
+function Game3:drawPokeballGlowBalls(pose)
+  local img = self:cinemaPic("pokeballGlow")
+  if not (img and pose and pose.balls) then return end
+  local iw, ih = img:getDimensions()
+  local pulse = pose.pulse or 0
+  for i = 1, #pose.balls do
+    local p = pose.balls[i]
+    self:drawGbaFieldSprite(img, p[1], p[2], 0, 0, iw, ih, pulse)
+  end
+end
+
+function Game3:drawHofRecordOverlay()
+  local list = self.fieldEffects
+  if not list then return end
+  local left, dur
+  for i = 1, #list do
+    if list[i].id == Game3.FLDEFF_HALL_OF_FAME_RECORD then
+      left, dur = list[i].left, list[i].dur
+      break
+    end
+  end
+  if not left then return end
+  local n = #(self.party or {})
+  if n < 1 then n = 1 end
+  local elapsed = (dur or self:hofRecordFrames()) - left
+  local pose = Game3.pokeballGlowPose(elapsed, n, Game3.HOF_BALL_X, Game3.HOF_BALL_Y)
+  self:drawPokeballGlowBalls(pose)
+  if pose.monitors then
+    local big = self:cinemaPic("hofMonitorBig")
+    local small = self:cinemaPic("hofMonitorSmall")
+    local b = Game3.HOF_MONITOR_BIG
+    self:drawGbaFieldSprite(big, b[1], b[2], 0, 0, 64, 16)
+    for i = 1, #Game3.HOF_MONITOR_SMALL do
+      local s = Game3.HOF_MONITOR_SMALL[i]
+      self:drawGbaFieldSprite(small, s[1], s[2], 0, 0, 32, 16)
+    end
+  end
+end
+
+function Game3:drawPokecenterHealOverlay()
+  local list = self.fieldEffects
+  if not list then return end
+  local left, dur
+  for i = 1, #list do
+    if list[i].id == Game3.FLDEFF_POKECENTER_HEAL then
+      left, dur = list[i].left, list[i].dur
+      break
+    end
+  end
+  if not left then return end
+  local n = #(self.party or {})
+  if n < 1 then n = 1 end
+  local elapsed = (dur or self:pokecenterHealFrames()) - left
+  local pose = Game3.pokeballGlowPose(elapsed, n,
+    Game3.POKECENTER_BALL_X, Game3.POKECENTER_BALL_Y)
+  self:drawPokeballGlowBalls(pose)
+  if pose.pcMonitor then
+    local mon = self:cinemaPic("pokecenterMonitor")
+    self:drawGbaFieldSprite(mon, Game3.POKECENTER_MONITOR_X,
+      Game3.POKECENTER_MONITOR_Y, (pose.pcFrame or 0) * 24, 0, 24, 16)
+  end
+end
+
+function Game3:drawRoute128Fade()
+  local a = self:route128FadeAlpha()
+  if a <= 0 then return end
+  love.graphics.setColor(1, 1, 1, a)
+  love.graphics.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+end
+
 -- pokeruby WriteFlashScanlineEffectBuffer: a hard circle at 120,80.
 -- Drawn as WIN0H scanlines so a failed LÖVE stencil cannot hide the player.
-function Game3:drawFlashOverlay()
+-- vw/vh/scale are the overworld window (zoom); omit them for the 240×160
+-- letterbox path.
+function Game3:drawFlashOverlay(vw, vh, scale)
   local r = self:flashRadius()
   if r < 1 then return end
+  vw = math.floor(tonumber(vw) or Game3.SCREEN_W)
+  vh = math.floor(tonumber(vh) or Game3.SCREEN_H)
+  if vw < 1 then vw = Game3.SCREEN_W end
+  if vh < 1 then vh = Game3.SCREEN_H end
+  scale = self:flashOverlayScale(scale, vw)
+  r = r * scale
   local G = love.graphics
-  local cx, cy = Game3.SCREEN_W / 2, Game3.SCREEN_H / 2
-  local win = Game3.flashScanlineWindows(cx, cy, r)
+  local cx, cy = vw / 2, vh / 2
+  local win = Game3.flashScanlineWindows(cx, cy, r, vw, vh)
   G.setColor(0, 0, 0, 1)
+  for y = 0, vh - 1 do
+    local row = win[y]
+    local left, right = 0, 0
+    if row then
+      left, right = row[1], row[2]
+    end
+    if left > 0 then G.rectangle("fill", 0, y, left, 1) end
+    if right < vw then
+      G.rectangle("fill", right, y, vw - right, 1)
+    end
+  end
+end
+
+-- Orb tiles are not in the cart for this special; sub_808161C loads
+-- pal 0 = 0x1F or pal 1 = 0x7C00 into OBJ pal 15, plus a WIN0 hole.
+function Game3:drawOrbCutscene()
+  local o = self.orb
+  if not o then return end
+  local G = love.graphics
+  local r = o.r or Game3.ORB_OPEN_DEST_R
+  local cx = o.cx or 120
+  local cy = o.cy or 80
+  local alpha = 1
+  if o.stage == "close" then
+    local left = o.left or 0
+    alpha = math.max(0, math.min(1, left / Game3.ORB_CLOSE_FRAMES))
+  end
+  local win = Game3.flashScanlineWindows(cx, cy, r)
+  G.setColor(0, 0, 0, alpha)
   for y = 0, Game3.SCREEN_H - 1 do
     local row = win[y]
     local left, right = 0, 0
@@ -17438,11 +33528,303 @@ function Game3:drawFlashOverlay()
       G.rectangle("fill", right, y, Game3.SCREEN_W - right, 1)
     end
   end
+  local pal = Game3.ORB_PAL_RED
+  if (o.pal or 0) ~= 0 then pal = Game3.ORB_PAL_BLUE end
+  local cr, cg, cb = Game3.rgb555(pal)
+  G.setColor(cr, cg, cb, Game3.ORB_WASH_ALPHA * alpha)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
 end
 
+-- Tint only: Nintendo weather tiles stay out of git.
+function Game3:drawWeatherOverlay(vw, vh)
+  local w = self:getCurrentWeather()
+  if w == Game3.OW_WEATHER_NONE or w == Game3.OW_WEATHER_SUNNY then return end
+  local G = love.graphics
+  if w == Game3.OW_WEATHER_SANDSTORM then
+    G.setColor(0.75, 0.62, 0.28, 0.28)
+  elseif w == Game3.OW_WEATHER_RAIN_LIGHT
+      or w == Game3.OW_WEATHER_RAIN_MED
+      or w == Game3.OW_WEATHER_RAIN_HEAVY then
+    G.setColor(0.15, 0.25, 0.45, 0.22)
+  elseif w == Game3.OW_WEATHER_ASH then
+    G.setColor(0.35, 0.35, 0.35, 0.32)
+  elseif w == Game3.OW_WEATHER_FOG_1
+      or w == Game3.OW_WEATHER_FOG_2
+      or w == Game3.OW_WEATHER_FOG_3 then
+    G.setColor(0.85, 0.85, 0.90, 0.28)
+  elseif w == Game3.OW_WEATHER_DROUGHT then
+    G.setColor(0.85, 0.45, 0.10, 0.22)
+  elseif w == Game3.OW_WEATHER_CLOUDS then
+    G.setColor(0.55, 0.58, 0.62, 0.12)
+  elseif w == Game3.OW_WEATHER_SNOW then
+    G.setColor(0.85, 0.90, 1, 0.18)
+  elseif w == Game3.OW_WEATHER_SHADE then
+    G.setColor(0, 0, 0, 0.22)
+  elseif w == Game3.OW_WEATHER_BUBBLES then
+    G.setColor(0.10, 0.35, 0.55, 0.18)
+  else
+    return
+  end
+  local vw = vw or Game3.SCREEN_W
+  local vh = vh or Game3.SCREEN_H
+  G.rectangle("fill", 0, 0, vw, vh)
+end
+
+-- Ground tiles (this map + connections + 2×2 border). Caller has already
+-- translated by -cam. Overlay tops (roofs / BG1) draw after sprites on
+-- both the flat path and the tilt billboard path.
+function Game3:drawMapGround(includeOverlay)
+  local map = self.map
+  local x0, y0, x1, y1 = self:visibleRange()
+  if self.layerBottom then
+    self:drawBorderFill(self.layerBottom, map)
+    self:drawLayer(self.layerBottom, map, x0, y0, x1, y1, 0, 0)
+    self:drawConnections("bottom")
+  else
+    self:drawFallbackMap()
+  end
+  if self.layerTop then
+    self:drawBorderFill(self.layerTop, map, "covered")
+    self:drawLayer(self.layerTop, map, x0, y0, x1, y1, 0, 0, "covered")
+    self:drawConnections("top", "covered")
+  end
+  if includeOverlay then
+    self:drawMapOverlay()
+  end
+end
+
+function Game3:drawMapOverlay()
+  if not self.layerTop then return end
+  local map = self.map
+  local x0, y0, x1, y1 = self:visibleRange()
+  self:drawBorderFill(self.layerTop, map, "overlay")
+  self:drawLayer(self.layerTop, map, x0, y0, x1, y1, 0, 0, "overlay")
+  self:drawConnections("top", "overlay")
+end
+
+function Game3:drawWorldStanding()
+  self:drawActors()
+  self:drawDoorAnim()
+  self:drawFieldEffects()
+  self:drawPokecenterHealOverlay()
+  self:drawHofRecordOverlay()
+  if not self._tiltBillboard then
+    self:drawRotatingGates()
+  end
+end
+
+function Game3:tiltMesh()
+  local Renderer = require("src.render.Renderer")
+  local shader = Renderer.tiltShader and Renderer:tiltShader()
+  local mesh = Renderer.tiltMesh and Renderer:tiltMesh()
+  if not (shader and mesh) then return nil end
+  return mesh, shader
+end
+
+function Game3:ensureTiltCanvas(key, gw, gh)
+  local canvas = self[key]
+  if canvas and canvas.getWidth and canvas:getWidth() == gw
+      and canvas.getHeight and canvas:getHeight() == gh then
+    return canvas
+  end
+  if canvas and canvas.release then canvas:release() end
+  local PixelCanvas = require("src.render.PixelCanvas")
+  local ok, made = pcall(PixelCanvas.new, gw, gh, "linear")
+  if not ok or not made then
+    self[key] = nil
+    return nil
+  end
+  self[key] = made
+  return made
+end
+
+function Game3:paintTiltLayer(canvas, s, body)
+  local G = love.graphics
+  local previous = G.getCanvas()
+  G.setCanvas(canvas)
+  G.clear(0, 0, 0, 0)
+  G.push()
+  G.origin()
+  G.scale(s, s)
+  G.translate(-(self.camX or 0), -(self.camY or 0))
+  body()
+  G.pop()
+  G.setCanvas(previous)
+end
+
+function Game3:projectTiltCanvas(canvas, mesh, shader, w, h, gw, gh)
+  local G = love.graphics
+  local Tilt = require("src.render.Tilt")
+  mesh:setTexture(canvas)
+  mesh:setVertices(Tilt.meshCorners(gw, gh))
+  G.push()
+  G.translate((w - gw) / 2, (h - gh) / 2)
+  G.setColor(1, 1, 1, 1)
+  G.setShader(shader)
+  G.draw(mesh)
+  G.setShader()
+  G.pop()
+end
+
+-- Flat world at zoom scale s, in window pixels. Tiles are live (Gen 1
+-- windowed SpriteBatch), so a larger view shows connected maps.
+function Game3:drawWorldBody(s)
+  local G = love.graphics
+  G.push()
+  G.scale(s, s)
+  G.translate(-(self.camX or 0), -(self.camY or 0))
+  self:drawMapGround(false)
+  self:drawWorldStanding(false)
+  self:drawMapOverlay()
+  self:drawWorldStanding(true)
+  G.pop()
+end
+
+-- Ground on the perspective mesh, people billboarded upright, then BG1
+-- overlay (roofs) projected on top so sprites stay under buildings the
+-- way GBA OBJ sits under BG1 — except elevation 4 (cycling road) which
+-- is OAM pri 1, in front of BG1. Baking overlay into the ground capture
+-- put the player on every roof.
+function Game3:drawTilted(w, h, s, gw, gh)
+  local mesh, shader = self:tiltMesh()
+  if not mesh then
+    self:drawWorldBody(s)
+    return
+  end
+  local G = love.graphics
+  local Tilt = require("src.render.Tilt")
+  gw = gw or w
+  gh = gh or h
+  local ground = self:ensureTiltCanvas("tiltCanvas", gw, gh)
+  if not ground then
+    self:drawWorldBody(s)
+    return
+  end
+  self:paintTiltLayer(ground, s, function()
+    self:drawMapGround(false)
+    self:drawRotatingGates()
+  end)
+  self:projectTiltCanvas(ground, mesh, shader, w, h, gw, gh)
+  self._zoomS = s
+  self._tiltBillboard = function(fx, fy, body)
+    if not Tilt.onGround(fx, fy, gw, gh, 32 * s) then return end
+    local sx, sy = Tilt.groundPoint(fx, fy, gw, gh)
+    G.push()
+    G.translate(sx - fx + (w - gw) / 2, sy - fy + (h - gh) / 2)
+    body()
+    G.pop()
+  end
+  self:drawWorldStanding(false)
+  if self.layerTop then
+    local overlay = self:ensureTiltCanvas("tiltOverlayCanvas", gw, gh)
+    if overlay then
+      self:paintTiltLayer(overlay, s, function()
+        self:drawMapOverlay()
+      end)
+      self:projectTiltCanvas(overlay, mesh, shader, w, h, gw, gh)
+    else
+      G.push()
+      G.scale(s, s)
+      G.translate(-(self.camX or 0), -(self.camY or 0))
+      self:drawMapOverlay()
+      G.pop()
+    end
+  end
+  self:drawWorldStanding(true)
+  self._tiltBillboard = nil
+end
+
+function Game3:drawWorldFx(w, h, s)
+  local G = love.graphics
+  self:drawFlashOverlay(w, h, s)
+  self:drawWeatherOverlay(w, h)
+  if self:isUnderwater() then
+    G.setColor(0, 0.12, 0.35, 0.28)
+    G.rectangle("fill", 0, 0, w, h)
+  end
+  -- Cover the zoomed window. Putting this on the 240×160 HUD letterbox
+  -- left a black rectangle in the centre with the map around the edges.
+  self:drawScreenFade(w, h)
+  G.setColor(1, 1, 1, 1)
+end
+
+function Game3:drawPlayHud()
+  -- Veil first: a held TO_BLACK used to paint over the clock / bag and
+  -- leave a dead black screen. Overworld fades still paint in drawWorldFx.
+  if not self:fieldShowsWorld() then
+    self:drawScreenFade()
+  end
+  if self.field then
+    self:drawFieldOverlay()
+  end
+  self:drawOrbCutscene()
+  self:drawRoute128Fade()
+  self:drawMoneyBox()
+  self:drawCoinsBox()
+end
+
+function Game3:drawOverworldWindow(w, h)
+  local G = love.graphics
+  local Tilt = require("src.render.Tilt")
+  local _, _, s, gw, gh = self:syncWorldView()
+  local flashing = self:flashRadius() > 0
+  -- GBA WIN0 is 24px on 240×160. Survey zoom OUT + tilt left a speck on
+  -- the void (Dewford Granite). Flatten and FIT so the hole matches the cart.
+  if flashing then
+    s = self:flashOverlayScale(s, w)
+    gw, gh = w, h
+    self._zoomS = s
+    self._tiltGw, self._tiltGh = gw, gh
+    local vw = math.ceil(gw / s)
+    local vh = math.ceil(gh / s)
+    if vw % 2 ~= 0 then vw = vw + 1 end
+    if vh % 2 ~= 0 then vh = vh + 1 end
+    if vw < 2 then vw = 2 end
+    if vh < 2 then vh = 2 end
+    self.viewW, self.viewH = vw, vh
+  end
+  -- World:draw re-follows after sizing the view. Zoom/tilt change viewW
+  -- here; a camera from the previous scale leaves the player off centre.
+  self:clampCamera()
+  if flashing then
+    G.setColor(0, 0, 0, 1)
+  else
+    G.setColor(0.10, 0.22, 0.38, 1)
+  end
+  G.rectangle("fill", 0, 0, w, h)
+  G.setColor(1, 1, 1, 1)
+  local tilt = (not flashing) and Tilt.active() and self:tiltMesh() ~= nil
+  if tilt then
+    self:drawTilted(w, h, s, gw, gh)
+  else
+    self:drawWorldBody(s)
+  end
+  self:drawWorldFx(w, h, s)
+end
+
+function Game3:drawHudLetterbox(w, h)
+  if not self:playHudActive() then return end
+  local G = love.graphics
+  local scale, ox, oy = letterbox(w, h)
+  -- Paint the 240×160 UI into the window, not onto a canvas. A canvas
+  -- cleared to (0,0,0,0) still blit as an opaque black plate on some
+  -- Windows GL drivers (berry plant / yes-no over the zoomed map).
+  G.push()
+  G.translate(ox, oy)
+  G.scale(scale, scale)
+  self:drawPlayHud()
+  G.pop()
+end
+
+-- 240×160 letterbox path (battles, boot, opaque field UIs).
 function Game3:drawPlay()
   local G = love.graphics
-  local map = self.map
+  local saveW, saveH = self.viewW, self.viewH
+  local saveCamX, saveCamY = self.camX, self.camY
+  self.viewW, self.viewH = Game3.SCREEN_W, Game3.SCREEN_H
+  -- Survey zoom leaves camX/camY aimed at a huge view. Cropping that into
+  -- 240×160 showed tileset atlas / empty fill ("zoomed randomness").
+  self:clampCamera()
   if self:flashRadius() > 0 then
     G.setColor(0, 0, 0, 1)
   else
@@ -17451,33 +33833,21 @@ function Game3:drawPlay()
   G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
   G.push()
   G.translate(-self.camX, -self.camY)
-  local x0, y0, x1, y1 = self:visibleRange()
-  if self.layerBottom then
-    self:drawLayer(self.layerBottom, map, x0, y0, x1, y1, 0, 0)
-    self:drawConnections("bottom")
-  else
-    self:drawFallbackMap()
-  end
-  if self.layerTop then
-    self:drawLayer(self.layerTop, map, x0, y0, x1, y1, 0, 0, "covered")
-    self:drawConnections("top", "covered")
-  end
-  self:drawActors()
-  if self.layerTop then
-    self:drawLayer(self.layerTop, map, x0, y0, x1, y1, 0, 0, "overlay")
-    self:drawConnections("top", "overlay")
-  end
+  self:drawMapGround(false)
+  self:drawWorldStanding(false)
+  self:drawMapOverlay()
+  self:drawWorldStanding(true)
   G.pop()
+  self.viewW, self.viewH = saveW, saveH
+  self.camX, self.camY = saveCamX, saveCamY
   self:drawFlashOverlay()
+  self:drawWeatherOverlay()
   if self:isUnderwater() then
     G.setColor(0, 0.12, 0.35, 0.28)
     G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
   end
   G.setColor(1, 1, 1, 1)
-  if self.field then
-    self:drawFieldOverlay()
-  end
-  self:drawMoneyBox()
+  self:drawPlayHud()
 end
 
 function Game3:drawScene()
@@ -17527,31 +33897,68 @@ function Game3:draw()
   local G = love.graphics
   local w, h = GameViewport.dimensions()
   G.clear(0.02, 0.04, 0.07, 1)
-  local scale, ox, oy = letterbox(w, h)
-  local canvas = self:ensureCanvas()
-  if canvas then
-    local prev = GameViewport.target()
-    -- Flash overlay uses G.stencil. LÖVE 11 requires stencil=true on the
-    -- active Canvas (Dewford Gym setflashradius).
-    if not pcall(G.setCanvas, { canvas, stencil = true }) then
-      G.setCanvas(canvas)
-    end
-    G.origin()
-    G.clear(0.10, 0.22, 0.38, 1)
-    self:drawScene()
-    G.setCanvas(prev)
-    G.origin()
-    G.setColor(1, 1, 1, 1)
-    G.draw(canvas, ox, oy, 0, scale, scale)
+  if self.phase == "play" and self.map and self:fieldShowsWorld() then
+    self:drawOverworldWindow(w, h)
+    self:drawHudLetterbox(w, h)
   else
-    G.push()
-    G.translate(ox, oy)
-    G.scale(scale, scale)
-    self:drawScene()
-    G.pop()
+    local scale, ox, oy = letterbox(w, h)
+    local canvas = self:ensureCanvas()
+    if canvas then
+      local prev = GameViewport.target()
+      -- Flash overlay uses G.stencil. LÖVE 11 requires stencil=true on the
+      -- active Canvas (Dewford Gym setflashradius).
+      if not pcall(G.setCanvas, { canvas, stencil = true }) then
+        G.setCanvas(canvas)
+      end
+      G.origin()
+      G.clear(0.10, 0.22, 0.38, 1)
+      self:drawScene()
+      G.setCanvas(prev)
+      G.origin()
+      G.setColor(1, 1, 1, 1)
+      G.draw(canvas, ox, oy, 0, scale, scale)
+    else
+      G.push()
+      G.translate(ox, oy)
+      G.scale(scale, scale)
+      self:drawScene()
+      G.pop()
+    end
   end
   GameViewport.finish(self)
+  -- OS-window chrome: draw after companion composition so viewport layouts
+  -- neither shrink nor cover the touch pad.
   TouchControls:draw()
+end
+
+function Game3:hotkey(key)
+  if key == "1" then
+    self:_cycleSpeed(1)
+    return true
+  end
+  if key == "3" then
+    local Tilt = require("src.render.Tilt")
+    Tilt.cycle()
+    self:persistDisplayOptions()
+    return true
+  end
+  if not self:displayGateOK() then return false end
+  local Zoom = require("src.render.Zoom")
+  local fit = self:fitScale()
+  if key == "-" or key == "kp-" then
+    Zoom.step(-1, fit)
+    self:persistDisplayOptions()
+    return true
+  elseif key == "=" or key == "kp+" then
+    Zoom.step(1, fit)
+    self:persistDisplayOptions()
+    return true
+  elseif key == "4" then
+    Zoom.cycle(fit)
+    self:persistDisplayOptions()
+    return true
+  end
+  return false
 end
 
 function Game3:keypressed(key)
@@ -17559,6 +33966,7 @@ function Game3:keypressed(key)
     self:endBattle()
     return
   elseif key == "escape" and (self.phase == "roster" or self.phase == "play") then
+    self:clearTransientOverlay()
     self.phase = "boot"
     self:resetBoot()
     return
@@ -17566,6 +33974,7 @@ function Game3:keypressed(key)
     self.onExit()
     return
   end
+  if self:hotkey(key) then return end
   Input:keypressed(key)
 end
 
@@ -17574,6 +33983,13 @@ function Game3:keyreleased(key)
 end
 
 function Game3:wheelmoved(_x, dy)
+  if self:displayGateOK() and dy ~= 0 then
+    local Zoom = require("src.render.Zoom")
+    if dy > 0 then Zoom.step(1, self:fitScale())
+    else Zoom.step(-1, self:fitScale()) end
+    self:persistDisplayOptions()
+    return
+  end
   if dy > 0 then self:moveScroll(-1)
   elseif dy < 0 then self:moveScroll(1) end
 end
@@ -17605,16 +34021,48 @@ function Game3:mousereleased(x, y, button, istouch)
   if button == 1 then self:touchreleased("mouse", x, y) end
 end
 
-function Game3:focus()
-  if Input.reset then Input:reset() end
-  if TouchControls.reset then TouchControls:reset() end
+-- LÖVE has no touchcancelled: a finger the OS takes away (an app switch, a
+-- system gesture) never fires touchreleased and would strand its GBA button
+-- held forever -- TouchControls:reset is the only thing that frees it.
+function Game3:focus(f)
+  Input:reset()
+  TouchControls:reset()
+  if f then Input:reconcile() end
 end
 
-function Game3:visible() end
-function Game3:onResume() end
+function Game3:visible(v)
+  if v then
+    self:onResume()
+  else
+    Input:reset()
+    TouchControls:reset()
+  end
+end
+
+function Game3:onResume()
+  Input:reset()
+  TouchControls:reset()
+  Input:reconcile()
+end
 
 function Game3:gamepadpressed(joystick, button)
   TouchControls:noteGamepad()
+  local selectHeld = Input:isDown("select")
+  if not selectHeld and joystick and joystick.isGamepadDown then
+    local ok, down = pcall(function()
+      return joystick:isGamepadDown("back")
+    end)
+    selectHeld = ok and down == true
+  end
+  if not selectHeld then
+    if button == "rightshoulder" or button == "righttrigger" then
+      self:_cycleSpeed(1)
+      return
+    elseif button == "leftshoulder" or button == "lefttrigger" then
+      self:_cycleSpeed(-1)
+      return
+    end
+  end
   Input:gamepadpressed(joystick, button)
 end
 
@@ -17627,28 +34075,45 @@ function Game3:gamepadaxis(joystick, axis, value)
   Input:gamepadaxis(joystick, axis, value)
 end
 
+-- Phone accelerometers show up as joysticks on Android.  Treating them as a
+-- controller hid the overlay the instant the phone moved, so a tap only
+-- brought the pad back instead of pressing A (src/core/Game.lua:940).
 function Game3:joystickpressed(joystick, button)
+  if GamepadMap.isAccelerometer(joystick) then return end
   TouchControls:noteGamepad()
   Input:joystickpressed(joystick, button)
 end
 
 function Game3:joystickreleased(joystick, button)
+  if GamepadMap.isAccelerometer(joystick) then return end
   Input:joystickreleased(joystick, button)
 end
 
 function Game3:joystickaxis(joystick, axis, value)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  if math.abs(value) > 0.5 then TouchControls:noteGamepad() end
   Input:joystickaxis(joystick, axis, value)
 end
 
 function Game3:joystickhat(joystick, hat, direction)
+  if GamepadMap.isAccelerometer(joystick) then return end
+  if direction ~= "c" then TouchControls:noteGamepad() end
   Input:joystickhat(joystick, hat, direction)
 end
 
-function Game3:joystickadded() end
+function Game3:joystickadded()
+  Input:reset()
+  Input:reconcile()
+  TouchControls:reset()
+end
+
 function Game3:joystickremoved()
-  if TouchControls.reset then TouchControls:reset() end
+  Input:reset()
+  Input:reconcile()
+  TouchControls:joystickremoved()
 end
 
 Game3Boot.attach(Game3)
+Game3Pc.attach(Game3)
 
 return Game3

@@ -108,6 +108,40 @@ eq(truckInfo.width, 48, "truck width")
 eq(truckInfo.height, 48, "truck height")
 eq(truckInfo.frameSize, 1152, "48x48 4bpp is 1152 bytes")
 
+-- gObjectEventPicTable_PechaBerryTree: 3×16x16 dirt/sprout, 6×16x32 bush,
+-- then the next berry table starts at 16x16 again.
+local function packFrameImage(off, sz)
+  return GbaBin.packPtr(off) .. GbaBin.packU16(sz) .. GbaBin.packU16(0)
+end
+local EARLY_PIC, LATE_PIC, NEXT_PIC = 0x000, 0x200, 0x800
+local MIX_PICS, MIX_EARLY, MIX_LATE = 0x900, 0xA00, 0xA30
+local mixRom = string.rep("\0", 0xC00)
+mixRom = overlay(mixRom, EARLY_PIC, string.rep(string.char(0x11), 384))
+mixRom = overlay(mixRom, LATE_PIC, string.rep(string.char(0x22), 1536))
+mixRom = overlay(mixRom, NEXT_PIC, string.rep(string.char(0x33), 128))
+local mixRows = {}
+for i = 0, 2 do
+  mixRows[#mixRows + 1] = packFrameImage(EARLY_PIC + i * 128, 128)
+end
+for i = 0, 5 do
+  mixRows[#mixRows + 1] = packFrameImage(LATE_PIC + i * 256, 256)
+end
+mixRows[#mixRows + 1] = packFrameImage(NEXT_PIC, 128)
+mixRom = overlay(mixRom, MIX_PICS, table.concat(mixRows))
+mixRom = overlay(mixRom, MIX_EARLY,
+  gfxInfo(0x1103, 256, 16, 16, MIX_PICS, MIX_PICS))
+mixRom = overlay(mixRom, MIX_LATE,
+  gfxInfo(0x1103, 256, 16, 32, MIX_PICS, MIX_PICS))
+local earlyTree = RomExtractorGen3.parseGraphicsInfo(mixRom, MIX_EARLY)
+eq(earlyTree.frameCount, 3, "early berry sheet stops before 16x32 bushes")
+eq(earlyTree.frameOff, EARLY_PIC, "early sheet starts on the dirt pile")
+eq(earlyTree.frames[3], EARLY_PIC + 256, "and keeps both sprout frames")
+local lateTree = RomExtractorGen3.parseGraphicsInfo(mixRom, MIX_LATE)
+eq(lateTree.frameCount, 6, "late berry sheet is the six bush frames")
+eq(lateTree.frameOff, LATE_PIC, "skipping the 16x16 dirt/sprout prefix")
+eq(lateTree.frames[6], LATE_PIC + 1280, "and not the next berry's dirt pile")
+eq(lateTree.height, 32, "late gfx stays 16x32")
+
 local graphics = RomExtractorGen3.findObjectEventGraphics(rom)
 check(graphics ~= nil, "findObjectEventGraphics locates the pointer table")
 eq(graphics.tableOff, TABLE, "table offset")
@@ -127,16 +161,17 @@ eq(pals.byTag[0x1103], PAL, "tag 0x1103 is present")
 local ids = RomExtractorGen3.collectGraphicsIds({
   g0_0 = { objects = { { graphicsId = 17 }, { graphicsId = 9 } } },
 })
-eq(#ids, 22, "player forms, berry stages, evil-team gfx, plus two NPCs")
+eq(#ids, 24, "player forms, berry stages, evil-team gfx, plus two NPCs")
 eq(ids[1], 0, "gid 0 is always extracted")
 local used = {}
 for i = 1, #ids do used[ids[i]] = true end
 check(used[1] and used[2] and used[63], "Brendan bike and surf sheets")
 check(used[89] and used[90] and used[92], "May walk, bike, and surf")
+check(used[191] and used[192], "Brendan and May watering sheets")
 check(used[9] and used[17], "map NPCs stay in the set")
 eq(RomExtractorGen3.collectGraphicsIds(nil)[1], 0,
   "empty maps still extract Brendan")
-eq(#RomExtractorGen3.collectGraphicsIds(nil), 20,
+eq(#RomExtractorGen3.collectGraphicsIds(nil), 22,
   "player-form sheets, berry stages, and Magma/Aqua")
 check(used[61] and used[62], "early and late berry sheets")
 check(used[119] and used[117], "Magma M and Aqua M for VAR gfx")
@@ -148,6 +183,10 @@ eq(RomExtractorGen3.spritePath(0), "assets/generated/sprites/ow_0.png",
 local px, py = Game3.spriteDrawPos(5, 10, 16, 32)
 eq(px, 80, "16-wide sprite is centered on the tile")
 eq(py, 144, "32-tall sprite's feet sit on the bottom of the tile")
+eq(Game3.reflectionDrawY(py, 32), py + 62,
+  "VFLIP origin is below the feet so the mirror sits in the water")
+eq(Game3.reflectionDrawY(py, 32) - 32, py + 30,
+  "ROM offset is graphics height - 2")
 local sx, sy = Game3.spriteDrawPos(5, 10, 16, 16)
 eq(sx, 80, "16x16 x")
 eq(sy, 160, "16x16 stays in its tile")
@@ -254,6 +293,9 @@ eq(Game3.wanderDirs(1), "look", "LOOK_AROUND")
 eq(Game3.wanderDirs(2)[4], "east", "WANDER_AROUND has four dirs")
 eq(Game3.wanderDirs(5)[1], "west", "WANDER_LEFT_AND_RIGHT")
 eq(Game3.wanderDirs(8), nil, "FACE_DOWN stays put")
+eq(Game3.wanderDirs(0x11), "face_look", "FACE_DOWN_AND_LEFT")
+eq(Game3.wanderDirs(0x17), "rotate_ccw", "ROTATE_COUNTERCLOCKWISE")
+eq(Game3.wanderDirs(0x18), "rotate_cw", "ROTATE_CLOCKWISE")
 eq(Game3.wanderDirs(64), "place", "WALK_IN_PLACE_DOWN")
 eq(Game3.wanderDirs(87), "place", "JOG_IN_PLACE_RIGHT")
 local dx, dy = Game3.deltaFromFacing("west")
@@ -285,6 +327,13 @@ check(step:tryWalk(1, 0), "one step east on open ground")
 eq(step.playerX, 21, "dest tile updates immediately")
 eq(step.walkCooldown, Game3.WALK_PERIOD, "the step starts interpolating")
 eq(step.camX, 208, "first frame keeps the camera on the start tile")
+
+local house = Game3.new()
+house.map = { width = 11, height = 9 }
+house.playerX, house.playerY = 5, 4
+house:clampCamera()
+eq(house.camX, Game3.snapPixel(5 * 16 + 8 - 120), "a house keeps the player at 120")
+eq(house.camY, Game3.snapPixel(4 * 16 + 8 - 80), "and at 80")
 
 local canvas = Game3.new()
 eq(Game3.SCREEN_W, 240, "GBA framebuffer width")
@@ -360,6 +409,25 @@ eq(RomExtractorGen3.findLatinFont3(string.rep("\0", 5000)), nil,
 eq(RomExtractorGen3.fontPath(), "assets/generated/fonts/font.png",
   "FONT3 PNG path")
 
+local widthParts = {}
+for i = 1, 254 do
+  widthParts[i] = string.char(Game3.FONT3_WIDTHS[i])
+end
+local widthBlob = table.concat(widthParts)
+local WIDTHS_OFF = FONT3 + 256 * 64
+fontRom = overlay(fontRom, WIDTHS_OFF, widthBlob)
+eq(RomExtractorGen3.findFont3Widths(fontRom), WIDTHS_OFF,
+  "finder lands on sFont3Widths")
+local got = RomExtractorGen3.readFont3Widths(fontRom, WIDTHS_OFF)
+eq(got[1], 3, "extracted space width")
+eq(got[0xBB + 1], 6, "extracted A width")
+eq(#got, 256, "widths pad to 256")
+eq(Game3.stringWidthTiles("A"), 1, "A is one tile")
+eq(select(1, Game3.stdWindowRect(22, 0, 29, 15)), 176,
+  "START window x is tile 22")
+eq(select(3, Game3.stdWindowRect(22, 0, 29, 15)), 64,
+  "START window is 8 tiles wide")
+
 local rider = Game3.new()
 rider.bike = "mach"
 eq(rider:playerGraphicsId(), Game3.GFX_BRENDAN_MACH_BIKE, "Mach Bike sprite")
@@ -369,12 +437,58 @@ rider.bike = nil
 rider.surfing = true
 eq(rider:playerGraphicsId(), Game3.GFX_BRENDAN_SURFING, "Surf sprite")
 rider.surfing = nil
+rider.wateringLeft = Game3.WATERING_FRAMES
+eq(rider:playerGraphicsId(), Game3.GFX_BRENDAN_WATERING, "Wailmer Pail sprite")
+eq(Game3.GFX_BRENDAN_WATERING, 191, "OBJ_EVENT_GFX_BRENDAN_WATERING")
+eq(Game3.GFX_MAY_WATERING, 192, "OBJ_EVENT_GFX_MAY_WATERING")
+rider.wateringLeft = nil
 rider.gender = Game3.GENDER_FEMALE
 eq(rider:playerName(), "MAY", "girl is MAY")
 rider.data.sprites = { byId = { [Game3.GFX_MAY] = { id = 89 } } }
 eq(rider:playerGraphicsId(), Game3.GFX_MAY, "May standing")
+rider.wateringLeft = 1
+eq(rider:playerGraphicsId(), Game3.GFX_BRENDAN_WATERING,
+  "May without ow_192 still uses Brendan watering")
+rider.data.sprites.byId[Game3.GFX_MAY_WATERING] = { id = 192 }
+eq(rider:playerGraphicsId(), Game3.GFX_MAY_WATERING, "May watering sheet")
+rider.wateringLeft = nil
 eq(#rider:startMenuItems(), 6, "START lists name, OPTION, EXIT")
 eq(rider:startMenuItems()[3], "MAY", "the trainer row is the player name")
 eq(rider:startMenuItems()[5], "OPTION", "OPTION is in START")
+
+;(function()
+  local GbaBin = require("src.import.GbaBin")
+  local RomExtractorGen3 = require("src.import.RomExtractorGen3")
+  local Game3 = require("src.core.Game3")
+  eq(RomExtractorGen3.EMOTE_GFX, 0x39B308, "gSpriteImage_839B308")
+  eq(RomExtractorGen3.EMOTE_BYTES, 0x80, "16x16 4bpp")
+  eq(RomExtractorGen3.emoteFrameOff("exclaim"), 0x39B308, "! is frame 0")
+  eq(RomExtractorGen3.emoteFrameOff("question"), 0x39B388, "? is frame 1")
+  eq(RomExtractorGen3.emoteFrameOff("heart"), 0x39B408, "heart is frame 2")
+  eq(RomExtractorGen3.EMOTE_PAL, 0x369488, "gFieldEffectObjectPalette0")
+  eq(RomExtractorGen3.emotePath("exclaim"),
+    "assets/generated/emotes/exclaim.png", "emote PNG path")
+  eq(RomExtractorGen3.emoteFrameOff("nope"), nil, "unknown emote")
+  local palOff, frameOff = 0, 32
+  local pal = GbaBin.packU16(0) .. GbaBin.packU16(0x03FF) .. string.rep("\0", 28)
+  local data = pal .. string.rep("\17", 128)
+  local img = RomExtractorGen3.renderOwFrame(data, {
+    width = 16, height = 16, frameSize = 128, frameOff = frameOff,
+  }, palOff, frameOff)
+  check(img ~= nil, "16x16 emote frame blits")
+  eq(img:getWidth(), 16, "emote is 16 wide")
+  eq(img:getHeight(), 16, "and 16 tall")
+  local px, py = Game3.emoteDrawPos(5, 10, 0)
+  eq(px, 80, "icon is centered on the tile")
+  eq(py, 128, "and sits on top of a 32px head")
+  local spec = Game3.emoteSpec(nil, "exclaim")
+  eq(spec.path, "assets/generated/emotes/exclaim.png",
+    "missing cache still points at the PNG")
+  eq(Game3.emoteSpec(nil, "wave"), nil, "unknown emote has no spec")
+  local cached = Game3.emoteSpec({
+    emotes = { exclaim = { path = "x.png", width = 16, height = 16 } },
+  }, "exclaim")
+  eq(cached.path, "x.png", "imported sprites.lua wins")
+end)()
 
 S.finish()

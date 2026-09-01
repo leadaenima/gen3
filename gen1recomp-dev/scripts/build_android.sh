@@ -131,7 +131,7 @@ yellow_manifest_is_valid() {
 import json, pathlib, sys
 
 try:
-    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 except (OSError, ValueError):
     raise SystemExit(1)
 
@@ -179,7 +179,7 @@ gold_manifest_is_valid() {
 import json, pathlib, sys
 
 try:
-    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 except (OSError, ValueError):
     raise SystemExit(1)
 
@@ -227,7 +227,7 @@ silver_manifest_is_valid() {
 import json, pathlib, sys
 
 try:
-    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 except (OSError, ValueError):
     raise SystemExit(1)
 
@@ -275,7 +275,7 @@ crystal_manifest_is_valid() {
 import json, pathlib, sys
 
 try:
-    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
+    manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 except (OSError, ValueError):
     raise SystemExit(1)
 
@@ -333,7 +333,7 @@ apply_android_branding() {
 import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
 app_id, name, version, version_code = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-text = path.read_text()
+text = path.read_text(encoding="utf-8")
 
 def set_prop(text, key, value):
     pat = re.compile(rf"(?m)^{re.escape(key)}=.*$")
@@ -350,30 +350,89 @@ text = set_prop(text, "app.orientation", "fullUser")
 if version:
     text = set_prop(text, "app.version_name", version)
     text = set_prop(text, "app.version_code", version_code)
-path.write_text(text)
+path.write_text(text, encoding="utf-8")
 PY
 
-  python3 - "$manifest" <<'PY'
+  python3 - "$manifest" "$TEST_APPLICATION_ID" <<'PY'
 import pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
-text = path.read_text()
+text = path.read_text(encoding="utf-8")
 
 # Drop mic / legacy storage, not needed by this game.
 # Keep VIBRATE (love.system.vibrate), BLUETOOTH (optional gamepads) and
 # INTERNET: link play is not offline-only any more, and stripping INTERNET
 # made every LAN host and every relay connect fail with EPERM (issue #287).
 # Orientation / label come from gradle.properties placeholders.
-for perm in (
+drop = [
     "android.permission.RECORD_AUDIO",
     "android.permission.WRITE_EXTERNAL_STORAGE",
-):
+]
+# Sideload test APKs: REQUEST_INSTALL_PACKAGES is a restricted permission.
+# Play Protect / OEM installers often abort with a bare "Canceling" and no
+# other dialog. The in-app updater is not needed on a throwaway test install.
+if sys.argv[2]:
+    drop.append("android.permission.REQUEST_INSTALL_PACKAGES")
+for perm in drop:
     text = re.sub(
         rf'\s*<uses-permission android:name="{re.escape(perm)}"[^/]*/>\s*',
         "\n",
         text,
     )
 text = re.sub(r'\s*android:usesCleartextTraffic="true"', "", text)
-path.write_text(text)
+path.write_text(text, encoding="utf-8")
+PY
+}
+
+# Test builds rewrite the source gradle.properties / manifest so the shadow
+# copy picks them up. Put the shipping identity back after gradle so a later
+# official build cannot accidentally ship as *.rubytest, and so the restricted
+# REQUEST_INSTALL_PACKAGES permission is not left deleted in git.
+restore_source_branding() {
+  [ -n "$TEST_APPLICATION_ID" ] || return 0
+
+  local props="$ANDROID_DIR/gradle.properties"
+  local manifest="$ANDROID_DIR/app/src/main/AndroidManifest.xml"
+  say "restoring shipping Android identity in source tree"
+
+  python3 - "$props" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+
+def set_prop(text, key, value):
+    pat = re.compile(rf"(?m)^{re.escape(key)}=.*$")
+    line = f"{key}={value}"
+    if pat.search(text):
+        return pat.sub(line, text)
+    return text.rstrip() + "\n" + line + "\n"
+
+text = re.sub(r"(?m)^app\.name_byte_array=.*\n?", "", text)
+text = set_prop(text, "app.name", "gen1recomp")
+text = set_prop(text, "app.application_id", "com.theboisclub.pokemonred")
+path.write_text(text, encoding="utf-8")
+PY
+
+  python3 - "$manifest" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+perm = "android.permission.REQUEST_INSTALL_PACKAGES"
+tag = f'  <uses-permission android:name="{perm}" />'
+if perm in text:
+    raise SystemExit(0)
+comment = (
+    "  <!-- Required only to hand a checksum-verified, user-selected GitHub release\n"
+    "       APK to Android's own Package Installer. Android still shows the install\n"
+    "       confirmation and enforces package/signing-key/version compatibility. -->"
+)
+if comment in text:
+    text = text.replace(comment, comment + "\n" + tag, 1)
+else:
+    needle = 'android.permission.INTERNET" />'
+    if needle not in text:
+        raise SystemExit("could not restore REQUEST_INSTALL_PACKAGES")
+    text = text.replace(needle, needle + "\n" + comment + "\n" + tag, 1)
+path.write_text(text, encoding="utf-8")
 PY
 }
 
@@ -399,6 +458,7 @@ pack_game_love() {
     tools/rom_manifest.json tools/rom_manifest_blue.json \
     tools/rom_manifest_yellow.json tools/rom_manifest_gold.json \
     tools/rom_manifest_silver.json tools/rom_manifest_crystal.json \
+    tools/rom_manifest_ruby.json \
     -x '*.DS_Store' -x '*/.git/*' -x '*/.DS_Store' \
     -x 'data/generated/*' -x 'assets/generated/*')
   # List once and match against the captured text: piping unzip straight into
@@ -424,6 +484,8 @@ pack_game_love() {
     || fail "game.love is missing the Silver ROM import manifest"
   grep -qx 'tools/rom_manifest_crystal.json' <<< "$archive_entries" \
     || fail "game.love is missing the Crystal ROM import manifest"
+  grep -qx 'tools/rom_manifest_ruby.json' <<< "$archive_entries" \
+    || fail "game.love is missing the Ruby ROM import manifest"
   # This gate exists because the launcher's UI toolkit once lived outside
   # src/ (libs/flexlove) and was added to scripts/build.sh's payload and to
   # no other packager, so Android and iOS built an APK/IPA whose launcher
@@ -529,10 +591,16 @@ run_gradle() {
       say "path contains spaces (ndk-build cannot handle them);"
       say "shadow-building in: $build_dir"
       mkdir -p "$build_dir"
-      rsync -a --delete \
-        --exclude=".gradle" --exclude="app/build" --exclude="love/build" \
-        --exclude="local.properties" \
-        "$ANDROID_DIR/" "$build_dir/"
+      # Git Bash on Windows has no rsync; keep gradle/ndk caches in the shadow.
+      if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete \
+          --exclude=".gradle" --exclude="app/build" --exclude="love/build" \
+          --exclude="local.properties" \
+          "$ANDROID_DIR/" "$build_dir/"
+      else
+        say "rsync not found; copying android tree with cp (first run is slow)"
+        cp -a "$ANDROID_DIR/." "$build_dir/"
+      fi
       if [ -f "$ANDROID_DIR/local.properties" ]; then
         cp "$ANDROID_DIR/local.properties" "$build_dir/local.properties"
       fi
@@ -566,6 +634,9 @@ run_gradle() {
 }
 
 # --------------------------------------------------------------- main
+if [ -n "$TEST_APPLICATION_ID" ]; then
+  trap restore_source_branding EXIT
+fi
 apply_android_branding
 pack_game_love
 
@@ -576,4 +647,5 @@ fi
 
 require_android_sdk
 run_gradle
+restore_source_branding
 say "done"

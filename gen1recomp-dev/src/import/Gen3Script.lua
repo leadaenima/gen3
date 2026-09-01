@@ -35,6 +35,9 @@ Script.WAITFANFARE = 0x32
 Script.PLAYBGM = 0x33
 Script.SAVEBGM = 0x34
 Script.FADEDEFAULTBGM = 0x35
+Script.FADENEWBGM = 0x36
+Script.FADEOUTBGM = 0x37
+Script.FADEINBGM = 0x38
 Script.WARP = 0x39
 Script.WARPSILENT = 0x3A
 Script.WARPDOOR = 0x3B
@@ -46,6 +49,9 @@ Script.SETDIVEWARP = 0x40
 Script.SETHOLEWARP = 0x41
 Script.SETESCAPEWARP = 0xC4
 Script.FADESCREEN = 0x97
+Script.DOFIELDEFFECT = 0x9C
+Script.SETFIELDEFFECTARGUMENT = 0x9D
+Script.WAITFIELDEFFECT = 0x9E
 Script.SETRESPAWN = 0x9F
 Script.GETPLAYERXY = 0x42
 Script.GETPARTYSIZE = 0x43
@@ -53,6 +59,7 @@ Script.ADDITEM = 0x44
 Script.REMOVEITEM = 0x45
 Script.CHECKITEMSPACE = 0x46
 Script.CHECKITEM = 0x47
+Script.ADDDECORATION = 0x4B
 Script.APPLYMOVEMENT = 0x4F
 Script.WAITMOVEMENT = 0x51
 Script.REMOVEOBJECT = 0x53
@@ -71,7 +78,11 @@ Script.MOVEOBJECTOFFSCREEN = 0x64
 Script.SETOBJECTMOVEMENTTYPE = 0x65
 Script.CHECKPLAYERGENDER = 0xA0
 Script.SETMETATILE = 0xA2
+Script.RESETWEATHER = 0xA3
+Script.SETWEATHER = 0xA4
+Script.DOWEATHER = 0xA5
 Script.SETSTEPCALLBACK = 0xA6
+Script.SETMAPLAYOUTINDEX = 0xA7
 Script.SETOBJECTPRIORITY = 0xA8
 Script.RESETOBJECTPRIORITY = 0xA9
 Script.OPENDOOR = 0xAC
@@ -129,19 +140,34 @@ Script.RELEASEALL = 0x6B
 Script.RELEASE = 0x6C
 Script.WAITBUTTON = 0x6D
 Script.GIVEMON = 0x79
+Script.GIVEEGG = 0x7A
+Script.CHECKPARTYMOVE = 0x7C
 Script.BUFFERSPECIESNAME = 0x7D
 Script.BUFFERLEADMON = 0x7E
+Script.BUFFERPARTYMONNICK = 0x7F
 Script.BUFFERITEMNAME = 0x80
+Script.BUFFERDECORATIONNAME = 0x81
+Script.BUFFERMOVENAME = 0x82
 Script.BUFFERNUMBER = 0x83
 Script.SETFLASHRADIUS = 0x99
 Script.ANIMATEFLASH = 0x9A
 Script.RANDOM = 0x8F
+Script.PLAYSLOTMACHINE = 0x89
 Script.ADDMONEY = 0x90
 Script.REMOVEMONEY = 0x91
 Script.CHECKMONEY = 0x92
 Script.SHOWMONEYBOX = 0x93
 Script.HIDEMONEYBOX = 0x94
 Script.UPDATEMONEYBOX = 0x95
+Script.GETPRICEREDUCTION = 0x96
+Script.CHECKCOINS = 0xB3
+Script.ADDCOINS = 0xB4
+Script.REMOVECOINS = 0xB5
+Script.SETWILDBATTLE = 0xB6
+Script.DOWILDBATTLE = 0xB7
+Script.SHOWCOINSBOX = 0xC0
+Script.HIDECOINSBOX = 0xC1
+Script.UPDATECOINSBOX = 0xC2
 Script.PLAYMONCRY = 0xA1
 Script.WAITMONCRY = 0xC5
 Script.WAITDOORANIM = 0xAE
@@ -152,7 +178,10 @@ Script.SETBERRYTREE = 0x8A
 Script.CHOOSECONTESTMON = 0x8B
 Script.STARTCONTEST = 0x8C
 Script.POKEMART = 0x86
+Script.POKEMART_DECORATION = 0x87
+Script.POKEMART_DECORATION2 = 0x88
 Script.SHOWCONTESTRESULTS = 0x8D
+Script.SHOWCONTESTWINNER = 0x77
 Script.STD_OBTAIN_ITEM = 0
 Script.STD_FIND_ITEM = 1
 Script.STD_MSGBOX_NPC = 2
@@ -160,6 +189,7 @@ Script.STD_MSGBOX_SIGN = 3
 Script.STD_MSGBOX_DEFAULT = 4
 Script.STD_MSGBOX_YESNO = 5
 Script.STD_MSGBOX_AUTOCLOSE = 6
+Script.STD_OBTAIN_DECORATION = 7
 Script.VAR_0x8000 = 0x8000
 Script.VAR_0x8001 = 0x8001
 Script.VAR_0x8004 = 0x8004
@@ -181,7 +211,8 @@ Script.VARS_START = 0x4000
 -- 2089 map entry points, so these sit clear of the cart with room to spare.
 Script.MAX_OPS = 2048
 Script.MAX_CALL = 8
-Script.TEXT_LEN = 512
+-- gym-guide / Roxanne speeches exceed 512 ROM bytes (Rustboro ~581).
+Script.TEXT_LEN = 1024
 
 -- Byte length of one command, from pokeruby include/macros/event.inc.  A
 -- `map` argument is two bytes (group then number).  Every command Ruby
@@ -280,8 +311,12 @@ end
 
 local function readText(data, off)
   if not off then return nil end
-  local text = GbaText.decodeText(data:sub(off + 1, off + Script.TEXT_LEN),
-    Script.TEXT_LEN)
+  local blob = data:sub(off + 1, off + Script.TEXT_LEN)
+  local pages = GbaText.decodePages(blob, Script.TEXT_LEN)
+  if #pages > 0 then
+    return table.concat(pages, "\n")
+  end
+  local text = GbaText.decodeText(blob, Script.TEXT_LEN)
   if text == "" then return nil end
   return text
 end
@@ -289,7 +324,9 @@ end
 -- pokeruby gTrainerBattleSpecs_1 / _4: CONTINUE_SCRIPT kinds load
 -- sTrainerBattleEndScript from the last pointer.  gotobeatenscript
 -- (0x5F) jumps there after a win; the next opcode is only the
--- already-defeated talk-again path.
+-- already-defeated talk-again path.  trainerbattle_double with an
+-- event_script argument assembles as CONTINUE_SCRIPT_DOUBLE (kind 6),
+-- not DOUBLE (kind 4); kind 4 has no after pointer.
 local function parseTrainerAfter(data, kind, ptrBase, depth)
   local dest
   if kind == 1 or kind == 2 then
@@ -633,6 +670,12 @@ local function decode(data, off, depth)
   if cmd == Script.GETPARTYSIZE then
     return { op = "getpartysize" }, size, nextOff
   end
+  if cmd == Script.ADDDECORATION then
+    return {
+      op = "adddecoration",
+      id = GbaBin.u16(data, off + 1),
+    }, size, nextOff
+  end
   if cmd == Script.GETPLAYERXY then
     return {
       op = "getplayerxy",
@@ -687,6 +730,55 @@ local function decode(data, off, depth)
       y = GbaBin.u8(data, off + 2),
     }, size, nextOff
   end
+  if cmd == Script.GETPRICEREDUCTION then
+    return { op = "getpricereduction", index = GbaBin.u16(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.PLAYSLOTMACHINE then
+    return { op = "playslotmachine", id = GbaBin.u16(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.CHECKCOINS then
+    return { op = "checkcoins", var = GbaBin.u16(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.ADDCOINS or cmd == Script.REMOVECOINS then
+    local name = "addcoins"
+    if cmd == Script.REMOVECOINS then name = "removecoins" end
+    return { op = name, count = GbaBin.u16(data, off + 1) }, size, nextOff
+  end
+  if cmd == Script.SETWILDBATTLE then
+    return {
+      op = "setwildbattle",
+      species = GbaBin.u16(data, off + 1),
+      level = GbaBin.u8(data, off + 3),
+      item = GbaBin.u16(data, off + 4),
+    }, size, nextOff
+  end
+  if cmd == Script.DOWILDBATTLE then
+    return { op = "dowildbattle" }, size, nextOff
+  end
+  if cmd == Script.SHOWCOINSBOX then
+    return {
+      op = "showcoinsbox",
+      x = GbaBin.u8(data, off + 1),
+      y = GbaBin.u8(data, off + 2),
+    }, size, nextOff
+  end
+  if cmd == Script.HIDECOINSBOX then
+    return {
+      op = "hidecoinsbox",
+      x = GbaBin.u8(data, off + 1),
+      y = GbaBin.u8(data, off + 2),
+    }, size, nextOff
+  end
+  if cmd == Script.UPDATECOINSBOX then
+    return {
+      op = "updatecoinsbox",
+      x = GbaBin.u8(data, off + 1),
+      y = GbaBin.u8(data, off + 2),
+    }, size, nextOff
+  end
   if cmd == Script.PLAYMONCRY then
     return {
       op = "playmoncry",
@@ -709,6 +801,13 @@ local function decode(data, off, depth)
       op = "bufferitem",
       slot = GbaBin.u8(data, off + 1),
       item = GbaBin.u16(data, off + 2),
+    }, size, nextOff
+  end
+  if cmd == Script.BUFFERDECORATIONNAME then
+    return {
+      op = "bufferdecoration",
+      slot = GbaBin.u8(data, off + 1),
+      id = GbaBin.u16(data, off + 2),
     }, size, nextOff
   end
   if cmd == Script.BUFFERNUMBER then
@@ -759,9 +858,33 @@ local function decode(data, off, depth)
       item = GbaBin.u16(data, off + 4),
     }, size, nextOff
   end
+  if cmd == Script.GIVEEGG then
+    return {
+      op = "giveegg",
+      species = GbaBin.u16(data, off + 1),
+    }, size, nextOff
+  end
   if cmd == Script.BUFFERLEADMON then
     return { op = "bufferleadmon", slot = GbaBin.u8(data, off + 1) },
       size, nextOff
+  end
+  if cmd == Script.CHECKPARTYMOVE then
+    return { op = "checkpartymove", move = GbaBin.u16(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.BUFFERPARTYMONNICK then
+    return {
+      op = "bufferpartymonnick",
+      slot = GbaBin.u8(data, off + 1),
+      partyIndex = GbaBin.u16(data, off + 2),
+    }, size, nextOff
+  end
+  if cmd == Script.BUFFERMOVENAME then
+    return {
+      op = "buffermovename",
+      slot = GbaBin.u8(data, off + 1),
+      move = GbaBin.u16(data, off + 2),
+    }, size, nextOff
   end
   if cmd == Script.CHOOSECONTESTMON then
     return { op = "choosecontestmon" }, size, nextOff
@@ -771,6 +894,12 @@ local function decode(data, off, depth)
   end
   if cmd == Script.SHOWCONTESTRESULTS then
     return { op = "showcontestresults" }, size, nextOff
+  end
+  if cmd == Script.SHOWCONTESTWINNER then
+    return {
+      op = "showcontestwinner",
+      contestId = GbaBin.u8(data, off + 1),
+    }, size, nextOff
   end
   if cmd == Script.YESNOBOX then
     return {
@@ -820,6 +949,14 @@ local function decode(data, off, depth)
   if cmd == Script.FADESCREEN then
     return { op = "fadescreen", mode = GbaBin.u8(data, off + 1) }, size, nextOff
   end
+  -- 0x98 is fadescreenspeed here; MOVE_LEVITATE is movement-only.
+  if cmd == 0x98 then
+    return {
+      op = "fadescreen",
+      mode = GbaBin.u8(data, off + 1),
+      speed = GbaBin.u8(data, off + 2),
+    }, size, nextOff
+  end
   if cmd == Script.WARP or cmd == Script.WARPSILENT
       or cmd == Script.WARPDOOR or cmd == Script.WARPTELEPORT then
     return {
@@ -855,6 +992,19 @@ local function decode(data, off, depth)
       mapNum = GbaBin.u8(data, off + 2),
     }, size, nextOff
   end
+  if cmd == Script.DOFIELDEFFECT then
+    return { op = "dofieldeffect", id = GbaBin.u16(data, off + 1) }, size, nextOff
+  end
+  if cmd == Script.SETFIELDEFFECTARGUMENT then
+    return {
+      op = "setfieldeffectargument",
+      index = GbaBin.u8(data, off + 1),
+      value = GbaBin.u16(data, off + 2),
+    }, size, nextOff
+  end
+  if cmd == Script.WAITFIELDEFFECT then
+    return { op = "waitfieldeffect", id = GbaBin.u16(data, off + 1) }, size, nextOff
+  end
   if cmd == Script.SETRESPAWN then
     return { op = "setrespawn", id = GbaBin.u16(data, off + 1) }, size, nextOff
   end
@@ -884,8 +1034,22 @@ local function decode(data, off, depth)
   if cmd == Script.FADEDEFAULTBGM then
     return { op = "fadedefaultbgm" }, size, nextOff
   end
+  -- The three fade commands carry a speed in units the driver counts down
+  -- per frame; 0 means the default.
+  if cmd == Script.FADENEWBGM then
+    return { op = "fadenewbgm", id = GbaBin.u16(data, off + 1) }, size, nextOff
+  end
+  if cmd == Script.FADEOUTBGM then
+    return { op = "fadeoutbgm", speed = GbaBin.u8(data, off + 1) }, size, nextOff
+  end
+  if cmd == Script.FADEINBGM then
+    return { op = "fadeinbgm", speed = GbaBin.u8(data, off + 1) }, size, nextOff
+  end
   if cmd == Script.WAITMESSAGE then
     return { op = "waitmessage" }, size, nextOff
+  end
+  if cmd == Script.WAITBUTTON then
+    return { op = "waitbuttonpress" }, size, nextOff
   end
   if cmd == Script.CLOSEMESSAGE then
     return { op = "closemessage" }, size, nextOff
@@ -977,8 +1141,22 @@ local function decode(data, off, depth)
       collision = GbaBin.u16(data, off + 7),
     }, size, nextOff
   end
+  if cmd == Script.RESETWEATHER then
+    return { op = "resetweather" }, size, nextOff
+  end
+  if cmd == Script.SETWEATHER then
+    return { op = "setweather", weather = GbaBin.u16(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.DOWEATHER then
+    return { op = "doweather" }, size, nextOff
+  end
   if cmd == Script.SETSTEPCALLBACK then
     return { op = "setstepcallback", id = GbaBin.u8(data, off + 1) },
+      size, nextOff
+  end
+  if cmd == Script.SETMAPLAYOUTINDEX then
+    return { op = "setmaplayoutindex", index = GbaBin.u16(data, off + 1) },
       size, nextOff
   end
   if cmd == Script.SETFLASHRADIUS then
@@ -1003,10 +1181,13 @@ local function decode(data, off, depth)
       y = GbaBin.u16(data, off + 3),
     }, size, nextOff
   end
-  if cmd == Script.POKEMART then
+  if cmd == Script.POKEMART or cmd == Script.POKEMART_DECORATION
+      or cmd == Script.POKEMART_DECORATION2 then
     local dest = romPtr(data, off + 1)
+    local op = "pokemart"
+    if cmd ~= Script.POKEMART then op = "pokemartdecoration" end
     return {
-      op = "pokemart",
+      op = op,
       items = dest and Script.parseMartList(data, dest) or {},
     }, size, nextOff
   end
@@ -1098,7 +1279,36 @@ function Script.parse(data, start, depth)
       op.at = nil
     end
   end
+  -- Offsets are sorted, so a goto to an earlier shared label (Petalburg
+  -- EnterRoom at 0x154BA8, before Accuracy and every later door) becomes
+  -- ops[1]. Run must start at the requested entry, not the lowest address.
+  ops.entry = resolve(start)
+  if ops.entry < 1 or ops.entry > #ops then ops.entry = 1 end
   return ops
+end
+
+-- Cached ruby27 IR has no .entry. Those door scripts start with the
+-- shared closemessage/warp prefix and goto 1; the real start is lockall.
+function Script.entryOf(ops)
+  if type(ops) ~= "table" then return 1 end
+  local marked = tonumber(ops.entry)
+  if marked and marked >= 1 and marked <= #ops then return marked end
+  local first = ops[1]
+  if not first or (first.op ~= "closemessage" and first.op ~= "delay") then
+    return 1
+  end
+  local targetsOne, lockAt = false, nil
+  for i = 1, #ops do
+    local op = ops[i]
+    if op and (op.op == "goto" or op.op == "goto_if") and (op.to or 0) == 1 then
+      targetsOne = true
+    end
+    if not lockAt and op and (op.op == "lockall" or op.op == "lock") then
+      lockAt = i
+    end
+  end
+  if targetsOne and lockAt and lockAt > 1 then return lockAt end
+  return 1
 end
 
 function Script.firstText(ops)
@@ -1153,7 +1363,7 @@ function Script.run(host, ops, from)
   host.scriptVars = host.scriptVars or {}
   host.flags = host.flags or {}
   local vars = host.scriptVars
-  local i = from or 1
+  local i = from or Script.entryOf(ops)
   local loaded = host._scriptLoaded
   local result = host._scriptCmp or 0
   local steps = 0
@@ -1211,6 +1421,27 @@ function Script.run(host, ops, from)
     elseif op.op == "bufferleadmon" then
       if host.bufferLeadMonSpecies then
         host:bufferLeadMonSpecies(op.slot or 0)
+      end
+      i = i + 1
+    elseif op.op == "checkpartymove" then
+      local slot = 6
+      if host.checkPartyMove then
+        slot = tonumber(host:checkPartyMove(op.move or 0)) or 6
+      end
+      vars[Script.VAR_RESULT] = slot
+      i = i + 1
+    elseif op.op == "bufferpartymonnick" then
+      local idx = host.varGet and host:varGet(op.partyIndex or 0)
+        or getVar(vars, op.partyIndex or 0)
+      if host.bufferPartyMonNick then
+        host:bufferPartyMonNick(op.slot or 0, idx)
+      end
+      i = i + 1
+    elseif op.op == "buffermovename" then
+      local move = host.varGet and host:varGet(op.move or 0)
+        or getVar(vars, op.move or 0)
+      if host.bufferMoveName then
+        host:bufferMoveName(op.slot or 0, move)
       end
       i = i + 1
     elseif op.op == "yesno" then
@@ -1279,6 +1510,11 @@ function Script.run(host, ops, from)
           -- obtain_item.inc Text_PutItemInPocket after a successful
           -- obtain or pick-up. Full bag skips it (VAR_RESULT 0).
           if ok then
+            if host.playObtainFanfare then
+              host:playObtainFanfare(item)
+            elseif host.playFanfare then
+              host:playFanfare(host.MUS_OBTAIN_ITEM or 370)
+            end
             local pocket = host.itemPocket and host:itemPocket(item) or 1
             local pocketName = host.pocketName and host:pocketName(pocket)
               or "ITEMS"
@@ -1289,6 +1525,31 @@ function Script.run(host, ops, from)
         end
         if ok and id == Script.STD_FIND_ITEM then
           removeLastTalked(host, vars)
+        end
+        i = afterStd()
+      elseif id == Script.STD_OBTAIN_DECORATION then
+        local decor = getVar(vars, Script.VAR_0x8000)
+        local ok = false
+        if decor > 0 and host.addDecoration then
+          ok = host:addDecoration(decor) and true or false
+        end
+        vars[Script.VAR_RESULT] = ok and 1 or 0
+        if host.setScriptVar then
+          host:setScriptVar(Script.VAR_RESULT, ok and 1 or 0)
+        end
+        if host.sayScript then
+          local name = host.decorationName and host:decorationName(decor)
+            or ("DECOR %d"):format(decor)
+          if ok then
+            if host.playFanfare then
+              host:playFanfare(host.MUS_OBTAIN_ITEM or 370)
+            end
+            host:sayScript(("Obtained the %s!"):format(name))
+            host:sayScript(("The %s was transferred to the PC."):format(name))
+          else
+            host:sayScript("There's no more room for decorations.")
+          end
+          said = true
         end
         i = afterStd()
       elseif id == Script.STD_MSGBOX_YESNO then
@@ -1381,6 +1642,15 @@ function Script.run(host, ops, from)
       if item > 0 and n > 0 and host.addItem then ok = host:addItem(item, n) end
       vars[Script.VAR_RESULT] = ok and 1 or 0
       i = i + 1
+    elseif op.op == "adddecoration" then
+      local id = host.varGet and host:varGet(op.id) or getVar(vars, op.id)
+      local ok = false
+      if id > 0 and host.addDecoration then ok = host:addDecoration(id) end
+      vars[Script.VAR_RESULT] = ok and 1 or 0
+      if host.setScriptVar then
+        host:setScriptVar(Script.VAR_RESULT, ok and 1 or 0)
+      end
+      i = i + 1
     elseif op.op == "removeitem" then
       local item = host.varGet and host:varGet(op.item) or getVar(vars, op.item)
       local n = host.varGet and host:varGet(op.count) or getVar(vars, op.count)
@@ -1405,7 +1675,9 @@ function Script.run(host, ops, from)
         host._scriptCmp = result
         if type(op.after) == "table" then
           -- EventScript_GoToBeatenScript / gotobeatenscript.
-          host._scriptPause = { ops = op.after, at = 1 }
+          -- parse sorts by ROM offset, so a goto into a shared common
+          -- script can make ops[1] the bag-full line. Start at .entry.
+          host._scriptPause = { ops = op.after, at = Script.entryOf(op.after) }
         else
           -- SINGLE_NO_INTRO gotopostbattlescript, or no 3rd pointer.
           host._scriptPause = { ops = ops, at = i + 1 }
@@ -1467,6 +1739,80 @@ function Script.run(host, ops, from)
     elseif op.op == "updatemoneybox" then
       if host.updateMoneyBox then host:updateMoneyBox() end
       i = i + 1
+    elseif op.op == "getpricereduction" then
+      local kind = op.index or 0
+      if host.varGet then
+        kind = host:varGet(kind)
+      else
+        kind = getVar(vars, kind)
+      end
+      local ok = host.getPriceReduction and host:getPriceReduction(kind)
+      vars[Script.VAR_RESULT] = (ok and ok ~= 0) and 1 or 0
+      i = i + 1
+    elseif op.op == "playslotmachine" then
+      local id = op.id or 0
+      if host.varGet then
+        id = host:varGet(id)
+      else
+        id = getVar(vars, id)
+      end
+      if host.playSlotMachine then host:playSlotMachine(id) end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
+      i = i + 1
+    elseif op.op == "checkcoins" then
+      local n = host.getCoins and host:getCoins() or (tonumber(host.coins) or 0)
+      if host.setScriptVar then
+        host:setScriptVar(op.var or 0, n)
+      else
+        vars[op.var or 0] = n
+      end
+      i = i + 1
+    elseif op.op == "setwildbattle" then
+      if host.setWildBattle then
+        host:setWildBattle(op.species or 0, op.level or 1, op.item or 0)
+      end
+      i = i + 1
+    elseif op.op == "dowildbattle" then
+      if host.doWildBattle then host:doWildBattle() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
+      i = i + 1
+    elseif op.op == "addcoins" or op.op == "removecoins" then
+      local n = host.varGet and host:varGet(op.count) or getVar(vars, op.count)
+      local r = 1
+      if op.op == "addcoins" then
+        if host.addCoinsScript then
+          r = host:addCoinsScript(n)
+        elseif host.addCoins then
+          r = host:addCoins(n) and 0 or 1
+        end
+      else
+        if host.removeCoinsScript then
+          r = host:removeCoinsScript(n)
+        elseif host.removeCoins then
+          r = host:removeCoins(n) and 0 or 1
+        end
+      end
+      vars[Script.VAR_RESULT] = r
+      i = i + 1
+    elseif op.op == "showcoinsbox" then
+      if host.showCoinsBox then host:showCoinsBox(op.x or 0, op.y or 0) end
+      i = i + 1
+    elseif op.op == "hidecoinsbox" then
+      if host.hideCoinsBox then host:hideCoinsBox() end
+      i = i + 1
+    elseif op.op == "updatecoinsbox" then
+      if host.updateCoinsBox then host:updateCoinsBox() end
+      i = i + 1
     elseif op.op == "playmoncry" then
       local species = op.species or 0
       local mode = op.mode or 0
@@ -1498,11 +1844,28 @@ function Script.run(host, ops, from)
       local name = host.itemName and host:itemName(item) or ""
       if host.setStringVar then host:setStringVar((op.slot or 0) + 1, name) end
       i = i + 1
+    elseif op.op == "bufferdecoration" then
+      local id = host.varGet and host:varGet(op.id) or getVar(vars, op.id)
+      local name = host.decorationName and host:decorationName(id) or ""
+      if host.setStringVar then host:setStringVar((op.slot or 0) + 1, name) end
+      i = i + 1
     elseif op.op == "buffernumber" then
       local n = host.varGet and host:varGet(op.val) or getVar(vars, op.val)
       if host.setStringVar then host:setStringVar((op.slot or 0) + 1, tostring(n)) end
       i = i + 1
     elseif op.op == "waitdooranim" then
+      if host.doorAnimating and host:doorAnimating() then
+        local d = host.doorAnim
+        local left = (d.dur or 0) - (d.t or 0)
+        if left < 0 then left = 0 end
+        local frames = math.ceil(left * 60)
+        if frames < 1 then frames = 1 end
+        if host.startScriptDelay then host:startScriptDelay(frames) end
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i }
+        return said, "delay"
+      end
       i = i + 1
     elseif op.op == "incrementgamestat" then
       if host.incrementGameStat then
@@ -1517,7 +1880,7 @@ function Script.run(host, ops, from)
       local species = op.species or 0
       if species >= Script.VARS_START then species = getVar(vars, species) end
       if species > 0 and host.giveMon then
-        local ok = host:giveMon(species, op.level or 5)
+        local ok = host:giveMon(species, op.level or 5, op.item)
         if ok and host.sayScript then
           local name = host.speciesName and host:speciesName(species)
             or ("POKeMON %d"):format(species)
@@ -1526,14 +1889,56 @@ function Script.run(host, ops, from)
         end
       end
       i = i + 1
+    elseif op.op == "giveegg" then
+      local species = op.species or 0
+      if species >= Script.VARS_START then
+        species = host.varGet and host:varGet(species) or getVar(vars, species)
+      end
+      local sent = 2
+      if species > 0 and host.giveEgg then
+        local r = host:giveEgg(species)
+        if type(r) == "number" then sent = r end
+      end
+      vars[Script.VAR_RESULT] = sent
+      if host.setScriptVar then host:setScriptVar(Script.VAR_RESULT, sent) end
+      i = i + 1
     elseif op.op == "choosecontestmon" then
       if host.chooseContestMon then host:chooseContestMon() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
       i = i + 1
     elseif op.op == "startcontest" then
       if host.startContest then host:startContest() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
       i = i + 1
     elseif op.op == "showcontestresults" then
       if host.showContestResults then host:showContestResults() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
+      i = i + 1
+    elseif op.op == "showcontestwinner" then
+      if host.showContestWinnerPainting then
+        host:showContestWinnerPainting(op.contestId or 0)
+      end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
       i = i + 1
     elseif op.op == "applymovement" then
       if host.applyMovement then
@@ -1558,6 +1963,7 @@ function Script.run(host, ops, from)
       local frames = op.frames
       if op.op == "fadescreen" then
         frames = host.FADE_FRAMES or 16
+        if host.beginScreenFade then host:beginScreenFade(op.mode) end
       end
       if host.delayLeft == nil and host.startScriptDelay then
         host:startScriptDelay(frames or 0)
@@ -1605,6 +2011,15 @@ function Script.run(host, ops, from)
           op.warpId or 0xFF, x, y)
       end
       i = i + 1
+    elseif op.op == "setdivewarp" then
+      local x, y = op.x or 0, op.y or 0
+      if x >= Script.VARS_START then x = getVar(vars, x) end
+      if y >= Script.VARS_START then y = getVar(vars, y) end
+      if host.setDiveWarp then
+        host:setDiveWarp(op.mapGroup or 0, op.mapNum or 0,
+          op.warpId or 0xFF, x, y)
+      end
+      i = i + 1
     elseif op.op == "warphole" then
       if host.warpHole then
         host:warpHole(op.mapGroup or 0, op.mapNum or 0)
@@ -1617,6 +2032,41 @@ function Script.run(host, ops, from)
       if host.setEscapeWarp then
         host:setEscapeWarp(op.mapGroup or 0, op.mapNum or 0,
           op.warpId or 0xFF, x, y)
+      end
+      i = i + 1
+    elseif op.op == "setfieldeffectargument" then
+      local value = op.value or 0
+      if host.varGet then
+        value = host:varGet(value)
+      elseif value >= Script.VARS_START then
+        value = getVar(vars, value)
+      end
+      if host.setFieldEffectArgument then
+        host:setFieldEffectArgument(op.index or 0, value)
+      end
+      i = i + 1
+    elseif op.op == "dofieldeffect" then
+      local id = op.id or 0
+      if host.varGet then
+        id = host:varGet(id)
+      elseif id >= Script.VARS_START then
+        id = getVar(vars, id)
+      end
+      if host.doFieldEffect then host:doFieldEffect(id) end
+      i = i + 1
+    elseif op.op == "waitfieldeffect" then
+      local id = op.id or 0
+      if host.varGet then
+        id = host:varGet(id)
+      elseif id >= Script.VARS_START then
+        id = getVar(vars, id)
+      end
+      if host.waitFieldEffect then host:waitFieldEffect(id) end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i }
+        return said, "wait"
       end
       i = i + 1
     elseif op.op == "setrespawn" then
@@ -1729,6 +2179,21 @@ function Script.run(host, ops, from)
         host:setMetatile(x, y, tile, op.collision or 0)
       end
       i = i + 1
+    elseif op.op == "setweather" then
+      local w = op.weather or 0
+      if host.varGet then
+        w = host:varGet(w)
+      elseif w >= Script.VARS_START then
+        w = getVar(vars, w)
+      end
+      if host.setSav1Weather then host:setSav1Weather(w) end
+      i = i + 1
+    elseif op.op == "resetweather" then
+      if host.resetWeather then host:resetWeather() end
+      i = i + 1
+    elseif op.op == "doweather" then
+      if host.doCurrentWeather then host:doCurrentWeather() end
+      i = i + 1
     elseif op.op == "setflashradius" then
       local level = op.level or 0
       if host.varGet then
@@ -1765,10 +2230,25 @@ function Script.run(host, ops, from)
         return said, "msg"
       end
       i = i + 1
-    elseif op.op == "pokemart" then
+    elseif op.op == "waitbuttonpress" then
+      if not (host.waitButton or host._waitButtonDone) then
+        if host.waitButtonPress then host:waitButtonPress() end
+      end
+      if host.waitButton
+          or (host.scriptWaiting and host:scriptWaiting()) then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i }
+        return said, "wait"
+      end
+      host._waitButtonDone = nil
+      i = i + 1
+    elseif op.op == "pokemart" or op.op == "pokemartdecoration" then
       local list = op.items
+      local kind
+      if op.op == "pokemartdecoration" then kind = "decor" end
       if host.openMartList then
-        host:openMartList(list)
+        host:openMartList(list, kind)
       elseif host.openMart then
         host:openMart({ mart = list })
       end
@@ -1791,6 +2271,15 @@ function Script.run(host, ops, from)
     elseif op.op == "setstepcallback" then
       if host.setStepCallback then host:setStepCallback(op.id or 0) end
       i = i + 1
+    elseif op.op == "setmaplayoutindex" then
+      local id = op.index or 0
+      if host.varGet then
+        id = host:varGet(id)
+      elseif id >= Script.VARS_START then
+        id = getVar(vars, id)
+      end
+      if host.setMapLayoutIndex then host:setMapLayoutIndex(id) end
+      i = i + 1
     elseif op.op == "setberrytree" then
       if host.plantBerryTree then
         host:plantBerryTree(op.tree or 0, op.berry or 0, op.stage or 0, false)
@@ -1804,6 +2293,55 @@ function Script.run(host, ops, from)
       i = i + 1
     elseif op.op == "releaseall" or op.op == "release" then
       if host.unlockScriptNpcs then host:unlockScriptNpcs() end
+      i = i + 1
+    elseif op.op == "playse" then
+      if host.playSe then host:playSe(op.id) end
+      i = i + 1
+    elseif op.op == "waitse" then
+      if host.waitSe then host:waitSe() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
+      i = i + 1
+    elseif op.op == "playfanfare" then
+      if host.playFanfare then host:playFanfare(op.id) end
+      i = i + 1
+    elseif op.op == "waitfanfare" then
+      if host.waitFanfare then host:waitFanfare() end
+      if host.scriptWaiting and host:scriptWaiting() then
+        host._scriptLoaded = loaded
+        host._scriptCmp = result
+        host._scriptPause = { ops = ops, at = i + 1 }
+        return said, "wait"
+      end
+      i = i + 1
+    elseif op.op == "playbgm" then
+      -- The second operand asks the driver to remember the outgoing song so
+      -- fadedefaultbgm can bring it back.
+      if host.playSong then
+        if (op.save or 0) ~= 0 and host.saveBgm then host:saveBgm() end
+        host:playSong(op.id, true)
+      end
+      i = i + 1
+    elseif op.op == "savebgm" then
+      if host.saveBgm then host:saveBgm(op.id) end
+      i = i + 1
+    elseif op.op == "fadedefaultbgm" then
+      if host.fadeDefaultBgm then host:fadeDefaultBgm() end
+      i = i + 1
+    elseif op.op == "fadenewbgm" then
+      if host.playSong then host:playSong(op.id, true) end
+      i = i + 1
+    elseif op.op == "fadeoutbgm" then
+      if host.fadeOutMapMusic then
+        host:fadeOutMapMusic((op.speed or 0) ~= 0 and op.speed * 4 or nil)
+      end
+      i = i + 1
+    elseif op.op == "fadeinbgm" then
+      if host.fadeDefaultBgm then host:fadeDefaultBgm() end
       i = i + 1
     else
       i = i + 1

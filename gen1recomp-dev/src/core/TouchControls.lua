@@ -12,16 +12,16 @@
 -- (main.lua then drives it with the mouse); POKEPORT_TOUCH=0 forces it
 -- off everywhere.
 --
--- BOTH GENERATIONS, one module.  Red/Blue/Yellow reach it from
--- src/core/Game.lua and Gold from src/core/Game2.lua, through the same six
--- seams in the same order: init + applyOptions at boot, touchpressed /
--- touchmoved / touchreleased ahead of the mod pointer hook (the pad keeps
--- first refusal, #807), noteGamepad on any controller input, joystickremoved
--- when the last pad goes away, reset on focus/visibility loss, and draw as the
--- last thing in the frame -- after the post passes, so the controls are never
--- inside the CRT/GBC grid the picture is being shown through.  One
--- options.touchControls block serves both games, so a layout edited in the
--- launcher's editor is the layout Gold draws.
+-- ALL THREE GENERATIONS, one module.  Red/Blue/Yellow reach it from
+-- src/core/Game.lua, Gold from src/core/Game2.lua, and Ruby from
+-- src/core/Game3.lua, through the same six seams in the same order: init +
+-- applyOptions at boot, touchpressed / touchmoved / touchreleased ahead of the
+-- mod pointer hook (the pad keeps first refusal, #807), noteGamepad on any
+-- controller input, joystickremoved when the last pad goes away, reset on
+-- focus/visibility loss, and draw as the last thing in the frame -- after the
+-- post passes, so the controls are never inside the CRT/GBC grid the picture
+-- is being shown through.  One options.touchControls block serves Gen 1 and
+-- Ruby; Gold/Silver/Crystal keep their own `gold` block.
 --
 -- Player preferences (options.touchControls) can permanently disable the
 -- overlay and/or override per-control positions as normalized window
@@ -218,8 +218,14 @@ function TouchControls.defaultLayout(ww, wh, ox, oy, scale)
   local ssW = dpadW * 0.30
   local margin = dpadW * 0.12
   local ok, GameVersion = pcall(require, "src.core.GameVersion")
-  if ok and GameVersion.generation and GameVersion.generation() == 2 then
-    margin = math.max(margin, math.min(ww * 0.10, 72))
+  if ok and GameVersion.generation then
+    local gen = GameVersion.generation()
+    -- Gen 2/3 screens are wider than GB, and phones put a home indicator
+    -- under the thumbs; pull the default pad in from the bezel the way Gold
+    -- already did so Ruby's APK is playable in portrait without a layout edit.
+    if gen == 2 or gen == 3 then
+      margin = math.max(margin, math.min(ww * 0.10, 72))
+    end
   end
   return {
     dpad = { cx = ox + margin + dpadW / 2, cy = oy + wh - margin - dpadW / 2, w = dpadW },

@@ -468,6 +468,19 @@ check(ok, "a healthy bench mon can switch in")
 eq(field.battle.player.species, 280, "Torchic is sent out")
 check(msg:find("TORCHIC", 1, true) ~= nil, "switch announces the send-out")
 
+;(function()
+  local egg = field:makeMon(360, 5)
+  egg.isEgg = true
+  egg.name = "EGG"
+  field.party[3] = egg
+  local ok, msg = field:switchTo(3)
+  check(not ok, "cannot send an EGG")
+  eq(msg, "An EGG can't battle!", "gOtherText_EGGCantBattle")
+  eq(field.battle.player.species, 280, "lead is still Torchic")
+  ok, msg = field:useItemOnMon(egg, Game3.ITEM_POTION)
+  check(not ok, "a Potion does not work on an EGG")
+end)()
+
 field.party[1].hp = 0
 field.party[2].hp = 0
 field.battle.player = field.party[1]
@@ -532,8 +545,20 @@ eq(field.party[1].hp, field.party[1].maxHp, "the nurse heals the party")
 eq(field.field.kind, "talk", "and opens a field text box")
 eq(field.field.text, "Your POKeMON were restored to full health!", "heal line")
 
-field.npcByMap.pc[1].graphicsId = 9
 field.field = nil
+field.party[1].hp = 1
+field.npcByMap.pc[1].script = {
+  { op = "loadword", text = "Welcome to our POKeMON CENTER!" },
+  { op = "callstd", id = 2 },
+  { op = "end" },
+}
+check(field:tryTalk(), "a ROM nurse script runs")
+eq(field.party[1].hp, 1, "the stub heal does not steal it")
+eq(field.field.text, "Welcome to our POKeMON CENTER!", "welcome line")
+field.npcByMap.pc[1].script = nil
+field.field = nil
+
+field.npcByMap.pc[1].graphicsId = 9
 field:tryTalk()
 eq(field.field.text, "...", "other NPCs have no script yet")
 
@@ -985,6 +1010,14 @@ eq(Game3.metatileTopPassMode(Game3.LAYER_SPLIT, "covered", true), "bottom8",
   "split covered is the bottom 8px")
 eq(Game3.metatileTopPassMode(Game3.LAYER_NORMAL, "covered", true), "skip",
   "normal overlay stays off the covered pass")
+eq(Game3.metatileTopPassMode(Game3.LAYER_COVERED, "covered", false), "full",
+  "covered fence tops paint under sprites")
+eq(Game3.metatileTopPassMode(Game3.LAYER_COVERED, "overlay", false), "skip",
+  "and stay off the overlay pass")
+eq(Game3.metatileTopPassMode(Game3.LAYER_COVERED, "covered", true), "full",
+  "COVERED ignores a wrong overlay flag")
+eq(Game3.metatileTopPassMode(Game3.LAYER_COVERED, "overlay", true), "skip",
+  "and still skips BG1")
 ts.layerType[0] = nil
 ts.tiles[0] = nil
 eq(field:layerTypeAt(field.map, 1, 1), Game3.LAYER_NORMAL, "counter is overlay")
@@ -1081,6 +1114,13 @@ local extra = BattleData.collectSpecies(
   { byMap = {} }, nil,
   { byId = { [1] = { party = { { species = 286 } } } } })
 check(extra[286] == true, "trainer-party species are collected")
+check(BattleData.collectSpecies(
+  { byMap = {} },
+  {
+    [277] = { { target = 278 } },
+    [278] = { { target = 279 } },
+  },
+  {})[279] == true, "Sceptile is two hops from Treecko")
 
 field.data.pokemon.byIndex[286] = {
   name = "POOCHYENA", hp = 35, atk = 55, def = 35, spe = 35,
@@ -1110,6 +1150,7 @@ local calvinNpc = {
 field.phase = "play"
 field.balls = 5
 field.flags = {}
+field.money = Game3.START_MONEY
 field.party = { field:makeMon(280, 5) }
 check(field:startTrainerBattle(calvinNpc), "A trainer fight can start")
 eq(field.battle.isTrainer, true, "the battle is marked trainer")
@@ -1292,10 +1333,14 @@ eq(scripted:scriptTrainerBattle({ trainerId = 1 }), false,
 eq(scripted:itemName(Game3.ITEM_POKE_BALL), "POKe BALL",
   "fallback POKe BALL spelling")
 eq(scripted:expandScriptText("TRAINER!You can't"),
-  "TRAINER! You can't", "cached \\p glue splits after !")
+  "TRAINER!\nYou can't", "cached \\p glue splits after !")
 eq(scripted:expandScriptText("the sign says.Do you want to go through?"),
-  "the sign says. Do you want to go through?",
+  "the sign says.\nDo you want to go through?",
   "and after a period")
+scripted.stringVars = { 12, 34, 56 }
+eq(scripted:expandScriptText("{STR_VAR_1} {STR_VAR_2} {STR_VAR_3}"),
+  "12 34 56", "numeric string vars stringify")
+scripted.stringVars = nil
 scripted.data = { items = { byId = { [4] = { name = "POK BALL" } } } }
 eq(scripted:itemName(4), "POKe BALL", "cached POK BALL is repaired")
 
@@ -1381,20 +1426,24 @@ local healer = Game3.new()
 healer.bag = {}
 healer:addItem(13, 1)
 healer.party = { { name = "TORCHIC", hp = 5, maxHp = 19 } }
-local okHeal, healMsg = healer:useFieldItem(13)
+check(healer:useFieldItem(13), "a Potion opens the party")
+eq(healer.field.kind, "party_use", "ItemUseOutOfBattle_Medicine")
+eq(healer.party[1].hp, 5, "picker does not auto-apply")
+eq(healer:itemCount(13), 1, "item stays until a slot is chosen")
+local okHeal, healMsg = healer:useItemOnMon(healer.party[1], 13)
 check(okHeal, "a Potion can be used on the field")
 eq(healer.party[1].hp, 19, "20 HP is capped at max")
 eq(healer:itemCount(13), 0, "the Potion is consumed")
 check(healMsg:find("recovered", 1, true) ~= nil, "heal announces recovery")
 healer:addItem(13, 1)
 healer.party[1].hp = 19
-local noNeed = healer:useFieldItem(13)
+local noNeed = healer:useItemOnMon(healer.party[1], 13)
 check(not noNeed, "a full-HP mon does not drink")
 eq(healer:itemCount(13), 1, "a wasted Potion is not consumed")
 
 healer.party[1].status = "psn"
 healer:addItem(14, 1)
-local okCure, cureMsg = healer:useFieldItem(14)
+local okCure, cureMsg = healer:useItemOnMon(healer.party[1], 14)
 check(okCure, "an Antidote can be used on the field")
 eq(healer.party[1].status, nil, "Antidote clears poison")
 eq(healer:itemCount(14), 0, "the Antidote is consumed")
@@ -1403,7 +1452,7 @@ check(cureMsg:find("status", 1, true) ~= nil, "cure announces status")
 healer.party[1].hp = 5
 healer.party[1].maxHp = 100
 healer:addItem(22, 1)
-local okSuper = healer:useFieldItem(22)
+local okSuper = healer:useItemOnMon(healer.party[1], 22)
 check(okSuper, "a Super Potion can be used")
 eq(healer.party[1].hp, 55, "Super Potion heals 50")
 eq(healer:itemCount(22), 0, "the Super Potion is consumed")
@@ -1715,6 +1764,17 @@ local drainLines = fx:useMove(grassUser, prey, absorb)
 check(grassUser.hp > 5, "Absorb heals the user")
 check(drainLines[#drainLines]:find("drained", 1, true) ~= nil,
   "Absorb announces the drain")
+
+absorb.id = 71
+absorb.effect = nil
+fx.data.moves = { byId = { [71] = { id = 71, effect = 3, power = 20, type = 12 } } }
+grassUser.hp = 5
+prey.hp = 80
+drainLines = fx:useMove(grassUser, prey, absorb)
+check(grassUser.hp > 5, "Absorb heals when the party slot omitted effect")
+check(drainLines[#drainLines]:find("drained", 1, true) ~= nil,
+  "and still announces the drain")
+fx.data.moves = nil
 
 local kicker = {
   name = "COMBUSKEN", level = 16, hp = 40, maxHp = 40,
@@ -2057,7 +2117,7 @@ eq(#fx:weatherResidual(bug), 0, "and sand chip")
 fx.battle.player = { ability = 13 }
 check(fx:weatherSuppressed(), "Cloud Nine suppresses weather")
 fx.battle.player = { ability = 0 }
-fx.battle.enemy = { ability = 76 }
+fx.battle.enemy = { ability = 77 }
 check(fx:weatherSuppressed(), "Air Lock also suppresses weather")
 
 fx.battle.player = { ability = 0 }
@@ -2084,6 +2144,8 @@ end)()
 ;(function()
 eq(Game3.abilityName(53), "PICKUP", "Pickup name")
 eq(Game3.abilityName(54), "TRUANT", "Truant name")
+eq(Game3.ABILITY_AIR_LOCK, 77, "Air Lock is ability 77")
+eq(Game3.abilityName(77), "AIR LOCK", "Air Lock name")
 eq(Game3.rollPickupItem(5, 0), Game3.ITEM_SUPER_POTION, "RS Pickup 0-29 is Super Potion")
 eq(Game3.rollPickupItem(50, 0), Game3.ITEM_SUPER_POTION, "Ruby Pickup ignores level")
 eq(Game3.rollPickupItem(5, 30), Game3.ITEM_FULL_HEAL, "30 opens Full Heal")
@@ -2120,16 +2182,20 @@ finder.party = { zig }
 finder.bag = {}
 finder.rng = function() return 1 end
 local found = finder:tryPickup()
-eq(#found, 1, "Pickup procs on rng=1")
-eq(finder:itemCount(Game3.ITEM_SUPER_POTION), 1, "and adds a Super Potion")
-check(found[1]:find("SUPER POTION", 1, true) ~= nil, "the find is announced")
+eq(#found, 0, "Ruby Pickup is silent")
+eq(zig.item, Game3.ITEM_SUPER_POTION, "and the find is held")
+eq(finder:itemCount(Game3.ITEM_SUPER_POTION), 0, "not the BAG")
 
+finder:tryPickup()
+eq(zig.item, Game3.ITEM_SUPER_POTION, "already holding skips")
+
+zig.item = nil
 local misser = Game3.new()
 misser.party = { zig }
 misser.bag = {}
 misser.rng = function() return 2 end
 eq(#misser:tryPickup(), 0, "Pickup skips when rand(10) is not 1")
-eq(misser:itemCount(Game3.ITEM_SUPER_POTION), 0, "and the bag stays empty")
+eq(zig.item, nil, "and the hold slot stays empty")
 
 local torch = Game3.new()
 torch.party = {
@@ -2435,7 +2501,8 @@ pcUser.data.tilesets = { byId = { pair_pc = { behavior = { [1] = Game3.MB_PC } }
 check(Game3.isPc(pcUser:behaviorAt(pcUser.map, 1, 0)), "the facing tile is a PC")
 check(pcUser:tryTalk(), "A on a PC tile opens storage")
 eq(pcUser.field.kind, "pc", "kind is pc")
-eq(pcUser.field.mode, "root", "the menu starts on WITHDRAW / DEPOSIT / SEE YA")
+eq(pcUser.field.mode, "root", "the menu starts on WITHDRAW / DEPOSIT / MOVE / SEE YA")
+eq(#Game3.PC_ROOT, 4, "StorageSystemCreatePrimaryMenu has 4 items")
 
 local function pressPc(name)
   local old = Input.wasPressed
@@ -2444,17 +2511,30 @@ local function pressPc(name)
   Input.wasPressed = old
 end
 pressPc("a")
-eq(pcUser.field.mode, "box", "WITHDRAW opens the current box")
+eq(pcUser.field.mode, "storage", "WITHDRAW opens the box screen")
+eq(pcUser.field.pss, "withdraw", "in withdraw mode")
+eq(pcUser.field.area, "box", "the hand starts on the box")
 pressPc("b")
-eq(pcUser.field.mode, "root", "B returns to the root")
+eq(pcUser.field.prompt, "continue", "B asks to continue BOX operations")
 pressPc("down")
 pressPc("a")
-eq(pcUser.field.mode, "party", "DEPOSIT opens the party")
+eq(pcUser.field.mode, "root", "NO returns to the root")
+pcUser:addToParty(pcUser:makeMon(290, 2))
+pressPc("down")
+pressPc("a")
+eq(pcUser.field.mode, "storage", "DEPOSIT opens the box screen")
+eq(pcUser.field.pss, "deposit", "in deposit mode")
+eq(pcUser.field.area, "party", "the hand starts on the party")
 pressPc("b")
+pressPc("down")
+pressPc("a")
+eq(pcUser.field.mode, "root", "NO returns to the root")
+pressPc("down")
 pressPc("down")
 pressPc("a")
 eq(pcUser.field, nil, "SEE YA closes the PC")
 
+pcUser.party = { pcUser:makeMon(280, 5) }
 check(not pcUser:canDeposit(1), "the last party mon cannot be deposited")
 pcUser:addToParty(pcUser:makeMon(290, 2))
 pcUser.party[1].hp = 0
@@ -2502,8 +2582,8 @@ stuffer:startWildBattle(290, 2)
 stuffer:throwBall()
 eq(stuffer.balls, 3, "a full PC does not spend the ball")
 eq(stuffer.battle.caught, nil, "and does not catch")
-eq(stuffer.battle.text, "There's no more room for POKeMON!",
-  "the refuse line is shown")
+eq(stuffer.battle.text, "The BOX is full.",
+  "gOtherText_BoxIsFull")
 
 ;(function()
 local tate = string.char(0, 2, 0, 0)
@@ -3186,6 +3266,10 @@ end)()
 ;(function()
 eq(Game3.HEAL_LITTLEROOT_BRENDAN_2F, 1, "heal location 1 is Brendan 2F")
 eq(Game3.HEAL_LITTLEROOT_MAY_2F, 2, "heal location 2 is May 2F")
+eq(Game3.HEAL_SLATEPORT_CITY, 4, "heal location 4 is Slateport")
+eq(Game3.HEAL_LOCATIONS[4].x, 19, "Slateport Center door x")
+eq(Game3.HEAL_LOCATIONS[4].y, 20, "Slateport Center door y")
+eq(Game3.HEAL_LOCATIONS[22].group, 26, "Southern Island is SpecialArea")
 eq(Game3.WARP_ID_DYNAMIC, 0x7F, "WARP_ID_DYNAMIC is 0x7F")
 
 local cells = {}
@@ -5227,6 +5311,8 @@ eq(Game3.SIZE_RECORD_DEFAULT, 0x8100, "Marco's default size record")
 eq((g0.scriptVars or {})[Game3.VAR_SHROOMISH_SIZE_RECORD], nil,
   "hide flags do not write size records")
 g0:wipeNewGameState()
+eq(g0:itemCount(Game3.ITEM_POKE_BALL), 0, "NEW GAME has no POKe BALLs")
+eq(g0.balls, 0, "and no leftover ball counter")
 eq(g0.scriptVars[Game3.VAR_SHROOMISH_SIZE_RECORD], Game3.SIZE_RECORD_DEFAULT,
   "NEW GAME inits Shroomish at 0x8100")
 eq(g0.scriptVars[Game3.VAR_BARBOACH_SIZE_RECORD], Game3.SIZE_RECORD_DEFAULT,
@@ -6988,6 +7074,16 @@ eq(mover.playerX, 4, "two east")
 check(mover:setMetatile(0, 0, 0x21, 1), "setmetatile writes")
 eq(Game3.metatileOf(house.grid[1]), 0x21, "metatile id")
 eq(Game3.collisionOf(house.grid[1]), 1, "and collision")
+house.grid[1] = 0x21 + 3 * 4096
+check(mover:setMetatile(0, 0, Game3.MT_GENERAL_ROCK_WALL_ROCK_BASE, 1),
+  "Route 111 Desert Ruins seal")
+eq(Game3.metatileOf(house.grid[1]), Game3.MT_GENERAL_ROCK_WALL_ROCK_BASE,
+  "RockWall_RockBase")
+eq(Game3.elevationBits(house.grid[1]), 3 * 4096, "keeps MAPGRID elevation")
+eq(Game3.collisionOf(house.grid[1]), 1, "and stays solid")
+check(mover:openDoor(0, 0), "opendoor on the sealed tile")
+eq(Game3.elevationBits(house.grid[1]), 3 * 4096, "opendoor keeps elevation")
+house.grid[1] = 0x21 + 1024
 check(mover:openDoor(0, 0), "opendoor clears collision")
 eq(Game3.collisionOf(house.grid[1]), 0, "door is walkable")
 eq(Game3.metatileOf(house.grid[1]), 0x21, "metatile stays")
@@ -7670,6 +7766,17 @@ eq(npc.facingLocked, true, "and facing is locked")
 check(g:applyMovement(3, { { kind = "unlockanim" } }), "unlock anim")
 eq(npc.lockAnim, nil, "anim restored")
 
+npc.facing = "east"
+npc.invisible = nil
+g._scriptNpc = npc
+g:lockScriptNpcs(false)
+eq(npc.talkLock, true, "lock freezes wandering")
+eq(npc.facingLocked, nil, "but not facing")
+check(g:applyMovement(3, { { kind = "walk", dir = "south" } }), "scripted walk")
+g:finishScriptMoves()
+eq(npc.facing, "south", "Wally can turn while locked")
+eq(npc.y, 1, "and steps south")
+
 g:runNpcScript({
   { op = "delay", frames = 16 },
   { op = "loadword", text = "WAITED" },
@@ -7711,11 +7818,15 @@ eq(g.field.kind, "talk", "idle wait resumes")
 eq(g.field.text, "UNSTUCK", "and continues the script")
 
 g:beginScriptWait()
-g:runNpcScript({
+-- special then waitstate are the same script VM. runNpcScript nills a
+-- leftover wait so a new talk cannot stick; drive the opcode directly.
+g:beginScriptRun()
+local _, pause = Script.run(g, {
   { op = "waitstate" },
   { op = "loadword", text = "LATER" },
   { op = "callstd", id = 2 },
 })
+g:presentScript(pause)
 eq(g.field.kind, "wait", "waitstate pauses for a special")
 g:walkHeld(1)
 eq(g.field.kind, "wait", "time does not resume it")
@@ -8029,8 +8140,8 @@ check(Game3.isDiveable(0x12), "deep water is diveable")
 check(Game3.isDiveable(0x14), "Sootopolis deep water is diveable")
 check(not Game3.isDiveable(0x10), "pond water is not")
 check(not Game3.isDiveable(0x15), "ocean water is not")
-check(Game3.isUnableToEmerge(0x18), "no-surfacing blocks emerge")
-check(Game3.isUnableToEmerge(0x28), "seaweed no-surfacing too")
+check(Game3.isUnableToEmerge(0x19), "no-surfacing blocks emerge")
+check(Game3.isUnableToEmerge(0x2A), "seaweed no-surfacing too")
 
 local surface = {
   id = "g0_20", group = 0, index = 20, mapType = Game3.MAP_TYPE_ROUTE,
@@ -8052,7 +8163,7 @@ g.bag = {}
 g.party = { { name = "WAILORD", moves = { { id = Game3.MOVE_DIVE } } } }
 g.flags[Game3.FLAG_BADGE07_GET] = true
 g.data.maps = { maps = { g0_20 = surface, g0_21 = under } }
-g.data.tilesets = { byId = { wat = { behavior = { [1] = 0x10, [3] = 0x12, [4] = 0x18 } } } }
+g.data.tilesets = { byId = { wat = { behavior = { [1] = 0x10, [3] = 0x12, [4] = 0x19 } } } }
 g.surfing = true
 g:enterMap(surface, 1, 1, true)
 local okDive, diveMsg = g:useDive()
@@ -8302,6 +8413,61 @@ g.bike = "mach"
 eq(g:walkPeriod(), Game3.MACH_PERIOD, "Mach beats dash")
 g.bike = nil
 eq(g:wantRun(), false, "B is not held")
+end)()
+
+;(function()
+eq(Game3.MAP_ROUTE110_CYCLING_SOUTH_NUM, 11, "south cycling gate")
+eq(Game3.MAP_ROUTE110_CYCLING_NORTH_NUM, 12, "north cycling gate")
+local south = {
+  id = "g29_11", group = 29, index = 11,
+  mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local north = {
+  id = "g29_12", group = 29, index = 12,
+  mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local indoor = {
+  id = "g_in", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local town = {
+  id = "g_town", mapType = Game3.MAP_TYPE_TOWN, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+check(Game3.canBikeOn(south), "south gate allows bikes")
+check(Game3.canBikeOn(north), "north gate allows bikes")
+check(Game3.canBikeOn({ id = "g29_11", mapType = Game3.MAP_TYPE_INDOOR }),
+  "south gate id without group still allows")
+check(not Game3.canBikeOn({ mapType = Game3.MAP_TYPE_INDOOR }),
+  "generic indoor still refuses")
+check(not Game3.canBikeOn({
+  id = "g24_36", group = Game3.GRANITE_CAVE_GROUP,
+  index = Game3.MAP_SEAFLOOR_CAVERN_ROOM9_NUM,
+  mapType = Game3.MAP_TYPE_UNDERGROUND,
+}), "Seafloor Cavern Room 9 refuses")
+check(not Game3.canBikeOn({
+  id = "g24_42", group = Game3.GRANITE_CAVE_GROUP,
+  index = Game3.MAP_CAVE_OF_ORIGIN_B4F_NUM,
+  mapType = Game3.MAP_TYPE_UNDERGROUND,
+}), "Cave of Origin B4F refuses")
+
+local g = Game3.new()
+g.phase = "play"
+g:enterMap(town, 1, 1, true)
+g.bike = "mach"
+g:enterMap(south, 1, 1, true)
+eq(g.bike, "mach", "enterMap keeps the Mach Bike in the south gate")
+eq(g:playerAvatarBike(), 2, "GetPlayerAvatarBike is MACH")
+g:enterMap(town, 1, 1, true)
+g.bike = "mach"
+g:enterMap(indoor, 1, 1, true)
+eq(g.bike, nil, "generic indoor still dismounts")
+g:enterMap(south, 1, 1, true)
+local mounted = g:useBike(Game3.ITEM_MACH_BIKE)
+check(mounted, "can mount inside the cycling gate")
+eq(g.bike, "mach", "riding Mach in the gate")
 end)()
 
 ;(function()
@@ -8960,17 +9126,24 @@ g.caught = {}
 g.eggCycleSteps = 254
 g.field = nil
 check(g:tryWalk(1, 0), "a step ticks egg cycles")
+eq(g.party[1].isEgg, true, "Huh? is before AddHatchedMonToParty")
+eq(g.field.text, "Huh?", "S_EggHatch")
+eq(g.field.kind, "talk", "hatch opens a talk box")
+old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
 eq(g.party[1].isEgg, nil, "the egg hatched")
 eq(g.party[1].name, "TORCHIC", "hatched name")
 eq(g.caught[280], true, "hatch records the dex")
-eq(g.field.kind, "talk", "hatch opens a talk box")
+eq(g.field.kind, "egg_hatch", "EggHatch cinema")
 end)()
 
 ;(function()
 eq(Game3.GFX_TEALA, 85, "contest receptionist is TEALA")
 eq(Game3.SPECIAL_GET_CONTEST_WINNER_IDX, 76, "GetContestWinnerIdx")
 eq(Game3.SPECIAL_GIVE_CONTEST_RIBBON, 89, "GiveContestRibbon")
-eq(Game3.SPECIAL_HAS_MON_WON_THIS_CONTEST, 90, "HasMonWonThisContest")
+eq(Game3.SPECIAL_SUB_80C5044, 90, "sub_80C5044 is the link-contest flag")
 eq(Game3.SPECIAL_CHECK_LEAD_MON_COOL, 265, "CheckLeadMonCool")
 eq(Game3.CONTEST_TURNS, 5, "five appeal turns")
 eq(Game3.contestCategoryForType(0), 4, "Normal moves fall back to TOUGH")
@@ -8997,6 +9170,12 @@ g.data.moves = {
   },
 }
 g.party = { g:makeMon(280, 5, { 52 }) }
+g.party[1].beauty = 255
+g.party[1].sheen = 255
+g.rng = function(max)
+  g._contestRng = (g._contestRng or 0) + 1
+  return (g._contestRng % (max or 65536)) + 1
+end
 eq(g:contestAppealOf(g.party[1].moves[1], Game3.CONTEST_CATEGORY_BEAUTY), 20,
   "matching category is full appeal")
 eq(g:contestAppealOf(g.party[1].moves[1], Game3.CONTEST_CATEGORY_COOL), 10,
@@ -9006,8 +9185,16 @@ eq(g.field.kind, "contest_move", "appeal screen")
 for _ = 1, 5 do
   g:applyContestTurn(1)
 end
-eq(g.contest.won, true, "five matching appeals beat the NPCs")
-eq(g.contest.winner, 0, "player is contestant 0")
+eq(g.field.kind, "contest_results", "five appeal rounds")
+eq(g.contest.playerIndex, 3, "player is contestant 3")
+eq(type(g.contest.finalStandings[3]), "number", "player has a placing")
+g.contest.done = true
+g.contest.finalStandings = { [0] = 1, [1] = 2, [2] = 3, [3] = 0 }
+g.contest.totalPoints = { [0] = 10, [1] = 20, [2] = 30, [3] = 400 }
+g.party[1].ribbons = nil
+g:finishContest()
+eq(g.contest.won, true, "1st place is a win")
+eq(g.contest.winner, 3, "winner index is the player")
 eq(g:contestRibbon(g.party[1], Game3.CONTEST_CATEGORY_BEAUTY), 1,
   "Normal Beauty ribbon")
 eq(#g:contestRanksFor(g.party[1], Game3.CONTEST_CATEGORY_BEAUTY), 2,
@@ -9015,12 +9202,14 @@ eq(#g:contestRanksFor(g.party[1], Game3.CONTEST_CATEGORY_BEAUTY), 2,
 
 g.party[1].moves = { g:copyMove(33) }
 g.contest = nil
+g.contestMons = nil
 g.party[1].ribbons = nil
 check(g:beginContest(1, Game3.CONTEST_CATEGORY_BEAUTY, 0), "wrong-category start")
-for _ = 1, 5 do
-  g:applyContestTurn(1)
-end
-eq(g.contest.won, false, "half appeal loses to the NPCs")
+g.contest.done = true
+g.contest.finalStandings = { [0] = 0, [1] = 1, [2] = 2, [3] = 3 }
+g.contest.totalPoints = { [0] = 200, [1] = 150, [2] = 100, [3] = 10 }
+g:finishContest()
+eq(g.contest.won, false, "4th place is a loss")
 eq(g:contestRibbon(g.party[1], Game3.CONTEST_CATEGORY_BEAUTY), 0,
   "no ribbon on a loss")
 
@@ -9040,12 +9229,12 @@ g.scriptVars = { [0x8004] = 0 }
 g:runSpecial(84)
 eq(g.scriptVars[0x800D], 1, "special 84 accepts a battler")
 g:runSpecial(76)
-eq(g.scriptVars[0x800D], g.contest.winner, "special 76 writes the winner")
+eq(g.scriptVars[0x8005], g:contestWinnerIndex(), "special 76 writes 0x8005")
 g.scriptVars[Game3.VAR_CONTEST_CATEGORY] = Game3.CONTEST_CATEGORY_BEAUTY
 g.scriptVars[Game3.VAR_CONTEST_RANK] = 0
 g.party[1].ribbons = { beauty = 1 }
 g:runSpecial(90)
-eq(g.scriptVars[0x800D], 1, "special 90 sees the Normal ribbon")
+eq(g.scriptVars[0x800D], 0, "special 90 is the link-contest flag")
 g.party[1].cool = 200
 g:runSpecial(265)
 eq(g.scriptVars[0x800D], 1, "special 265 lead Cool")
@@ -9063,6 +9252,141 @@ g.playerX, g.playerY = 1, 1
 g.field = nil
 check(g:tryTalk(), "A on Teala")
 eq(g.field.kind, "contest_cat", "Teala opens the category list")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Input = require("src.core.Input")
+Input:init()
+local g = Game3.new()
+eq(Game3.SPECIAL_SET_CABLE_CLUB_WARP, 1, "SetCableClubWarp")
+eq(Game3.SPECIAL_DO_CABLE_CLUB_WARP, 2, "DoCableClubWarp")
+eq(Game3.SPECIAL_SUB_80810DC, 3, "sub_80810DC")
+eq(Game3.SPECIAL_SUB_80839A4, 4, "sub_80839A4")
+eq(Game3.SPECIAL_SUB_80834E4, 29, "sub_80834E4")
+eq(Game3.SPECIAL_SUB_808347C, 28, "sub_808347C")
+eq(Game3.SPECIAL_CLOSE_LINK, 31, "CloseLink")
+eq(Game3.SPECIAL_SHOW_LINK_BATTLE_RECORDS, 196, "ShowLinkBattleRecords")
+eq(Game3.SPECIAL_SHOW_BATTLE_TOWER_RECORDS, 283, "ShowBattleTowerRecords")
+eq(Game3.SPECIAL_SUB_8134548, 231, "sub_8134548")
+eq(Game3.SPECIAL_BATTLE_TOWER_UTIL, 238, "BattleTowerUtil")
+eq(Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY, 245, "ChooseBattleTowerPlayerParty")
+eq(Game3.SPECIAL_VALIDATE_E_READER_TRAINER, 246, "ValidateEReaderTrainer")
+eq(Game3.SPECIAL_GET_BEST_BATTLE_TOWER_STREAK, 247, "GetBestBattleTowerStreak")
+eq(Game3.SPECIAL_GET_CUR_SECRET_BASE_REGISTRATION_VALIDITY, 12,
+  "GetCurSecretBaseRegistrationValidity")
+eq(Game3.CABLE_CLUB_NO_LINK, 5, "sub_80833EC RESULT 5")
+
+g:setScriptVar(0x800D, 99)
+eq(g:runSpecial(Game3.SPECIAL_SUB_80834E4), 5, "no GBA partner is 5")
+eq(g:varGet(0x800D), 5, "and VAR_RESULT is 5, not 0")
+check(not g:scriptWaiting(), "link connect does not wait")
+eq(g:runSpecial(Game3.SPECIAL_SUB_808347C), 5, "colosseum connect is 5")
+eq(g:runSpecial(Game3.SPECIAL_SUB_808350C), 5, "record corner is 5")
+eq(g:runSpecial(Game3.SPECIAL_SUB_8083614), 5, "link blender is 5")
+eq(g:runSpecial(Game3.SPECIAL_SUB_80835D8), 5, "sub_80835D8 is 5")
+g:runSpecial(Game3.SPECIAL_CLOSE_LINK)
+check(not g:scriptWaiting(), "CloseLink does not wait")
+eq(g:runSpecial(Game3.SPECIAL_SET_CABLE_CLUB_WARP), 0, "SetCableClubWarp is 0")
+check(not g:scriptWaiting(), "SetCableClubWarp does not wait")
+g:runSpecial(Game3.SPECIAL_SUB_80839A4)
+check(not g:scriptWaiting(), "sub_80839A4 does not wait")
+
+local src = {
+  id = "g1_0", group = 1, index = 0, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local dest = {
+  id = "g2_0", group = 2, index = 0, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+g.data.maps = { maps = { g1_0 = src, g2_0 = dest } }
+g.phase = "play"
+g:enterMap(src, 1, 1, true)
+g.warpDestination = { mapGroup = 2, mapNum = 0, warpId = 0xFF, x = 1, y = 2 }
+g:runSpecial(Game3.SPECIAL_DO_CABLE_CLUB_WARP)
+check(g:scriptWaiting(), "DoCableClubWarp CreateTask")
+eq(g.map, src, "still on src during fade")
+g:walkHeld((Game3.FADE_FRAMES - 1) / 60)
+check(g:scriptWaiting(), "fade still running")
+eq(g.map, src, "WarpIntoMap after the fade")
+g:walkHeld(1 / 60)
+check(not g:scriptWaiting(), "WarpIntoMap then Enable")
+eq(g.map, dest, "warped")
+eq(g.playerY, 2, "dest y")
+
+g:enterMap(src, 1, 1, true)
+g.warpDestination = { mapGroup = 2, mapNum = 0, warpId = 0xFF, x = 1, y = 1 }
+g:runSpecial(Game3.SPECIAL_SUB_80810DC)
+check(g:scriptWaiting(), "sub_80810DC CreateTask")
+g:walkHeld(Game3.FADE_FRAMES / 60)
+check(not g:scriptWaiting(), "10DC WarpIntoMap then Enable")
+eq(g.map, dest, "10DC warped")
+
+g:runSpecial(Game3.SPECIAL_SHOW_LINK_BATTLE_RECORDS)
+check(not g:scriptWaiting(), "records do not wait")
+eq(g.field.kind, "link_records", "link records field")
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+eq(g.field, nil, "A closes link records")
+
+g:runSpecial(Game3.SPECIAL_SHOW_BATTLE_TOWER_RECORDS)
+check(not g:scriptWaiting(), "tower records do not wait")
+eq(g.field.kind, "tower_records", "tower records field")
+eq(g:towerStreakLabel(0), "Prev", "idle var_4AE is Prev")
+g:ensureBattleTower().var4AE[0] = 2
+eq(g:towerStreakLabel(0), "Current", "var_4AE 2 is Current")
+g:ensureBattleTower().var4AE[0] = 0
+old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "b" end
+g:stepField()
+Input.wasPressed = old
+eq(g.field, nil, "B closes tower records")
+
+eq(g:runSpecial(Game3.SPECIAL_GET_BEST_BATTLE_TOWER_STREAK), 0,
+  "streak 0 is valid")
+eq(g:runSpecial(Game3.SPECIAL_SUB_8134548), 0, "ON_FRAME init returns 0")
+eq(g:varGet(Game3.VAR_TEMP_0), 5, "VAR_TEMP_0 idle is 5")
+check(not g:scriptWaiting(), "tower ON_FRAME does not wait")
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(Game3.SPECIAL_BATTLE_TOWER_UTIL), 0, "util case 0 is 0")
+eq(g:runSpecial(Game3.SPECIAL_CHECK_PARTY_BATTLE_TOWER_BANLIST), 0,
+  "banlist allows")
+eq(g:varGet(0x8004), 0, "0x8004 stay-allow")
+eq(g:runSpecial(Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY), 0,
+  "party pick cancels")
+check(not g:scriptWaiting(), "party pick does not wait")
+eq(g:runSpecial(Game3.SPECIAL_VALIDATE_E_READER_TRAINER), 1,
+  "empty e-reader is invalid")
+eq(g:runSpecial(Game3.SPECIAL_GET_CUR_SECRET_BASE_REGISTRATION_VALIDITY), 0,
+  "registry 0 is can-register")
+eq(g:runSpecial(Game3.SPECIAL_SUB_80BC114), 0, "own base is 0")
+
+g:enterMap({
+  id = "g2_3", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}, 1, 1, true)
+g.npcByMap = {
+  g2_3 = {
+    {
+      x = 1, y = 0, graphicsId = Game3.GFX_TEALA,
+      script = {
+        { op = "message", text = "This is the POKeMON CABLE CLUB." },
+        { op = "waitmessage" },
+        { op = "end" },
+      },
+    },
+  },
+}
+g.facing = "north"
+g.playerX, g.playerY = 1, 1
+g.field = nil
+check(g:tryTalk(), "A on Cable Club Teala")
+eq(g.field and g.field.kind, "talk", "scripted Teala runs the map script")
+check(g.field and g.field.text:find("CABLE CLUB", 1, true),
+  "not the contest shortcut")
 end)()
 
 ;(function()
@@ -9457,6 +9781,74 @@ check(g:hasBadge(1), "the badge stays")
 end)()
 
 ;(function()
+-- Starters evolve at 16, right as Roxanne falls. TryEvolvePokemon must
+-- not swallow gotobeatenscript / FLAG_BADGE01_GET.
+local Input = require("src.core.Input")
+local g = Game3.new()
+g.phase = "play"
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+    [281] = { name = "COMBUSKEN", hp = 60, atk = 85, def = 60, spe = 55,
+      spa = 85, spd = 60, type1 = 10, type2 = 1 },
+  },
+}
+g.data.moves = {
+  byId = { [10] = { id = 10, name = "SCRATCH", power = 40, type = 0, pp = 35 } },
+}
+g.party = { g:makeMon(280, 16) }
+g._scriptNpc = {
+  trainerId = Game3.TRAINER_ROXANNE, trainerName = "ROXANNE",
+  trainerClass = "LEADER",
+  party = { { species = 280, level = 14 } },
+}
+local after = {
+  { op = "setflag", flag = Game3.FLAG_BADGE01_GET },
+  { op = "end" },
+}
+local ops = {
+  {
+    op = "trainerbattle",
+    kind = Game3.TRAINER_BATTLE_CONTINUE_NO_MUSIC,
+    trainerId = Game3.TRAINER_ROXANNE,
+    intro = "Show me.", defeat = "So you are...",
+    after = after,
+  },
+  { op = "end" },
+}
+g:runNpcScript(ops)
+eq(g.phase, "battle", "kind 1 starts the gym fight")
+g.pendingEvo = {
+  {
+    mon = g.party[1], from = 280, fromName = "TORCHIC", target = 281,
+  },
+}
+g.battle.enemy.hp = 0
+g.battle.kind = "text"
+g.battle.queue = { "NOSEPASS fainted!" }
+g.battle.qi = 1
+g:advanceBattleText()
+eq(g.battle.kind, "won_trainer", "the last KO opens victory")
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepBattle()
+g:stepBattle()
+eq(g.phase, "play", "A returns to the gym")
+eq(g.field and g.field.kind, "evolve", "TryEvolvePokemon runs first")
+check(not g:hasBadge(1), "the badge waits for the evolution")
+g:stepEvolve(0)
+eq(g.evolve.stage, "anim", "A starts the shrink/grow")
+g:stepEvolve(Game3.EVOLVE_ANIM)
+eq(g.party[1].species, 281, "Combusken after the animation")
+eq(g.evolve.stage, "done", "then the done text")
+g:stepEvolve(0)
+Input.wasPressed = old
+check(g:hasBadge(1), "RoxanneDefeated still sets the Stone Badge")
+eq(g.party[1].name, "COMBUSKEN", "the starter evolved")
+end)()
+
+;(function()
 eq(Game3.ITEM_MIRACLE_SEED, 205, "woods gift is Miracle Seed")
 eq(Game3.HOLD_EFFECT_GRASS_POWER, 48, "HOLD_EFFECT_GRASS_POWER")
 eq(Game3.HOLD_EFFECT_TYPE[48], 12, "Grass")
@@ -9583,6 +9975,26 @@ check(forgot, "replaces Growl")
 eq(g.party[1].moves[2].id, 317, "slot 2 is Rock Tomb")
 eq(g:itemCount(Game3.ITEM_TM39), 0, "TM consumed after forget")
 g:openPartyTeach(Game3.ITEM_TM39)
+eq(g:tmhmPartyLabel({
+  name = "TORCHIC", species = 280, moves = { { id = 10 } },
+}, Game3.ITEM_TM39), "ABLE", "sub_808AE8C 0x8C ABLE")
+eq(g:tmhmPartyLabel({
+  name = "WURMPLE", species = 290, moves = {},
+}, Game3.ITEM_TM39), "NOT ABLE", "incompatible is NOT ABLE")
+eq(g:tmhmPartyLabel({
+  name = "EGG", species = 280, isEgg = true, moves = {},
+}, Game3.ITEM_TM39), "NOT ABLE", "an Egg is NOT ABLE")
+eq(g:tmhmPartyLabel({
+  name = "TORCHIC", species = 280, moves = { { id = 317 } },
+}, Game3.ITEM_TM39), "LEARNED", "already knows is LEARNED")
+g.party = {
+  { name = "TORCHIC", species = 280, level = 5, moves = { { id = 10 } } },
+  { name = "WURMPLE", species = 290, level = 3, moves = {} },
+  { name = "EGG", species = 280, isEgg = true, level = 5, moves = {} },
+}
+eq(g:tmhmPartyLabel(g.party[1], g.field.item), "ABLE", "party slot 1 ABLE")
+eq(g:tmhmPartyLabel(g.party[2], g.field.item), "NOT ABLE", "party slot 2 NOT ABLE")
+eq(g:tmhmPartyLabel(g.party[3], g.field.item), "NOT ABLE", "party slot 3 egg")
 g.party[1].moves = {
   { id = 10 }, { id = 45 }, { id = 52 }, { id = 98 },
 }
@@ -9617,8 +10029,10 @@ g:enterMap({
   },
 }, 1, 1, true)
 local bagHm = g:useFieldItem(Game3.ITEM_HM_CUT)
-check(bagHm, "bag HM opens the teach list")
-eq(g.field.kind, "party_teach", "teach UI, not a field cut")
+check(bagHm, "bag HM boots")
+eq(g.field.kind, "talk", "gOtherText_BootedHM")
+check(g.field.text:find("Booted up an HM", 1, true) ~= nil, "Booted up an HM")
+check(g.field.thenTmAsk, "then yes/no teach")
 check(not g:npcByLocalId(3).hidden, "the tree is still there")
 end)()
 
@@ -9793,8 +10207,8 @@ eq(briney.field.cursor, 2, "default cursor on CANCEL")
 eq(briney.field.boxX, 21, "list at tile x 21")
 eq(briney.field.boxY, 6, "and tile y 6")
 local ml, mt, mr, mb = Game3.multichoiceFrame(21, 6, briney.field.labels)
-eq(mr, 29, "PETALBURG window clamps to tile 29")
-eq(ml, 19, "and shifts left so it fits")
+eq(mr, 29, "PETALBURG window reaches tile 29")
+eq(ml, 21, "and stays at the script x")
 eq(mb, 13, "three rows are 2*3+1 tiles")
 eq(mt, 6, "top stays")
 briney.field.cursor = 2
@@ -9875,8 +10289,41 @@ eq(trader:getTradeSpecies(), 0, "eggs are SPECIES_NONE")
 trader.party = { trader:makeMon(364, 8) }
 trader.scriptVars[0x8004] = 0
 trader.scriptVars[0x8005] = 0
-check(trader:createInGameTradePokemon(), "the swap runs")
-eq(trader.party[1].species, 335, "Makuhita joins")
+check(trader:createInGameTradePokemon(), "CreateInGameTradePokemon fills gEnemyParty")
+eq(trader.party[1].species, 364, "party is still Slakoth until the scene")
+eq(trader.inGameTradeIncoming.species, 335, "incoming is Makuhita")
+eq(trader.inGameTradeIncoming.name, "MAKIT", "as MAKIT")
+eq(trader.inGameTradeIncoming.level, 8, "at the given level")
+eq(trader.inGameTradeIncoming.item, 75, "holding X Attack")
+eq(trader.inGameTradeIncoming.otName, "ELYSSA", "Elyssa's OT")
+eq(trader.inGameTradeIncoming.ivs.hp, 5, "fixed HP IV")
+eq(trader.inGameTradeIncoming.ivs.spe, 4, "fixed Spe IV")
+eq(trader.inGameTradeIncoming.pid, 0x9C40, "fixed PID")
+eq(trader.inGameTradeIncoming.metLocation, 0xFE, "in-game trade met")
+check(not trader:hasCaught(335), "dex waits for sub_804BA94")
+eq(Game3.SPECIAL_CREATE_IN_GAME_TRADE, 253, "CreateInGameTradePokemon")
+eq(Game3.SPECIAL_DO_IN_GAME_TRADE_SCENE, 254, "DoInGameTradeScene")
+trader:runSpecial(Game3.SPECIAL_DO_IN_GAME_TRADE_SCENE)
+eq(trader.field.kind, "trade_scene", "link-cable waitstate")
+check(trader:scriptWaiting(), "LockPlayerFieldControls")
+eq(trader.field.text, "SLAKOTH will be sent to ELYSSA.", "sent-to line")
+eq(Game3.tradeScenePose(0).bg2hofs, 0xB4, "BG2 HOFS starts at 0xB4")
+eq(Game3.tradeScenePose(0).sentX, 0x78 - 0xB4, "sent mon x2 is -180")
+trader:walkHeld(Game3.TRADE_SLIDE / 60)
+eq(trader.party[1].species, 364, "slide has not swapped")
+eq(Game3.tradeScenePose(Game3.TRADE_SLIDE).line, 1, "then the send line")
+trader:walkHeld(Game3.TRADE_SEND_MSG / 60)
+eq(trader.field.text, "Bye-bye, SLAKOTH!", "Bye-bye after 80 frames")
+eq(trader.party[1].species, 364, "Bye-bye has not swapped yet")
+local rest = Game3.TRADE_WAIT_A - Game3.TRADE_SLIDE - Game3.TRADE_SEND_MSG
+trader:walkHeld(rest / 60)
+eq(trader.party[1].species, 364, "sub_804BA94 waits for take-care A")
+eq(trader.field.text, "Take good care of MAKIT!", "take-care line")
+local oldTrade = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+trader:stepField()
+Input.wasPressed = oldTrade
+eq(trader.party[1].species, 335, "Makuhita joins on take-care A")
 eq(trader.party[1].name, "MAKIT", "as MAKIT")
 eq(trader.party[1].level, 8, "at the given level")
 eq(trader.party[1].item, 75, "holding X Attack")
@@ -9886,6 +10333,8 @@ eq(trader.party[1].ivs.spe, 4, "fixed Spe IV")
 eq(trader.party[1].pid, 0x9C40, "fixed PID")
 eq(trader.party[1].metLocation, 0xFE, "in-game trade met")
 check(trader:hasCaught(335), "dex records Makuhita")
+eq(trader.field, nil, "scene closed")
+check(not trader:scriptWaiting(), "waitstate ends")
 trader.facing = "east"
 trader.playerX, trader.playerY = 0, 0
 trader.map = { id = "g_trade", width = 3, height = 1, grid = { 0, 0, 0 } }
@@ -9916,6 +10365,79 @@ Input.wasPressed = function(_, key) return key == "a" end
 trader:stepField()
 Input.wasPressed = old
 eq(trader.scriptVars[0x8004], 1, "A writes the slot")
+end)()
+
+;(function()
+local Input = require("src.core.Input")
+eq(Game3.EVO_TRADE, 5, "EVO_TRADE")
+eq(Game3.EVO_TRADE_ITEM, 6, "EVO_TRADE_ITEM")
+eq(Game3.ITEM_DRAGON_SCALE, 201, "ITEM_DRAGON_SCALE")
+eq(Game3.GAME_STAT_EVOLVED_POKEMON, 14, "GAME_STAT_EVOLVED_POKEMON")
+eq(Game3.TRADE_EVO_X, 120, "TradeEvolutionScene sprite x")
+eq(Game3.TRADE_EVO_Y, 64, "TradeEvolutionScene sprite y")
+local g = Game3.new()
+g.phase = "play"
+g.data.pokemon = {
+  byIndex = {
+    [64] = { name = "KADABRA", hp = 40, atk = 35, def = 30, spe = 105,
+      spa = 120, spd = 70, type1 = 14, type2 = 14, growthRate = 3 },
+    [65] = { name = "ALAKAZAM", hp = 55, atk = 50, def = 45, spe = 120,
+      spa = 135, spd = 85, type1 = 14, type2 = 14, growthRate = 3 },
+    [117] = { name = "SEADRA", hp = 55, atk = 65, def = 95, spe = 85,
+      spa = 95, spd = 45, type1 = 11, type2 = 11, growthRate = 3 },
+    [230] = { name = "KINGDRA", hp = 75, atk = 95, def = 95, spe = 85,
+      spa = 95, spd = 95, type1 = 11, type2 = 2, growthRate = 3 },
+    [280] = { name = "TORCHIC" },
+    [335] = { name = "MAKUHITA" },
+  },
+}
+local kadabra = g:makeMon(64, 20)
+eq(g:checkTradeEvolution(kadabra), 65, "Kadabra trades into Alakazam")
+eq(g:checkEvolution(kadabra), nil, "type 0 does not trade-evolve")
+kadabra.item = Game3.ITEM_EVERSTONE
+eq(g:checkTradeEvolution(kadabra), nil, "Everstone blocks type 1")
+local seadra = g:makeMon(117, 30)
+seadra.item = Game3.ITEM_DRAGON_SCALE
+eq(g:checkTradeEvolution(seadra), 230, "Seadra + Dragon Scale")
+eq(seadra.item, 0, "EVO_TRADE_ITEM zeros the hold")
+eq(g:checkTradeEvolution(g:makeMon(335, 8)), nil, "Makuhita has no trade evo")
+local nick = g:makeMon(64, 20)
+nick.name = "BOB"
+g:applyEvolution(nick, 65)
+eq(nick.species, 65, "species becomes Alakazam")
+eq(nick.name, "BOB", "EvolutionRenameMon keeps a nickname")
+check(g:hasCaught(65), "dex records the post-evo")
+eq(g:getGameStat(Game3.GAME_STAT_EVOLVED_POKEMON), 1, "GAME_STAT_EVOLVED")
+
+g.scriptVars = { [0x8005] = 0 }
+g.party = { g:makeMon(280, 20) }
+g.inGameTradeIncoming = g:makeMon(64, 20)
+g.inGameTradeSentName = "TORCHIC"
+g:beginScriptWait()
+g:doInGameTradeScene()
+g.field.t = Game3.TRADE_WAIT_A
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+eq(g.party[1].species, 64, "swap is still Kadabra")
+eq(g.field.kind, "evolve", "TradeEvolutionScene after take-care A")
+check(g.evolve and g.evolve.cannotStop, "TASK_BIT_CAN_STOP is off")
+check(g:scriptWaiting(), "waitstate holds through the evo")
+old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "b" end
+g:stepEvolve(0)
+eq(g.evolve.stage, "anim", "B advances the announce, it does not cancel")
+g:stepEvolve(Game3.EVOLVE_ANIM)
+eq(g.party[1].species, 65, "Alakazam after the sparkles")
+eq(g.evolve.stage, "done", "FinishEvo text")
+g:stepEvolve(0)
+Input.wasPressed = old
+eq(g.field, nil, "gCB2_AfterEvolution returns to the field")
+check(not g:scriptWaiting(), "waitstate ends")
+eq(g.party[1].name, "ALAKAZAM", "species-name nickname updates")
+g:drawTradeEvolution({ kind = "evolve", text = "What? KADABRA is evolving!" })
+check(true, "trade evo draw does not throw without pics")
 end)()
 
 ;(function()
@@ -10272,6 +10794,7 @@ eq(g:isTradedMon(g.party[1]), false, "a starter is not traded")
 g.scriptVars = { [0x8004] = 0, [0x8005] = 0 }
 g.party = { g:makeMon(280, 8) }
 check(g:createInGameTradePokemon(), "Elyssa's Makuhita")
+check(g:finishInGameTrade(), "scene swap")
 local makit = g.party[1]
 eq(makit.otId, 49562, "foreign OT id")
 eq(g:isTradedMon(makit), true, "IsTradedMon")
@@ -10779,7 +11302,7 @@ end
 
 local g = Game3.new()
 g.easyChatPairs = fivePairs()
-g.scriptVars = { [0x8004] = 6 }
+g.scriptVars = { [0x8004] = 0 }
 g:runNpcScript({
   { op = "special", id = Game3.SPECIAL_SHOW_EASY_CHAT },
   { op = "loadword", text = "SKIPPED" },
@@ -11513,14 +12036,14 @@ chick.maxHp = 100
 chick.hp = 10
 g:addItem(Game3.ITEM_SODA_POP, 6)
 eq(g:itemCount(Game3.ITEM_SODA_POP), 6, "giveitem 6 after Dwayne/Johanna/Simon")
-local ok, msg = g:useFieldItem(Game3.ITEM_SODA_POP)
+local ok, msg = g:useItemOnMon(chick, Game3.ITEM_SODA_POP)
 check(ok, "BAG Soda Pop")
 eq(chick.hp, 70, "heals 60")
 eq(g:itemCount(Game3.ITEM_SODA_POP), 5, "spent one")
 check(msg:find("recovered HP", 1, true) ~= nil, "recovered HP line")
 
 chick.hp = chick.maxHp
-ok, msg = g:useFieldItem(Game3.ITEM_SODA_POP)
+ok, msg = g:useItemOnMon(chick, Game3.ITEM_SODA_POP)
 check(not ok, "full HP is no effect")
 eq(g:itemCount(Game3.ITEM_SODA_POP), 5, "does not spend at full")
 
@@ -11585,6 +12108,8 @@ check(ok, "BAG Itemfinder")
 eq(g.facing, "south", "SetPlayerDirectionTowardsItem")
 check(msg:find("responding", 1, true) ~= nil, "gOtherText_ItemfinderResponding")
 eq(g:itemCount(Game3.ITEM_ITEMFINDER), 1, "does not consume")
+eq((g.gameStats or {})[Game3.GAME_STAT_USED_ITEMFINDER], 1,
+  "GAME_STAT_USED_ITEMFINDER")
 
 g.playerX, g.playerY = 5, 7
 ok, msg = g:useItemfinder()
@@ -12004,6 +12529,22 @@ eq(win[80][2], 144, "WIN0 right at the equator")
 eq(win[56][1], 114, "WIN0 left at the north pole")
 eq(win[56][2], 126, "WIN0 right at the north pole")
 check(not win[0], "scanlines above the circle stay closed")
+-- Overworld draws at window pixels (e.g. 4×). GBA WIN0H 255/160 clamps
+-- would drop every scanline and leave the cave pitch black.
+local wide = Game3.flashScanlineWindows(480, 320, 96, 960, 640)
+eq(wide[320][1], 384, "zoomed WIN0 left at the equator")
+eq(wide[320][2], 576, "zoomed WIN0 right at the equator")
+check(wide[320][1] < 480 and wide[320][2] > 480,
+  "zoomed hole contains the player")
+check(not wide[0], "zoomed scanlines above the circle stay closed")
+check(not wide[80], "GBA-centre row is not the hole on a tall window")
+local gScale = Game3.new()
+gScale.fitScale = function() return 4 end
+eq(gScale:flashOverlayScale(1, 960), 4, "survey OUT does not shrink WIN0")
+eq(gScale:flashOverlayScale(0.5, 960), 4, "deep OUT still FIT")
+eq(gScale:flashOverlayScale(4, 960), 4, "FIT is unchanged")
+eq(gScale:flashOverlayScale(8, 960), 8, "IN keeps the world-pixel hole")
+eq(gScale:flashOverlayScale(1, 240), 1, "letterbox canvas stays 24px")
 local g = Game3.new()
 g.map = { width = 10, height = 10, cave = true }
 g.playerX, g.playerY = 0, 0
@@ -12013,10 +12554,12 @@ eq(g.camX, Game3.snapPixel(8 - 120), "Flash keeps the player at 120,80")
 eq(g.camY, Game3.snapPixel(8 - 80), "including at the cave mouth")
 g:drawFlashOverlay()
 check(true, "scanline overlay does not throw")
+g:drawFlashOverlay(960, 640, 4)
+check(true, "zoomed overlay does not throw")
 g.flashLevel = 0
 g:clampCamera()
-eq(g.camX, 0, "a lit map still clamps to the layout")
-eq(g.camY, 0, "Y too")
+eq(g.camX, Game3.snapPixel(8 - 120), "a map narrower than the window keeps the player centered")
+eq(g.camY, Game3.snapPixel(8 - 80), "a map as tall as the window stays centred too")
 end)()
 
 ;(function()
@@ -12575,6 +13118,9 @@ eq(Game3.SPECIAL_GET_PLAYER_TRAINER_ID_ONES, 147, "GetPlayerTrainerIdOnesDigit")
 eq(Game3.SPECIAL_SET_HIDDEN_ITEM_FLAG, 150, "SetHiddenItemFlag")
 eq(Game3.SPECIAL_CABLE_CAR_WARP, 151, "CableCarWarp")
 eq(Game3.SPECIAL_CABLE_CAR, 152, "CableCar")
+eq(Game3.MUS_CABLE_CAR, 425, "MUS_CABLE_CAR")
+eq(Game3.CABLE_CAR_FRAMES_UP, 0x15E, "unk_0004 going up")
+eq(Game3.CABLE_CAR_FRAMES_DOWN, 0x109, "unk_0004 going down")
 eq(Game3.SPECIAL_SET_TRICK_HOUSE_END, 261, "SetTrickHouseEndRoomFlag")
 eq(Game3.SPECIAL_RESET_TRICK_HOUSE_END, 260, "ResetTrickHouseEndRoomFlag")
 eq(Game3.FLAG_TRICK_HOUSE_END_ROOM, 0x259, "FLAG_HIDDEN_ITEM_1 is the end-room bit")
@@ -12614,6 +13160,40 @@ g.scriptVars[0x8004] = 1
 g:runSpecial(Game3.SPECIAL_CABLE_CAR_WARP)
 eq(g.cableCarDest.num, Game3.MAP_ROUTE112_CABLE_CAR_NUM, "nonzero rides down")
 
+g.data.maps = g.data.maps or {}
+g.data.maps.maps = g.data.maps.maps or {}
+local function station(num)
+  local grid = {}
+  for i = 1, 64 do grid[i] = 0 end
+  return {
+    id = Game3.mapId(19, num), group = 19, index = num,
+    width = 8, height = 8, grid = grid, music = 0,
+  }
+end
+g.data.maps.maps["g19_0"] = station(0)
+g.data.maps.maps["g19_1"] = station(1)
+g:enterMap(g.data.maps.maps["g19_0"], 6, 4, true)
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_CABLE_CAR_WARP)
+g:runSpecial(Game3.SPECIAL_CABLE_CAR)
+eq(g.field.kind, "cable_car", "CableCar is the ride callback")
+eq(g.field.left, Game3.CABLE_CAR_FRAMES_UP, "0x15e frames up")
+check(g:scriptWaiting(), "LockPlayerFieldControls")
+eq(g.map.id, "g19_0", "WarpIntoMap waits for the ride")
+g:walkHeld(Game3.CABLE_CAR_FRAMES_UP / 60)
+eq(g.map.id, "g19_1", "up arrives at Chimney station")
+eq(g.playerX, 6, "x 6")
+eq(g.playerY, 4, "y 4")
+check(not g:scriptWaiting(), "CB2_LoadMap resumes the script")
+eq(g.field, nil, "cinema closed")
+
+g.scriptVars[0x8004] = 1
+g:runSpecial(Game3.SPECIAL_CABLE_CAR_WARP)
+g:runSpecial(Game3.SPECIAL_CABLE_CAR)
+eq(g.field.left, Game3.CABLE_CAR_FRAMES_DOWN, "0x109 frames down")
+g:walkHeld(Game3.CABLE_CAR_FRAMES_DOWN / 60)
+eq(g.map.id, "g19_0", "down arrives at Route 112 station")
+
 g.stringVars = { [4] = "hello from VAR4" }
 g:runSpecial(Game3.SPECIAL_SHOW_FIELD_MESSAGE_VAR4)
 eq(g.field.kind, "talk", "ShowFieldMessageStringVar4 talks")
@@ -12640,6 +13220,4347 @@ g.registeredItem = 0
 g.field = nil
 g:useRegisteredItem()
 eq(g.field.text, Game3.TEXT_NO_REGISTERED_ITEM, "empty SELECT is the BAG hint")
+end)()
+
+;(function()
+eq(Game3.SPECIAL_ROTATING_GATE_INIT, 201, "RotatingGate_InitPuzzle")
+eq(Game3.SPECIAL_ROTATING_GATE_GFX, 202, "RotatingGate_InitPuzzleAndGraphics")
+eq(Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR, 197, "HasEnoughMoneyFor")
+eq(Game3.SPECIAL_PAY_MONEY_FOR, 198, "PayMoneyFor")
+eq(Game3.SPECIAL_GET_SLOT_MACHINE_ID, 286, "GetSlotMachineId")
+eq(Game3.MAP_FORTREE_GYM_GROUP, 12, "IndoorFortree")
+eq(Game3.MAP_FORTREE_GYM_NUM, 1, "Fortree gym is House1+1")
+eq(Game3.MAP_TRICK_HOUSE_PUZZLE6_NUM, 8, "puzzle 6 after 0-7")
+
+local g = Game3.new()
+g.money = 100
+g.scriptVars = { [0x8005] = 50 }
+eq(g:runSpecial(Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR), 1, "50 fits in 100")
+g.scriptVars[0x8005] = 200
+eq(g:runSpecial(Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR), 0, "200 does not")
+g.scriptVars[0x8005] = 40
+g:runSpecial(Game3.SPECIAL_PAY_MONEY_FOR)
+eq(g.money, 60, "PayMoneyFor subtracts VAR_0x8005")
+g.scriptVars[0x8004] = 0
+eq(g:runSpecial(Game3.SPECIAL_GET_SLOT_MACHINE_ID), 0, "cabinet 0 is payout 0")
+g.scriptVars[0x8004] = 1
+eq(g:runSpecial(Game3.SPECIAL_GET_SLOT_MACHINE_ID), 1, "cabinet 1 salts to 2")
+
+local w, h = 24, 24
+local grid = {}
+for i = 1, w * h do grid[i] = 0 end
+g:enterMap({
+  id = Game3.mapId(Game3.MAP_FORTREE_GYM_GROUP, Game3.MAP_FORTREE_GYM_NUM),
+  width = w, height = h, grid = grid, mapType = Game3.MAP_TYPE_INDOOR,
+}, 12, 5, true)
+g:runSpecial(Game3.SPECIAL_ROTATING_GATE_INIT)
+eq(g:rotatingGatePuzzleType(), Game3.PUZZLE_FORTREE, "Fortree gym puzzle")
+eq(#g.rotatingGates, 7, "seven Fortree gates")
+eq(g:rotatingGateOrient(1), 0, "L4 at (12,5) starts at 0")
+eq(g:rotatingGateHasArm(1, 0, 0), true, "north short arm")
+eq(g:rotatingGateHasArm(1, 0, 1), true, "and north long")
+eq(g:rotatingGateHasArm(1, 2, 0), false, "no south arm at 0")
+check(g:tryWalk(0, -1), "bumping the north arm spins it")
+eq(g.playerX, 12, "and the step goes through")
+eq(g.playerY, 4, "onto the old arm tile")
+eq(g:rotatingGateOrient(1), 3, "ACW from 0 is 270")
+
+g:enterMap({
+  id = Game3.mapId(Game3.MAP_FORTREE_GYM_GROUP, Game3.MAP_FORTREE_GYM_NUM),
+  width = w, height = h, grid = grid, mapType = Game3.MAP_TYPE_INDOOR,
+}, 12, 5, true)
+grid[4 * w + 11 + 1] = 1024
+g:runSpecial(Game3.SPECIAL_ROTATING_GATE_INIT)
+eq(g:tryWalk(0, -1), false, "a collision-1 tile in the sweep blocks")
+eq(g.playerY, 5, "so the player stays")
+eq(g:rotatingGateOrient(1), 0, "and the gate does not spin")
+
+g:enterMap({
+  id = Game3.mapId(Game3.MAP_TRICK_HOUSE_PUZZLE6_GROUP,
+    Game3.MAP_TRICK_HOUSE_PUZZLE6_NUM),
+  width = w, height = h, grid = grid, mapType = Game3.MAP_TYPE_INDOOR,
+}, 1, 1, true)
+g:runSpecial(Game3.SPECIAL_ROTATING_GATE_GFX)
+eq(g:rotatingGatePuzzleType(), Game3.PUZZLE_TRICK_HOUSE_6, "Trick House 6")
+eq(#g.rotatingGates, 14, "fourteen Trick House gates")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_START_WALL_CLOCK, 154, "StartWallClock")
+eq(Game3.SPECIAL_VIEW_WALL_CLOCK, 155, "ViewWallClock")
+eq(Game3.FLAG_SYS_CLOCK_SET, 0x835, "FLAG_SYS_CLOCK_SET")
+eq(Game3.VAR_DAYS, 0x4040, "VAR_DAYS")
+eq(Game3.ITEM_COIN_CASE, 260, "ITEM_COIN_CASE")
+eq(Game3.MAX_COINS, 9999, "MAX_COINS")
+eq(Game3.TEXT_CLOCK_ASK, "Is this the correct time?", "wallclock.c prompt")
+eq(Gen3Script.PLAYSLOTMACHINE, 0x89, "playslotmachine")
+eq(Gen3Script.CHECKCOINS, 0xB3, "checkcoins")
+eq(Gen3Script.ADDCOINS, 0xB4, "addcoins")
+eq(Gen3Script.REMOVECOINS, 0xB5, "removecoins")
+eq(Gen3Script.SHOWCOINSBOX, 0xC0, "showcoinsbox")
+eq(Game3.SLOT_PAYOUTS[1], 2, "1CHERRY pays 2")
+eq(Game3.SLOT_PAYOUTS[7], 90, "777 mix pays 90")
+eq(Game3.SLOT_PAYOUTS[8], 300, "777 red pays 300")
+
+local g = Game3.new()
+eq(g:getCoins(), 0, "new game has 0 coins")
+eq(g:addCoinsScript(50), 0, "addcoins ok is RESULT 0")
+eq(g:getCoins(), 50, "and the till moves")
+eq(g:removeCoinsScript(20), 0, "removecoins ok is 0")
+eq(g:getCoins(), 30, "spent 20")
+eq(g:removeCoinsScript(40), 1, "short is RESULT 1")
+eq(g:getCoins(), 30, "and the till stays")
+g.coins = Game3.MAX_COINS
+eq(g:addCoinsScript(1), 1, "full is RESULT 1")
+eq(g:getCoins(), Game3.MAX_COINS, "still 9999")
+g:showCoinsBox(1, 1)
+eq(g.coinsBox.x, 1, "showcoinsbox stores x")
+g:hideCoinsBox()
+eq(g.coinsBox, nil, "hidecoinsbox clears it")
+
+g:startWallClock()
+eq(g.field.kind, "clock_set", "StartWallClock opens the setter")
+eq(g.field.hours, 10, "default 10:00")
+eq(g.field.minutes, 0, "on the hour")
+check(g:scriptWaiting(), "and waitstate holds")
+g:advanceClock(1)
+eq(g.field.minutes, 1, "RIGHT is +1 min")
+g.field.hours, g.field.minutes = 23, 59
+g:advanceClock(1)
+eq(g.field.hours, 0, "23:59 wraps to 0:00")
+eq(g.field.minutes, 0, "minutes too")
+g.field.hours, g.field.minutes = 14, 30
+g:confirmWallClock()
+eq(g.field, nil, "YES closes the clock")
+eq(g.flags[Game3.FLAG_SYS_CLOCK_SET], true, "InitTimeBasedEvents")
+eq(g:varGet(Game3.VAR_DAYS), 0, "VAR_DAYS starts at 0")
+eq(g:localTime().hours, 14, "RtcInitLocalTimeOffset kept 14")
+eq(g:localTime().minutes, 30, "and 30")
+eq(g:clockString({ hours = 0, minutes = 0 }), "12:00 AM", "midnight is 12 AM")
+eq(g:clockString({ hours = 12, minutes = 5 }), "12:05 PM", "noon is 12 PM")
+g.flags[Game3.FLAG_SYS_CLOCK_SET] = nil
+g:viewWallClock()
+eq(g.field.kind, "clock_view", "ViewWallClock is read-only")
+eq(g.flags[Game3.FLAG_SYS_CLOCK_SET], nil, "and does not set the sys flag")
+g:closeWallClock()
+eq(g:scriptWaiting(), false, "A/B ends the wait")
+
+g:beginScreenFade(Game3.FADE_TO_BLACK)
+g:stepScreenFade((g.FADE_FRAMES or 16) / 60)
+check(g:screenFadeAlpha() >= 0.99, "script FADE_TO_BLACK is opaque")
+g:startWallClock()
+eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
+  "StartWallClock fades in like WallClockInit")
+check(g:fieldShowsWorld(), "clock HUD draws over the bedroom, not under the veil")
+g:confirmWallClock()
+eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
+  "YES returns through CB2_ReturnToField's fade-in")
+g:stepScreenFade((g.FADE_FRAMES or 16) / 60)
+eq(g.screenFade, nil, "and the veil actually lifts")
+
+g:beginScreenFade(Game3.FADE_TO_BLACK)
+g:stepScreenFade((g.FADE_FRAMES or 16) / 60)
+g:viewWallClock()
+eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
+  "ViewWallClock also fades in")
+g:closeWallClock()
+eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
+  "A/B fades the bedroom back in")
+
+eq(Game3.slotMatch(4, 9, 9), Game3.SLOT_MATCH_1CHERRY, "left cherry alone")
+eq(Game3.slotMatch(0, 0, 0), Game3.SLOT_MATCH_777_RED, "three red 7s")
+eq(Game3.slotMatch(0, 0, 1), Game3.SLOT_MATCH_777_MIXED, "red red blue")
+eq(Game3.slotMatch(6, 6, 6), Game3.SLOT_MATCH_REPLAY, "three replays")
+eq(Game3.slotPayout(Game3.SLOT_MATCH_REPLAY), 0, "replay pays 0")
+eq(Game3.slotPayout(Game3.SLOT_MATCH_1CHERRY), 2, "1CHERRY is 2")
+eq(Game3.slotPayout(Game3.SLOT_MATCH_2CHERRY), 4, "2CHERRY is 4")
+local pay, replay = g:slotScore({ { 0, 4, 0 }, { 1, 4, 1 }, { 2, 4, 2 } }, 1)
+eq(pay, 2, "center three cherries is 1CHERRY")
+eq(replay, false, "not a replay")
+pay = select(1, g:slotScore({ { 4, 5, 2 }, { 1, 2, 3 }, { 0, 1, 6 } }, 2))
+eq(pay, 4, "top left cherry upgrades to 2CHERRY")
+pay, replay = g:slotScore({ { 4, 5, 2 }, { 1, 2, 3 }, { 0, 1, 6 } }, 3)
+eq(pay, 4, "diag left cherry does not pay")
+eq(replay, false, "and is not a replay")
+pay, replay = g:slotScore({ { 4, 6, 4 }, { 4, 6, 4 }, { 4, 6, 4 } }, 1)
+eq(pay, 0, "center replay pays 0")
+eq(replay, true, "and grants a free spin")
+
+g.coins = 10
+g.rng = function() return 1 end
+g:playSlotMachine(0)
+eq(g.field.kind, "slots", "playslotmachine opens the cabinet")
+eq(g.field.bet, 1, "default bet 1")
+check(g:scriptWaiting(), "ScriptContext_Stop until B")
+check(g:spinSlots(), "a spin with coins runs")
+eq(g:getCoins() >= 9, true, "spent the bet (payout may refund)")
+g:closeSlots()
+
+local ops = Gen3Script.parse(
+  string.char(0xC0, 2, 3)
+  .. string.char(0xB3, 0x0D, 0x80)
+  .. string.char(0xB4, 5, 0)
+  .. string.char(0xB5, 1, 0)
+  .. string.char(0xC2, 0, 0)
+  .. string.char(0xC1, 0, 0)
+  .. string.char(0x02), 0)
+eq(ops[1].op, "showcoinsbox", "showcoinsbox is kept")
+eq(ops[1].x, 2, "x tile")
+eq(ops[1].y, 3, "y tile")
+eq(ops[2].op, "checkcoins", "checkcoins is kept")
+eq(ops[3].op, "addcoins", "addcoins is kept")
+eq(ops[4].op, "removecoins", "removecoins is kept")
+eq(ops[5].op, "updatecoinsbox", "updatecoinsbox is kept")
+eq(ops[6].op, "hidecoinsbox", "hidecoinsbox is kept")
+g.coins = 10
+Gen3Script.run(g, ops)
+eq(g:getCoins(), 14, "add 5 then remove 1")
+eq(g:varGet(0x800D), 0, "last removecoins succeeded")
+eq(g.coinsBox, nil, "hidecoinsbox closed it")
+local slotOps = Gen3Script.parse(
+  string.char(0x89, 0, 0) .. string.char(0x02), 0)
+eq(slotOps[1].op, "playslotmachine", "playslotmachine is kept")
+g.coins = 5
+local _, pause = Gen3Script.run(g, slotOps)
+eq(pause, "wait", "the opcode stops the script")
+eq(g.field.kind, "slots", "and opens the machine")
+g:closeSlots()
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local g = Game3.new()
+g.phase = "play"
+g:applyNewGameHideFlags()
+local cells = {}
+for i = 1, 64 do cells[i] = 0 end
+local setClock = {
+  { op = "fadescreen", mode = 1 },
+  { op = "special", id = Game3.SPECIAL_START_WALL_CLOCK },
+  { op = "waitstate" },
+  { op = "end" },
+}
+local momWalk = {
+  { op = "setvar", var = 0x8008, val = 14 },
+  { op = "addobject", localId = 0x8008 },
+  { op = "applymovement", localId = 0x8008,
+    steps = { { kind = "walk", dir = "south" } } },
+  { op = "waitmovement", localId = 0 },
+  { op = "loadword", text = "How do you like your room?" },
+  { op = "callstd", id = Gen3Script.STD_MSGBOX_DEFAULT },
+  { op = "end" },
+}
+local clockScript = {
+  { op = "lockall" },
+  { op = "loadword", text = "The clock is stopped." },
+  { op = "callstd", id = Gen3Script.STD_MSGBOX_DEFAULT },
+  { op = "call", body = setClock },
+  { op = "delay", frames = 30 },
+  { op = "setvar", var = Game3.VAR_LITTLEROOT_INTRO_STATE, val = 6 },
+  { op = "setflag", flag = Game3.FLAG_SET_WALL_CLOCK },
+  { op = "call", body = momWalk },
+  { op = "releaseall" },
+  { op = "end" },
+}
+g:enterMap({
+  id = "g1_1", width = 8, height = 8, grid = cells, spawn = { x = 4, y = 4 },
+  bgEvents = { {
+    x = 5, y = 1, kind = 0, text = "The clock is stopped.",
+    script = clockScript,
+  } },
+  objects = { {
+    x = 7, y = 1, localId = 14, graphicsId = Game3.GFX_MOM,
+    flagId = Game3.FLAG_HIDE_MOM_UPSTAIRS,
+  } },
+}, 5, 2, true)
+g.facing = "north"
+g.walkCooldown = Game3.WALK_PERIOD
+check(g:tryTalk(), "A on the stopped clock")
+eq(g.field.kind, "talk", "ClockIsStopped")
+g:resumeMoveScript()
+eq(g.field.kind, "delay", "fadescreen before StartWallClock")
+g:walkHeld((g.delayLeft or 0) + 1)
+eq(g.field.kind, "clock_set", "StartWallClock opened")
+check(g:scriptWaiting(), "waitstate holds")
+eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
+  "the bedroom fade-in has started")
+g:confirmWallClock()
+local n = 0
+while (not g.field or g.field.kind ~= "talk") and n < 120 do
+  g:walkHeld(Game3.WALK_PERIOD)
+  n = n + 1
+end
+eq(g.field and g.field.kind, "talk", "Mom's line after the clock")
+eq(g.screenFade, nil, "and the fade veil is gone")
+eq(g.flags[Game3.FLAG_SET_WALL_CLOCK], true, "FLAG_SET_WALL_CLOCK")
+eq(g.scriptVars[Game3.VAR_LITTLEROOT_INTRO_STATE], 6, "intro 6")
+check(g.flags[Game3.FLAG_SYS_CLOCK_SET], "and FLAG_SYS_CLOCK_SET")
+end)()
+
+;(function()
+eq(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN, 97, "GetCurrentMauvilleMan")
+eq(Game3.SPECIAL_PLAY_BARD_SONG, 103, "PlayBardSong")
+eq(Game3.SPECIAL_TRADER_DO_TRADE, 118, "TraderDoDecorationTrade")
+eq(Game3.MAUVILLE_MAN_BARD, 0, "bard id is 0")
+eq(Game3.GFX_BARD, 69, "OBJ_EVENT_GFX_BARD")
+eq(Game3.FLAG_SYS_HIPSTER_MEET, 0x806, "FLAG_SYS_HIPSTER_MEET")
+eq(#Game3.STORYTELLER_STORIES, 36, "36 storyteller tales")
+eq(#Game3.EC_WORDS[20], 33, "33 trendy sayings")
+eq(Game3.bardLyricString(Game3.DEFAULT_BARD_LYRICS),
+  "SISTER EATS SWEETS\nVORACIOUS AND DROOLING",
+  "default bard song")
+local g = Game3.new()
+g.trainerId = 0
+g:setupMauvilleOldMan()
+eq(g:runSpecial(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN), 0, "id 0 is bard")
+eq(g:varGet(0x800D), 0, "special writes VAR_RESULT even when 0")
+eq(g:varGet(Game3.VAR_OBJ_GFX_ID_0), 69, "gfx 69 + bard")
+eq(g:runSpecial(Game3.SPECIAL_HAS_BARD_SONG_CHANGED), 0, "unchanged song")
+g:setScriptVar(0x8004, 6)
+g:runSpecial(Game3.SPECIAL_SHOW_EASY_CHAT)
+eq(g.field.kind, "easy_chat", "mode 6 is the lyric editor")
+eq(g.field.slots, 6, "six words")
+check(g:scriptWaiting(), "Easy Chat waitstate")
+g:finishEasyChat(true)
+eq(g:varGet(0x800D), 1, "confirm is RESULT 1")
+g:setScriptVar(0x8004, 0)
+g:runSpecial(Game3.SPECIAL_PLAY_BARD_SONG)
+eq(g.field.kind, "bard_song", "PlayBardSong opens the lyrics")
+check(g:scriptWaiting(), "and waitstate holds")
+eq(g.field.text, "SISTER EATS SWEETS\nVORACIOUS AND DROOLING",
+  "saved lyrics, not temp")
+g.field = nil
+g:endScriptWait()
+g.trainerId = 2
+g:setupMauvilleOldMan()
+eq(g:runSpecial(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN), 1, "id 2 is hipster")
+eq(g:runSpecial(Game3.SPECIAL_GET_HIPSTER_SPOKEN), 0, "not spoken yet")
+eq(g:runSpecial(Game3.SPECIAL_HIPSTER_TEACH_WORD), 1, "teaches a trendy word")
+check((g.stringVars[1] or "") ~= "", "into string var 1")
+g:runSpecial(Game3.SPECIAL_SET_HIPSTER_SPOKEN)
+eq(g:runSpecial(Game3.SPECIAL_GET_HIPSTER_SPOKEN), 1, "spoken flag sticks")
+local i = 1
+while i <= 33 do
+  g:unlockTrendySaying(i)
+  i = i + 1
+end
+eq(g:runSpecial(Game3.SPECIAL_HIPSTER_TEACH_WORD), 0, "all 33 already known")
+g.trainerId = 8
+g:setupMauvilleOldMan()
+g.rng = function() return 2 end
+eq(g:runSpecial(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN), 4, "id 8 is giddy")
+eq(g:runSpecial(Game3.SPECIAL_GENERATE_GIDDY_LINE), 1, "GenerateGiddyLine")
+check((g.stringVars[4] or "") ~= "", "fills string var 4")
+eq(g:runSpecial(Game3.SPECIAL_GIDDY_SHOULD_TELL_ANOTHER), 1, "first tale continues")
+g.trainerId = 6
+g:setupMauvilleOldMan()
+eq(g:runSpecial(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN), 3, "id 6 is storyteller")
+eq(g:runSpecial(Game3.SPECIAL_STORYTELLER_FREE_SLOT), 0, "no stories yet")
+eq(g:runSpecial(Game3.SPECIAL_STORYTELLER_ALREADY_RECORDED), 0, "not recorded")
+g.gameStats = { [0] = 1 }
+eq(g:runSpecial(Game3.SPECIAL_STORYTELLER_INIT_STAT), 1, "saved-game tale records")
+eq(g:runSpecial(Game3.SPECIAL_STORYTELLER_FREE_SLOT), 1, "slot 1 is now free")
+eq(g:runSpecial(Game3.SPECIAL_STORYTELLER_ALREADY_RECORDED), 1, "already recorded")
+g:runSpecial(Game3.SPECIAL_STORYTELLER_LIST_MENU)
+eq(g.field.kind, "mauville_menu", "story list waitstate")
+check(g:scriptWaiting(), "until a pick")
+g:pickMauvilleMenu(0)
+eq(g:varGet(0x800D), 1, "picking a tale is RESULT 1")
+g.trainerId = 4
+g:setupMauvilleOldMan()
+eq(g:runSpecial(Game3.SPECIAL_GET_CURRENT_MAUVILLE_MAN), 2, "id 4 is trader")
+eq(g:runSpecial(Game3.SPECIAL_PLAYER_HAS_NO_DECORATIONS), 1, "empty deco bag")
+g:runSpecial(Game3.SPECIAL_TRADER_MENU_GET)
+eq(g.field.kind, "mauville_menu", "get-deco menu waitstate")
+eq(g.field.labels[1], "DUSKULL DOLL", "first stock item")
+check(g:scriptWaiting(), "until A/B")
+g:pickMauvilleMenu(4)
+eq(g:varGet(0x8004), 0, "CANCEL writes 0x8004=0")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_PLAY_ROULETTE, 162, "PlayRoulette")
+eq(Gen3Script.GETPRICEREDUCTION, 0x96, "getpricereduction")
+eq(Game3.rouletteMinBet(0), 1, "left table is 1 coin")
+eq(Game3.rouletteMinBet(1), 3, "right table is 3")
+eq(Game3.rouletteMinBet(0x81), 6, "PokéNews rate on the right table")
+eq(Game3.rouletteHitInBet(6, 6), true, "O-WY hits itself")
+eq(Game3.rouletteHitInBet(6, 1), true, "and the WYNAUT column")
+eq(Game3.rouletteHitInBet(6, 5), true, "and the ORANGE row")
+eq(Game3.rouletteHitInBet(6, 2), false, "not AZURILL")
+eq(Game3.rouletteHitInBet(12, 5), false, "green is not orange")
+local g = Game3.new()
+eq(g:rouletteMultiplier(6), 12, "a square starts at 12x")
+eq(g:rouletteMultiplier(1), 4, "a column starts at 4x")
+eq(g:rouletteMultiplier(5), 3, "a row starts at 3x")
+g.coins = 50
+g:setScriptVar(0x8004, 0)
+g:runSpecial(Game3.SPECIAL_PLAY_ROULETTE)
+eq(g.field.kind, "roulette", "PlayRoulette opens the table")
+eq(g.field.minBet, 1, "left table min 1")
+check(g:scriptWaiting(), "and waitstate holds")
+g.rng = function() return 1 end
+g.field.cursor = 6
+check(g:spinRoulette(), "a 12x bet on the first pocket")
+eq(g.field.won, true, "is a hit")
+eq(g.field.payout, 12, "pays minBet * 12")
+eq(g:getCoins(), 61, "50-1+12")
+eq(g.field.balls, 1, "one ball spent")
+eq(g:rouletteMultiplier(6, g.field), 0, "that square is dead")
+eq(g:rouletteMultiplier(1, g.field), 6, "WYNAUT column steps to 6x")
+eq(g:rouletteMultiplier(5, g.field), 4, "ORANGE row steps to 4x")
+eq(g:getGameStat(Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS), 1,
+  "streak high-water")
+eq(g:spinRoulette(), false, "cannot bet a dead square")
+g.field.cursor = 5
+check(g:spinRoulette(), "ORANGE misses the next pocket")
+eq(g.field.won, false, "nothing doing")
+eq(g.field.streak, 0, "streak resets")
+eq(g:getGameStat(Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS), 1,
+  "high-water stays")
+g:closeRoulette()
+eq(g:varGet(0x8004), 0, "still enough coins")
+eq(g:scriptWaiting(), false, "B ends the wait")
+g.coins = 0
+g:setScriptVar(0x8004, 0)
+g:runSpecial(Game3.SPECIAL_PLAY_ROULETTE)
+g:closeRoulette()
+eq(g:varGet(0x8004), 1, "broke writes 0x8004=1")
+local ops = Gen3Script.parse(string.char(0x96, 2, 0) .. string.char(0x02), 0)
+eq(ops[1].op, "getpricereduction", "getpricereduction is kept")
+eq(ops[1].index, 2, "kind 2 is Game Corner")
+Gen3Script.run(g, ops)
+eq(g:varGet(0x800D), 0, "no PokéNews yet")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Gen3Script.SETWILDBATTLE, 0xB6, "setwildbattle")
+eq(Gen3Script.DOWILDBATTLE, 0xB7, "dowildbattle")
+eq(Game3.SPECIES_VOLTORB, 100, "Voltorb")
+eq(Game3.ITEM_NONE, 0, "ITEM_NONE")
+eq(Game3.ITEM_BASEMENT_KEY, 271, "Basement Key")
+eq(Game3.FLAG_SYS_CTRL_OBJ_DELETE, 0x861, "ON_RESUME delete")
+eq(Game3.GAME_STAT_WILD_BATTLES, 8, "wild battles stat")
+local ops = Gen3Script.parse(
+  string.char(0xB6, 100, 0, 25, 13, 0)
+  .. string.char(0xB7) .. string.char(0x02), 0)
+eq(ops[1].op, "setwildbattle", "setwildbattle is kept")
+eq(ops[1].species, 100, "species is a literal")
+eq(ops[1].level, 25, "New Mauville is lv25")
+eq(ops[1].item, 13, "then a held item")
+eq(ops[2].op, "dowildbattle", "dowildbattle follows")
+local g = Game3.new()
+g.party = { g:makeMon(280, 5) }
+g:setWildBattle(Game3.SPECIES_VOLTORB, 25, Game3.ITEM_NONE)
+eq(g.scriptedWild.species, 100, "CreateScriptedWildMon stores")
+check(g:doWildBattle(), "dowildbattle starts the fight")
+eq(g.phase, "battle", "phase is battle")
+eq(g.battle.enemy.species, 100, "against Voltorb")
+eq(g.battle.enemy.level, 25, "lv25")
+eq(g.battle.enemy.item, nil, "ITEM_NONE holds nothing")
+check(g:scriptWaiting(), "ScriptContext_Stop")
+eq(g:getGameStat(Game3.GAME_STAT_WILD_BATTLES), 1, "IncrementGameStat wild")
+eq(g:getGameStat(Game3.GAME_STAT_TOTAL_BATTLES), 1, "and total")
+local last
+g.removeObject = function(self, id) last = id end
+g.map = {
+  mapScripts = {
+    onResume = { { op = "removeobject", localId = 0x800F } },
+  },
+}
+g:setScriptVar(0x800F, 3)
+g:endBattle()
+eq(last, 3, "ON_RESUME removeobject LAST_TALKED")
+eq(g:scriptWaiting(), false, "then the script continues")
+eq(g.phase, "play", "back on the field")
+g.party = { g:makeMon(280, 5) }
+g:setWildBattle(100, 25, 13)
+g:doWildBattle()
+eq(g.battle.enemy.item, 13, "a held item is attached")
+g.map = { width = 8, height = 4, grid = {} }
+local n = 8 * 4
+for i = 1, n do g.map.grid[i] = 0 end
+g:setMetatile(4, 0, 0x314, 1)
+eq(Game3.collisionOf(g.map.grid[g:gridIndex(g.map, 4, 0)]), 1,
+  "closed New Mauville door blocks")
+g:setMetatile(4, 0, 0x2C4, 0)
+eq(Game3.collisionOf(g.map.grid[g:gridIndex(g.map, 4, 0)]), 0,
+  "open door is walkable")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Gen3Script.CHECKPARTYMOVE, 0x7C, "checkpartymove")
+eq(Gen3Script.BUFFERPARTYMONNICK, 0x7F, "bufferpartymonnick")
+eq(Gen3Script.BUFFERMOVENAME, 0x82, "buffermovename")
+eq(Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER, 171, "smash wild special")
+eq(Game3.SPECIAL_TRY_UPDATE_RUSTURF_TUNNEL_STATE, 298, "Rusturf special")
+eq(Game3.MAP_RUSTURF_TUNNEL_GROUP, 24, "dungeons group")
+eq(Game3.MAP_RUSTURF_TUNNEL_NUM, 4, "RusturfTunnel index")
+eq(Game3.FLAG_RUSTURF_TUNNEL_OPENED, 0xC7, "tunnel opened")
+eq(Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1, 0x3A3, "hide rock 1")
+eq(Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_2, 0x3A4, "hide rock 2")
+eq(Game3.VAR_RUSTURF_TUNNEL_STATE, 0x409A, "tunnel state var")
+eq(Game3.PARTY_SIZE, 6, "PARTY_SIZE miss")
+eq(Game3.MOVE_ROCK_SMASH, 249, "MOVE_ROCK_SMASH")
+local ops = Gen3Script.parse(
+  string.char(0x7C, 0xF9, 0)
+  .. string.char(0x7F, 0, 0x0D, 0x80)
+  .. string.char(0x82, 1, 0xF9, 0)
+  .. string.char(0x02), 0)
+eq(ops[1].op, "checkpartymove", "checkpartymove is kept")
+eq(ops[1].move, 249, "move is a literal")
+eq(ops[2].op, "bufferpartymonnick", "bufferpartymonnick is kept")
+eq(ops[2].slot, 0, "STR_VAR_1")
+eq(ops[2].partyIndex, 0x800D, "party index is VAR_RESULT")
+eq(ops[3].op, "buffermovename", "buffermovename is kept")
+eq(ops[3].move, 249, "move id")
+local g = Game3.new()
+g.party = {
+  { name = "ZIGZAGOON", species = 263, moves = { { id = 249 } } },
+}
+Gen3Script.run(g, ops)
+eq(g:varGet(0x800D), 0, "lead slot is RESULT 0")
+eq(g:varGet(0x8004), 263, "0x8004 is the species")
+eq(g.stringVars[1], "ZIGZAGOON", "buffers the nick")
+eq(g.stringVars[2], "ROCK SMASH", "and the move")
+eq(g:checkPartyMove(15), 6, "nobody knows CUT")
+g.party = {
+  { name = "EGG", species = 263, isEgg = true, moves = { { id = 249 } } },
+  { name = "TAILLOW", species = 276, moves = { { id = 249 } } },
+}
+eq(g:checkPartyMove(249), 1, "eggs are skipped")
+g.party = {
+  { species = 0, moves = { { id = 249 } } },
+  { name = "TAILLOW", species = 276, moves = { { id = 249 } } },
+}
+eq(g:checkPartyMove(249), 6, "empty species breaks")
+g.map = { id = "g_cut" }
+eq(g:tryUpdateRusturfTunnelState(), 0, "wrong map is FALSE")
+g.map = { id = "g24_4" }
+g.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1] = true
+eq(g:runSpecial(Game3.SPECIAL_TRY_UPDATE_RUSTURF_TUNNEL_STATE), 1,
+  "rock 1 opens state 4")
+eq(g:varGet(Game3.VAR_RUSTURF_TUNNEL_STATE), 4, "VAR = 4")
+g.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1] = nil
+g.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_2] = true
+eq(g:tryUpdateRusturfTunnelState(), 1, "rock 2")
+eq(g:varGet(Game3.VAR_RUSTURF_TUNNEL_STATE), 5, "VAR = 5")
+g.flags[Game3.FLAG_RUSTURF_TUNNEL_OPENED] = true
+eq(g:tryUpdateRusturfTunnelState(), 0, "already open")
+g.phase = "play"
+g.party = { {
+  name = "TORCHIC", hp = 19, maxHp = 19, species = 280, level = 5,
+  moves = { { id = 249 } },
+} }
+g.data.encounters = { byMap = { g_rock = {
+  rock = { rate = 255, slots = {
+    { minLevel = 8, maxLevel = 8, species = 74 },
+  } },
+} } }
+g:enterMap({ id = "g_rock", width = 3, height = 3, grid = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0,
+} }, 1, 1, true)
+g.rng = function() return 1 end
+eq(g:runSpecial(Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER), 1, "smash wild")
+eq(g.phase, "battle", "starts a fight")
+eq(g.battle.enemy.species, 74, "Geodude")
+check(g:scriptWaiting(), "ScriptContext_Stop")
+eq(g:getGameStat(Game3.GAME_STAT_WILD_BATTLES), 1, "stat 8")
+eq(g:getGameStat(Game3.GAME_STAT_TOTAL_BATTLES), 1, "stat 7")
+g:endBattle()
+eq(g:scriptWaiting(), false, "then waitstate continues")
+g.data.encounters = { byMap = { g_rock = { rock = { rate = 0, slots = {
+  { minLevel = 8, maxLevel = 8, species = 74 },
+} } } } }
+eq(g:runSpecial(Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER), 0, "rate miss")
+eq(g:varGet(0x800D), 0, "RESULT 0")
+g.facing = "east"
+g.flags[Game3.FLAG_BADGE03_GET] = true
+g.flags[Game3.FLAG_RUSTURF_TUNNEL_OPENED] = nil
+g.flags[Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1] = nil
+g.data.encounters = { byMap = { g24_4 = {
+  rock = { rate = 255, slots = {
+    { minLevel = 8, maxLevel = 8, species = 74 },
+  } },
+} } }
+g:enterMap({
+  id = "g24_4", width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  objects = {
+    { x = 2, y = 1, localId = 4, graphicsId = Game3.GFX_BREAKABLE_ROCK,
+      flagId = Game3.FLAG_HIDE_RUSTURF_TUNNEL_ROCK_1 },
+  },
+}, 1, 1, true)
+g.phase = "play"
+g.battle = nil
+g.rng = function() return 1 end
+local smashed = g:useRockSmash()
+check(smashed, "bag smash still breaks the rock")
+eq(g.phase, "play", "Rusturf skips the wild")
+eq(g:varGet(Game3.VAR_RUSTURF_TUNNEL_STATE), 4, "and sets state 4")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Gen3Script.RESETWEATHER, 0xA3, "resetweather")
+eq(Gen3Script.SETWEATHER, 0xA4, "setweather")
+eq(Gen3Script.DOWEATHER, 0xA5, "doweather")
+eq(Game3.OW_WEATHER_SANDSTORM, 8, "WEATHER_SANDSTORM")
+eq(Game3.OW_WEATHER_SUNNY, 2, "WEATHER_SUNNY")
+eq(Game3.COORD_EVENT_WEATHER[9], 8, "coord sandstorm -> 8")
+eq(Game3.COORD_EVENT_WEATHER[8], 7, "coord ash -> 7")
+eq(Game3.GAME_STAT_GOT_RAINED_ON, 40, "rained-on stat")
+eq(Game3.WEATHER_CYCLE_119[1], 2, "119 cycle starts sunny")
+eq(Game3.WEATHER_CYCLE_119[2], 3, "then light rain")
+local ops = Gen3Script.parse(
+  string.char(0xA4, 8, 0) .. string.char(0xA5) .. string.char(0xA3)
+  .. string.char(0x02), 0)
+eq(ops[1].op, "setweather", "setweather is kept")
+eq(ops[1].weather, 8, "weather is a halfword")
+eq(ops[2].op, "doweather", "doweather follows")
+eq(ops[3].op, "resetweather", "resetweather")
+local g = Game3.new()
+g:enterMap({
+  id = "g_sand", width = 3, height = 3, weather = 2,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}, 1, 1, true)
+eq(g:getCurrentWeather(), 2, "header SUNNY after load")
+Gen3Script.run(g, { { op = "setweather", weather = 8 } })
+eq(g.sav1Weather, 8, "setweather writes sav1")
+eq(g:getCurrentWeather(), 2, "and does not ChangeWeather yet")
+Gen3Script.run(g, { { op = "doweather" } })
+eq(g:getCurrentWeather(), 8, "doweather copies sav1")
+Gen3Script.run(g, { { op = "resetweather" } })
+eq(g.sav1Weather, 2, "resetweather is the map header")
+eq(g:getCurrentWeather(), 8, "until doweather")
+g:doCurrentWeather()
+eq(g:getCurrentWeather(), 2, "then SUNNY again")
+g:setSav1Weather(3)
+eq(g:getGameStat(Game3.GAME_STAT_GOT_RAINED_ON), 1, "light rain counts")
+g:setSav1Weather(3)
+eq(g:getGameStat(Game3.GAME_STAT_GOT_RAINED_ON), 1, "same weather does not")
+g:setSav1Weather(5)
+eq(g:getGameStat(Game3.GAME_STAT_GOT_RAINED_ON), 2, "med rain counts")
+g.weatherCycleStage = 1
+eq(g:translateWeatherNum(20), 3, "119 cycle stage 1 is rain")
+g:enterMap({
+  id = "g_ash", width = 3, height = 3, weather = 2,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  coordEvents = { { x = 2, y = 1, trigger = 8 } },
+}, 1, 1, true)
+eq(g:getCurrentWeather(), 2, "spawn is still sunny")
+g:tryCoordEvent(2, 1)
+eq(g:getCurrentWeather(), 7, "null-script ash coord Sets weather")
+g.party = { {
+  name = "TORCHIC", hp = 19, maxHp = 19, species = 280, level = 5,
+  moves = { { id = 10 } },
+} }
+g.currWeather = 8
+check(g:startWildBattle(74, 8), "a desert wild")
+eq(g.battle.weather, Game3.WEATHER_SAND, "battle copies sandstorm")
+eq(g.battle.weatherTurns, nil, "and it is permanent")
+g:dismissIntro()
+eq(g.battle.text, "A sandstorm is raging.", "OverworldWeatherStarts")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_GABBY_AND_TY_GET_BATTLE_NUM, 172, "GabbyAndTyGetBattleNum")
+eq(Game3.SPECIAL_GABBY_AND_TY_AFTER_INTERVIEW, 173, "AfterInterview")
+eq(Game3.SPECIAL_GABBY_AND_TY_BEFORE_INTERVIEW, 174, "BeforeInterview")
+eq(Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING, 176, "airing")
+eq(Game3.SPECIAL_GABBY_AND_TY_GET_LAST_QUOTE, 177, "GetLastQuote")
+eq(Game3.SPECIAL_GABBY_AND_TY_GET_LAST_BATTLE_TRIVIA, 178, "GetLastBattleTrivia")
+eq(Game3.SPECIAL_GET_GABBY_AND_TY_LOCAL_IDS, 179, "GetGabbyAndTyLocalIds")
+eq(Game3.SPECIAL_GET_BATTLE_OUTCOME, 180, "GetBattleOutcome")
+eq(Game3.EC_TYPE_GABBY_INTERVIEW, 10, "ShowEasyChatScreen case 10")
+eq(Game3.GAME_STAT_GOT_INTERVIEWED, 6, "GAME_STAT_GOT_INTERVIEWED")
+eq(Game3.B_OUTCOME_WON, 1, "B_OUTCOME_WON")
+eq(Game3.B_OUTCOME_LOST, 2, "B_OUTCOME_LOST")
+eq(Game3.B_OUTCOME_RAN, 4, "B_OUTCOME_RAN")
+eq(Game3.B_OUTCOME_CAUGHT, 7, "B_OUTCOME_CAUGHT")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_GABBY_AND_TY_GET_BATTLE_NUM), 0,
+  "battleNum 0 is the first pair")
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "specialvar still stores 0")
+eq(g:runSpecial(Game3.SPECIAL_GABBY_AND_TY_GET_LAST_QUOTE), 0,
+  "quote 0xFFFF is FALSE")
+eq(g:runSpecial(Game3.SPECIAL_GABBY_AND_TY_GET_LAST_BATTLE_TRIVIA), 1,
+  "!valB_0 is trivia 1")
+eq(g:runSpecial(Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING), 0,
+  "not airing yet")
+eq(g:runSpecial(Game3.SPECIAL_GET_BATTLE_OUTCOME), 0, "no fight yet")
+
+g.gabbyAndTy.battleNum = 6
+eq(g:gabbyAndTyGetBattleNum(), 6, "6 stays 6")
+g.gabbyAndTy.battleNum = 7
+eq(g:gabbyAndTyGetBattleNum(), 7, "7 stays 7")
+g.gabbyAndTy.battleNum = 8
+eq(g:gabbyAndTyGetBattleNum(), 8, "8 stays 8")
+g.gabbyAndTy.battleNum = 9
+eq(g:gabbyAndTyGetBattleNum(), 6, "(9 % 3) + 6")
+
+g = Game3.new()
+g.party = { {
+  name = "TORCHIC", hp = 19, maxHp = 19, species = 255, level = 5,
+  moves = { { id = 150, name = "SPLASH", effect = Game3.EFFECT_SPLASH, power = 0 } },
+} }
+check(g:startWildBattle(74, 8), "a wild to fill gBattleResults")
+g:useMove(g.battle.player, g.battle.enemy, g.battle.player.moves[1])
+eq(g.battleResults.lastUsedMove, 150, "player move is lastUsedMove")
+g:recordBattleEnd(Game3.B_OUTCOME_WON)
+eq(g:runSpecial(Game3.SPECIAL_GET_BATTLE_OUTCOME), 1, "win is 1")
+eq(g.battleResults.poke1Species, 255, "end snapshot is the player mon")
+
+g:gabbyAndTyBeforeInterview()
+eq(g.gabbyAndTy.battleNum, 1, "BeforeInterview increments 0 to 1")
+eq(g.gabbyAndTy.lastMove, 150, "copies lastUsedMove")
+eq(g.gabbyAndTy.mon1, 255, "and poke1Species")
+eq(g.flags[Game3.FLAG_TEMP_1], nil, "a used move does not set FLAG_TEMP_1")
+g:getGabbyAndTyLocalIds()
+eq(g:varGet(0x8004), 14, "case 1 Gabby is Route 111 object 14")
+eq(g:varGet(0x8005), 13, "and Ty is 13")
+
+g = Game3.new()
+g:ensureBattleResults()
+g:gabbyAndTyBeforeInterview()
+eq(g.gabbyAndTy.battleNum, 1, "still increments with no move")
+eq(g.flags[Game3.FLAG_TEMP_1], true, "lastMove 0 sets FLAG_TEMP_1")
+eq(g:runSpecial(Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING), 0,
+  "TakeTVShowInSearchOfTrainersOffTheAir")
+
+g.map = { regionMapSectionId = 26 }
+g:gabbyAndTyAfterInterview()
+eq(g.gabbyAndTy.valA_4, 1, "AfterInterview puts the show on air")
+eq(g.gabbyAndTy.mapnum, 26, "MAPSEC_ROUTE_111")
+eq(g:getGameStat(Game3.GAME_STAT_GOT_INTERVIEWED), 1, "stat 6")
+eq(g:runSpecial(Game3.SPECIAL_IS_TV_SHOW_IN_SEARCH_OF_TRAINERS_AIRING), 1,
+  "valA_4 is TRUE")
+
+local hot = Game3.ecPack(10, 0)
+g.gabbyAndTy.quote = hot
+eq(g:gabbyAndTyGetLastQuote(), 1, "a real word is TRUE")
+eq(g.stringVars[1], "HOT", "into STR_VAR_1")
+eq(g.gabbyAndTy.quote, Game3.EC_EMPTY_WORD, "quote |= 0xFFFF consumes it")
+eq(g:gabbyAndTyGetLastQuote(), 0, "second read is FALSE")
+
+g.gabbyAndTy.valB_0 = 1
+eq(g:gabbyAndTyGetLastBattleTrivia(), 0, "damaged and nothing else is 0")
+g.gabbyAndTy.valB_3 = 1
+eq(g:gabbyAndTyGetLastBattleTrivia(), 2, "used a ball is 2")
+
+g = Game3.new()
+g.scriptVars = { [0x8004] = 10 }
+g:runSpecial(Game3.SPECIAL_SHOW_EASY_CHAT)
+eq(g.field.kind, "easy_chat", "mode 10 opens Easy Chat")
+eq(g.field.slots, 1, "one word")
+eq(g.gabbyAndTy.quote, Game3.EC_EMPTY_WORD, "opens by writing 0xFFFF")
+check(g:scriptWaiting(), "and waitstate holds")
+g.field.words = { hot }
+g:finishEasyChat(true)
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "confirm is RESULT 1")
+eq(g.gabbyAndTy.quote, hot, "stored as the quote")
+
+g = Game3.new()
+g.scriptVars = { [0x8004] = 10 }
+g:showEasyChatScreen()
+g:finishEasyChat(false)
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "cancel is RESULT 0")
+eq(g.gabbyAndTy.quote, Game3.EC_EMPTY_WORD, "cancel leaves 0xFFFF")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.TRAINER_TYPE_BURIED, 3, "TRAINER_TYPE_BURIED")
+eq(Game3.MOVEMENT_TYPE_HIDDEN, 0x3F, "MOVEMENT_TYPE_HIDDEN")
+local g = Game3.new()
+g.phase = "play"
+g.playerX, g.playerY = 2, 0
+g.party = { g:makeMon(280, 5) }
+g.map = {
+  id = "g_bury", width = 5, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local buried = {
+  x = 2, y = 1, facing = "south", localId = 2,
+  trainerType = Game3.TRAINER_TYPE_BURIED, trainerRange = 1,
+  movementType = Game3.MOVEMENT_TYPE_HIDDEN, invisible = true,
+  party = { { species = 286, level = 5 } },
+  trainerName = "COLE", trainerClass = "KINDLER",
+}
+g.npcByMap = { g_bury = { buried } }
+check(g:seesPlayer(buried, g.map), "BURIED sees north of FACE_DOWN")
+g.playerX, g.playerY = 1, 1
+check(g:seesPlayer(buried, g.map), "and west")
+g.playerX, g.playerY = 2, 1
+check(not g:seesPlayer(buried, g.map), "same tile is out of range")
+g.playerX, g.playerY = 2, 0
+check(g:tryTrainerSpot(), "spotting a buried trainer")
+eq(buried.invisible, nil, "pops out of the ash")
+eq(buried.movementType, Game3.MOVEMENT_TYPE_FACE_UP, "faces the player")
+eq(g.field.kind, "trainer_approach", "then the !")
+local normal = {
+  x = 2, y = 1, facing = "south",
+  trainerType = Game3.TRAINER_TYPE_NORMAL, trainerRange = 1,
+  party = { { species = 286, level = 5 } },
+}
+g.playerX, g.playerY = 2, 0
+check(not g:seesPlayer(normal, g.map), "NORMAL still only looks one way")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.EFFECT_OVERHEAT, 204, "EFFECT_OVERHEAT")
+eq(Game3.EFFECT_LIGHT_SCREEN, 35, "EFFECT_LIGHT_SCREEN")
+eq(Game3.EFFECT_REFLECT, 65, "EFFECT_REFLECT")
+eq(Game3.EFFECT_ATTRACT, 120, "EFFECT_ATTRACT")
+eq(Game3.EFFECT_FLAIL, 99, "EFFECT_FLAIL")
+eq(Game3.flailPower(48, 48), 20, "full HP Flail is 20")
+eq(Game3.flailPower(1, 48), 200, "1/48 is 200")
+eq(Game3.flailPower(4, 48), 150, "4/48 is 150")
+eq(Game3.flailPower(5, 48), 100, "5/48 is 100")
+eq(Game3.SCREEN_TURNS, 5, "screens last 5")
+eq(Game3.ABILITY_OBLIVIOUS, 12, "OBLIVIOUS")
+
+local g = Game3.new()
+g.rng = function() return 1 end
+g.data.moves = { typeChart = {} }
+local slug = {
+  name = "SLUGMA", level = 26, hp = 60, maxHp = 60,
+  atk = 40, def = 40, spa = 70, spd = 40, spe = 20,
+  type1 = Game3.TYPE_FIRE, type2 = Game3.TYPE_FIRE,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+  pid = 200, species = 218,
+}
+local hero = {
+  name = "MUDKIP", level = 26, hp = 80, maxHp = 80,
+  atk = 50, def = 50, spa = 50, spd = 50, spe = 40,
+  type1 = Game3.TYPE_WATER, type2 = Game3.TYPE_WATER,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+  pid = 0, species = 258,
+}
+local overheat = {
+  name = "OVERHEAT", effect = Game3.EFFECT_OVERHEAT,
+  power = 140, type = Game3.TYPE_FIRE, accuracy = 100, pp = 5,
+}
+g:useMove(slug, hero, overheat)
+eq(slug.stages.spa, -2, "Overheat drops the user's Sp. Atk")
+slug.ability = Game3.ABILITY_CLEAR_BODY
+slug.stages.spa = 0
+g:useMove(slug, hero, overheat)
+eq(slug.stages.spa, -2, "Clear Body does not block Overheat")
+
+g.battle = { player = hero, enemy = slug }
+eq(g:setSideScreen(slug, "lightScreen"),
+  "LIGHT SCREEN raised SP. DEF!", "Light Screen goes up")
+eq(g:setSideScreen(slug, "lightScreen"), "But it failed!",
+  "already up fails")
+eq(g.battle.screens.enemy.lightScreen, 5, "5 turns")
+local screenMul = g:screenDamageMul(slug, false)
+eq(screenMul, 5, "special hits are halved")
+eq(g:screenDamageMul(slug, true), 10, "physical is not")
+eq(g:tickScreens()[1], nil, "turn 1 still up")
+eq(g.battle.screens.enemy.lightScreen, 4, "4 left")
+g.battle.screens.enemy.lightScreen = 1
+eq(g:tickScreens()[1], "LIGHT SCREEN wore off!", "expires")
+
+eq(g:monGender(hero), Game3.MON_FEMALE, "pid 0 Mudkip is female")
+eq(g:monGender(slug), Game3.MON_MALE, "pid 200 Slugma is male")
+g:useAttract(slug, hero)
+eq(hero.infatuatedBy, slug, "Attract infatuates")
+local skip, msgs = g:statusBlocks(hero)
+check(skip, "even Random immobilizes")
+check(msgs[2]:find("immobilized", 1, true), "love lock")
+hero.infatuatedBy = nil
+hero.ability = Game3.ABILITY_OBLIVIOUS
+local lines = g:useAttract(slug, hero)
+check(lines[1]:find("OBLIVIOUS", 1, true), "Oblivious blocks")
+hero.ability = nil
+g:useAttract(slug, slug)
+eq(slug.infatuatedBy, nil, "same gender fails")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Script = require("src.import.Gen3Script")
+eq(Game3.ABILITY_FORECAST, 59, "ABILITY_FORECAST")
+eq(Game3.SPECIES_CASTFORM, 385, "SPECIES_CASTFORM")
+eq(Game3.EFFECT_WEATHER_BALL, 203, "EFFECT_WEATHER_BALL")
+eq(Game3.ITEM_MYSTIC_WATER, 209, "ITEM_MYSTIC_WATER")
+eq(Game3.abilityName(Game3.ABILITY_FORECAST), "FORECAST", "name")
+eq(Game3.TYPE_NORMAL, 0, "TYPE_NORMAL")
+
+local g = Game3.new()
+local foe = { name = "POOCHYENA", ability = 0, hp = 20, maxHp = 20,
+  type1 = 17, type2 = 17 }
+local form = {
+  name = "CASTFORM", species = Game3.SPECIES_CASTFORM,
+  ability = Game3.ABILITY_FORECAST,
+  hp = 70, maxHp = 70,
+  type1 = Game3.TYPE_NORMAL, type2 = Game3.TYPE_NORMAL,
+}
+g.battle = { player = form, enemy = foe }
+g.battle.weather = Game3.WEATHER_RAIN
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_TO_WATER, "rain -> Water")
+eq(form.type1, Game3.TYPE_WATER, "type1 Water")
+eq(form.type2, Game3.TYPE_WATER, "type2 Water")
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_NO_CHANGE, "already Water")
+eq(g:applyCastformChange(form), nil, "no second line")
+
+form.type1, form.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+g.battle.weather = Game3.WEATHER_SUN
+eq(g:applyCastformChange(form), "CASTFORM transformed!", "sun line")
+eq(form.type1, Game3.TYPE_FIRE, "sun -> Fire")
+
+form.type1, form.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+g.battle.weather = Game3.WEATHER_HAIL
+g:applyCastformChange(form)
+eq(form.type1, Game3.TYPE_ICE, "hail -> Ice")
+eq(#g:weatherResidual(form), 0, "Ice Castform is immune to hail")
+
+g.battle.weather = Game3.WEATHER_SAND
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_TO_NORMAL, "sand reverts")
+eq(form.type1, Game3.TYPE_NORMAL, "back to Normal")
+
+form.type1, form.type2 = Game3.TYPE_WATER, Game3.TYPE_WATER
+g.battle.weather = Game3.WEATHER_RAIN
+g.battle.enemy = { name = "RAYQUAZA", ability = Game3.ABILITY_AIR_LOCK }
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_TO_NORMAL, "Air Lock reverts")
+eq(form.type1, Game3.TYPE_NORMAL, "Cloud Nine / Air Lock")
+
+g.battle.enemy = foe
+form.type1, form.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+form.hp = 0
+g.battle.weather = Game3.WEATHER_RAIN
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_NO_CHANGE, "fainted does not")
+form.hp = 70
+form.species = Game3.SPECIES_PELIPPER or 279
+eq(g:castformDataTypeChange(form), Game3.CASTFORM_NO_CHANGE, "not Castform")
+form.species = Game3.SPECIES_CASTFORM
+
+g.battle.weather = Game3.WEATHER_RAIN
+form.type1, form.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+local entered = g:activateEnter(form, foe)
+check(entered[#entered]:find("transformed", 1, true), "switch-in Forecast")
+eq(form.type1, Game3.TYPE_WATER, "enters as Water in rain")
+
+form.type1, form.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+g.battle.weather = nil
+local rain = {
+  name = "RAIN DANCE", effect = Game3.EFFECT_RAIN_DANCE, power = 0,
+  pp = 5, type = 0,
+}
+local dance = g:useMove(form, foe, rain)
+check(dance[1]:find("RAIN DANCE", 1, true), "used Rain Dance")
+check(dance[2]:find("rain", 1, true), "rain starts")
+check(dance[3]:find("transformed", 1, true), "then Forecast")
+eq(form.type1, Game3.TYPE_WATER, "Rain Dance forms it")
+
+g.battle.weatherTurns = 1
+local ended = g:tickWeather()
+eq(g.battle.weather, nil, "weather ended")
+check(ended[#ended]:find("transformed", 1, true), "revert on fade")
+eq(form.type1, Game3.TYPE_NORMAL, "back to Normal after rain")
+
+local ball = { name = "WEATHER BALL", effect = Game3.EFFECT_WEATHER_BALL,
+  power = 50, type = 0, pp = 10 }
+g.battle.weather = nil
+eq(g:attackType(form, ball), Game3.TYPE_NORMAL, "no weather: Normal")
+eq(g:boostedPower(form, ball, foe), 50, "and 50 power")
+g.battle.weather = Game3.WEATHER_RAIN
+eq(g:attackType(form, ball), Game3.TYPE_WATER, "rain: Water")
+eq(g:boostedPower(form, ball, foe), 100, "doubled")
+g.battle.weather = Game3.WEATHER_SAND
+eq(g:attackType(form, ball), Game3.TYPE_ROCK, "sand: Rock")
+g.battle.weather = Game3.WEATHER_SUN
+eq(g:attackType(form, ball), Game3.TYPE_FIRE, "sun: Fire")
+g.battle.weather = Game3.WEATHER_HAIL
+eq(g:attackType(form, ball), Game3.TYPE_ICE, "hail: Ice")
+g.battle.player = { ability = Game3.ABILITY_CLOUD_NINE }
+eq(g:attackType(form, ball), Game3.TYPE_NORMAL, "Cloud Nine: Normal")
+eq(g:boostedPower(form, ball, foe), 50, "and not doubled")
+g.battle.player = form
+
+eq(g:itemName(Game3.ITEM_MYSTIC_WATER), "MYSTIC WATER", "Mystic Water name")
+g.data.pokemon = { byIndex = { [Game3.SPECIES_CASTFORM] = {
+  name = "CASTFORM", hp = 70, atk = 70, def = 70, spe = 70, spa = 70, spd = 70,
+  type1 = 0, type2 = 0, ability1 = 59, catchRate = 45, expYield = 145,
+  growthRate = 0,
+} } }
+local ok, gift = g:giveMon(Game3.SPECIES_CASTFORM, 25, Game3.ITEM_MYSTIC_WATER)
+check(ok, "giveMon Castform")
+eq(gift.item, Game3.ITEM_MYSTIC_WATER, "holds Mystic Water")
+eq(gift.level, 25, "level 25")
+eq(gift.ability, Game3.ABILITY_FORECAST, "Forecast from species")
+
+local host = Game3.new()
+host.data.pokemon = g.data.pokemon
+Script.run(host, {
+  { op = "givemon", species = Game3.SPECIES_CASTFORM, level = 25,
+    item = Game3.ITEM_MYSTIC_WATER },
+  { op = "end" },
+})
+eq(host.party[1].item, Game3.ITEM_MYSTIC_WATER, "script givemon sets the item")
+eq(host.party[1].species, Game3.SPECIES_CASTFORM, "Castform")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.ABILITY_COLOR_CHANGE, 16, "ABILITY_COLOR_CHANGE")
+eq(Game3.MOVE_STRUGGLE, 165, "MOVE_STRUGGLE")
+eq(Game3.abilityName(Game3.ABILITY_COLOR_CHANGE), "COLOR CHANGE", "name")
+eq(Game3.abilityName(Game3.ABILITY_RUN_AWAY), "RUN AWAY", "keep RUN AWAY")
+eq(Game3.abilityName(Game3.ABILITY_KEEN_EYE), "KEEN EYE", "keep KEEN EYE")
+eq(Game3.abilityName(Game3.ABILITY_HYPER_CUTTER), "HYPER CUTTER", "keep HYPER CUTTER")
+
+local g = Game3.new()
+g.data.moves = { typeChart = {} }
+local hero = {
+  name = "TORCHIC", level = 20, hp = 50, maxHp = 50,
+  atk = 40, def = 40, spa = 60, spd = 40, spe = 40,
+  type1 = Game3.TYPE_FIRE, type2 = Game3.TYPE_FIRE,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+}
+local kec = {
+  name = "KECLEON", level = 30, hp = 80, maxHp = 80,
+  atk = 50, def = 50, spa = 50, spd = 50, spe = 40,
+  type1 = Game3.TYPE_NORMAL, type2 = Game3.TYPE_NORMAL,
+  ability = Game3.ABILITY_COLOR_CHANGE,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+}
+local ember = {
+  name = "EMBER", power = 40, type = Game3.TYPE_FIRE, accuracy = 100, pp = 25,
+}
+g.battle = { player = hero, enemy = kec }
+local lines = g:useMove(hero, kec, ember)
+local saw = false
+for i = 1, #lines do
+  if lines[i] == "KECLEON's COLOR CHANGE made it the FIRE type!" then
+    saw = true
+  end
+end
+check(saw, "Color Change line")
+eq(kec.type1, Game3.TYPE_FIRE, "type1 Fire")
+eq(kec.type2, Game3.TYPE_FIRE, "type2 Fire")
+check((kec.hp or 0) > 0, "still standing")
+check(not Game3.isContact(ember), "Ember is not contact")
+
+local again = g:useMove(hero, kec, ember)
+local n = 0
+for i = 1, #again do
+  if again[i]:find("COLOR CHANGE", 1, true) then n = n + 1 end
+end
+eq(n, 0, "same type does not change again")
+
+local struggle = {
+  id = Game3.MOVE_STRUGGLE, name = "STRUGGLE",
+  power = 50, type = Game3.TYPE_NORMAL, accuracy = 100, pp = 1,
+}
+g:useMove(hero, kec, struggle)
+eq(kec.type1, Game3.TYPE_FIRE, "Struggle does not Color Change")
+
+kec.type1, kec.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+kec.hp, kec.maxHp = 80, 80
+kec.protected = true
+local blocked = g:useMove(hero, kec, ember)
+local color = false
+for i = 1, #blocked do
+  if blocked[i]:find("COLOR CHANGE", 1, true) then color = true end
+end
+check(not color, "Protect does not Color Change")
+eq(kec.type1, Game3.TYPE_NORMAL, "types stay")
+kec.protected = nil
+
+g.data.moves = { typeChart = { { 10, 0, 0 } } }
+local immune = g:useMove(hero, kec, ember)
+color = false
+for i = 1, #immune do
+  if immune[i]:find("COLOR CHANGE", 1, true) then color = true end
+end
+check(not color, "immunity does not Color Change")
+eq(kec.type1, Game3.TYPE_NORMAL, "still Normal")
+
+g.data.moves = { typeChart = {} }
+kec.hp = 1
+local ko = g:useMove(hero, kec, ember)
+eq(kec.hp, 0, "KO")
+color = false
+for i = 1, #ko do
+  if ko[i]:find("COLOR CHANGE", 1, true) then color = true end
+end
+check(not color, "fainted does not Color Change")
+eq(kec.type1, Game3.TYPE_NORMAL, "KO leaves types")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.EFFECT_ENDEAVOR, 189, "EFFECT_ENDEAVOR")
+eq(Game3.EFFECT_DRAGON_DANCE, 212, "EFFECT_DRAGON_DANCE")
+eq(Game3.ITEM_TM40, 328, "ITEM_TM40")
+eq(Game3.EFFECT_ALWAYS_HIT, 17, "Aerial Ace is ALWAYS_HIT")
+local g = Game3.new()
+eq(g:itemName(Game3.ITEM_TM40), "TM40", "TM40 name")
+eq(g:itemPocket(Game3.ITEM_TM40), Game3.POCKET_TMHM, "TM pocket")
+eq(g:tmhmMove(Game3.ITEM_TM40), 332, "teaches Aerial Ace")
+
+g.data.moves = { typeChart = {} }
+local swell = {
+  name = "SWELLOW", level = 31, hp = 20, maxHp = 80,
+  atk = 50, def = 40, spa = 40, spd = 40, spe = 80,
+  type1 = Game3.TYPE_NORMAL, type2 = Game3.TYPE_FLYING,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+}
+local hero = {
+  name = "MUDKIP", level = 30, hp = 80, maxHp = 80,
+  atk = 50, def = 50, spa = 50, spd = 50, spe = 40,
+  type1 = Game3.TYPE_WATER, type2 = Game3.TYPE_WATER,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+}
+local endeavor = {
+  name = "ENDEAVOR", effect = Game3.EFFECT_ENDEAVOR,
+  power = 1, type = Game3.TYPE_NORMAL, accuracy = 100, pp = 5,
+}
+g.battle = { player = hero, enemy = swell }
+local lines = g:useMove(swell, hero, endeavor)
+eq(hero.hp, 20, "Endeavor equalizes HP")
+local nve = false
+for i = 1, #lines do
+  if lines[i]:find("effective", 1, true) then nve = true end
+end
+check(not nve, "no SE/NVE on Endeavor")
+
+hero.hp = 20
+swell.hp = 20
+eq(g:useMove(swell, hero, endeavor)[2], "But it failed!", "equal HP fails")
+eq(hero.hp, 20, "HP unchanged")
+
+hero.hp = 15
+swell.hp = 20
+eq(g:useMove(swell, hero, endeavor)[2], "But it failed!", "higher user HP fails")
+
+hero.hp, hero.invuln = 80, "fly"
+swell.hp = 20
+eq(g:useMove(swell, hero, endeavor)[2], "The attack missed!",
+  "Fly misses after the HP check")
+hero.invuln = "fly"
+swell.hp, hero.hp = 80, 20
+eq(g:useMove(swell, hero, endeavor)[2], "But it failed!",
+  "HP fail beats Fly")
+hero.invuln = nil
+
+hero.hp, hero.type1, hero.type2 = 80, Game3.TYPE_GHOST, Game3.TYPE_GHOST
+swell.hp = 20
+g.data.moves = { typeChart = { { 0, 7, 0 } } }
+eq(g:useMove(swell, hero, endeavor)[2],
+  "It doesn't affect MUDKIP...", "Ghost is immune")
+eq(hero.hp, 80, "no damage")
+
+g.data.moves = { typeChart = {} }
+hero.type1, hero.type2 = Game3.TYPE_WATER, Game3.TYPE_WATER
+hero.hp, swell.hp = 80, 20
+hero.protected = true
+check(g:useMove(swell, hero, endeavor)[2]:find("protected", 1, true),
+  "Protect")
+hero.protected = nil
+hero.endured = true
+hero.hp, swell.hp = 80, 1
+g:useMove(swell, hero, endeavor)
+eq(hero.hp, 1, "Endure leaves 1")
+hero.endured = nil
+
+local dd = { name = "DRAGON DANCE", effect = Game3.EFFECT_DRAGON_DANCE,
+  power = 0, type = Game3.TYPE_DRAGON, accuracy = 100, pp = 20 }
+local alta = {
+  name = "ALTARIA", hp = 70, maxHp = 70,
+  stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
+}
+g:useMove(alta, hero, dd)
+eq(alta.stages.atk, 1, "Dragon Dance +1 Attack")
+eq(alta.stages.spe, 1, "and +1 Speed")
+end)()
+
+;(function()
+eq(Game3.B_OUTCOME_MON_FLED, 6, "B_OUTCOME_MON_FLED")
+eq(Game3.B_OUTCOME_NO_SAFARI_BALLS, 8, "B_OUTCOME_NO_SAFARI_BALLS")
+eq(Game3.SAFARI_GO_NEAR_CATCH[1], 4, "first GO NEAR +4 catch")
+eq(Game3.SAFARI_POKEBLOCK_FLEE[2][1], 3, "first pokeblock flavor 0 cuts 3")
+
+local g = Game3.new()
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+g:addItem(Game3.ITEM_POKE_BALL, 5)
+g:enterSafariMode()
+g.rng = function() return 1 end
+check(g:startWildBattle(290, 2), "safari wild")
+check(g.battle.safari, "BATTLE_TYPE_SAFARI")
+eq(g.battle.safariFleeRate, 3, "init flee 3")
+local factor = g.battle.safariCatchFactor
+check(factor ~= nil, "catch factor from catchRate * 100 / 1275")
+eq(g.safariBalls, 30, "still 30 before a throw")
+g:throwBall()
+eq(g.safariBalls, 29, "HandleAction_SafariZoneBallThrow")
+eq(g:itemCount(Game3.ITEM_POKE_BALL), 5, "bag balls untouched")
+eq(g.battle.caught, true, "catch still uses the shake RNG")
+
+g.rng = function(n)
+  if n == 65536 then return 10000 end
+  return 1
+end
+g:startWildBattle(290, 2)
+local before = g.battle.safariCatchFactor
+g:safariGoNear()
+eq(g.battle.safariCatchFactor, before + 4, "GO NEAR +4")
+eq(g.battle.safariFleeRate, 7, "and +4 flee")
+eq(g.battle.safariGoNearCounter, 1, "counter 1")
+g:safariGoNear()
+g:safariGoNear()
+eq(g.battle.safariGoNearCounter, 3, "counter caps increment at 3")
+g:safariGoNear()
+eq(g.battle.safariGoNearCounter, 3, "fourth does not increment")
+check(g.battle.queue[1]:find("closer", 1, true) ~= nil
+    or g.battle.queue[1]:find("can't get", 1, true) ~= nil,
+  "can't get closer / crept closer")
+
+g.battle.safariFleeRate = 3
+g.battle.safariPkblThrowCounter = 0
+g:safariThrowPokeblock(0)
+eq(g.battle.safariFleeRate, 0, "first curious pokeblock 3-3")
+eq(g.battle.safariPkblThrowCounter, 1, "pkbl counter")
+
+g.safariBalls = 1
+g:startWildBattle(290, 2)
+g.rng = function(n)
+  if n == 65536 then return 65536 end
+  return 1
+end
+g:throwBall()
+eq(g.safariBalls, 0, "last ball spent")
+eq(g.battleOutcome, Game3.B_OUTCOME_NO_SAFARI_BALLS, "outcome 8 on a miss")
+check(g.battle.safariOver, "SafariOver then finish")
+check(g.battle.queue[#g.battle.queue] == Game3.TEXT_SAFARI_OVER,
+  "ANNOUNCER out of balls")
+
+local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+local entrance = {
+  id = "g23_0", group = 23, index = 0,
+  width = 3, height = 3, grid = cells,
+}
+g.data.maps = { maps = { g23_0 = entrance } }
+g:endBattle()
+check(not g:inSafariMode(), "missed last ball warps out")
+eq(g.map and g.map.id, "g23_0", "to the entrance")
+
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+g:enterSafariMode()
+g.safariBalls = 1
+g.rng = function() return 1 end
+g:startWildBattle(290, 2)
+g:throwBall()
+eq(g.battle.caught, true, "caught on the last ball")
+eq(g.battleOutcome, Game3.B_OUTCOME_CAUGHT, "outcome 7")
+eq(g.safariBalls, 0, "no balls left")
+g:endBattle()
+check(g.field and g.field.thenSafariExit, "gUnknown_081C3459")
+eq(g.field.text, Game3.TEXT_SAFARI_OUT_OF_BALLS, "out of balls after a catch")
+check(g:inSafariMode(), "catch path waits for the message")
+g:leaveSafari()
+check(not g:inSafariMode(), "then warps")
+end)()
+
+;(function()
+eq(Game3.SPECIAL_START_GROUDON_KYOGRE_BATTLE, 311, "StartGroudonKyogreBattle")
+eq(Game3.SPECIAL_START_RAYQUAZA_BATTLE, 312, "StartRayquazaBattle")
+eq(Game3.SPECIAL_START_REGI_BATTLE, 313, "StartRegiBattle")
+eq(Game3.SPECIAL_WAIT_WEATHER, 284, "WaitWeather")
+eq(Game3.SPECIAL_ORB_CUTSCENE, 281, "sub_80818A4")
+eq(Game3.SPECIAL_ORB_CUTSCENE_ADVANCE, 282, "sub_80818FC")
+eq(Game3.SPECIAL_FADE_OUT_MAP_MUSIC, 332, "sub_8081924")
+eq(Game3.SPECIES_GROUDON, 405, "Groudon")
+eq(Game3.SPECIES_KYOGRE, 404, "Kyogre")
+eq(Game3.SPECIES_RAYQUAZA, 406, "Rayquaza")
+eq(Game3.SPECIES_REGIROCK, 401, "Regirock")
+local g = Game3.new()
+g.phase = "play"
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+g:runSpecial(Game3.SPECIAL_WAIT_WEATHER)
+check(g:scriptWaiting(), "WaitWeather CreateTask")
+g:walkHeld(Game3.WAIT_WEATHER_FRAMES / 60)
+check(not g:scriptWaiting(), "Task_WaitWeather next vblank")
+eq(Game3.flashAnimFrames(1, 160, 2), 160, "orb expand is 80 steps")
+g:setScriptVar(0x800D, 2)
+g:runSpecial(Game3.SPECIAL_ORB_CUTSCENE)
+check(g:scriptWaiting(), "sub_80818A4 waits for the flash")
+eq(g.orb.cx, 120, "RESULT 2 is x 120")
+eq(g.orb.pal, 0, "0x1F red")
+g:walkHeld(g:orbOpenFrames() / 60)
+eq(g.orb.stage, "hold", "script runs while the orb is up")
+check(not g:scriptWaiting(), "case 2 ScriptContext_Enable")
+g:runSpecial(Game3.SPECIAL_ORB_CUTSCENE_ADVANCE)
+check(g:scriptWaiting(), "sub_80818FC waits for the blend-out")
+g:walkHeld(Game3.ORB_CLOSE_FRAMES / 60)
+eq(g.orb, nil, "case 5 clears the orb")
+check(not g:scriptWaiting(), "close enables")
+g:runSpecial(Game3.SPECIAL_FADE_OUT_MAP_MUSIC)
+check(g:scriptWaiting(), "sub_8081924 waits for BGM stop")
+g:walkHeld(Game3.WAIT_WEATHER_FRAMES / 60)
+check(not g:scriptWaiting(), "no song is already stopped")
+g:setWildBattle(Game3.SPECIES_GROUDON, 45, Game3.ITEM_NONE)
+g:runSpecial(Game3.SPECIAL_START_GROUDON_KYOGRE_BATTLE)
+eq(g.phase, "battle", "phase is battle")
+eq(g.battle.enemy.species, 405, "against Groudon")
+eq(g.battle.enemy.level, 45, "lv45")
+check(g.battle.scriptedWild, "scripted wild")
+check(g.battle.legendary, "BATTLE_TYPE_LEGENDARY")
+check(g.battle.kyogreGroudon, "BATTLE_TYPE_KYOGRE_GROUDON")
+check(g:scriptWaiting(), "waitstate holds")
+eq(g:getGameStat(Game3.GAME_STAT_WILD_BATTLES), 1, "stat 8")
+g:endBattle()
+check(not g:scriptWaiting(), "script continues")
+eq(g.phase, "play", "back on the field")
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+g:setWildBattle(Game3.SPECIES_RAYQUAZA, 70, Game3.ITEM_NONE)
+g:runSpecial(Game3.SPECIAL_START_RAYQUAZA_BATTLE)
+check(g.battle.legendary, "Rayquaza is legendary")
+check(not g.battle.kyogreGroudon, "not the orb fight")
+g:endBattle()
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+g:setWildBattle(Game3.SPECIES_REGIROCK, 40, Game3.ITEM_NONE)
+g:runSpecial(Game3.SPECIAL_START_REGI_BATTLE)
+check(g.battle.regi, "BATTLE_TYPE_REGI")
+g:endBattle()
+end)()
+
+;(function()
+eq(Game3.SPECIAL_GAME_CLEAR, 272, "GameClear")
+eq(Game3.FLAG_SYS_GAME_CLEAR, 0x804, "SYSTEM_FLAGS+4")
+eq(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME, 1, "stat 1")
+eq(Game3.TRAINER_SIDNEY, 261, "Sidney")
+eq(Game3.TRAINER_STEVEN, 335, "Steven")
+eq(Game3.TRAINER_WALLY_VICTORY_ROAD, 519, "Wally 1F")
+eq(Game3.VAR_ELITE_4_STATE, 0x409C, "E4 state")
+eq(Game3.FLAG_ENTERED_ELITE_FOUR, 0x107, "lobby guards")
+eq(Game3.MAP_HALL_OF_FAME_NUM, 11, "HoF indoor index")
+local home = {
+  id = "g1_1", group = 1, index = 1,
+  width = 8, height = 8, grid = {},
+  spawn = { x = 4, y = 4 },
+}
+local hof = {
+  id = "g16_11", group = 16, index = 11,
+  width = 8, height = 8, grid = {},
+  spawn = { x = 7, y = 16 },
+}
+for i = 1, 64 do
+  home.grid[i] = 0
+  hof.grid[i] = 0
+end
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g1_1 = home, g16_11 = hof } }
+g.lastHeal = { mapId = "g1_1", x = 4, y = 4 }
+g:enterMap(hof, 7, 16, true)
+local torchic = g:makeMon(Game3.SPECIES_TORCHIC, 5)
+torchic.hp = 1
+local egg = g:makeMon(Game3.SPECIES_EGG, 1)
+egg.isEgg = true
+g.party = { torchic, egg }
+g.playSeconds = 3600 + 2 * 60 + 3
+g:runSpecial(Game3.SPECIAL_GAME_CLEAR)
+check(not g:scriptWaiting(), "credits skip does not wait")
+eq(g.map.id, "g1_1", "warps to the bedroom heal")
+eq(torchic.hp, torchic.maxHp, "heals the party")
+check(torchic.championRibbon, "Champion ribbon")
+check(not egg.championRibbon, "eggs skip SANITY_BIT3")
+eq(g.flags[Game3.FLAG_SYS_GAME_CLEAR], true, "game clear")
+eq(g.hasHallOfFameRecords, false, "first HoF has no prior records")
+eq(#(g.hallOfFameTeams or {}), 1, "first team is saved")
+eq(g.hallOfFameTeams[1][1].species, Game3.SPECIES_TORCHIC, "Torchic row")
+eq(g.hallOfFameTeams[1][2].species, Game3.SPECIES_EGG, "egg is SPECIES2")
+eq(g:getGameStat(Game3.GAME_STAT_ENTERED_HOF), 1, "stat 10 is 1")
+eq(g:getGameStat(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME),
+  1 * 65536 + 2 * 256 + 3, "hours<<16 | min<<8 | sec")
+eq(g:getGameStat(Game3.GAME_STAT_RECEIVED_RIBBONS), 1, "ribbon stat")
+eq(g.flags[Game3.FLAG_SYS_RIBBON_GET], true, "ribbon flag")
+local first = g:getGameStat(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME)
+g.playSeconds = 99999
+g:runSpecial(Game3.SPECIAL_GAME_CLEAR)
+eq(g.hasHallOfFameRecords, true, "second HoF keeps records")
+eq(#g.hallOfFameTeams, 2, "second team appends")
+eq(g:getGameStat(Game3.GAME_STAT_ENTERED_HOF), 2, "stat 10 is 2")
+eq(g:getGameStat(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME), first,
+  "first time is not overwritten")
+eq(g:getGameStat(Game3.GAME_STAT_RECEIVED_RIBBONS), 1,
+  "already-ribboned party does not increment")
+end)()
+
+;(function()
+eq(Game3.SPECIAL_INIT_ROAMER, 297, "InitRoamer")
+eq(Game3.ROAMER_SPECIES, 408, "Ruby roams Latios")
+eq(Game3.ROAMER_LEVEL, 40, "CreateMon level 40")
+eq(Game3.MAP_ROUTE110_NUM, 0x19, "sRoamerLocations[0][0]")
+eq(#Game3.ROAMER_LOCATIONS, 20, "20 location sets")
+local g = Game3.new()
+g.phase = "play"
+g.rng = function() return 1 end
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 5) }
+local grid = {}
+for i = 1, 4 do grid[i] = 1 end
+local route = {
+  id = "g0_25", group = 0, index = 25,
+  width = 2, height = 2, grid = grid, tileset = "pair_0",
+}
+g.data.tilesets = { byId = { pair_0 = { behavior = { [1] = 2 } } } }
+g.data.encounters = {
+  byMap = {
+    g0_25 = {
+      land = {
+        rate = 255,
+        slots = { { minLevel = 2, maxLevel = 2, species = 290 } },
+      },
+    },
+  },
+}
+g.data.maps = { maps = { g0_25 = route } }
+g:enterMap(route, 0, 0, true)
+g:runSpecial(Game3.SPECIAL_INIT_ROAMER)
+check(not g:scriptWaiting(), "InitRoamer does not wait")
+eq(g.roamer.species, Game3.SPECIES_LATIOS, "Latios")
+eq(g.roamer.level, 40, "lv40")
+check(g.roamer.active, "active")
+eq(g.roamerLocation[1], 0, "group 0")
+eq(g.roamerLocation[2], 25, "Random()%20==0 is Route 110")
+check(g:isRoamerAt(0, 25), "IsRoamerAt this map")
+check((g.roamer.hp or 0) > 0, "CreateMon stores max HP")
+check(g:tryWildEncounter(), "25% roll of 0 starts the roamer")
+eq(g.battle.enemy.species, Game3.SPECIES_LATIOS, "not the grass slot")
+eq(g.battle.enemy.level, 40, "roamer level")
+eq(g.battle.enemy.pid, g.roamer.personality, "same personality")
+check(g.battle.roamer, "BATTLE_TYPE_ROAMER")
+eq(g:getGameStat(Game3.GAME_STAT_WILD_BATTLES), 1, "stat 8")
+local hurt = g.battle.enemy.hp - 1
+g.battle.enemy.hp = hurt
+g.gbaRandom = function() return 1 end
+g:recordBattleEnd(Game3.B_OUTCOME_RAN)
+eq(g.roamer.hp, hurt, "UpdateRoamerHPStatus banks HP")
+check(g.roamer.active, "RUN keeps it active")
+eq(g.roamerLocation[2], 26, "then RoamerMoveToOtherLocationSet")
+g.phase = "play"
+g.battle = nil
+g.battleOutcome = 0
+g.roamerLocation[2] = 25
+g.roamer.active = true
+g.gbaRandom = function() return 0 end
+g.party = { g:makeMon(Game3.SPECIES_TORCHIC, 40) }
+g.repelSteps = 100
+check(not g:tryWildEncounter(), "Repel vs lv40 does not fall through")
+check(not g.battle, "and starts no grass fight")
+g.repelSteps = nil
+g.gbaRandom = function() return 1 end
+check(g:tryWildEncounter(), "1%4 misses the roamer")
+eq(g.battle.enemy.species, 290, "grass Wurmple")
+g.phase = "play"
+g.battle = nil
+g.battleOutcome = 0
+g.gbaRandom = function() return 0 end
+check(g:trySweetScentEncounter(), "Sweet Scent can start the roamer")
+eq(g.battle.enemy.species, Game3.SPECIES_LATIOS, "scent Latios")
+g.gbaRandom = function() return 1 end
+g:recordBattleEnd(Game3.B_OUTCOME_WON)
+check(not g.roamer.active, "win sets inactive")
+g.roamer.active = true
+g.battle = { roamer = true, enemy = { hp = 1, status = Game3.STATUS_PAR } }
+g.battleOutcome = 0
+g.gbaRandom = function() return 0 end
+g:recordBattleEnd(Game3.B_OUTCOME_CAUGHT)
+check(not g.roamer.active, "catch sets inactive")
+eq(g.roamer.status, Game3.STATUS_PAR, "status is stored before inactive")
+end)()
+
+;(function()
+eq(Game3.ITEM_MAX_REVIVE, 25, "ITEM_MAX_REVIVE")
+eq(Game3.ITEM_GUARD_SPEC, 73, "ITEM_GUARD_SPEC")
+eq(Game3.ITEM_DIRE_HIT, 74, "ITEM_DIRE_HIT")
+eq(Game3.ITEM_X_ATTACK, 75, "ITEM_X_ATTACK")
+eq(Game3.ITEM_X_DEFEND, 76, "ITEM_X_DEFEND")
+eq(Game3.ITEM_X_SPEED, 77, "ITEM_X_SPEED")
+eq(Game3.ITEM_X_ACCURACY, 78, "ITEM_X_ACCURACY")
+eq(Game3.ITEM_X_SPECIAL, 79, "ITEM_X_SPECIAL")
+eq(Game3.ITEM_POKE_DOLL, 80, "ITEM_POKE_DOLL")
+eq(Game3.ITEM_FLUFFY_TAIL, 81, "ITEM_FLUFFY_TAIL")
+eq(Game3.REVIVE_FRACTION[24], 0.5, "Revive is ITEM6_HEAL_HP_HALF")
+eq(Game3.REVIVE_FRACTION[25], 1, "Max Revive is full")
+eq(Game3.X_ITEM_STAT[75][1], "atk", "X Attack is Attack")
+eq(Game3.X_ITEM_STAT[79][1], "spa", "X Special is Sp. Atk")
+check(Game3.needsBattleParty(13), "Potion opens the party")
+check(Game3.needsBattleParty(24), "Revive opens the party")
+check(Game3.needsBattleParty(36), "Elixir opens the battle party")
+check(Game3.needsBattleParty(34), "Ether opens the battle party")
+check(not Game3.needsBattleParty(75), "X Attack does not")
+check(not Game3.needsBattleParty(80), "Doll does not")
+
+local g = Game3.new()
+eq(g:itemName(Game3.ITEM_MAX_REVIVE), "MAX REVIVE", "Max Revive name")
+eq(g:itemName(Game3.ITEM_X_ATTACK), "X ATTACK", "X Attack name")
+eq(g:itemName(Game3.ITEM_POKE_DOLL), "POKe DOLL", "Doll name")
+eq(g:itemName(Game3.ITEM_GUARD_SPEC), "GUARD SPEC.", "Guard Spec name")
+eq(g:itemName(Game3.ITEM_DIRE_HIT), "DIRE HIT", "Dire Hit name")
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+  },
+}
+g.party = { g:makeMon(280, 5) }
+g.party[1].maxHp = 20
+g.party[1].hp = 0
+g:addItem(Game3.ITEM_REVIVE, 1)
+local openedRevive = g:useFieldItem(Game3.ITEM_REVIVE)
+check(openedRevive, "field Revive opens the party")
+eq(g.field.kind, "party_use", "ItemUseOutOfBattle_Medicine")
+eq(g.party[1].hp, 0, "picker does not auto-revive")
+eq(g.field.prompt, "Use on which POKeMON?", "OtherText_UseWhat")
+local ok, msg = g:useItemOnMon(g.party[1], Game3.ITEM_REVIVE)
+check(ok, "field Revive")
+eq(g.party[1].hp, 10, "half HP")
+check(msg:find("revived", 1, true) ~= nil, "was revived")
+
+g.party[1].hp = 0
+g:addItem(Game3.ITEM_MAX_REVIVE, 1)
+ok = g:useItemOnMon(g.party[1], Game3.ITEM_MAX_REVIVE)
+check(ok, "field Max Revive")
+eq(g.party[1].hp, 20, "full HP")
+
+local Input = require("src.core.Input")
+Input:init()
+local function press(name)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == name end
+  g:stepBattle()
+  Input.wasPressed = old
+end
+
+g.party = { g:makeMon(280, 5), g:makeMon(280, 5) }
+g.rng = function() return 1 end
+g:addItem(Game3.ITEM_POTION, 1)
+check(g:startWildBattle(280, 5), "wild for BAG")
+g.battle.player.maxHp, g.battle.player.hp = 40, 40
+g.party[2].maxHp, g.party[2].hp = 40, 5
+g.battle.enemy.hp = 0
+g.battle.kind = "bag"
+g.battle.bagCursor = 0
+press("a")
+eq(g.battle.kind, "party", "BAG A on Potion opens party")
+eq(g.battle.itemUse, Game3.ITEM_POTION, "itemUse is the Potion")
+press("b")
+eq(g.battle.kind, "bag", "B returns to BAG")
+eq(g:itemCount(Game3.ITEM_POTION), 1, "B does not spend")
+press("a")
+g.battle.partyCursor = 1
+press("a")
+eq(g.party[2].hp, 25, "bench is healed 20")
+eq(g.party[1].hp, 40, "lead is untouched")
+eq(g:itemCount(Game3.ITEM_POTION), 0, "Potion spent")
+eq(g.battle.kind, "text", "use consumes the turn")
+eq(g.battle.itemUse, nil, "itemUse clears")
+
+;(function()
+  local egg = g:makeMon(360, 5)
+  egg.isEgg = true
+  egg.name = "EGG"
+  g.party[3] = egg
+  g.battle.kind = "party"
+  g.battle.partyCursor = 2
+  g.battle.partyMsg = nil
+  g.battle.text = nil
+  local lead = g.battle.player
+  press("a")
+  eq(g.battle.kind, "menu_msg", "PKMN A on an EGG shows the line")
+  eq(g.battle.text, "An EGG can't battle!", "egg switch fail text")
+  eq(g.battle.player, lead, "the egg did not come out")
+  press("a")
+  eq(g.battle.kind, "party", "A after the line returns to party")
+  eq(g.battle.partyMsg, nil, "partyMsg clears")
+end)()
+
+g.battle.player.hp = 5
+g.battle.player.maxHp = 40
+g:addItem(Game3.ITEM_POTION, 1)
+ok = g:useBattleItem(13)
+check(ok, "useBattleItem(13) still heals the battler")
+eq(g.battle.player.hp, 25, "direct Potion path")
+
+g.party[2].hp = 0
+g.party[2].maxHp = 40
+g:addItem(Game3.ITEM_REVIVE, 1)
+ok = g:useBattleItem(Game3.ITEM_REVIVE, g.party[2])
+check(ok, "Revive in battle")
+eq(g.party[2].hp, 20, "half of 40")
+
+g.battle.kind = "menu"
+g.battle.player.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+g:addItem(Game3.ITEM_X_ATTACK, 1)
+g.battle.kind = "bag"
+g.battle.bagCursor = 0
+press("a")
+eq(g.battle.player.stages.atk, 1, "X Attack +1")
+check(g.battle.kind ~= "party", "X Attack skips party")
+eq(g:itemCount(Game3.ITEM_X_ATTACK), 0, "X Attack spent")
+
+g.battle.player.stages.atk = 6
+g:addItem(Game3.ITEM_X_ATTACK, 1)
+ok = g:useBattleItem(Game3.ITEM_X_ATTACK)
+check(not ok, "+6 is no effect")
+eq(g:itemCount(Game3.ITEM_X_ATTACK), 1, "does not spend at cap")
+eq(g.battle.player.stages.atk, 6, "stage stays 6")
+
+g:addItem(Game3.ITEM_DIRE_HIT, 2)
+ok = g:useBattleItem(Game3.ITEM_DIRE_HIT)
+check(ok, "Dire Hit")
+check(g.battle.player.focusEnergy, "STATUS2_FOCUS_ENERGY")
+ok = g:useBattleItem(Game3.ITEM_DIRE_HIT)
+check(not ok, "already pumped")
+eq(g:itemCount(Game3.ITEM_DIRE_HIT), 1, "second does not spend")
+
+g:addItem(Game3.ITEM_GUARD_SPEC, 1)
+ok = g:useBattleItem(Game3.ITEM_GUARD_SPEC)
+check(ok, "Guard Spec")
+check((g.battle.mistTurns or 0) > 0, "mistTimer 5 then end-turn tick")
+local line = g:dropStat(g.battle.player, "atk", "ATTACK")
+check(line:find("MIST", 1, true) ~= nil, "MistProtect")
+eq(g.battle.player.stages.atk, 6, "foe drop blocked")
+g:dropStat(g.battle.player, "spe", "SPEED", 1, true)
+eq(g.battle.player.stages.spe, -1, "self-inflicted still drops")
+
+g:addItem(Game3.ITEM_POKE_DOLL, 1)
+ok = g:useBattleItem(Game3.ITEM_POKE_DOLL)
+check(ok, "Doll in wild")
+eq(g.battle.kind, "ran", "ItemUseInBattle_Escape")
+eq(g:itemCount(Game3.ITEM_POKE_DOLL), 0, "Doll spent")
+end)()
+
+;(function()
+local g = Game3.new()
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+  },
+}
+g.party = { g:makeMon(280, 5) }
+g:addItem(Game3.ITEM_POKE_DOLL, 1)
+g:addItem(Game3.ITEM_FLUFFY_TAIL, 1)
+local npc = {
+  trainerName = "CALVIN", trainerClass = "YOUNGSTER",
+  party = { { species = 280, level = 2 } },
+}
+check(g:startTrainerBattle(npc), "trainer for Doll")
+local ok = g:useBattleItem(Game3.ITEM_POKE_DOLL)
+check(not ok, "Doll is Dad's advice vs trainer")
+eq(g.battle.kind, "menu_msg", "cannot flee")
+eq(g:itemCount(Game3.ITEM_POKE_DOLL), 1, "not spent")
+ok = g:useBattleItem(Game3.ITEM_FLUFFY_TAIL)
+check(not ok, "Fluffy Tail too")
+eq(g:itemCount(Game3.ITEM_FLUFFY_TAIL), 1, "Tail not spent")
+end)()
+
+;(function()
+local Input = require("src.core.Input")
+Input:init()
+local g = Game3.new()
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+  },
+}
+g.data.moves = {
+  byId = {
+    [10] = { id = 10, name = "SCRATCH", power = 40, type = 0, pp = 35,
+      accuracy = 100 },
+  },
+}
+g.party = { g:makeMon(280, 5, { 10 }) }
+g.party[1].moves[1].pp = 5
+g.rng = function() return 1 end
+g:addItem(Game3.ITEM_ETHER, 1)
+check(g:startWildBattle(280, 5), "wild for Ether")
+g.battle.kind = "bag"
+g.battle.bagCursor = 0
+local function press(name)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == name end
+  g:stepBattle()
+  Input.wasPressed = old
+end
+press("a")
+eq(g.battle.kind, "party", "ItemUseInBattle_PPRecovery opens party")
+eq(g.battle.itemUse, Game3.ITEM_ETHER, "Ether")
+press("a")
+eq(g.battle.kind, "item_pp", "CreateItemUseMoveMenu")
+press("a")
+eq(g.party[1].moves[1].pp, 15, "Ether +10 one move")
+eq(g:itemCount(Game3.ITEM_ETHER), 0, "spent")
+eq(g.battle.kind, "text", "use consumes the turn")
+eq(g.battle.itemUse, nil, "itemUse clears")
+end)()
+
+;(function()
+-- item_menu.c PlayerHandleOpenBag / RETURN_TO_BATTLE: the same pack
+-- screen as the field, not a two-line list in the fight message bar.
+local Input = require("src.core.Input")
+Input:init()
+local g = Game3.new()
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+  },
+}
+g.party = { g:makeMon(280, 5) }
+g:addItem(Game3.ITEM_POTION, 1)
+g:addItem(Game3.ITEM_POKE_BALL, 1)
+check(g:startWildBattle(280, 5), "wild for pack BAG")
+local function press(name)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == name end
+  g:stepBattle()
+  Input.wasPressed = old
+end
+g.battle.kind = "menu"
+g.battle.cursor = 1
+press("a")
+eq(g.battle.kind, "bag", "BAG opens the pack")
+eq(g.battle.bagPocket, Game3.POCKET_ITEMS, "on the first filled pocket")
+eq(g.battle.bagCursor, 0, "cursor on the first item")
+press("right")
+eq(g.battle.bagPocket, Game3.POCKET_BALLS, "RIGHT is POKe BALLS")
+press("left")
+eq(g.battle.bagPocket, Game3.POCKET_ITEMS, "LEFT returns to ITEMS")
+press("down")
+eq(g.battle.bagCursor, 1, "DOWN is CLOSE BAG")
+press("a")
+eq(g.battle.kind, "menu", "A on CLOSE BAG returns to FIGHT")
+g.battle.cursor = 1
+press("a")
+press("b")
+eq(g.battle.kind, "menu", "B closes the pack")
+eq(Game3.BAG_CLOSE, "CLOSE BAG", "gOtherText_CloseBag")
+eq(Game3.BAG_ROWS, 8, "item_menu.c shows 8 rows")
+eq(Game3.wrapPocket(Game3.POCKET_ITEMS, -1), Game3.POCKET_KEY,
+  "LEFT wraps to KEY ITEMS")
+g.phase = "battle"
+local texts = {}
+local oldText = Game3.drawText
+function Game3.drawText(_, text)
+  texts[#texts + 1] = tostring(text or "")
+end
+g:drawBag({ pocket = Game3.POCKET_ITEMS, cursor = 1 })
+Game3.drawText = oldText
+local close, hint = false, false
+for i = 1, #texts do
+  if texts[i] == Game3.BAG_CLOSE then close = true end
+  if texts[i] == "the battle." then hint = true end
+end
+check(close, "pack list draws CLOSE BAG")
+check(hint, "CLOSE BAG says Return to the battle")
+local drawn = false
+local oldBag = Game3.drawBag
+local oldBg = Game3.drawBattleBackground
+local oldPic = Game3.drawBattlePic
+local oldBox = Game3.drawHealthbox
+function Game3.drawBag(_, f)
+  drawn = f and f.pocket == Game3.POCKET_ITEMS
+end
+function Game3.drawBattleBackground() end
+function Game3.drawBattlePic() end
+function Game3.drawHealthbox() end
+g.battle.kind = "bag"
+g.battle.bagPocket = Game3.POCKET_ITEMS
+g:drawBattle()
+Game3.drawBag = oldBag
+Game3.drawBattleBackground = oldBg
+Game3.drawBattlePic = oldPic
+Game3.drawHealthbox = oldBox
+check(drawn, "battle BAG draws the pack screen")
+end)()
+
+;(function()
+eq(Game3.TRAINER_VICTOR, 292, "TRAINER_VICTOR")
+eq(Game3.TRAINER_VICTORIA, 299, "TRAINER_VICTORIA")
+eq(Game3.TRAINER_VIVI, 606, "TRAINER_VIVI")
+eq(Game3.TRAINER_VICKY, 312, "TRAINER_VICKY")
+eq(Game3.FLAG_HIDE_VICTOR_WINSTRATE, 0x300, "FLAG_HIDE_VICTOR_WINSTRATE")
+eq(Game3.FLAG_REGI_DOORS_OPENED, 0xE4, "FLAG_REGI_DOORS_OPENED")
+eq(Game3.MT_GENERAL_ROCK_WALL_SAND_BASE, 0x091, "RockWall_SandBase")
+
+local g = Game3.new()
+g.phase = "play"
+g.data.pokemon = {
+  byIndex = {
+    [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10 },
+  },
+}
+g.data.trainers = { byId = {
+  [Game3.TRAINER_VICTOR] = {
+    name = "VICTOR", className = "WINSTRATE",
+    party = { { species = 280, level = 16 } },
+  },
+  [Game3.TRAINER_VICTORIA] = {
+    name = "VICTORIA", className = "WINSTRATE",
+    party = { { species = 280, level = 17 } },
+  },
+} }
+g.party = { g:makeMon(280, 20) }
+g.map = {
+  id = "g0_22", width = 2, height = 2, grid = { 0, 0, 0, 0 },
+  objects = {
+    { localId = 1, x = 0, y = 1, graphicsId = 1,
+      flagId = Game3.FLAG_HIDE_VICTOR_WINSTRATE },
+    { localId = 2, x = 0, y = 0, graphicsId = 2,
+      flagId = Game3.FLAG_HIDE_VICTORIA_WINSTRATE },
+  },
+}
+g:resetNpcs(g.map)
+g._scriptNpc = g:npcByLocalId(1)
+check(g:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_NO_INTRO,
+  trainerId = Game3.TRAINER_VICTOR,
+}), "Victor no-intro")
+eq(g.battle.enemy.level, 16, "Victor's party")
+g:markTrainerDefeated(g.battle.npc)
+g.phase = "play"
+g.battle = nil
+g:removeObject(1)
+check(g.flags[Game3.FLAG_HIDE_VICTOR_WINSTRATE], "removeobject sets hide")
+check(g:isNpcDefeated(g._scriptNpc), "Victor's hide flag looks defeated")
+check(g:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_NO_INTRO,
+  trainerId = Game3.TRAINER_VICTORIA,
+}), "Victoria still starts after Victor hides")
+eq(g.battle.enemy.level, 17, "Victoria's party, not Victor's")
+eq(g:trainerDefeated(Game3.TRAINER_VICTORIA), false,
+  "her trainer flag is still clear")
+
+-- LAYOUT_ROUTE111 (14,114) is General picket fence 0x149, collision 1,
+-- elevation 3. Bottom tiles are the same dirt as the path (metatile 1);
+-- LAYER_COVERED puts the posts on BG2. y=115 is the east-west walkway.
+local fence = 3 * 4096 + 1024 + 329
+local dirt = 3 * 4096 + 1
+local route = {
+  id = "g0_26", width = 4, height = 2,
+  tileset = "pair_2",
+  grid = {
+    dirt, fence, fence, dirt,
+    dirt, dirt, dirt, dirt,
+  },
+}
+eq(Game3.collisionOf(fence), 1, "Winstrate fence cell is solid")
+eq(Game3.metatileOf(fence), 329, "metatile 0x149")
+check(not Game3.walkable(route, 1, 0), "east of Victor's tile is the fence")
+check(Game3.walkable(route, 1, 1), "the dirt one tile south is the path")
+local field = Game3.new()
+field.data.tilesets = {
+  byId = { pair_2 = { layerType = { [329] = Game3.LAYER_COVERED } } },
+}
+eq(field:layerTypeAt(route, 1, 0), Game3.LAYER_COVERED,
+  "fence is LAYER_COVERED")
+end)()
+
+;(function()
+local g = Game3.new()
+g.data.pokemon = {
+  byIndex = {
+    [278] = {
+      name = "GROVYLE", hp = 50, atk = 65, def = 45, spe = 95,
+      spa = 85, spd = 65, type1 = 12, type2 = 12, growthRate = 3,
+      evolutions = { { method = 4, param = 36, target = 279 } },
+    },
+    [279] = {
+      name = "SCEPTILE", hp = 70, atk = 85, def = 65, spe = 120,
+      spa = 105, spd = 85, type1 = 12, type2 = 12, growthRate = 3,
+    },
+    [290] = {
+      name = "WURMPLE", hp = 45, atk = 45, def = 35, spe = 20,
+      spa = 20, spd = 30, type1 = 6, type2 = 6, growthRate = 0,
+      expYield = 54,
+    },
+    [288] = {
+      name = "ZIGZAGOON", hp = 38, atk = 30, def = 41, spe = 60,
+      spa = 30, spd = 41, type1 = 0, type2 = 0, growthRate = 0,
+      expYield = 60,
+    },
+  },
+}
+local grovyle = g:makeMon(278, 36)
+g.party = { grovyle }
+g.options.battleStyle = "set"
+local npc = {
+  trainerType = Game3.TRAINER_TYPE_NORMAL,
+  trainerRange = 1,
+  trainerName = "TEST",
+  trainerClass = "YOUNGSTER",
+  party = { { species = 290, level = 2 }, { species = 288, level = 3 } },
+}
+check(g:startTrainerBattle(npc), "two-mon trainer starts")
+eq(#g:tryEvolve(grovyle), 0, "level 36 queues Sceptile")
+eq(grovyle.species, 278, "still Grovyle during the fight")
+g.battle.enemy.hp = 0
+g.battle.kind = "text"
+g.battle.queue = { "WURMPLE fainted!" }
+g.battle.qi = 1
+g:advanceBattleText()
+check(g.battle.kind ~= "evolve", "first KO does not evolve")
+eq(grovyle.species, 278, "and the battler is still Grovyle")
+check(g.pendingEvo and g.pendingEvo[1], "the evo stays queued")
+g.battle.enemy.hp = 0
+g.battle.kind = "text"
+g.battle.queue = { "ZIGZAGOON fainted!" }
+g.battle.qi = 1
+g:advanceBattleText()
+eq(g.battle.kind, "won_trainer", "the last KO is the victory")
+g:confirmTrainerWin()
+eq(g.phase, "play", "then the field")
+eq(g.field and g.field.kind, "evolve", "EvolutionScene after a win")
+eq(grovyle.species, 278, "species still waits for the animation")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU, 274, "ShowGlassWorkshopMenu")
+eq(Game3.ITEM_BLUE_FLUTE, 39, "ITEM_BLUE_FLUTE")
+eq(Game3.ITEM_BLACK_FLUTE, 42, "ITEM_BLACK_FLUTE")
+eq(Game3.ITEM_WHITE_FLUTE, 43, "ITEM_WHITE_FLUTE")
+eq(Game3.DECOR_PRETTY_CHAIR, 13, "DECOR_PRETTY_CHAIR")
+eq(Game3.DECOR_PRETTY_DESK, 6, "DECOR_PRETTY_DESK")
+eq(Gen3Script.STD_OBTAIN_DECORATION, 7, "callstd 7")
+check(BattleData.collectSpecies({ byMap = {} }, nil, {})[360] == true,
+  "Wynaut pics are seeded for the Lavaridge egg")
+
+local g = Game3.new()
+eq(g:giveEgg(Game3.SPECIES_WYNAUT), 0, "giveegg into the party")
+eq(g.party[1].species, Game3.SPECIES_WYNAUT, "not remapped to Wobbuffet")
+
+g:runSpecial(Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU)
+check(g:scriptWaiting(), "LockPlayerFieldControls")
+eq(g.field.kind, "mauville_menu", "workshop menu")
+eq(#g.field.labels, 8, "five flutes, two decor, CANCEL")
+eq(g.field.labels[4], "WHITE FLUTE", "menu index 3 is White")
+eq(g.field.labels[5], "BLACK FLUTE", "menu index 4 is Black")
+eq(g.field.bPressed, Game3.MULTI_B_PRESSED, "B is 0x7F")
+g:pickMauvilleMenu(0)
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "A on BLUE FLUTE")
+eq(g:scriptWaiting(), false, "then waitstate continues")
+
+g:runSpecial(Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU)
+g:pickMauvilleMenu(Game3.MULTI_B_PRESSED)
+eq(g:varGet(Gen3Script.VAR_RESULT), 127, "B is MULTI_B_PRESSED")
+
+g:runSpecial(Game3.SPECIAL_SHOW_GLASS_WORKSHOP_MENU)
+g:pickMauvilleMenu(7)
+eq(g:varGet(Gen3Script.VAR_RESULT), 7, "A on CANCEL is 7")
+
+check(g:addDecoration(Game3.DECOR_PRETTY_CHAIR), "AddDecoration")
+eq(g.decorations[13], 1, "one pretty chair")
+g.scriptVars[0x8000] = Game3.DECOR_PRETTY_DESK
+Gen3Script.run(g, { { op = "callstd", id = Gen3Script.STD_OBTAIN_DECORATION } })
+eq(g.decorations[6], 1, "callstd 7 gives the desk")
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "RESULT TRUE")
+g.stringVars = {}
+Gen3Script.run(g, { { op = "bufferdecoration", slot = 0, id = 13 } })
+eq(g.stringVars[1], "PRETTY CHAIR", "bufferdecorationname")
+end)()
+
+;(function()
+-- Fallarbor Move Relearner: specials.inc 230/235 − 11.
+eq(Game3.SPECIAL_SELECT_MOVE_TUTOR_MON, 219, "SelectMoveTutorMon")
+eq(Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU, 224, "DisplayMoveTutorMenu")
+eq(Game3.MAX_MOVE_TUTOR_MOVES, 20, "MAX_MOVE_TUTOR_MOVES")
+eq(Game3.PARTY_MENU_CANCEL, 255, "party B is 0xFF")
+
+local g = Game3.new()
+g.data.pokemon = { byIndex = {
+  [277] = {
+    name = "TREECKO",
+    learnset = {
+      { move = 33, level = 1 },
+      { move = 45, level = 1 },
+      { move = 73, level = 7 },
+      { move = 75, level = 12 },
+      { move = 45, level = 1 },
+    },
+  },
+} }
+g.data.moves = { byId = {
+  [1] = { id = 1, name = "POUND", pp = 35 },
+  [33] = { id = 33, name = "TACKLE", pp = 35 },
+  [45] = { id = 45, name = "GROWL", pp = 40 },
+  [73] = { id = 73, name = "LEECH SEED", pp = 10 },
+  [75] = { id = 75, name = "RAZOR LEAF", pp = 25 },
+} }
+local treecko = g:makeMon(277, 10, { 33 })
+g.party = { treecko }
+local moves = g:getMoveTutorMoves(treecko)
+eq(#moves, 2, "Growl and Leech Seed; Razor Leaf is above level 10")
+eq(moves[1], 45, "Growl first")
+eq(moves[2], 73, "Leech Seed; duplicate Growl is skipped")
+
+local egg = g:makeMon(277, 10, { 33 })
+egg.isEgg = true
+eq(#g:getMoveTutorMoves(egg), 0, "sub_8040574 eggs are 0")
+
+g:runSpecial(Game3.SPECIAL_SELECT_MOVE_TUTOR_MON)
+check(g:scriptWaiting(), "SelectMoveTutorMon waitstate")
+eq(g.field.kind, "move_tutor_mon", "PARTY_MENU_TYPE_MOVE_TUTOR")
+g:pickMoveTutorMon(Game3.PARTY_MENU_CANCEL)
+eq(g:varGet(0x8004), 255, "B is 0xFF")
+eq(g:scriptWaiting(), false, "then the script continues")
+
+g:runSpecial(Game3.SPECIAL_SELECT_MOVE_TUTOR_MON)
+g:pickMoveTutorMon(0)
+eq(g:varGet(0x8004), 0, "A writes the 0-based slot")
+eq(g:varGet(0x8005), 2, "and 0x8005 is the relearn count")
+
+g:runSpecial(Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU)
+check(g:scriptWaiting(), "DisplayMoveTutorMenu waitstate")
+eq(g.field.kind, "move_tutor_list", "move list")
+eq(g.field.labels[1], "GROWL", "first relearnable")
+eq(g.field.labels[3], "EXIT", "EXIT is last")
+g:pickMoveTutorList(0)
+eq(g.field.kind, "tutor_confirm", "Teach this move?")
+g:answerTutorConfirm(true)
+eq(g:varGet(0x8004), 1, "GiveMoveToMon success is 1")
+eq(g:scriptWaiting(), false, "then waitstate continues")
+check(g:knowsMove(treecko, 45), "Growl was added")
+
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU)
+g:pickMoveTutorList(99)
+eq(g.field.kind, "tutor_giveup", "EXIT asks to give up")
+g:answerTutorGiveUp(true)
+eq(g:varGet(0x8004), 0, "give up is 0")
+eq(g:scriptWaiting(), false, "0 is valid, not a failed special")
+
+local full = g:makeMon(277, 16, { 33, 45, 73, 1 })
+g.party = { full }
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU)
+eq(g.field.labels[1], "RAZOR LEAF", "only the forgotten level-up move")
+g:pickMoveTutorList(0)
+g:answerTutorConfirm(true)
+eq(g.field.kind, "learn_forget", "four moves open the forget list")
+check(g.tutorWait, "tutorWait keeps 0x8004 unset until done")
+g:chooseLearnForget(4)
+eq(full.moves[4].id, 75, "Razor Leaf replaced Pound")
+g:finishLearnMessage()
+eq(g:varGet(0x8004), 1, "forget-and-teach is still 1")
+eq(g:scriptWaiting(), false, "and the Heart Scale script continues")
+
+local stuck = g:makeMon(277, 16, { 33, 45, 73, 1 })
+g.party = { stuck }
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_DISPLAY_MOVE_TUTOR_MENU)
+g:pickMoveTutorList(0)
+g:answerTutorConfirm(true)
+g:answerLearnStop(true)
+eq(g.field.kind, "move_tutor_list", "stop learning returns to the list")
+check(g:scriptWaiting(), "not 0x8004 = 0")
+eq(g:varGet(0x8004), 0, "0x8004 still the party index until EXIT")
+end)()
+
+;(function()
+eq(Game3.SPECIAL_SCRIPT_HATCH_MON, 193, "ScriptHatchMon")
+eq(Game3.SPECIAL_EGG_HATCH, 194, "EggHatch")
+eq(Game3.SPECIAL_FOUND_BLACK_GLASSES, 316, "FoundBlackGlasses")
+eq(Game3.FLAG_HIDDEN_ITEM_BLACK_GLASSES, 0x2B8, "FLAG_HIDDEN_ITEM_BLACK_GLASSES")
+eq(Game3.GAME_STAT_HATCHED_EGGS, 13, "GAME_STAT_HATCHED_EGGS")
+eq(Game3.GAME_STAT_RODE_CABLE_CAR, 48, "GAME_STAT_RODE_CABLE_CAR")
+check(BattleData.collectSpecies({ byMap = {} }, nil, {})[385] == true,
+  "Castform pics are seeded for the Institute gift")
+check(BattleData.collectSpecies({ byMap = {} }, nil, {})[388] == true,
+  "Lileep pics are seeded for the Root Fossil")
+check(BattleData.collectSpecies({ byMap = {} }, nil, {})[390] == true,
+  "Anorith pics are seeded for the Claw Fossil")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_FOUND_BLACK_GLASSES), 0, "not found is 0")
+g.flags[Game3.FLAG_HIDDEN_ITEM_BLACK_GLASSES] = true
+eq(g:runSpecial(Game3.SPECIAL_FOUND_BLACK_GLASSES), 1, "FlagGet after pickup")
+
+eq(Game3.MUS_EVOLUTION, 377, "MUS_EVOLUTION")
+eq(Game3.EGG_HATCH_SHAKE_FRAMES, 280, "SpriteCB_Egg_0..5 plus pal wait")
+local Input = require("src.core.Input")
+Input:init()
+g.phase = "play"
+local egg = g:giveEgg(Game3.SPECIES_WYNAUT)
+eq(egg, 0, "Wynaut egg in the party")
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_SCRIPT_HATCH_MON)
+eq(g.party[1].isEgg, nil, "ScriptHatchMon is AddHatchedMonToParty")
+eq(g:scriptWaiting(), false, "and does not wait")
+eq(g:getGameStat(Game3.GAME_STAT_HATCHED_EGGS), 0, "stat 13 is the TakeStep caller")
+
+g.party = {}
+g:giveEgg(Game3.SPECIES_WYNAUT)
+g.scriptVars[0x8004] = 0
+g:runSpecial(Game3.SPECIAL_EGG_HATCH)
+eq(g.party[1].isEgg, nil, "EggHatch clears IS_EGG")
+eq(g.party[1].name, g:speciesName(Game3.SPECIES_WYNAUT), "AddHatchedMonToParty nickname")
+eq(g.party[1].friendship, 120, "hatch friendship is 120")
+eq(g.party[1].metLevel, 0, "met level 0")
+eq(g:getGameStat(Game3.GAME_STAT_HATCHED_EGGS), 0, "cinema does not increment the stat")
+check(g:scriptWaiting(), "EggHatch is a waitstate")
+eq(g.field.kind, "egg_hatch", "shake stage")
+eq(g.field.left, Game3.EGG_HATCH_SHAKE_FRAMES, "wobble frames")
+g:walkHeld(Game3.EGG_HATCH_SHAKE_FRAMES / 60)
+eq(g.field.kind, "talk", "hatch line after the wobble")
+eq(g.field.text, ("%s hatched from the EGG!"):format(g.party[1].name),
+  "UnknownString hatch")
+local oldHatch = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+eq(g.field.kind, "egg_nick", "nickname YES/NO")
+Input.wasPressed = function(_, key) return key == "b" end
+g:stepField()
+Input.wasPressed = oldHatch
+eq(g.field, nil, "NO closes the cinema")
+check(not g:scriptWaiting(), "waitstate ends")
+
+g.party = { g:makeMon(Game3.SPECIES_WYNAUT, 5) }
+g.party[1].isEgg = true
+g.party[1].hatchLeft = 1
+g.eggCycleSteps = Game3.EGG_CYCLE_STEPS - 1
+g:tickEggCycles()
+eq(g.party[1].isEgg, true, "Huh? is before AddHatchedMonToParty")
+eq(g.field.text, "Huh?", "UnknownString_81B2C68")
+eq(g:varGet(0x8004), 0, "_ShouldEggHatch writes the slot")
+eq(g:getGameStat(Game3.GAME_STAT_HATCHED_EGGS), 1, "TakeStep increments stat 13")
+oldHatch = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = oldHatch
+eq(g.field.kind, "egg_hatch", "thenEggHatch runs EggHatch")
+eq(g.party[1].isEgg, nil, "hatched inside the cinema")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_SELECT_MOVE, 220, "SelectMove")
+eq(Game3.SPECIAL_DELETE_MON_MOVE, 221, "DeleteMonMove")
+eq(Game3.SPECIAL_GET_POKEMON_NICKNAME_AND_MOVE_NAME, 222,
+  "GetPokemonNicknameAndMoveName")
+eq(Game3.SPECIAL_COUNT_POKEMON_MOVES, 223, "CountPokemonMoves")
+eq(Game3.MOVE_DELETER_CANCEL, 4, "summary cancel is slot 4")
+check(Game3.isHmMove(Game3.MOVE_CUT), "Cut is an HM")
+
+local g = Game3.new()
+g.data.moves = { byId = {
+  [1] = { id = 1, name = "POUND", pp = 35 },
+  [15] = { id = 15, name = "CUT", pp = 30 },
+  [33] = { id = 33, name = "TACKLE", pp = 35 },
+  [45] = { id = 45, name = "GROWL", pp = 40 },
+} }
+g.party = { g:makeMon(277, 10, { 33, 45, 15, 1 }) }
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(Game3.SPECIAL_COUNT_POKEMON_MOVES), 4, "four moves")
+eq(g:varGet(Gen3Script.VAR_RESULT), 4, "RESULT is the count")
+
+g.party[1].moves = { g:copyMove(33) }
+eq(g:countPokemonMoves(), 1, "one move is the only-knows-one branch")
+
+g.party[1].moves = { g:copyMove(33), g:copyMove(15), g:copyMove(45) }
+g.scriptVars[0x8005] = 1
+g:runSpecial(Game3.SPECIAL_GET_POKEMON_NICKNAME_AND_MOVE_NAME)
+eq(g.stringVars[1], g.party[1].name, "STR_VAR_1 is the nickname")
+eq(g.stringVars[2], "CUT", "STR_VAR_2 is the move")
+
+g:runSpecial(Game3.SPECIAL_SELECT_MOVE)
+check(g:scriptWaiting(), "SelectMove pauses without a waitstate opcode")
+eq(g.field.kind, "move_deleter", "PSS_MODE_MOVE_DELETER")
+g:pickMoveDeleter(1)
+eq(g:varGet(0x8005), 1, "A writes the 0-based move")
+eq(g:scriptWaiting(), false, "then the script continues")
+g:runSpecial(Game3.SPECIAL_DELETE_MON_MOVE)
+eq(#g.party[1].moves, 2, "DeleteMonMove compacts")
+eq(g.party[1].moves[1].id, 33, "Tackle stayed")
+eq(g.party[1].moves[2].id, 45, "Growl slid down")
+check(not g:knowsMove(g.party[1], Game3.MOVE_CUT), "the deleter forgets HMs")
+
+g:runSpecial(Game3.SPECIAL_SELECT_MOVE)
+g:pickMoveDeleter(99)
+eq(g:varGet(0x8005), 4, "B is slot 4")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_SET_CONTEST_TRAINER_GFX_IDS, 83, "SetContestTrainerGfxIds")
+eq(Game3.SPECIAL_GET_FIRST_FREE_POKEBLOCK_SLOT, 160, "GetFirstFreePokeblockSlot")
+eq(Game3.SPECIAL_DO_BERRY_BLENDING, 161, "DoBerryBlending")
+eq(Game3.SPECIAL_FIELD_SHOW_REGION_MAP, 251, "FieldShowRegionMap")
+eq(Game3.SPECIAL_BEDROOM_PC, 249, "BedroomPC")
+eq(Game3.SPECIAL_PLAYER_PC, 250, "PlayerPC")
+eq(Game3.SPECIAL_SCRIPT_MENU_CREATE_PC_MULTICHOICE, 262, "CreatePCMultichoice")
+eq(Game3.SPECIAL_SHOW_BERRY_BLENDER_RECORD, 259, "ShowBerryBlenderRecordWindow")
+eq(Game3.SPECIAL_SHOW_POKEMON_STORAGE, 60, "ShowPokemonStorageSystem")
+eq(Game3.LOCALID_CONTESTANT_1, 3, "contestant 1 is local 3")
+eq(Gen3Script.SHOWCONTESTWINNER, 0x77, "showcontestwinner is 0x77")
+eq(Gen3Script.parse(string.char(0x77, 2, 0x02), 0)[1].op, "showcontestwinner",
+  "showcontestwinner is kept")
+eq(Gen3Script.parse(string.char(0x77, 2, 0x02), 0)[1].contestId, 2, "painting id")
+
+local g = Game3.new()
+g.phase = "play"
+g.data.pokemon = {
+  byIndex = {
+    [280] = {
+      name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10, catchRate = 45,
+      expYield = 65, growthRate = 3,
+    },
+  },
+}
+g.data.moves = {
+  byId = {
+    [52] = { id = 52, name = "EMBER", type = 10, power = 40, pp = 25 },
+  },
+}
+g.party = { g:makeMon(280, 5, { 52 }) }
+g.rng = function(max)
+  g._contestRng = (g._contestRng or 0) + 1
+  return (g._contestRng % (max or 65536)) + 1
+end
+g:setScriptVar(Game3.VAR_CONTEST_CATEGORY, Game3.CONTEST_CATEGORY_BEAUTY)
+g:setScriptVar(Game3.VAR_CONTEST_RANK, 1)
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(84), 0, "no Super Beauty ribbon is 0")
+g.party[1].ribbons = { beauty = 1 }
+eq(g:runSpecial(84), 1, "Normal ribbon qualifies for Super")
+check(g.contestMons[1].trainerName ~= "JIMMY", "Super pool is not Normal")
+g:runSpecial(83)
+eq(g:varGet(Game3.VAR_OBJ_GFX_ID_0), g.contestMons[1].trainerGfxId,
+  "VAR_OBJ_GFX_ID_0 is contestant 0")
+g:setScriptVar(0x8005, 0)
+g:runSpecial(78)
+eq(g:varGet(0x8004), 3, "NPC 0 is local 3")
+g:setScriptVar(0x8004, 0)
+g.party[1].ribbons = { beauty = 2 }
+eq(g:runSpecial(84), 2, "already won Super is 2")
+g.party[1].isEgg = true
+eq(g:runSpecial(84), 3, "egg is 3")
+g.party[1].isEgg = nil
+g.party[1].hp = 0
+eq(g:runSpecial(84), 4, "fainted is 4")
+g.party[1].hp = 45
+g.party[1].ribbons = nil
+g.contest = nil
+g.contestMons = nil
+
+check(g:beginContest(1, Game3.CONTEST_CATEGORY_BEAUTY, 0), "Beauty Normal")
+for _ = 1, 5 do g:applyContestTurn(1) end
+eq(g.field.kind, "contest_results", "five rounds")
+g.contest.done = true
+g.contest.finalStandings = { [0] = 1, [1] = 2, [2] = 3, [3] = 0 }
+g.contest.totalPoints = { [0] = 10, [1] = 20, [2] = 30, [3] = 400 }
+g:finishContest()
+eq(g.contest.won, true, "player won")
+g:runSpecial(76)
+eq(g:varGet(0x8005), 3, "player is contestant 3")
+g:runSpecial(79)
+eq(g.stringVars[3], g:playerName(), "winner trainer is the player")
+
+eq(g:getFirstFreePokeblockSlot(), 0, "case starts empty")
+g:addItem(Game3.ITEM_PECHA_BERRY, 1)
+eq(g:runSpecial(49), 1, "PlayerHasBerries is 1")
+g:setScriptVar(0x8004, 1)
+g:runSpecial(161)
+check(g:scriptWaiting(), "blender waits")
+eq(g.field.kind, "blender_berry", "berry pick")
+g:pickBlenderBerry(0)
+eq(g:scriptWaiting(), false, "blend returns")
+eq(g.pokeblocks[1].color, Game3.PBLOCK_CLR_PINK, "Pecha makes PINK")
+eq(g:getFirstFreePokeblockSlot(), 1, "slot 1 is free")
+eq(g:itemCount(Game3.ITEM_PECHA_BERRY), 0, "berry consumed")
+eq((g.gameStats and g.gameStats[33]) or 0, 1, "GAME_STAT_POKEBLOCKS")
+
+g.flags = { [0x80F] = true, [0x812] = true }
+g:openPokeNav()
+eq(g.field.lines[1], "LITTLEROOT TOWN", "visited towns list")
+eq(g.field.lines[2], "LAVARIDGE TOWN", "Lavaridge is on the map")
+g:runSpecial(251)
+check(g:scriptWaiting(), "region map waits")
+eq(g.field.kind, "pokenav", "FieldShowRegionMap")
+eq(g.field.scripted, true, "scripted map")
+
+g.field = nil
+g.scriptWait = nil
+g:runSpecial(262)
+eq(g.field.labels[1], "SOMEONE'S PC", "Lanette flag off")
+eq(g.field.labels[3], "LOG OFF", "no HoF yet")
+g.flags[Game3.FLAG_SYS_PC_LANETTE] = true
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = true
+g.field = nil
+g.scriptWait = nil
+g:runSpecial(262)
+eq(g.field.labels[1], "LANETTE'S PC", "Lanette's PC")
+eq(g.field.labels[3], "HALL OF FAME", "HoF after game clear")
+g:pickMauvilleMenu(0)
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "storage is choice 0")
+
+g:runSpecial(249)
+eq(g.field.kind, "player_pc", "BedroomPC")
+eq(#g.field.labels, 4, "item/mail/deco/off")
+g:pickPlayerPc(3)
+eq(g:scriptWaiting(), false, "Turn Off ends wait")
+
+local full = g:pokeblockFromBerry(Game3.ITEM_CHERI_BERRY, 1)
+eq(full.color, Game3.PBLOCK_CLR_RED, "Cheri is RED")
+eq(g:pokeblockName(full), "RED POKeBLOCK", "color name")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local Input = require("src.core.Input")
+Input:init()
+eq(Game3.SPECIAL_DO_TV_SHOW, 63, "DoTVShow")
+eq(Game3.SPECIAL_DO_POKE_NEWS, 64, "DoPokeNews")
+eq(Game3.SPECIAL_0X44, 65, "special_0x44")
+eq(Game3.SPECIAL_GET_TV_SHOW_TYPE, 66, "GetTVShowType")
+eq(Game3.SPECIAL_GET_NON_MASS_OUTBREAK_TV_SHOW, 71, "GetNonMassOutbreak")
+eq(Game3.SPECIAL_GET_MOM_OR_DAD_TV, 74, "GetMomOrDad")
+eq(Game3.SPECIAL_RESET_TV_SHOW_STATE, 75, "ResetTVShowState")
+eq(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS, 175, "Gabby TV show")
+eq(Game3.FLAG_SYS_TV_START, 0x832, "FLAG_SYS_TV_START")
+eq(Game3.SPECIAL_GET_WEEK_COUNT, 256, "GetWeekCount")
+eq(Game3.SPECIAL_RETRIEVE_LOTTERY_NUMBER, 257, "RetrieveLotteryNumber")
+eq(Game3.SPECIAL_PICK_LOTTERY_CORNER_TICKET, 258, "PickLotteryCornerTicket")
+eq(Game3.SPECIAL_DO_LOTTERY_CORNER_COMPUTER_EFFECT, 217, "lotto cinema")
+eq(Game3.SPECIAL_END_LOTTERY_CORNER_COMPUTER_EFFECT, 218, "lotto cinema end")
+eq(Game3.SPECIAL_DO_PC_TURN_ON, 214, "DoPCTurnOnEffect")
+eq(Game3.SPECIAL_DO_PC_TURN_OFF, 215, "DoPCTurnOffEffect")
+eq(Game3.SPECIAL_BUFFER_LOTTO_TICKET_NUMBER, 337, "BufferLottoTicketNumber")
+eq(Game3.SPECIAL_CHECK_RELICANTH_WAILORD, 279, "CheckRelicanthWailord")
+eq(Game3.SPECIAL_DO_BRAILLE_WAIT, 280, "DoBrailleWait")
+eq(Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM1_KEY, 288, "ship room 1 key")
+eq(Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY, 299, "IsGrassTypeInParty")
+eq(Game3.SPECIAL_IS_POKERUS_IN_PARTY, 308, "IsPokerusInParty")
+eq(Game3.SPECIAL_SHAKE_CAMERA, 310, "ShakeCamera")
+eq(Game3.lotteryMatchingDigits(12345, 45), 2, "two matching digits")
+eq(Game3.lotteryMatchingDigits(12345, 12340), 0, "a mismatch stops")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_0X44), 255, "no queued show is 255")
+eq(g:runSpecial(Game3.SPECIAL_DO_POKE_NEWS), 0, "no news is 0")
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "DoPokeNews writes RESULT 0")
+eq(g:runSpecial(Game3.SPECIAL_GET_TV_SHOW_TYPE), 0, "empty kind is 0")
+g:setScriptVar(0x8004, 255)
+eq(g:runSpecial(Game3.SPECIAL_GET_NON_MASS_OUTBREAK_TV_SHOW), 255,
+  "255 stays 255")
+eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW), 1, "DoTVShow ends the loop")
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 0, "no Pokerus is 0")
+g.party = { g:makeMon(280, 5) }
+g.party[1].pokerus = 1
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 1, "Pokerus is 1")
+eq(g:runSpecial(Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY), 0, "Torchic is not Grass")
+g.data.pokemon = { byIndex = { [1] = { type1 = 12, type2 = 3 } } }
+g.party = { g:makeMon(1, 5) }
+eq(g:runSpecial(Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY), 1, "Bulbasaur is Grass")
+g.party[1].isEgg = true
+eq(g:runSpecial(Game3.SPECIAL_IS_GRASS_TYPE_IN_PARTY), 0, "eggs do not count")
+
+eq(g:runSpecial(Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM1_KEY), 0, "no key is 0")
+eq(g:varGet(0x8004), 0x277, "copies FLAG_HIDDEN_ITEM")
+g.flags[Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_1_KEY] = true
+eq(g:runSpecial(Game3.SPECIAL_FOUND_ABANDONED_SHIP_RM1_KEY), 1, "found is 1")
+
+eq(g:runSpecial(Game3.SPECIAL_CHECK_RELICANTH_WAILORD), 0, "wrong party is 0")
+g.party = {
+  g:makeMon(Game3.SPECIES_RELICANTH, 40),
+  g:makeMon(Game3.SPECIES_WAILORD, 40),
+}
+eq(g:runSpecial(Game3.SPECIAL_CHECK_RELICANTH_WAILORD), 1, "first/last match")
+g.party[2].isEgg = true
+eq(g:runSpecial(Game3.SPECIAL_CHECK_RELICANTH_WAILORD), 0, "SPECIES2 egg is EGG")
+
+eq(g:runSpecial(Game3.SPECIAL_GET_WEEK_COUNT), 0, "week 0 is valid")
+g.phase = "play"
+g:setScriptVar(0x8004, 1)
+g:setScriptVar(0x8005, 1)
+g:runSpecial(Game3.SPECIAL_SHAKE_CAMERA)
+check(g:scriptWaiting(), "ShakeCamera CreateTask")
+g:walkHeld((Game3.CAMERA_SHAKE_PERIOD * Game3.CAMERA_SHAKE_HITS) / 60)
+check(not g:scriptWaiting(), "8 pans then ScriptContext_Enable")
+eq(g.cameraPanX, 0, "pan restores")
+eq(g.cameraPanY, 0, "pan restores")
+
+g:setScriptVar(Gen3Script.VAR_RESULT, 12)
+g:runSpecial(Game3.SPECIAL_BUFFER_LOTTO_TICKET_NUMBER)
+eq(g.stringVars[1], "00012", "lotto pads to 5 digits")
+
+g:setLotteryNumber(0x10000 + 12345)
+eq(g:runSpecial(Game3.SPECIAL_RETRIEVE_LOTTERY_NUMBER), 12345, "u16 ticket")
+g.party = { g:makeMon(280, 5) }
+g.party[1].otId = 45
+g.party[1].name = "TORCHIC"
+g:setScriptVar(Gen3Script.VAR_RESULT, 12345)
+g:pickLotteryCornerTicket()
+eq(g:varGet(0x8004), 1, "two digits is rank 1")
+eq(g:varGet(0x8005), Game3.ITEM_PP_UP, "PP Up")
+eq(g:varGet(0x8006), 0, "party")
+eq(g.stringVars[1], "TORCHIC", "nick")
+
+g:setScriptVar(Gen3Script.VAR_RESULT, 11111)
+g.party[1].otId = 22222
+g:pickLotteryCornerTicket()
+eq(g:varGet(0x8004), 0, "no match is 0")
+end)()
+
+;(function()
+local g = Game3.new()
+g.map = { id = "g1_0" }
+g:getMomOrDadStringForTVMessage()
+eq(g.stringVars[1], "MOM", "Brendan 1F is MOM")
+eq(g:varGet(Game3.VAR_TEMP_0 + 3), 1, "VAR_TEMP_3 is 1")
+
+g = Game3.new()
+g.map = { id = "g0_10" }
+g:setScriptVar(Game3.VAR_TEMP_0 + 3, 2)
+g:getMomOrDadStringForTVMessage()
+eq(g.stringVars[1], "DAD", "TEMP_3 2 is DAD")
+
+g = Game3.new()
+g:ensureGabbyAndTy()
+g.gabbyAndTy.valA_4 = 1
+g.gabbyAndTy.battleNum = 1
+g.gabbyAndTy.valA_0 = 0
+g:runSpecial(Game3.SPECIAL_RESET_TV_SHOW_STATE)
+eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 0")
+check(g._scriptSays[1]:find("IN SEARCH OF TRAINERS", 1, true) ~= nil, "intro")
+eq(g.stringVars[1], "this area", "unknown section")
+eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 2")
+eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 4")
+eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 1, "last page")
+eq(g.gabbyAndTy.valA_4, 0, "taken off the air")
+
+g = Game3.new()
+g:ensureGabbyAndTy()
+g.gabbyAndTy.valA_4 = 1
+g.flags[Game3.FLAG_SYS_TV_START] = true
+g:updateTVScreensOnMap()
+eq(g.flags[Game3.FLAG_SYS_TV_WATCH], nil, "airing Gabby clears WATCH")
+
+g = Game3.new()
+g:updateTVScreensOnMap()
+eq(g.flags[Game3.FLAG_SYS_TV_WATCH], true, "no show keeps WATCH")
+
+g = Game3.new()
+g.phase = "play"
+g.map = {
+  id = "tvmap", width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  behavior = { 0, 0, 0, 0, Game3.MB_TELEVISION, 0, 0, 0, 0 },
+}
+g.flags[Game3.FLAG_SYS_TV_START] = true
+g:ensureGabbyAndTy().valA_4 = 1
+g:updateTVScreensOnMap()
+eq(g:mapGridGetMetatileId(1 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_BUILDING_TV_ON, "airing Gabby turns TVs on")
+g:runSpecial(Game3.SPECIAL_TURN_OFF_TV_SCREEN)
+eq(g.tvOn, false, "TurnOffTVScreen still clears tvOn")
+eq(g:mapGridGetMetatileId(1 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_BUILDING_TV_OFF, "and snaps TV_Off")
+
+g.map.id = "g13_0"
+g.map.group, g.map.index = 13, 0
+g.flags[Game3.FLAG_SYS_TV_START] = nil
+g.map.grid[5] = 0
+g:updateTVScreensOnMap()
+eq(g:mapGridGetMetatileId(1 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_BUILDING_TV_ON, "Cove Lily motel TVs stay on")
+
+g.map = { id = "g24_0", width = 12, height = 24, grid = {} }
+for i = 1, 12 * 24 do g.map.grid[i] = 0 end
+g.phase = "play"
+g:runSpecial(Game3.SPECIAL_DO_BRAILLE_WAIT)
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "wait does not open yet")
+check(g:scriptWaiting(), "DoBrailleWait CreateTask")
+g:walkHeld(Game3.BRAILLE_WAIT_FRAMES / 60)
+check(g:scriptWaiting(), "timeout still has 30 frames")
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "not open during clear")
+g:walkHeld(Game3.BRAILLE_WAIT_CLEAR_FRAMES / 60)
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], true, "S_OpenRegiceChamber")
+eq(g:scriptWaiting(), false, "timeout Enables")
+eq(g.map.grid[20 * 12 + 8 + 1], 0x233, "bottom mid is walkable")
+
+g = Game3.new()
+g.phase = "play"
+g.map = { id = "g24_0", width = 12, height = 24, grid = {} }
+for i = 1, 12 * 24 do g.map.grid[i] = 0 end
+g.flags[Game3.FLAG_SYS_BRAILLE_WAIT] = true
+g:runSpecial(Game3.SPECIAL_DO_BRAILLE_WAIT)
+eq(g:scriptWaiting(), false, "flag set skips the task")
+
+g = Game3.new()
+g.phase = "play"
+g.map = { id = "g24_0", width = 12, height = 24, grid = {} }
+for i = 1, 12 * 24 do g.map.grid[i] = 0 end
+g:runSpecial(Game3.SPECIAL_DO_BRAILLE_WAIT)
+local oldBraille = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:walkHeld(1 / 60)
+check(g:scriptWaiting(), "first JOY_NEW only erases")
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "first press does not open")
+g:walkHeld(1 / 60)
+eq(g:scriptWaiting(), false, "second JOY_NEW cancels")
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "cancel does not open")
+Input.wasPressed = oldBraille
+
+g = Game3.new()
+g.phase = "play"
+g.map = { id = "g13_0", width = 20, height = 12, grid = {} }
+for i = 1, 20 * 12 do g.map.grid[i] = 0 end
+g:runSpecial(Game3.SPECIAL_DO_LOTTERY_CORNER_COMPUTER_EFFECT)
+eq(g:scriptWaiting(), false, "lottery does not wait")
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  0, "first toggle is at frame 7")
+g:walkHeld((Game3.LOTTERY_BLINK_PERIOD - 1) / 60)
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  0, "still idle before 7")
+g:walkHeld(1 / 60)
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  Game3.MT_SHOP_LAPTOP1_FLASH, "first blink is Flash")
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX,
+  Game3.LOTTERY_LAPTOP_GY + 1), Game3.MT_SHOP_LAPTOP2_FLASH, "Laptop2 Flash")
+g:walkHeld(Game3.LOTTERY_BLINK_PERIOD / 60)
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  Game3.MT_SHOP_LAPTOP1_NORMAL, "second blink is Normal")
+g:walkHeld((Game3.LOTTERY_BLINK_PERIOD * 3) / 60)
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  Game3.MT_SHOP_LAPTOP1_FLASH, "5th blink leaves Flash")
+g:runSpecial(Game3.SPECIAL_END_LOTTERY_CORNER_COMPUTER_EFFECT)
+eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
+  Game3.MT_SHOP_LAPTOP1_NORMAL, "EndLottery snaps Normal")
+eq(g.lotteryLaptop, nil, "task is gone")
+
+g = Game3.new()
+g.phase = "play"
+g.map = { id = "pc", width = 12, height = 10, grid = {} }
+for i = 1, 12 * 10 do g.map.grid[i] = 0 end
+g.playerX, g.playerY = 5, 5
+g.facing = "north"
+g:setScriptVar(0x8004, 0)
+local pcGx = 5 + Game3.MAP_OFFSET
+local pcGy = 4 + Game3.MAP_OFFSET
+g:runSpecial(Game3.SPECIAL_DO_PC_TURN_ON)
+eq(g:scriptWaiting(), false, "PC on does not wait")
+eq(g:mapGridGetMetatileId(pcGx, pcGy), 0, "PC first toggle is at frame 7")
+g:walkHeld((Game3.LOTTERY_BLINK_PERIOD - 1) / 60)
+eq(g:mapGridGetMetatileId(pcGx, pcGy), 0, "PC still idle before 7")
+g:walkHeld(1 / 60)
+eq(g:mapGridGetMetatileId(pcGx, pcGy), Game3.MT_BUILDING_PC_ON,
+  "first PC blink is On")
+g:walkHeld(Game3.LOTTERY_BLINK_PERIOD / 60)
+eq(g:mapGridGetMetatileId(pcGx, pcGy), Game3.MT_BUILDING_PC_OFF,
+  "second PC blink is Off")
+g:runSpecial(Game3.SPECIAL_DO_PC_TURN_OFF)
+eq(g:mapGridGetMetatileId(pcGx, pcGy), Game3.MT_BUILDING_PC_OFF,
+  "Turn Off snaps Off")
+eq(g.pcBlink, nil, "PC task is gone")
+g:setScriptVar(0x8004, 1)
+g.facing = "west"
+g:runSpecial(Game3.SPECIAL_DO_PC_TURN_OFF)
+eq(g:mapGridGetMetatileId(4 + Game3.MAP_OFFSET, 4 + Game3.MAP_OFFSET),
+  Game3.MT_BRENDAN_PC_OFF, "west Brendan PC Off")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_GET_TRAINER_BATTLE_MODE, 51, "GetTrainerBattleMode")
+eq(Game3.SPECIAL_SHOW_TRAINER_INTRO_SPEECH, 52, "ShowTrainerIntroSpeech")
+eq(Game3.SPECIAL_SHOW_TRAINER_NON_BATTLING_SPEECH, 53, "NonBattling")
+eq(Game3.SPECIAL_GET_TRAINER_FLAG, 54, "GetTrainerFlag")
+eq(Game3.SPECIAL_END_TRAINER_APPROACH, 55, "EndTrainerApproach")
+eq(Game3.SPECIAL_PLAY_TRAINER_ENCOUNTER_MUSIC, 56, "PlayTrainerEncounterMusic")
+eq(Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE, 61, "HasEnoughMons")
+eq(Game3.SPECIAL_INTERVIEW_BEFORE, 67, "InterviewBefore")
+eq(Game3.SPECIAL_LEAD_MON_NICKNAMED, 69, "LeadMonNicknamed")
+eq(Game3.SPECIAL_SET_CONTEST_CATEGORY_STRING_VAR_FOR_INTERVIEW, 70,
+  "SetContestCategory")
+eq(Game3.SPECIAL_TV_IS_SCRIPT_SHOW_KIND_ALREADY_IN_QUEUE, 72, "TV queue")
+eq(Game3.SPECIAL_SAVE_GAME, 93, "SaveGame")
+eq(Game3.SPECIAL_COUNT_ALIVE_PARTY_MONS_EXCEPT_SELECTED_ONE, 133, "CountAlive")
+eq(Game3.SPECIAL_EXECUTE_WHITE_OUT, 199, "ExecuteWhiteOut")
+eq(Game3.SPECIAL_SP0C8_WHITEOUT_MAYBE, 200, "sp0C8")
+eq(Game3.SPECIAL_SET_UP_TRAINER_MOVEMENT, 314, "SetUpTrainerMovement")
+eq(Game3.SPECIAL_SCRIPT_GET_MULTIPLAYER_ID, 326, "ScriptGetMultiplayerId")
+eq(Game3.SPECIAL_SCRIPT_RANDOM, 340, "ScriptRandom")
+eq(Game3.VAR_POISON_STEP_COUNTER, 0x402B, "VAR_POISON_STEP_COUNTER")
+eq(Game3.VAR_LAVARIDGE_RIVAL_STATE, 0x4053, "VAR_LAVARIDGE_RIVAL_STATE")
+eq(Game3.FLAG_RECEIVED_GO_GOGGLES, 0xDD, "FLAG_RECEIVED_GO_GOGGLES")
+eq(Game3.FLAG_DEFEATED_LAVARIDGE_GYM, 0x4BD, "FLAG_DEFEATED_LAVARIDGE_GYM")
+eq(Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1, 0x3A1, "FLAG_HIDE_RIVAL_LAVARIDGE_1")
+eq(Game3.SAVE_SUCCESS, 1, "SAVE_SUCCESS")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_GET_TRAINER_BATTLE_MODE), 0, "SINGLE is 0")
+eq(g:runSpecial(Game3.SPECIAL_GET_TRAINER_FLAG), 0, "no opponent is 0")
+eq(g:runSpecial(Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE),
+  Game3.PLAYER_HAS_ONE_USABLE_MON, "empty party")
+g.party = { g:makeMon(280, 5) }
+eq(g:runSpecial(Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE),
+  Game3.PLAYER_HAS_ONE_MON, "one slot")
+g.party[2] = g:makeMon(277, 5)
+eq(g:runSpecial(Game3.SPECIAL_HAS_ENOUGH_MONS_FOR_DOUBLE_BATTLE),
+  Game3.PLAYER_HAS_TWO_USABLE_MONS, "two usable is 0")
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(Game3.SPECIAL_COUNT_ALIVE_PARTY_MONS_EXCEPT_SELECTED_ONE),
+  1, "skip slot 0")
+eq(g:runSpecial(Game3.SPECIAL_LEAD_MON_NICKNAMED), 0, "default nick")
+g.party[1].name = "BOB"
+eq(g:runSpecial(Game3.SPECIAL_LEAD_MON_NICKNAMED), 1, "nicknamed")
+eq(g:runSpecial(Game3.SPECIAL_INTERVIEW_BEFORE), 0, "can interview")
+eq(g:runSpecial(Game3.SPECIAL_TV_IS_SCRIPT_SHOW_KIND_ALREADY_IN_QUEUE),
+  0, "empty queue")
+g:runSpecial(Game3.SPECIAL_SET_CONTEST_CATEGORY_STRING_VAR_FOR_INTERVIEW)
+eq(g.stringVars[2], "COOL", "STR_VAR_2 is COOL")
+eq(g:runSpecial(Game3.SPECIAL_SCRIPT_GET_MULTIPLAYER_ID), 4, "not link")
+g.phase = "play"
+g:runSpecial(Game3.SPECIAL_END_TRAINER_APPROACH)
+eq(g:scriptWaiting(), true, "EndTrainerApproach CreateTask")
+g:walkHeld(Game3.END_APPROACH_FRAMES / 60)
+eq(g:scriptWaiting(), false, "Task_DestroyTrainerApproachTask next vblank")
+g.trainerBattleMode = Game3.TRAINER_BATTLE_DOUBLE
+eq(g:runSpecial(Game3.SPECIAL_GET_TRAINER_BATTLE_MODE), 4, "DOUBLE")
+g.trainerBattleOpponent = 265
+g:setTrainerDefeated(265)
+eq(g:runSpecial(Game3.SPECIAL_GET_TRAINER_FLAG), 1, "Roxanne beaten")
+g._scriptSays = {}
+g.trainerIntroSpeech = "Want to battle?"
+g:runSpecial(Game3.SPECIAL_SHOW_TRAINER_INTRO_SPEECH)
+eq(g._scriptSays[1], "Want to battle?", "intro speech")
+g.rng = function() return 8 end
+g:setScriptVar(Gen3Script.VAR_RESULT, 10)
+eq(g:runSpecial(Game3.SPECIAL_SCRIPT_RANDOM), 7, "random % RESULT")
+g.phase = "play"
+g._saveFs = { write = function() return true end }
+eq(g:runSpecial(Game3.SPECIAL_SAVE_GAME), 1, "SAVE_SUCCESS")
+eq(g:scriptWaiting(), false, "SaveGame does not wait")
+g.phase = "battle"
+eq(g:runSpecial(Game3.SPECIAL_SAVE_GAME), 0, "cannot save in battle")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local g = Game3.new()
+g.phase = "play"
+g.party = { g:makeMon(280, 5) }
+g.party[1].hp = 2
+g.party[1].status = Game3.STATUS_PSN
+g.party[1].friendship = 70
+for _ = 1, 3 do g:tickWalkCounters() end
+eq(g.party[1].hp, 2, "poison waits four steps")
+g:tickWalkCounters()
+eq(g.party[1].hp, 1, "fourth step deals 1")
+eq(g:varGet(Game3.VAR_POISON_STEP_COUNTER), 0, "counter wraps")
+g.map = { id = "g_base", mapType = Game3.MAP_TYPE_SECRET_BASE }
+g:tickWalkCounters()
+g:tickWalkCounters()
+g:tickWalkCounters()
+g:tickWalkCounters()
+eq(g.party[1].hp, 1, "secret bases skip poison")
+g.map = { id = "g0_16", mapType = Game3.MAP_TYPE_ROUTE }
+g.party[2] = g:makeMon(277, 5)
+for _ = 1, 4 do g:tickWalkCounters() end
+eq(g.party[1].hp, 0, "eighth step faints")
+eq(g.party[1].status, nil, "FaintFromFieldPoison clears status")
+eq(g.party[1].friendship, 65, "FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE")
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "a healthy mon remains")
+check(g.field and g.field.text:find("fainted", 1, true) ~= nil, "faint text")
+eq(g.field.thenWhiteout, nil, "no whiteout while one lives")
+
+g = Game3.new()
+g.phase = "play"
+g.party = { g:makeMon(280, 5) }
+g.party[1].hp = 1
+g.party[1].status = Game3.STATUS_PSN
+for _ = 1, 4 do g:tickWalkCounters() end
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "all fainted")
+check(g.field.thenWhiteout, "thenWhiteout after last faint")
+check(g.field.queue[#g.field.queue]:find("whited out", 1, true) ~= nil,
+  "whiteout line")
+
+g = Game3.new()
+g.phase = "play"
+g.money = 3000
+g.flags[Game3.FLAG_DEFEATED_ELITE_4_SIDNEY] = true
+g.flags[Game3.FLAG_SYS_USE_STRENGTH] = true
+g.flags[Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1] = true
+g.flags[Game3.FLAG_DEFEATED_LAVARIDGE_GYM] = true
+g:setScriptVar(Game3.VAR_BRINEY_LOCATION, 1)
+g:setScriptVar(Game3.VAR_ELITE_4_STATE, 3)
+g.flags[Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE] = true
+g:blackout()
+eq(g.money, 1500, "DoWhiteOut halves money")
+eq(g.flags[Game3.FLAG_DEFEATED_ELITE_4_SIDNEY], nil, "ResetEliteFour")
+eq(g:varGet(Game3.VAR_ELITE_4_STATE), 0, "E4 state 0")
+eq(g.flags[Game3.FLAG_SYS_USE_STRENGTH], nil, "FlagClear STRENGTH")
+eq(g.flags[Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1], nil, "rival returns")
+eq(g:varGet(Game3.VAR_LAVARIDGE_RIVAL_STATE), 2, "goggles state 2")
+eq(g.flags[Game3.FLAG_HIDE_MR_BRINEY_ROUTE104_HOUSE], nil, "Briney house")
+eq(g.flags[Game3.FLAG_HIDE_MR_BRINEY_DEWFORD_TOWN], true, "Briney not Dewford")
+
+g = Game3.new()
+g.phase = "play"
+g.flags[Game3.FLAG_DEFEATED_LAVARIDGE_GYM] = true
+g.flags[Game3.FLAG_RECEIVED_GO_GOGGLES] = true
+g.flags[Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1] = true
+g:blackout()
+eq(g.flags[Game3.FLAG_HIDE_RIVAL_LAVARIDGE_1], true, "goggles already got")
+
+g = Game3.new()
+g.phase = "play"
+g.money = 400
+g.field = { kind = "talk", text = "x", thenWhiteout = true }
+eq(g:runSpecial(Game3.SPECIAL_SP0C8_WHITEOUT_MAYBE), 0, "sp0C8 defers")
+eq(g.money, 400, "does not blackout while talking")
+g.field = nil
+g:runSpecial(Game3.SPECIAL_SP0C8_WHITEOUT_MAYBE)
+eq(g.money, 200, "sp0C8 DoWhiteOut")
+end)()
+
+;(function()
+eq(#Game3.TRAINER_EYE_TRAINERS, 56, "56 trainer-eye rows")
+eq(Game3.TRAINER_EYE_TRAINERS[30][1][1], Game3.TRAINER_CALVIN_1,
+  "Calvin_1 is row 30")
+eq(Game3.TRAINER_EYE_TRAINERS[30][3], 17, "on Route 102")
+eq(Game3.TRAINER_EYE_TRAINERS[9][1][2], 120, "Cindy skips Cindy_2")
+eq(Game3.SPECIAL_START_REMATCH_BATTLE, 59, "StartRematchBattle")
+eq(Game3.TRAINER_REMATCH_STEPS, 255, "255 steps")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_SHOULD_TRY_REMATCH), 0, "ShouldTry 0")
+eq(g:runSpecial(Game3.SPECIAL_IS_TRAINER_READY_REMATCH), 0, "Ready 0")
+g.party = { g:makeMon(280, 5) }
+g.data.trainers = {
+  byId = {
+    [Game3.TRAINER_CALVIN_1] = {
+      name = "CALVIN", className = "YOUNGSTER",
+      party = { { species = 286, level = 5 } },
+    },
+    [Game3.TRAINER_CALVIN_2] = {
+      name = "CALVIN", className = "YOUNGSTER",
+      party = { { species = 288, level = 10 } },
+    },
+  },
+}
+for i = 1, 4 do
+  g.flags[Game3.FLAG_BADGE01_GET + i - 1] = true
+end
+g:tickWalkCounters()
+eq(tonumber(g.trainerRematchStepCounter) or 0, 0, "four badges skip")
+g.flags[Game3.FLAG_BADGE05_GET] = true
+g:tickWalkCounters()
+eq(g.trainerRematchStepCounter, 1, "fifth badge increments")
+g:setTrainerDefeated(Game3.TRAINER_CALVIN_1)
+g.trainerRematchStepCounter = 255
+g.map = { id = "g0_17", group = 0, index = 17 }
+g.rng = function() return 1 end
+g:tryUpdateRandomTrainerRematches()
+eq(g:trainerEyeRematchValue(30), 1, "31 percent sets Calvin")
+eq(g.trainerRematchStepCounter, 0, "and resets the counter")
+g.trainerBattleOpponent = Game3.TRAINER_CALVIN_1
+eq(g:runSpecial(Game3.SPECIAL_SHOULD_TRY_REMATCH), 1, "ShouldTry flagged")
+eq(g:runSpecial(Game3.SPECIAL_IS_TRAINER_READY_REMATCH), 1, "Ready flagged")
+g.rng = function() return 32 end
+g.trainerRematchStepCounter = 255
+g:ensureTrainerRematches()[30] = 0
+g:tryUpdateRandomTrainerRematches()
+eq(g:trainerEyeRematchValue(30), 0, "roll 31 does not set")
+eq(g.trainerRematchStepCounter, 255, "failed roll keeps 255")
+g:ensureTrainerRematches()[30] = 1
+check(g:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_REMATCH,
+  trainerId = Game3.TRAINER_CALVIN_1,
+}), "rematch starts")
+eq(g.trainerBattleOpponent, Game3.TRAINER_CALVIN_2, "opponent is CALVIN_2")
+eq(g.battle.trainerParty[1].species, 288, "CALVIN_2 party")
+eq(g.battle.npc.trainerId, Game3.TRAINER_CALVIN_2, "battler id")
+check(g.battle.eyeRematch, "eye rematch")
+g.battle.queue = nil
+g:confirmTrainerWin()
+eq(g:trainerDefeated(Game3.TRAINER_CALVIN_2), true, "CALVIN_2 flagged")
+eq(g:trainerEyeRematchValue(30), 0, "rematch flag cleared")
+eq(g:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_REMATCH,
+  trainerId = Game3.TRAINER_CALVIN_1,
+}), false, "no rematch without flag")
+g.trainerBattleOpponent = Game3.TRAINER_CALVIN_1
+eq(g:runSpecial(Game3.SPECIAL_SHOULD_TRY_REMATCH), 1, "WasSecondRematchWon")
+eq(g:getRematchTrainerId(114), 120, "Cindy_3 not Cindy_2")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_IS_ENIGMA_BERRY_VALID, 50, "IsEnigmaBerryValid")
+eq(Game3.SPECIAL_GET_SHROOMISH_SIZE_RECORD, 119, "GetShroomishSizeRecordInfo")
+eq(Game3.SPECIAL_COMPARE_SHROOMISH_SIZE, 120, "CompareShroomishSize")
+eq(Game3.SPECIAL_GET_BARBOACH_SIZE_RECORD, 121, "GetBarboachSizeRecordInfo")
+eq(Game3.SPECIAL_COMPARE_BARBOACH_SIZE, 122, "CompareBarboachSize")
+eq(Game3.SPECIAL_SHOULD_MOVE_LILYCOVE_FAN_CLUB_MEMBER, 163, "ShouldMove")
+eq(Game3.SPECIAL_GET_NUM_MOVED_LILYCOVE_FAN_CLUB_MEMBERS, 164, "GetNumMoved")
+eq(Game3.SPECIAL_BUFFER_STREAK_TRAINER_TEXT, 165, "BufferStreakTrainerText")
+eq(Game3.SPECIAL_SUB_810FA74, 166, "sub_810FA74")
+eq(Game3.SPECIAL_UPDATE_MOVED_LILYCOVE_FAN_CLUB_MEMBERS, 167, "UpdateMoved")
+eq(Game3.SPECIAL_SUB_810FF48, 168, "sub_810FF48")
+eq(Game3.SPECIAL_SUB_810FF60, 170, "sub_810FF60")
+eq(Game3.SPECIAL_SHOW_DIPLOMA, 264, "ShowDiploma")
+eq(Game3.SPECIAL_START_SOUTHERN_ISLAND_BATTLE, 323, "Southern Island")
+eq(Game3.SPECIAL_SET_PACIFIDLOG_TM_RECEIVED_DAY, 333, "SetPacifidlogTM")
+eq(Game3.SPECIAL_GET_DAYS_UNTIL_PACIFIDLOG_TM, 334, "GetDaysUntilPacifidlog")
+eq(Game3.SPECIAL_GET_NAME_OF_ENIGMA_BERRY_IN_PARTY, 339, "Enigma name")
+eq(Game3.formatMonSizeRecord(Game3.getMonSize(306, 0x8100)), "15.7",
+  "Marco Shroomish is 15.7 in")
+
+local g = Game3.new()
+eq(g:runSpecial(Game3.SPECIAL_IS_ENIGMA_BERRY_VALID), 0, "no e-reader")
+eq(g:runSpecial(Game3.SPECIAL_GET_NAME_OF_ENIGMA_BERRY_IN_PARTY), 0,
+  "no Enigma is 0")
+g.party = { g:makeMon(280, 5) }
+g.party[1].item = Game3.ITEM_ENIGMA_BERRY
+eq(g:runSpecial(Game3.SPECIAL_GET_NAME_OF_ENIGMA_BERRY_IN_PARTY), 1,
+  "held Enigma is 1")
+eq(g.stringVars[1], "ENIGMA", "STR_VAR_1 is the berry name")
+
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 0, "unset byte is 0")
+g.party[1].pokerus = 0x10
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 0, "cured 0x10 is 0")
+g.party[1].pokerus = 0x41
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 1, "active strain is 1")
+
+g.party = { g:makeMon(280, 5), g:makeMon(280, 5) }
+local n = 0
+g.rng = function()
+  n = n + 1
+  if n == 1 then return 0x4001 end
+  if n == 2 then return 1 end
+  if n == 3 then return 5 end
+  return 1
+end
+check(g:randomlyGivePartyPokerus(), "0x4000 infects")
+eq(g.party[1].pokerus, 0x41, "rnd2 4 becomes 0x41")
+g.rng = function() return 1 end
+g.party[2].pokerus = 0
+g:partySpreadPokerus()
+eq(g.party[2].pokerus, 0x41, "adjacent spread")
+
+g.flags[Game3.FLAG_SYS_CLOCK_SET] = true
+g:setScriptVar(Game3.VAR_DAYS, 0)
+g.clockHour, g.clockMinute = 0, 0
+g.clockAnchor = os.time() - 2 * 24 * 3600
+g.party[1].pokerus = 0x45
+g:doTimeBasedEvents()
+eq(g.party[1].pokerus, 0x43, "two days tick the low nibble")
+g:setScriptVar(Game3.VAR_DAYS, 0)
+g.clockAnchor = os.time() - 5 * 24 * 3600
+g.party[1].pokerus = 0x45
+g:doTimeBasedEvents()
+eq(g.party[1].pokerus, 0x40, "days > 4 leave the strain")
+eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 0, "cured is not in party")
+
+g.phase = "battle"
+g.battle = { enemy = g:makeMon(263, 2) }
+g.party[1].pokerus = 0x41
+g.party[2].pokerus = 0
+g.rng = function() return 1 end
+g:endBattle()
+eq(g.party[2].pokerus, 0x41, "ReturnFromBattle spreads")
+
+g:setScriptVar(Gen3Script.VAR_RESULT, 0xFF)
+eq(g:runSpecial(Game3.SPECIAL_COMPARE_SHROOMISH_SIZE), 0, "0xFF is 0")
+g:setScriptVar(Gen3Script.VAR_RESULT, 0)
+g.party = { g:makeMon(280, 5) }
+eq(g:runSpecial(Game3.SPECIAL_COMPARE_SHROOMISH_SIZE), 1, "wrong species is 1")
+g.party[1].species = Game3.SPECIES_SHROOMISH
+g.party[1].pid = 0
+g.party[1].ivs = { hp = 1, atk = 1, def = 0, spe = 0, spa = 0, spd = 0 }
+g:setScriptVar(Game3.VAR_SHROOMISH_SIZE_RECORD, 0)
+eq(g:runSpecial(Game3.SPECIAL_COMPARE_SHROOMISH_SIZE), 3, "beats a 0 record")
+g:setScriptVar(Game3.VAR_SHROOMISH_SIZE_RECORD, Game3.SIZE_RECORD_DEFAULT)
+g:runSpecial(Game3.SPECIAL_GET_SHROOMISH_SIZE_RECORD)
+eq(g.stringVars[3], "15.7", "STR_VAR_3 is inches")
+eq(g.stringVars[2], "MARCO", "default owner")
+
+g.clockAnchor = nil
+g.clockHour, g.clockMinute = 0, 0
+eq(g:runSpecial(Game3.SPECIAL_GET_DAYS_UNTIL_PACIFIDLOG_TM), 7, "day 0 is 7")
+eq(g:runSpecial(Game3.SPECIAL_SET_PACIFIDLOG_TM_RECEIVED_DAY), 0,
+  "received day 0 is valid")
+g.clockAnchor = os.time() - 7 * 24 * 3600
+eq(g:runSpecial(Game3.SPECIAL_GET_DAYS_UNTIL_PACIFIDLOG_TM), 0, "day 7 is 0")
+
+g:setScriptVar(0x8004, 8)
+eq(g:runSpecial(Game3.SPECIAL_SHOULD_MOVE_LILYCOVE_FAN_CLUB_MEMBER), 0,
+  "bit 8 unset is 0")
+eq(g:runSpecial(Game3.SPECIAL_GET_NUM_MOVED_LILYCOVE_FAN_CLUB_MEMBERS), 0,
+  "no movers is 0")
+g:setScriptVar(Game3.VAR_FANCLUB_UNKNOWN_1, 0x100)
+eq(g:runSpecial(Game3.SPECIAL_SHOULD_MOVE_LILYCOVE_FAN_CLUB_MEMBER), 1,
+  "bit 8 set is 1")
+eq(g:runSpecial(Game3.SPECIAL_GET_NUM_MOVED_LILYCOVE_FAN_CLUB_MEMBERS), 1,
+  "one mover")
+g:setScriptVar(0x8004, 10)
+g:runSpecial(Game3.SPECIAL_BUFFER_STREAK_TRAINER_TEXT)
+eq(g.stringVars[1], "WINONA", "bit 10 is Winona")
+g:runSpecial(Game3.SPECIAL_SUB_810FF48)
+eq(math.floor(g:varGet(Game3.VAR_FANCLUB_UNKNOWN_1) / 0x80) % 2, 1,
+  "bit 7 set")
+eq(g:runSpecial(Game3.SPECIAL_SUB_810FF60),
+  g:varGet(Game3.VAR_FANCLUB_UNKNOWN_1) % 0x80, "score is the low 7")
+
+g:runSpecial(Game3.SPECIAL_SHOW_DIPLOMA)
+eq(g.field.kind, "diploma", "diploma field")
+check(g:scriptWaiting(), "waitstate holds")
+g:closeDiploma()
+eq(g:scriptWaiting(), false, "A/B ends the wait")
+
+g.party = { g:makeMon(280, 5) }
+g:setWildBattle(Game3.SPECIES_LATIAS, 50, Game3.ITEM_NONE)
+check(g:runSpecial(Game3.SPECIAL_START_SOUTHERN_ISLAND_BATTLE) ~= 0,
+  "Southern Island starts")
+check(g.battle.legendary, "BATTLE_TYPE_LEGENDARY")
+eq(g.battle.enemy.species, Game3.SPECIES_LATIAS, "scripted wild")
+g:endBattle()
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local Input = require("src.core.Input")
+Input:init()
+eq(Game3.SPECIAL_GET_SELECTED_DAYCARE_MON_NICKNAME, 186, "nickname 186")
+eq(Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL, 195, "mail 195")
+eq(Game3.SPECIAL_ACCESS_HALL_OF_FAME_PC, 263, "HoF PC 263")
+eq(Game3.SPECIAL_DO_WATERING_BERRY_TREE_ANIM, 94, "watering anim")
+eq(Game3.SPECIAL_SPAWN_CAMERA_DUMMY, 275, "camera dummy")
+eq(Game3.SPECIAL_REMOVE_CAMERA_DUMMY, 276, "remove camera dummy")
+eq(Game3.LOCALID_CAMERA, 127, "LOCALID_CAMERA")
+eq(Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_1, 305, "sealed shake 1")
+eq(Game3.SPECIAL_SUB_807E25C, 317, "Route 128 fade")
+eq(Game3.GAME_STAT_ENTERED_HOF, 10, "stat 10")
+eq(Game3.HALL_OF_FAME_MAX_TEAMS, 50, "50 teams")
+check(Game3.isMailItem(121), "Orange Mail")
+check(Game3.isMailItem(132), "Retro Mail")
+check(not Game3.isMailItem(120), "below mail")
+check(not Game3.isMailItem(133), "above mail")
+
+local g = Game3.new()
+g.phase = "play"
+g.party = { g:makeMon(280, 5) }
+g.party[1].name = "BLAZE"
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(Game3.SPECIAL_GET_SELECTED_DAYCARE_MON_NICKNAME), 280,
+  "returns SPECIES")
+eq(g.stringVars[1], "BLAZE", "STR_VAR_1 is the nick")
+g.party = {}
+eq(g:runSpecial(Game3.SPECIAL_GET_SELECTED_DAYCARE_MON_NICKNAME), 0,
+  "empty party is 0")
+
+g.party = { g:makeMon(280, 5), g:makeMon(290, 2), g:makeMon(280, 5) }
+g.party[1].name, g.party[1].otName = "BLAZE", "BRENDAN"
+g.party[2].name, g.party[2].otName = "WURM", "MAY"
+check(g:depositToDaycare(1), "slot 1")
+check(g:depositToDaycare(1), "slot 2")
+g:runSpecial(Game3.SPECIAL_GET_DAYCARE_MON_NICKNAMES)
+eq(g.stringVars[1], "BLAZE", "slot 0 nick")
+eq(g.stringVars[3], "BRENDAN", "slot 0 OT")
+eq(g.stringVars[2], "WURM", "slot 1 nick")
+
+g:setScriptVar(0x8004, 0)
+eq(g:runSpecial(Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL), 0,
+  "no mail is 0")
+g.daycare[1].mail = {
+  itemId = Game3.ITEM_ORANGE_MAIL, otName = "BRENDAN", nick = "BLAZE",
+}
+eq(g:runSpecial(Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL), 0,
+  "matching names is 0")
+g.daycare[1].mail.nick = "OLDNICK"
+eq(g:runSpecial(Game3.SPECIAL_DAYCARE_MON_RECEIVED_MAIL), 1,
+  "renamed nick is 1")
+eq(g.stringVars[1], "BLAZE", "current nick")
+eq(g.stringVars[3], "OLDNICK", "mail nick")
+eq(g.stringVars[2], "BRENDAN", "mail OT")
+
+g.party = { g:makeMon(280, 5), g:makeMon(290, 2) }
+g.party[1].name = "MAILMON"
+g.party[1].item = Game3.ITEM_ORANGE_MAIL
+g.daycare = {}
+check(g:depositToDaycare(1), "deposits with mail")
+eq(g.daycare[1].mail.itemId, Game3.ITEM_ORANGE_MAIL, "mail stored")
+eq(g.daycare[1].mail.nick, "MAILMON", "mail nick at deposit")
+eq(g.daycare[1].mon.item, Game3.ITEM_NONE, "TakeMailFromMon")
+
+g.party = { g:makeMon(280, 5), g:makeMon(290, 2) }
+g:runSpecial(Game3.SPECIAL_CHOOSE_SEND_DAYCARE_MON)
+check(g:scriptWaiting(), "send waits")
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "b" end
+g:stepField()
+Input.wasPressed = old
+eq(g:varGet(0x8004), Game3.PARTY_MENU_CANCEL, "B is 255")
+check(not g:scriptWaiting(), "B ends the wait")
+
+g.hallOfFameTeams = {
+  { { species = 280, level = 5, nick = "ONE", tid = 1, pid = 1 } },
+  { { species = 290, level = 10, nick = "TWO", tid = 1, pid = 1 } },
+}
+g.gameStats = { [Game3.GAME_STAT_ENTERED_HOF] = 2 }
+g:runSpecial(Game3.SPECIAL_ACCESS_HALL_OF_FAME_PC)
+eq(g.field.kind, "hof_pc", "HoF PC field")
+eq(g.field.teamIndex, 2, "starts at newest")
+eq(g.field.pageNo, 2, "page is ENTERED_HOF")
+check(g:scriptWaiting(), "HoF PC waits")
+old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+eq(g.field.teamIndex, 1, "A goes older")
+eq(g.field.pageNo, 1, "page decrements")
+g:stepField()
+Input.wasPressed = old
+check(not g:scriptWaiting(), "A on oldest closes")
+
+g:runSpecial(Game3.SPECIAL_DO_WATERING_BERRY_TREE_ANIM)
+check(g:scriptWaiting(), "watering CreateTask")
+eq(g:playerGraphicsId(), Game3.GFX_BRENDAN_WATERING,
+  "sub_8059D08 swaps to watering gfx")
+g:walkHeld(Game3.WATERING_FRAMES / 60)
+check(not g:scriptWaiting(), "11 walk-in-place then Enable")
+eq(g:playerGraphicsId(), Game3.GFX_BRENDAN, "then restores Brendan")
+g:runSpecial(Game3.SPECIAL_SPAWN_CAMERA_DUMMY)
+g:runSpecial(Game3.SPECIAL_REMOVE_CAMERA_DUMMY)
+check(not g:scriptWaiting(), "camera dummy does not wait")
+
+g.map = { id = "cam", width = 8, height = 8, grid = {} }
+for i = 1, 64 do g.map.grid[i] = 0 end
+g.phase = "play"
+g.playerX, g.playerY = 4, 4
+g.npcByMap = { cam = {} }
+g:runSpecial(Game3.SPECIAL_SPAWN_CAMERA_DUMMY)
+check(not g:scriptWaiting(), "SpawnCameraDummy does not wait")
+local dummy = g:npcByLocalId(Game3.LOCALID_CAMERA)
+check(dummy ~= nil, "local 127 spawned")
+check(dummy.invisible, "dummy is invisible")
+eq(dummy.x, 4, "dummy x is player x")
+eq(dummy.y, 4, "dummy y is player y")
+check(g.cameraDummy == dummy, "camera follows dummy")
+check(g:applyMovement(Game3.LOCALID_CAMERA, { { kind = "walk", dir = "north" } }),
+  "applymovement 127")
+eq(dummy.y, 3, "first north step starts now")
+eq(g.playerY, 4, "player stays")
+g:finishScriptMoves()
+eq(dummy.y, 3, "dummy walked north")
+local vx, vy = g:visualTile()
+eq(vx, dummy.x, "visual x follows dummy")
+eq(vy, dummy.y, "visual y follows dummy")
+g:runSpecial(Game3.SPECIAL_REMOVE_CAMERA_DUMMY)
+eq(g:npcByLocalId(Game3.LOCALID_CAMERA), nil, "127 removed")
+eq(g.cameraDummy, nil, "follow restores to player")
+vx, vy = g:visualTile()
+eq(vx, g.playerX, "visual x is player")
+eq(vy, g.playerY, "visual y is player")
+g:runSpecial(Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_1)
+check(g:scriptWaiting(), "sealed 1 CreateTask")
+g:walkHeld((Game3.SEALED_SHAKE_PERIOD * Game3.SEALED_SHAKE1_HITS) / 60)
+check(not g:scriptWaiting(), "50 pans then Enable")
+eq(g.cameraPanY, 0, "sealed pan restores")
+g:runSpecial(Game3.SPECIAL_DO_SEALED_CHAMBER_SHAKING_2)
+check(g:scriptWaiting(), "sealed 2 CreateTask")
+g:walkHeld((Game3.SEALED_SHAKE_PERIOD * Game3.SEALED_SHAKE2_HITS) / 60)
+check(not g:scriptWaiting(), "2 pans then Enable")
+g:runSpecial(Game3.SPECIAL_SUB_807E25C)
+check(g:scriptWaiting(), "Route 128 fade CreateTask")
+g:walkHeld(Game3.ROUTE128_FADE_FRAMES / 60)
+check(not g:scriptWaiting(), "BLDY then Enable")
+eq(g:route128FadeAlpha(), 0, "fade is gone")
+end)()
+
+;(function()
+  local Game3 = require("src.core.Game3")
+  local g = Game3.new()
+  local mon = g:makeMon(280, 5)
+  mon.maxHp, mon.hp = 100, 10
+  mon.friendship = 70
+  g.party = { mon }
+  g:addItem(Game3.ITEM_ENERGY_POWDER, 1)
+  local ok = g:useItemOnMon(mon, Game3.ITEM_ENERGY_POWDER)
+  check(ok, "Energy Powder heals")
+  eq(mon.hp, 60, "gItemEffect_EnergyPowder 50")
+  eq(mon.friendship, 65, "low band -5")
+  g:addItem(Game3.ITEM_ENERGY_ROOT, 1)
+  mon.hp = 10
+  mon.friendship = 150
+  ok = g:useItemOnMon(mon, Game3.ITEM_ENERGY_ROOT)
+  check(ok, "Energy Root heals")
+  eq(mon.hp, 100, "200 caps at max")
+  eq(mon.friendship, 140, "mid band -10")
+  mon.status = "psn"
+  mon.friendship = 220
+  g:addItem(Game3.ITEM_HEAL_POWDER, 1)
+  ok = g:useItemOnMon(mon, Game3.ITEM_HEAL_POWDER)
+  check(ok, "Heal Powder cures")
+  eq(mon.status, nil, "ITEM3_STATUS_ALL")
+  eq(mon.friendship, 210, "high band -10")
+  mon.hp = 0
+  mon.friendship = 80
+  g:addItem(Game3.ITEM_REVIVAL_HERB, 1)
+  ok = g:useItemOnMon(mon, Game3.ITEM_REVIVAL_HERB)
+  check(ok, "Revival Herb")
+  eq(mon.hp, 50, "0xFE is half of 100")
+  eq(mon.friendship, 65, "low band -15")
+  mon.status = "slp"
+  g:addItem(Game3.ITEM_LAVA_COOKIE, 1)
+  local before = mon.friendship
+  ok = g:useItemOnMon(mon, Game3.ITEM_LAVA_COOKIE)
+  check(ok, "Lava Cookie")
+  eq(mon.status, nil, "Chimney cookie is Full Heal")
+  eq(mon.friendship, before, "no herbal drop")
+  eq(g:itemPrice(Game3.ITEM_LAVA_COOKIE), 200, "Mt. Chimney 0xC8")
+end)()
+
+;(function()
+  local Game3 = require("src.core.Game3")
+  local Gen3Script = require("src.import.Gen3Script")
+  eq(Game3.lcg32(0), 12345, "LCG of 0 is the addend")
+  eq(Game3.lcg32(1), 1103527590, "glibc step from 1")
+  eq(Game3.lcg32(0xFFFFFFFF), 3191464396, "u32 wrap stays exact")
+  eq(Game3.DAILY_FLAGS_START, 0x8C0, "DAILY_FLAGS_START")
+  eq(Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE114, 0x8CB, "Route 114 berry")
+  eq(Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111, 0x8CC, "Route 111 berry")
+  eq(Game3.FLAG_SYS_SHOAL_ITEM, 0x85F, "shoal item flag")
+  eq(Game3.VAR_BIRCH_STATE, 0x4049, "Birch state var")
+
+  local g = Game3.new()
+  g.gbaRandom = function() return 0 end
+  g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111] = true
+  g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE114] = true
+  g.flags[0x8C0] = true
+  g.flags[0x8FF] = true
+  g.flags[0x8BF] = true
+  g.flags[0x900] = true
+  g.easyChatPairs = {
+    { 1, 2, pop = 20, maxPop = 50 },
+    { 3, 4, pop = 3, maxPop = 40 },
+    { 5, 6, pop = 10, maxPop = 12, rising = true },
+    { 7, 8, pop = 40, maxPop = 50, rising = true },
+    { 9, 10, pop = 48, maxPop = 50, rising = true },
+  }
+  g.weatherCycleStage = 3
+  g:setScriptVar(Game3.VAR_MIRAGE_RND_H, 0)
+  g:setScriptVar(Game3.VAR_MIRAGE_RND_L, 1)
+  g:setScriptVar(Game3.VAR_BIRCH_STATE, 5)
+  g:setScriptVar(Game3.VAR_DAYS, 0)
+  g.flags[Game3.FLAG_SYS_CLOCK_SET] = true
+  g.clockHour, g.clockMinute = 0, 0
+  g.clockAnchor = os.time() - 24 * 3600
+  g:doTimeBasedEvents()
+  check(not g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111],
+    "Route 111 daily berry clears")
+  check(not g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE114],
+    "Route 114 daily berry clears")
+  check(not g.flags[0x8C0], "first daily flag clears")
+  check(not g.flags[0x8FF], "last daily flag clears")
+  check(g.flags[0x8BF], "flag before daily range stays")
+  check(g.flags[0x900], "flag after daily range stays")
+  check(g.flags[Game3.FLAG_SYS_SHOAL_ITEM], "SetShoalItemFlag ignores days")
+  eq(g.weatherCycleStage, 0, "stage 3 + 1 day wraps")
+  eq(g:varGet(Game3.VAR_BIRCH_STATE), 6, "5 + 1 day mod 7")
+  eq(g:varGet(Game3.VAR_MIRAGE_RND_L), 32422, "mirage low after one LCG")
+  eq(g:varGet(Game3.VAR_MIRAGE_RND_H), 16838, "mirage high after one LCG")
+  eq(g:getLotteryNumber(), 12345, "one extra LCG from Random 0")
+  eq(g:varGet(Game3.VAR_DAYS), 1, "VAR_DAYS stores localTime.days")
+  local pairs = g.easyChatPairs
+  eq(pairs[1].pop, 47, "48+5 wraps over 50")
+  eq(pairs[1][1], 9, "highest pop is first")
+  check(not pairs[1].rising, "odd wrap is falling")
+  eq(pairs[2].pop, 45, "rising 40+5 stays under max")
+  eq(pairs[2][1], 7, "second is 45")
+  check(pairs[2].rising, "still rising")
+  eq(pairs[3].pop, 15, "falling 20-5")
+  eq(pairs[3][1], 1, "third is 15")
+  check(not pairs[3].rising, "still falling")
+  eq(pairs[4].pop, 9, "wrap 10+5 over 12")
+  eq(pairs[4][1], 5, "fourth is 9")
+  check(not pairs[4].rising, "odd quotient is falling")
+  eq(pairs[5].pop, 2, "falling 3 bounces leftover 2")
+  eq(pairs[5][1], 3, "lowest is the bounce")
+  check(pairs[5].rising, "bounce sets rising")
+
+  eq(g:updateBirchState(1), 0, "6 + 1 day wraps to 0")
+  g:setScriptVar(Game3.VAR_BIRCH_STATE, 6)
+  eq(g:runSpecial(Game3.SPECIAL_INIT_BIRCH_STATE), 0, "InitBirchState is 0")
+  eq(g:varGet(Game3.VAR_BIRCH_STATE), 0, "Wally exit zeros Birch")
+
+  g.flags[Game3.FLAG_SYS_CLOCK_SET] = nil
+  g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111] = true
+  g:setScriptVar(Game3.VAR_DAYS, 0)
+  g.clockAnchor = os.time() - 2 * 24 * 3600
+  g:doTimeBasedEvents()
+  check(g.flags[Game3.FLAG_DAILY_RECEIVED_BERRY_ROUTE111],
+    "no tick before FLAG_SYS_CLOCK_SET")
+end)()
+
+;(function()
+eq(Game3.ITEM_CLEANSE_TAG, 190, "ITEM_CLEANSE_TAG")
+eq(Game3.FLAG_SYS_ENC_UP_ITEM, 0x84D, "White Flute flag")
+eq(Game3.FLAG_SYS_ENC_DOWN_ITEM, 0x84E, "Black Flute flag")
+eq(Game3.MAX_ENCOUNTER_RATE, 2880, "MAX_ENCOUNTER_RATE")
+eq(Game3.ABILITY_STENCH, 1, "ABILITY_STENCH")
+eq(Game3.ABILITY_ILLUMINATE, 35, "ABILITY_ILLUMINATE")
+check(Game3.isBlueYellowRedFlute(Game3.ITEM_BLUE_FLUTE), "Blue reusable")
+check(not Game3.isBlueYellowRedFlute(Game3.ITEM_BLACK_FLUTE), "Black is not")
+
+local g = Game3.new()
+eq(g:wildEncounterRate(20), 320, "*16 with no mods")
+eq(g:wildEncounterRate(255), 2880, "255*16 caps at 2880")
+g.bike = "mach"
+eq(g:wildEncounterRate(20), 256, "Mach Bike *80/100")
+g.bike = "acro"
+eq(g:wildEncounterRate(20), 256, "Acro Bike too")
+g.bike = nil
+g.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = true
+eq(g:wildEncounterRate(20), 480, "White Flute +50%")
+g.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = nil
+g.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = true
+eq(g:wildEncounterRate(20), 160, "Black Flute /2")
+g.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = nil
+g.party = { { name = "TORCHIC", hp = 19, maxHp = 19,
+  item = Game3.ITEM_CLEANSE_TAG } }
+eq(g:wildEncounterRate(20), 213, "Cleanse Tag *2/3")
+g.party[1].item = nil
+g.party[1].ability = Game3.ABILITY_STENCH
+eq(g:wildEncounterRate(20), 160, "Stench /2")
+eq(g:wildEncounterRate(20, true), 320, "Rock Smash skips ability")
+g.party[1].ability = Game3.ABILITY_ILLUMINATE
+eq(g:wildEncounterRate(20), 640, "Illuminate *2")
+g.party[1].isEgg = true
+eq(g:wildEncounterRate(20), 320, "egg lead skips ability")
+g.party[1].isEgg = nil
+g.party[1].ability = nil
+
+g:addItem(Game3.ITEM_WHITE_FLUTE, 1)
+g:addItem(Game3.ITEM_BLACK_FLUTE, 1)
+local ok, msg = g:useFieldItem(Game3.ITEM_WHITE_FLUTE)
+check(ok, "White Flute uses")
+eq(msg, "BRENDAN used the WHITE FLUTE.\nWild POKéMON will be lured.",
+  "lure line")
+eq(g:itemCount(Game3.ITEM_WHITE_FLUTE), 1, "White not consumed")
+check(g.flags[Game3.FLAG_SYS_ENC_UP_ITEM], "ENC_UP set")
+ok, msg = g:useFieldItem(Game3.ITEM_BLACK_FLUTE)
+check(ok, "Black Flute uses")
+eq(msg, "BRENDAN used the BLACK FLUTE.\nWild POKéMON will be repelled.",
+  "repel line")
+check(g.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM], "ENC_DOWN set")
+check(not g.flags[Game3.FLAG_SYS_ENC_UP_ITEM], "ENC_UP cleared")
+eq(g:itemCount(Game3.ITEM_BLACK_FLUTE), 1, "Black not consumed")
+eq(g:wildEncounterRate(20), 160, "Black Flute field use")
+
+g.flags[Game3.FLAG_SYS_USE_STRENGTH] = true
+g.flags[Game3.FLAG_SYS_CTRL_OBJ_DELETE] = true
+g:enterMap({
+  id = "g_flute_clear", width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}, 1, 1, true)
+check(not g.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM], "LoadMap clears Black Flute")
+check(not g.flags[Game3.FLAG_SYS_USE_STRENGTH], "LoadMap clears Strength")
+check(not g.flags[Game3.FLAG_SYS_CTRL_OBJ_DELETE], "LoadMap clears OBJ_DELETE")
+
+g.party = { { name = "TORCHIC", hp = 19, maxHp = 19, status = "slp",
+  sleepTurns = 3 } }
+g:addItem(Game3.ITEM_BLUE_FLUTE, 1)
+ok, msg = g:useItemOnMon(g.party[1], Game3.ITEM_BLUE_FLUTE)
+check(ok, "Blue Flute wakes")
+eq(msg, "TORCHIC woke up.", "woke-up line")
+eq(g.party[1].status, nil, "sleep gone")
+eq(g:itemCount(Game3.ITEM_BLUE_FLUTE), 1, "Blue not consumed")
+
+g.party[1].confuseTurns = 3
+g:addItem(Game3.ITEM_YELLOW_FLUTE, 1)
+ok, msg = g:useItemOnMon(g.party[1], Game3.ITEM_YELLOW_FLUTE)
+check(ok, "Yellow Flute snaps")
+eq(msg, "TORCHIC snapped out of its confusion.", "snap line")
+eq(g.party[1].confuseTurns, nil, "confusion gone")
+eq(g:itemCount(Game3.ITEM_YELLOW_FLUTE), 1, "Yellow not consumed")
+
+g.party[1].infatuatedBy = {}
+g:addItem(Game3.ITEM_RED_FLUTE, 1)
+ok, msg = g:useItemOnMon(g.party[1], Game3.ITEM_RED_FLUTE)
+check(ok, "Red Flute cures love")
+eq(msg, "TORCHIC got over its infatuation.", "love line")
+eq(g.party[1].infatuatedBy, nil, "infatuation gone")
+eq(g:itemCount(Game3.ITEM_RED_FLUTE), 1, "Red not consumed")
+local miss, missMsg = g:useItemOnMon(g.party[1], Game3.ITEM_RED_FLUTE)
+check(not miss, "Red on a healthy mon")
+eq(missMsg, "It won't have any effect.", "no effect")
+eq(g:itemCount(Game3.ITEM_RED_FLUTE), 1, "still not consumed")
+
+g.data.tilesets = { byId = { grass = { behavior = { [1] = 0x02 } } } }
+g.data.encounters = { byMap = { g_flute = {
+  land = { rate = 20, slots = { { minLevel = 2, maxLevel = 2, species = 290 } } },
+} } }
+local grass = {
+  id = "g_flute", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
+  tileset = "grass",
+  grid = { 0, 0, 0, 0, 1, 0, 0, 0, 0 },
+}
+g.party = { { name = "TORCHIC", hp = 19, maxHp = 19, species = 280, level = 5 } }
+g:enterMap(grass, 1, 1, true)
+g.rng = function() return 400 end
+check(not g:tryWildEncounter(), "roll 399 misses 320")
+g:addItem(Game3.ITEM_WHITE_FLUTE, 1)
+g:useFieldItem(Game3.ITEM_WHITE_FLUTE)
+check(g:tryWildEncounter(), "White Flute 480 beats 399")
+end)()
+
+;(function()
+eq(Game3.ABILITY_SPEED_BOOST, 3, "Speed Boost is 3")
+eq(Game3.ABILITY_BATTLE_ARMOR, 4, "Battle Armor is 4")
+eq(Game3.ABILITY_STURDY, 5, "Sturdy is 5")
+eq(Game3.ABILITY_DAMP, 6, "Damp is 6")
+eq(Game3.ABILITY_SUCTION_CUPS, 21, "Suction Cups is 21")
+eq(Game3.ABILITY_EFFECT_SPORE, 27, "Effect Spore is 27")
+eq(Game3.ABILITY_SOUNDPROOF, 43, "Soundproof is 43")
+eq(Game3.ABILITY_PRESSURE, 46, "Pressure is 46")
+eq(Game3.ABILITY_HUSTLE, 55, "Hustle is 55")
+eq(Game3.ABILITY_CUTE_CHARM, 56, "Cute Charm is 56")
+eq(Game3.ABILITY_PLUS, 57, "Plus is 57")
+eq(Game3.ABILITY_MINUS, 58, "Minus is 58")
+eq(Game3.ABILITY_SHELL_ARMOR, 75, "Shell Armor is 75")
+eq(Game3.EFFECT_EXPLOSION, 7, "Explosion is effect 7")
+eq(Game3.EFFECT_ROAR, 28, "Roar is effect 28")
+eq(Game3.abilityName(3), "SPEED BOOST", "Speed Boost name")
+eq(Game3.abilityName(43), "SOUNDPROOF", "Soundproof name")
+eq(Game3.abilityName(75), "SHELL ARMOR", "Shell Armor name")
+check(Game3.isSoundMove({ id = 45 }), "Growl is a sound move")
+check(Game3.isSoundMove(46), "Roar is a sound move")
+check(not Game3.isSoundMove({ id = 215 }), "Heal Bell is not in gSoundMovesTable")
+
+local g = Game3.new()
+g.rng = function() return 1 end
+local function stages()
+  return { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+end
+local atk = {
+  name = "TORCHIC", level = 20, hp = 80, maxHp = 80,
+  atk = 40, spa = 40, type1 = 0, type2 = 0, stages = stages(),
+}
+local defn = {
+  name = "WURMPLE", level = 20, hp = 200, maxHp = 200,
+  def = 40, spd = 40, type1 = 0, type2 = 0, stages = stages(),
+}
+g.battle = { player = atk, enemy = defn }
+
+local ninj = {
+  name = "NINJASK", ability = Game3.ABILITY_SPEED_BOOST, hp = 20, maxHp = 20,
+  stages = stages(),
+}
+ninj.isFirstTurn = 2
+eq(#g:speedBoostResidual(ninj), 0, "Speed Boost skips the switch-in turn")
+eq(ninj.stages.spe, 0, "and the stage stays")
+ninj.isFirstTurn = 1
+local boost = g:speedBoostResidual(ninj)
+eq(ninj.stages.spe, 1, "then Speed Boost raises Speed")
+check(boost[1]:find("SPEED BOOST", 1, true) ~= nil, "and names the ability")
+
+local rock = {
+  name = "GEODUDE", ability = Game3.ABILITY_STURDY, hp = 50, maxHp = 50,
+  type1 = 5, type2 = 5, level = 10,
+}
+local ohko = g:useOhko({ name = "HORN", level = 50 }, rock, {
+  name = "HORN DRILL", type = 0, effect = Game3.EFFECT_OHKO,
+}, { "HORN used HORN DRILL!" })
+eq(rock.hp, 50, "Sturdy blocks OHKO")
+check(ohko[#ohko]:find("STURDY", 1, true) ~= nil, "and says protected by Sturdy")
+
+g.rng = function() return 16 end
+local slashAtk = {
+  name = "ZANGOOSE", hp = 40, maxHp = 40, level = 20, atk = 30,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+local slashMove = { name = "TACKLE", effect = 0, power = 40, type = 0 }
+local critHit = g:dealDamage(slashAtk, {
+  name = "WURMPLE", hp = 80, maxHp = 80, def = 10, type1 = 0, type2 = 0,
+  stages = stages(),
+}, slashMove)
+check(critHit.crit, "a 1/16 roll crits")
+local armored = g:dealDamage(slashAtk, {
+  name = "ANORITH", hp = 80, maxHp = 80, def = 10, type1 = 0, type2 = 0,
+  ability = Game3.ABILITY_BATTLE_ARMOR, stages = stages(),
+}, slashMove)
+check(not armored.crit, "Battle Armor stops crits")
+local shelled = g:dealDamage(slashAtk, {
+  name = "CLOYSTER", hp = 80, maxHp = 80, def = 10, type1 = 0, type2 = 0,
+  ability = Game3.ABILITY_SHELL_ARMOR, stages = stages(),
+}, slashMove)
+check(not shelled.crit, "Shell Armor stops crits")
+g.rng = function() return 1 end
+
+local boomAtk = {
+  name = "ELECTRODE", level = 20, hp = 50, maxHp = 50, atk = 40,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+local boomDef = {
+  name = "WURMPLE", hp = 400, maxHp = 400, def = 40, type1 = 0, type2 = 0,
+  stages = stages(),
+}
+local boomDmg = g:dealDamage(boomAtk, boomDef, {
+  name = "EXPLOSION", effect = Game3.EFFECT_EXPLOSION, power = 250, type = 0,
+})
+boomDef.hp = 400
+local plainDmg = g:dealDamage(boomAtk, boomDef, {
+  name = "EXPLOSION", effect = 0, power = 250, type = 0,
+})
+check(boomDmg.dmg > plainDmg.dmg, "Explosion halves Defense")
+
+g.battle = { player = boomAtk, enemy = boomDef }
+boomAtk.hp = 50
+boomDef.hp = 400
+local boomLines = g:useMove(boomAtk, boomDef, {
+  name = "EXPLOSION", effect = Game3.EFFECT_EXPLOSION, power = 250,
+  type = 0, accuracy = 100, pp = 5,
+})
+eq(boomAtk.hp, 0, "Explosion faints the user")
+check(boomLines[#boomLines]:find("fainted", 1, true) ~= nil, "and says so")
+
+local dampMon = {
+  name = "PSYDUCK", ability = Game3.ABILITY_DAMP, hp = 40, maxHp = 40,
+  def = 40, type1 = 11, type2 = 11, stages = stages(),
+}
+local bomber = {
+  name = "ELECTRODE", hp = 50, maxHp = 50, atk = 40, level = 20,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+g.battle = { player = bomber, enemy = dampMon }
+local dampLines = g:useMove(bomber, dampMon, {
+  name = "EXPLOSION", effect = Game3.EFFECT_EXPLOSION, power = 250,
+  type = 0, accuracy = 100, pp = 5,
+})
+eq(bomber.hp, 50, "Damp keeps the user alive")
+eq(dampMon.hp, 40, "and the target is untouched")
+check(dampLines[2]:find("DAMP", 1, true) ~= nil, "Damp is announced")
+
+local spore = {
+  name = "BRELOOM", ability = Game3.ABILITY_EFFECT_SPORE, hp = 80, maxHp = 80,
+  def = 20, type1 = 12, type2 = 12, stages = stages(),
+}
+local puncher = {
+  name = "MACHOP", hp = 80, maxHp = 80, atk = 40, level = 20,
+  type1 = 1, type2 = 1, stages = stages(),
+}
+g.battle = { player = puncher, enemy = spore }
+g:useMove(puncher, spore, {
+  name = "TACKLE", effect = 0, power = 40, type = 0, accuracy = 100,
+  pp = 35, flags = Game3.FLAG_CONTACT,
+})
+eq(puncher.status, Game3.STATUS_PSN, "Effect Spore 10% poisons")
+
+local charm = {
+  name = "SKITTY", species = 280, pid = 0, ability = Game3.ABILITY_CUTE_CHARM,
+  hp = 80, maxHp = 80, def = 20, type1 = 0, type2 = 0, stages = stages(),
+}
+local boy = {
+  name = "TORCHIC", species = 280, pid = 100, hp = 80, maxHp = 80,
+  atk = 40, level = 20, type1 = 10, type2 = 10, stages = stages(),
+}
+eq(g:monGender(charm), Game3.MON_FEMALE, "pid 0 Torchic is female")
+eq(g:monGender(boy), Game3.MON_MALE, "pid 100 is male")
+g.battle = { player = boy, enemy = charm }
+g:useMove(boy, charm, {
+  name = "TACKLE", effect = 0, power = 40, type = 0, accuracy = 100,
+  pp = 35, flags = Game3.FLAG_CONTACT,
+})
+eq(boy.infatuatedBy, charm, "Cute Charm infatuates the attacker")
+
+local mute = {
+  name = "WHISMUR", ability = Game3.ABILITY_SOUNDPROOF, hp = 40, maxHp = 40,
+  stages = stages(),
+}
+local growler = {
+  name = "TORCHIC", hp = 40, maxHp = 40, stages = stages(),
+}
+g.battle = { player = growler, enemy = mute }
+local growl = {
+  id = 45, name = "GROWL", effect = Game3.EFFECT_ATTACK_DOWN, power = 0,
+  type = 0, accuracy = 100, pp = 40,
+}
+local blocked = g:useMove(growler, mute, growl)
+eq(mute.stages.atk, 0, "Soundproof stops Growl")
+check(blocked[2]:find("SOUNDPROOF", 1, true) ~= nil, "and names Soundproof")
+eq(growl.pp, 39, "PP is still spent")
+
+local pressed = {
+  name = "WEAVILE", ability = Game3.ABILITY_PRESSURE, hp = 40, maxHp = 40,
+  def = 20, type1 = 0, type2 = 0, stages = stages(),
+}
+local tackler = {
+  name = "TORCHIC", hp = 40, maxHp = 40, atk = 20, level = 5,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+g.battle = { player = tackler, enemy = pressed }
+local tap = {
+  name = "TACKLE", effect = 0, power = 40, type = 0, accuracy = 100, pp = 10,
+}
+g:useMove(tackler, pressed, tap)
+eq(tap.pp, 8, "Pressure deducts an extra PP")
+
+local hustler = {
+  name = "TORKOAL", ability = Game3.ABILITY_HUSTLE, hp = 40, maxHp = 40,
+  atk = 40, spa = 40, level = 20, type1 = 10, type2 = 10, stages = stages(),
+}
+local dummy = {
+  name = "WURMPLE", hp = 200, maxHp = 200, def = 40, spd = 40,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+g.battle = { player = hustler, enemy = dummy }
+eq(g:moveHitChance(hustler, dummy, { accuracy = 100, type = 0 }, 0), 80,
+  "Hustle is 80% on physical accuracy")
+eq(g:moveHitChance(hustler, dummy, { accuracy = 100, type = 10 }, 0), 100,
+  "and does not cut special accuracy")
+local withHustle = g:dealDamage(hustler, dummy, { power = 40, type = 0 })
+local plainAtk = {
+  name = "TORKOAL", hp = 40, maxHp = 40, atk = 40, spa = 40, level = 20,
+  type1 = 10, type2 = 10, stages = stages(),
+}
+dummy.hp = 200
+local noHustle = g:dealDamage(plainAtk, dummy, { power = 40, type = 0 })
+check(withHustle.dmg > noHustle.dmg, "Hustle is 1.5x physical Attack")
+
+local plusMon = {
+  name = "PLUSLE", ability = Game3.ABILITY_PLUS, hp = 40, maxHp = 40,
+  spa = 40, atk = 40, level = 20, type1 = 13, type2 = 13, stages = stages(),
+}
+local minusMon = {
+  name = "MINUN", ability = Game3.ABILITY_MINUS, hp = 40, maxHp = 40,
+  spd = 20, def = 20, type1 = 13, type2 = 13, stages = stages(),
+}
+g.battle = { player = plusMon, enemy = minusMon }
+dummy.hp = 200
+dummy.spd = 40
+local paired = g:dealDamage(plusMon, dummy, { power = 40, type = 13 })
+g.battle.enemy = {
+  name = "WURMPLE", hp = 40, maxHp = 40, type1 = 0, stages = stages(),
+}
+dummy.hp = 200
+local lonely = g:dealDamage(plusMon, dummy, { power = 40, type = 13 })
+check(paired.dmg > lonely.dmg, "Plus boosts Sp. Atk when Minus is out")
+
+local wildAtk = {
+  name = "TORCHIC", hp = 20, maxHp = 20, level = 10, stages = stages(),
+}
+local wildDef = {
+  name = "POOCHYENA", hp = 20, maxHp = 20, level = 5, stages = stages(),
+}
+g.battle = { player = wildAtk, enemy = wildDef }
+g:useMove(wildAtk, wildDef, {
+  name = "ROAR", effect = Game3.EFFECT_ROAR, power = 0, type = 0,
+  accuracy = 100, pp = 20,
+})
+check(g.battle.fled, "wild Roar ends the battle")
+check(g.battle.forcedOut, "as PLAYER_TELEPORTED")
+
+wildDef.ability = Game3.ABILITY_SUCTION_CUPS
+g.battle.fled, g.battle.forcedOut = nil, nil
+local stuck = g:useMove(wildAtk, wildDef, {
+  name = "ROAR", effect = Game3.EFFECT_ROAR, power = 0, type = 0,
+  accuracy = 100, pp = 20,
+})
+check(not g.battle.fled, "Suction Cups stops Roar")
+check(stuck[2]:find("SUCTION CUPS", 1, true) ~= nil, "and names the ability")
+
+g.battle = {
+  isTrainer = true,
+  player = { name = "TORCHIC", hp = 20, maxHp = 20, level = 10, stages = stages() },
+  enemy = { name = "POOCHYENA", species = 286, hp = 20, maxHp = 20, level = 5,
+    stages = stages() },
+  trainerParty = {
+    { species = 286, level = 5 },
+    { species = 288, level = 8 },
+  },
+  trainerIndex = 1,
+}
+g:useMove(g.battle.player, g.battle.enemy, {
+  name = "ROAR", effect = Game3.EFFECT_ROAR, power = 0, type = 0,
+  accuracy = 100, pp = 20,
+})
+eq(g.battle.enemy.species, 288, "trainer Roar drags out the next mon")
+eq(#(g.battle.phazed or {}), 1, "and benches the old one")
+end)()
+
+;(function()
+eq(Game3.EFFECT_HEAL_BELL, 102, "Heal Bell is effect 102")
+eq(Game3.EFFECT_PERISH_SONG, 114, "Perish Song is effect 114")
+eq(Game3.EFFECT_UPROAR, 159, "Uproar is effect 159")
+eq(Game3.EFFECT_INGRAIN, 181, "Ingrain is effect 181")
+eq(Game3.MOVE_HEAL_BELL, 215, "Heal Bell is move 215")
+eq(Game3.MOVE_AROMATHERAPY, 312, "Aromatherapy is move 312")
+check(not Game3.isSoundMove({ id = 215 }), "Heal Bell is not a sound move")
+check(not Game3.isSoundMove({ id = 195 }), "Perish Song is not a sound move")
+check(Game3.isSoundMove({ id = 253 }), "Uproar is a sound move")
+
+local g = Game3.new()
+g.rng = function() return 1 end
+local function stages()
+  return { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+end
+local lead = {
+  name = "TORCHIC", hp = 40, maxHp = 40, status = Game3.STATUS_PSN,
+  atk = 40, spa = 40, type1 = 10, type2 = 10, stages = stages(),
+}
+local bench = {
+  name = "MUDKIP", hp = 40, maxHp = 40, status = Game3.STATUS_PAR,
+}
+local foe = {
+  name = "WURMPLE", hp = 200, maxHp = 200, def = 40, spd = 40,
+  type1 = 0, type2 = 0, stages = stages(),
+}
+g.party = { lead, bench }
+g.battle = { player = lead, enemy = foe }
+local bell = {
+  name = "HEAL BELL", id = Game3.MOVE_HEAL_BELL,
+  effect = Game3.EFFECT_HEAL_BELL, power = 0, pp = 5,
+  target = Game3.TARGET_USER, type = 0,
+}
+local chimed = g:useMove(lead, lead, bell)
+eq(lead.status, nil, "Heal Bell cures the user")
+eq(bench.status, nil, "and the rest of the party")
+check(chimed[2] == "A bell chimed!", "bell chime line")
+
+lead.status = Game3.STATUS_PSN
+lead.ability = Game3.ABILITY_SOUNDPROOF
+bench.status = Game3.STATUS_PAR
+local blocked = g:useMove(lead, lead, bell)
+eq(lead.status, Game3.STATUS_PSN, "Heal Bell skips Soundproof")
+eq(bench.status, nil, "but still heals the rest")
+check(blocked[3]:find("SOUNDPROOF", 1, true) ~= nil, "and names the block")
+
+lead.status = Game3.STATUS_PSN
+local aroma = g:useMove(lead, lead, {
+  name = "AROMATHERAPY", id = Game3.MOVE_AROMATHERAPY,
+  effect = Game3.EFFECT_HEAL_BELL, power = 0, pp = 5,
+  target = Game3.TARGET_USER, type = 12,
+})
+eq(lead.status, nil, "Aromatherapy cures Soundproof")
+check(aroma[2]:find("soothing aroma", 1, true) ~= nil, "aroma line")
+
+lead.ability = nil
+lead.perishSong = nil
+foe.perishSong = nil
+local song = {
+  name = "PERISH SONG", id = Game3.MOVE_PERISH_SONG,
+  effect = Game3.EFFECT_PERISH_SONG, power = 0, pp = 5,
+  target = Game3.TARGET_USER, type = 0,
+}
+local sung = g:useMove(lead, lead, song)
+eq(lead.perishSong, 3, "Perish Song sets 3 on the user")
+eq(foe.perishSong, 3, "and the foe")
+check(sung[2]:find("faint in 3 turns", 1, true) ~= nil, "3-turn line")
+local tick = g:perishSongResidual(lead)
+eq(lead.perishSong, 2, "end of turn drops 3 to 2")
+check(tick[1]:find("fell to 3", 1, true) ~= nil, "prints the old count")
+lead.perishSong = 0
+local last = g:perishSongResidual(lead)
+eq(lead.hp, 0, "count 0 faints")
+check(last[1]:find("fell to 0", 1, true) ~= nil, "prints 0")
+
+lead.hp = 40
+lead.perishSong = nil
+foe.ability = Game3.ABILITY_SOUNDPROOF
+foe.perishSong = nil
+g:useMove(lead, lead, song)
+eq(lead.perishSong, 3, "Perish Song still hits the user")
+eq(foe.perishSong, nil, "Soundproof is immune")
+lead.ability = Game3.ABILITY_SOUNDPROOF
+lead.perishSong = nil
+local fail = g:useMove(lead, lead, song)
+eq(fail[2], "But it failed!", "all-Soundproof Perish Song fails")
+eq(lead.perishSong, nil, "and sets nobody")
+
+lead.ability = nil
+foe.ability = Game3.ABILITY_PRESSURE
+song.pp = 5
+g:useMove(lead, lead, song)
+eq(song.pp, 3, "Perish Song pays extra Pressure PP")
+
+lead.rooted = nil
+local roots = g:useMove(lead, lead, {
+  name = "INGRAIN", id = Game3.MOVE_INGRAIN,
+  effect = Game3.EFFECT_INGRAIN, power = 0, pp = 5,
+  target = Game3.TARGET_USER, type = 12,
+})
+check(lead.rooted, "Ingrain sets rooted")
+check(roots[2]:find("planted its roots", 1, true) ~= nil, "roots line")
+lead.hp = 8
+lead.maxHp = 16
+local sip = g:ingrainResidual(lead)
+eq(lead.hp, 9, "Ingrain heals maxHP/16")
+check(sip[1]:find("absorbed nutrients", 1, true) ~= nil, "nutrient line")
+local again = g:useMove(lead, lead, {
+  name = "INGRAIN", effect = Game3.EFFECT_INGRAIN, power = 0, pp = 5,
+  target = Game3.TARGET_USER, type = 12,
+})
+eq(again[2], "But it failed!", "second Ingrain fails")
+local roar = g:useMove(foe, lead, {
+  name = "ROAR", effect = Game3.EFFECT_ROAR, power = 0, type = 0,
+  accuracy = 100, pp = 20,
+})
+eq(roar[2], "But it failed!", "Roar fails vs rooted")
+
+lead.rooted = nil
+lead.hp, lead.maxHp = 40, 40
+foe.ability = nil
+foe.hp = 200
+local uproar = {
+  name = "UPROAR", id = Game3.MOVE_UPROAR,
+  effect = Game3.EFFECT_UPROAR, power = 50, type = 0,
+  accuracy = 100, pp = 10,
+}
+local yelled = g:useMove(lead, foe, uproar)
+eq(lead.uproarTurns, 2, "Uproar locks 2 turns on rng 0")
+eq(uproar.pp, 9, "first turn spends PP")
+check(yelled[#yelled]:find("caused an UPROAR", 1, true) ~= nil, "cause line")
+g:useMove(lead, foe, uproar)
+eq(uproar.pp, 9, "locked Uproar skips PP")
+foe.status = Game3.STATUS_SLP
+foe.sleepTurns = 3
+local woke = g:uproarResidual(lead)
+eq(foe.status, nil, "Uproar wakes sleep")
+check(woke[1]:find("woke up in the UPROAR", 1, true) ~= nil, "wake line")
+eq(lead.uproarTurns, 1, "then the timer still drops")
+check(not g:canStatus(foe, Game3.STATUS_SLP), "sleep fails in an Uproar")
+local rest = g:useRest(foe, { "WURMPLE used REST!" })
+check(rest[2]:find("can't sleep in an UPROAR", 1, true) ~= nil, "Rest fails")
+foe.ability = Game3.ABILITY_SOUNDPROOF
+check(g:canStatus(foe, Game3.STATUS_SLP), "Soundproof can sleep in Uproar")
+foe.ability = Game3.ABILITY_SOUNDPROOF
+lead.uproarTurns, lead.uproarMove = nil, nil
+uproar.pp = 10
+local mute = g:useMove(lead, foe, uproar)
+eq(lead.uproarTurns, nil, "Soundproof blocks Uproar")
+check(mute[2]:find("SOUNDPROOF", 1, true) ~= nil, "and names the ability")
+
+local tracer = {
+  name = "POOCHYENA", ability = Game3.ABILITY_TRACE,
+  status = Game3.STATUS_PSN, hp = 40, maxHp = 40, stages = stages(),
+}
+local wall = {
+  name = "SNORLAX", ability = Game3.ABILITY_IMMUNITY,
+  hp = 80, maxHp = 80, stages = stages(),
+}
+g.battle = { player = tracer, enemy = wall }
+local enter = g:activateEnter(tracer, wall)
+eq(tracer.ability, Game3.ABILITY_IMMUNITY, "Trace copies Immunity")
+eq(tracer.status, nil, "then Immunity cures poison")
+check(enter[1]:find("TRACE copied", 1, true) ~= nil, "Trace line")
+check(enter[2]:find("poison problem", 1, true) ~= nil, "cure line")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.FLDEFF_SPARKLE, 54, "FLDEFF_SPARKLE")
+eq(Game3.FLDEFF_NPCFLY_OUT, 30, "FLDEFF_NPCFLY_OUT")
+eq(Game3.FLDEFF_HALL_OF_FAME_RECORD, 62, "FLDEFF_HALL_OF_FAME_RECORD")
+eq(Game3.FLDEFF_SPARKLE_FRAMES, 48, "sparkle is 13 + 35")
+eq(Game3.FLDEFF_NPCFLY_FRAMES, 32, "NPCFLY data[2] += 4")
+eq(Game3.SE_M_FLY, 158, "SE_M_FLY")
+eq(Game3.END_APPROACH_FRAMES, 1, "EndTrainerApproach next vblank")
+local g = Game3.new()
+g.phase = "play"
+g.flags = g.flags or {}
+g:setScriptVar(0x8004, 7)
+g:setFieldEffectArgument(0, 9)
+eq(g:fieldEffectArg(0), 9, "arg 0 is map-local x")
+Gen3Script.run(g, {
+  { op = "setfieldeffectargument", index = 0, value = 0x8004 },
+})
+eq(g:fieldEffectArg(0), 7, "VarGet the halfword")
+Gen3Script.run(g, {
+  { op = "waitfieldeffect", id = Game3.FLDEFF_SPARKLE },
+  { op = "setflag", flag = 0x20 },
+})
+eq(g.flags[0x20], true, "missing effect does not hang")
+eq(g:scriptWaiting(), false, "and does not wait")
+g.flags[0x20] = nil
+g:setFieldEffectArgument(0, 9)
+g:setFieldEffectArgument(1, 13)
+Gen3Script.run(g, {
+  { op = "dofieldeffect", id = Game3.FLDEFF_SPARKLE },
+  { op = "waitfieldeffect", id = Game3.FLDEFF_SPARKLE },
+  { op = "setflag", flag = 0x20 },
+})
+eq(g:scriptWaiting(), true, "waitfieldeffect SetupNativeScript")
+eq(g:fieldEffectActive(Game3.FLDEFF_SPARKLE), true, "sparkle is up")
+eq(g.flags[0x20], nil, "script is still on wait")
+g:walkHeld(Game3.FLDEFF_SPARKLE_FRAMES / 60)
+eq(g:fieldEffectActive(Game3.FLDEFF_SPARKLE), false, "sparkle ended")
+eq(g:scriptWaiting(), false, "then ScriptContext_Enable")
+eq(g.flags[0x20], true, "and the next command ran")
+g:doFieldEffect(Game3.FLDEFF_NPCFLY_OUT)
+eq(g:fieldEffectActive(Game3.FLDEFF_NPCFLY_OUT), true, "fly starts")
+g:walkHeld(15 / 60)
+eq(g:fieldEffectActive(Game3.FLDEFF_NPCFLY_OUT), true, "delay 15 overlaps")
+g:waitFieldEffect(Game3.FLDEFF_NPCFLY_OUT)
+eq(g:scriptWaiting(), true, "then waitfieldeffect the rest")
+g:walkHeld((Game3.FLDEFF_NPCFLY_FRAMES - 15) / 60)
+eq(g:fieldEffectActive(Game3.FLDEFF_NPCFLY_OUT), false, "fly done")
+eq(g:scriptWaiting(), false, "waitfieldeffect released")
+g:doFieldEffect(99)
+eq(g:fieldEffectDuration(99), Game3.FLDEFF_DEFAULT_FRAMES, "unknown is short")
+g:waitFieldEffect(99)
+g:walkHeld(Game3.FLDEFF_DEFAULT_FRAMES / 60)
+eq(g:fieldEffectActive(99), false, "unknown cannot hang")
+g.party = { g:makeMon(280, 5) }
+eq(g:hofRecordFrames(), 185, "one ball then glow")
+g.party[2] = g:makeMon(277, 5)
+eq(g:hofRecordFrames(), 210, "plus 25 per extra ball")
+g:doFieldEffect(Game3.FLDEFF_HALL_OF_FAME_RECORD)
+g:waitFieldEffect(Game3.FLDEFF_HALL_OF_FAME_RECORD)
+g:walkHeld(g:hofRecordFrames() / 60)
+eq(g:scriptWaiting(), false, "HoF record wait")
+end)()
+
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local Input = require("src.core.Input")
+Input:init()
+eq(Gen3Script.WAITBUTTON, 0x6D, "waitbuttonpress")
+eq(Game3.FLDEFF_SECRET_BASE_PC_TURN_ON, 61, "secret base PC on")
+eq(Game3.SPECIAL_DO_SECRET_BASE_PC_TURN_OFF_EFFECT, 26, "PC off special")
+eq(Game3.MAP_LILYCOVE_MOTEL_1F_NUM, 0, "motel 1F is first in group 13")
+local parsed = Gen3Script.parse(string.char(0x6D, 0x02), 0)
+eq(parsed[1].op, "waitbuttonpress", "0x6D decodes")
+
+local g = Game3.new()
+g.phase = "play"
+g.map = { id = "sbpc", width = 5, height = 5, grid = {} }
+for i = 1, 25 do g.map.grid[i] = 0 end
+g.playerX, g.playerY = 2, 2
+g.facing = "north"
+g:runSpecial(Game3.SPECIAL_DO_SECRET_BASE_PC_TURN_OFF_EFFECT)
+eq(g:scriptWaiting(), false, "PC off does not wait")
+eq(g:mapGridGetMetatileId(2 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_SECRET_BASE_PC_OFF, "own base snaps Off")
+g:setScriptVar(Game3.VAR_CURRENT_SECRET_BASE, 1)
+g:runSpecial(Game3.SPECIAL_DO_SECRET_BASE_PC_TURN_OFF_EFFECT)
+eq(g:mapGridGetMetatileId(2 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_SECRET_BASE_PC_OFF_OTHER, "other base 0x221")
+
+g:setScriptVar(Game3.VAR_CURRENT_SECRET_BASE, 0)
+g:doFieldEffect(Game3.FLDEFF_SECRET_BASE_PC_TURN_ON)
+eq(g:scriptWaiting(), true, "FldEff waitstate")
+g:walkHeld(5 / 60)
+eq(g:mapGridGetMetatileId(2 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_SECRET_BASE_PC_ON, "data[2]==4 is On")
+g:walkHeld((Game3.FLDEFF_SECRET_BASE_PC_FRAMES - 5) / 60)
+eq(g:scriptWaiting(), false, "21 frames then Enable")
+eq(g:mapGridGetMetatileId(2 + Game3.MAP_OFFSET, 1 + Game3.MAP_OFFSET),
+  Game3.MT_SECRET_BASE_PC_ON, "ends On")
+
+g.flags = {}
+Gen3Script.run(g, {
+  { op = "waitbuttonpress" },
+  { op = "setflag", flag = 0x21 },
+})
+eq(g:scriptWaiting(), true, "waitbuttonpress waits")
+eq(g.flags[0x21], nil, "script is still on the wait")
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:walkHeld(1 / 60)
+Input.wasPressed = old
+eq(g:scriptWaiting(), false, "A continues")
+eq(g.flags[0x21], true, "and the next command ran")
+end)()
+
+;(function()
+local g = Game3.new()
+g.phase = "play"
+local grid = {}
+for i = 1, 24 * 24 do grid[i] = 0 end
+local slate = {
+  id = "g0_1", width = 24, height = 24, grid = grid,
+  mapType = Game3.MAP_TYPE_CITY, spawn = { x = 19, y = 20 },
+}
+local cave = {
+  id = "g_cave", width = 4, height = 4,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local center = {
+  id = "g9_pc", width = 8, height = 8,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  mapScripts = {
+    onTransition = {
+      { op = "setrespawn", id = Game3.HEAL_SLATEPORT_CITY },
+    },
+  },
+}
+g.data.maps = {
+  start = "g0_1",
+  maps = { g0_1 = slate, g_cave = cave, g9_pc = center },
+}
+g.party = { g:makeMon(277, 15) }
+eq(g:setHealLocation(0), false, "NONE is not a heal location")
+eq(g:setHealLocation(99), false, "past the table is not a heal location")
+g:enterMap(center, 7, 4, true)
+eq(g.lastHeal.mapId, "g0_1", "Center ON_TRANSITION setrespawn")
+eq(g.lastHeal.x, 19, "outdoor door x")
+eq(g.lastHeal.y, 20, "outdoor door y")
+g.party[1].hp = 0
+g:enterMap(cave, 1, 1, true)
+g.phase = "battle"
+g.battle = { kind = "blackout" }
+g:blackout()
+eq(g.map.id, "g0_1", "whiteout is the last Center town")
+eq(g.playerX, 19, "in front of the Center")
+eq(g.playerY, 20, "Center door y")
+
+local roomGrid = {}
+for i = 1, 8 * 6 do roomGrid[i] = 0 end
+local room = {
+  id = "g1_1", width = 8, height = 6, grid = roomGrid,
+  spawn = { x = 4, y = 2 },
+  bgEvents = { { x = 5, y = 1, kind = 0, text = "The clock is stopped." } },
+}
+g.data.maps.maps.g1_1 = room
+g.lastHeal = { mapId = "g1_1", x = 4, y = 2 }
+g.flags[Game3.FLAG_VISITED_SLATEPORT_CITY] = true
+g.party[1].hp = 0
+g:enterMap(cave, 1, 1, true)
+g.phase = "battle"
+g.battle = { kind = "blackout" }
+g:blackout()
+eq(g.map.id, "g0_1", "stale bedroom lastHeal uses visited Center")
+eq(g.playerX, 19, "Slateport door x")
+eq(g.playerY, 20, "Slateport door y")
+
+g.lastHeal = { mapId = "g1_1", x = 4, y = 2 }
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = true
+eq(g:repairStaleBedroomHeal(), false, "HoF bedroom stay")
+eq(g.lastHeal.mapId, "g1_1", "champion lastHeal is still the room")
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = nil
+
+g:enterMap(room, 4, 2, true)
+g.lastHeal = { mapId = "g1_1", x = 4, y = 2 }
+g.flags[Game3.FLAG_VISITED_SLATEPORT_CITY] = true
+local snap = g:snapshotSave()
+local loaded = Game3.new()
+loaded.phase = "play"
+loaded.data.maps = g.data.maps
+check(loaded:applySave(snap), "CONTINUE from the bugged bedroom")
+eq(loaded.map.id, "g0_1", "and lands at the Center door")
+eq(loaded.playerX, 19, "CONTINUE x")
+eq(loaded.playerY, 20, "CONTINUE y")
+
+g:enterMap(room, 4, 2, true)
+g.lastHeal = { mapId = "g0_1", x = 19, y = 20 }
+snap = g:snapshotSave()
+loaded = Game3.new()
+loaded.phase = "play"
+loaded.data.maps = g.data.maps
+check(loaded:applySave(snap), "CONTINUE after a real Center")
+eq(loaded.map.id, "g1_1", "walking home does not teleport")
+end)()
+
+;(function()
+local Input = require("src.core.Input")
+local g = Game3.new()
+g.phase = "play"
+g.data.pokemon = {
+  byIndex = {
+    [280] = {
+      name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10, catchRate = 45,
+      expYield = 65, growthRate = 3,
+    },
+  },
+}
+g.data.moves = {
+  byId = {
+    [52] = { id = 52, name = "EMBER", type = 10, power = 40, pp = 25 },
+  },
+}
+g.party = { g:makeMon(280, 5, { 52 }) }
+g.party[1].beauty = 255
+g.party[1].sheen = 255
+g.rng = function(max)
+  g._contestRng = (g._contestRng or 0) + 1
+  return (g._contestRng % (max or 65536)) + 1
+end
+check(g:beginContest(1, Game3.CONTEST_CATEGORY_BEAUTY, 0), "appeal starts")
+eq(g.field.kind, "contest_move", "appeal field")
+for _ = 1, 5 do g:applyContestTurn(1) end
+eq(g.field.kind, "contest_results", "five rounds open results")
+
+g.contest = nil
+g.contestMons = nil
+g.contestMonIndex = 1
+g:setScriptVar(Game3.VAR_CONTEST_CATEGORY, Game3.CONTEST_CATEGORY_BEAUTY)
+g:setScriptVar(Game3.VAR_CONTEST_RANK, 0)
+check(g:startContest(), "scripted startcontest")
+check(g:scriptWaiting(), "hall waitstates")
+for _ = 1, 5 do g:applyContestTurn(1) end
+eq(g.field.kind, "contest_results", "startcontest ends on results")
+check(g.field.scripted, "results stay scripted")
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+eq(g:scriptWaiting(), false, "A releases startcontest")
+
+local grid = {}
+for i = 1, 8 * 8 do grid[i] = 0 end
+local lobby = {
+  id = "g9_2", group = 9, index = 2, width = 8, height = 8, grid = grid,
+  spawn = { x = 5, y = 4 },
+}
+local hall = {
+  id = "g25_28", group = 25, index = 28, width = 8, height = 8, grid = grid,
+  spawn = { x = 7, y = 5 },
+}
+g.data.maps = { maps = { g9_2 = lobby, g25_28 = hall } }
+g:enterMap(hall, 7, 5, true)
+g.invisible = true
+g.field = { kind = "move" }
+g._scriptPause = { ops = { { op = "end" } }, at = 1 }
+g:setScriptVar(Game3.VAR_LINK_CONTEST_ROOM_STATE, 1)
+g:setScriptVar(Game3.VAR_CONTEST_LOCATION, 3)
+check(g:inContestHall(), "state 1 in LinkContestRoom1")
+check(g:tryAbortContestHall(), "START abort")
+eq(g.map.id, "g9_2", "15FB64 Slateport lobby")
+eq(g.playerX, 5, "lobby x")
+eq(g.playerY, 4, "lobby y")
+eq(g:varGet(Game3.VAR_LINK_CONTEST_ROOM_STATE), 0, "room state cleared")
+eq(g.invisible, nil, "player sprite is back")
+eq(g.field, nil, "no leftover field")
+end)()
+
+;(function()
+local Dex = require("src.import.RomExtractorGen3Dex")
+local Input = require("src.core.Input")
+eq(Dex.RUBY_US.entries, 0x3B1858, "gPokedexEntries")
+eq(Dex.RUBY_US.speciesToHoenn, 0x1FC1E0, "gSpeciesToHoennPokedexNum")
+eq(Dex.RUBY_US.speciesToNational, 0x1FC516, "gSpeciesToNationalPokedexNum")
+eq(Dex.RUBY_US.hoennToNational, 0x1FC84C, "gHoennToNationalOrder")
+eq(Dex.ENTRY_SIZE, 0x24, "struct PokedexEntry")
+eq(Dex.findEntries("short"), nil, "truncated cart has no entries")
+eq(select(1, Dex.findSpeciesMaps("short")), nil, "and no species maps")
+eq(Game3.dexHeightText(7), "2'04\"", "Bulbasaur is 2'04\"")
+eq(Game3.dexHeightText(4), "1'04\"", "Torchic is 1'04\"")
+eq(Game3.dexWeightText(69), "15.2 lbs.", "Bulbasaur is 15.2 lbs.")
+eq(Game3.dexWeightText(25), "5.5 lbs.", "Torchic is 5.5 lbs.")
+
+local cat = (GbaText.encodeLatin("SEED") .. string.char(GbaText.EOS)
+  .. string.rep("\0", 12)):sub(1, 12)
+local page = GbaText.encodeLatin("A seed is on its back.")
+  .. string.char(GbaText.EOS)
+local function packU16(n)
+  return string.char(n % 256, math.floor(n / 256) % 256)
+end
+local blob = string.rep("\0", 0x80)
+blob = overlay(blob, 0, cat .. packU16(7) .. packU16(69)
+  .. GbaBin.packPtr(0x40) .. GbaBin.packPtr(0x40)
+  .. packU16(0) .. packU16(356) .. packU16(17) .. packU16(256) .. packU16(0))
+blob = overlay(blob, 0x40, page)
+local parsed = Dex.parseEntry(blob, 0)
+eq(parsed.category, "SEED", "categoryName")
+eq(parsed.height, 7, "height dm")
+eq(parsed.weight, 69, "weight hg")
+check(parsed.page1:find("seed", 1, true) ~= nil, "page1 decodes")
+
+local byIndex = { [280] = { name = "TORCHIC" } }
+Dex.attach(byIndex, {
+  hoenn = { [280] = 4 },
+  national = { [280] = 255 },
+}, {
+  byNational = {
+    [255] = {
+      category = "CHICK", height = 4, weight = 25,
+      page1 = "It stands on one foot.", page2 = "The flame burns.",
+    },
+  },
+})
+eq(byIndex[280].hoennDex, 4, "Torchic Hoenn 4")
+eq(byIndex[280].nationalDex, 255, "Torchic National 255")
+eq(byIndex[280].category, "CHICK", "CHICK")
+eq(byIndex[280].weight, 25, "25 hg")
+
+local g = Game3.new()
+g.data.pokemon = { byIndex = byIndex }
+g:markCaught(280)
+g:openDex()
+eq(g.field.kind, "dex", "openDex still lists")
+eq(g.field.list[1].id, 280, "list id stays the species")
+eq(g:dexListNumber(280), 4, "the printed number is Hoenn 4")
+local function press(game, key)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, name) return name == key end
+  if game.phase == "battle" then
+    game:stepBattle(0)
+  else
+    game:stepField()
+  end
+  Input.wasPressed = old
+end
+press(g, "a")
+eq(g.field.kind, "dex_entry", "A opens the entry")
+eq(g.field.species, 280, "for Torchic")
+eq(g.field.page, 0, "on page 1")
+eq(g:dexCategoryText(280, true), "CHICK POKeMON", "UnusedPrintMonName suffix")
+eq(g:dexFlavorText(280, 0, true), "It stands on one foot.", "page1")
+press(g, "a")
+eq(g.field.page, 1, "A turns to page 2")
+press(g, "a")
+eq(g.field.kind, "dex_entry", "A on INFO toggles, it does not close")
+eq(g.field.page, 0, "back to page 1")
+press(g, "right")
+eq(g.field.bar, Game3.DEX_SCREEN_AREA, "RIGHT highlights AREA")
+press(g, "a")
+eq(g.field.screen, Game3.DEX_SCREEN_AREA, "A opens AREA")
+press(g, "b")
+eq(g.field.screen, Game3.DEX_SCREEN_INFO, "B returns to INFO")
+press(g, "right")
+press(g, "right")
+eq(g.field.bar, Game3.DEX_SCREEN_CRY, "two RIGHTs land on CRY")
+press(g, "a")
+eq(g.field.screen, Game3.DEX_SCREEN_CRY, "A opens CRY")
+press(g, "right")
+eq(g.field.screen, Game3.DEX_SCREEN_SIZE, "RIGHT from CRY is SIZE")
+eq(Game3.dexAffineScale(566), Game3.DEX_AFFINE_ONE / 566, "Torchic PA 566")
+eq(Game3.dexAffineScale(256), 1, "trainer 256 is 1x")
+g.field.screen = Game3.DEX_SCREEN_SIZE
+g:drawDexEntry(g.field)
+check(true, "size screen draws without pics")
+press(g, "b")
+eq(g.field.kind, "dex_entry", "B from SIZE is still the entry")
+press(g, "b")
+eq(g.field.kind, "dex", "B from INFO returns to the list")
+
+local catcher = Game3.new()
+catcher.data.pokemon = {
+  byIndex = {
+    [280] = {
+      name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10, catchRate = 45,
+      expYield = 65, growthRate = 3, hoennDex = 4,
+    },
+    [290] = {
+      name = "WURMPLE", hp = 45, atk = 40, def = 35, spe = 20,
+      spa = 20, spd = 30, type1 = 6, type2 = 6, catchRate = 255,
+      expYield = 54, growthRate = 0, hoennDex = 14, nationalDex = 265,
+      category = "WORM", height = 3, weight = 36,
+      dexPage1 = "It lives in the forest.", dexPage2 = "Silk wraps it.",
+    },
+  },
+}
+catcher.data.moves = {
+  byId = {
+    [33] = { id = 33, name = "TACKLE", power = 35, type = 0, pp = 35,
+      accuracy = 95 },
+  },
+}
+catcher.party = { catcher:makeMon(280, 5) }
+catcher.balls = 5
+catcher.rng = function() return 1 end
+catcher:startWildBattle(290, 2)
+catcher:throwBall()
+local addedAt
+for i = 1, #(catcher.battle.queue or {}) do
+  if catcher.battle.queue[i]:find("POKeDEX", 1, true) then addedAt = i end
+end
+check(addedAt ~= nil and addedAt > 5, "AddedToDex follows Gotcha")
+eq(catcher.battle.showDexEntry, 290, "displaydexinfo is pending")
+local function drain(game)
+  while game.battle and game.battle.kind == "text" do
+    game:advanceBattleText()
+  end
+end
+drain(catcher)
+eq(catcher.battle.kind, "dex_entry", "then the entry overlay")
+eq(catcher.battle.dexSpecies, 290, "for Wurmple")
+press(catcher, "a")
+eq(catcher.battle.dexPage, 1, "A turns the catch page")
+press(catcher, "a")
+eq(catcher.battle.kind, "catch_nick", "trygivecaughtmonnick after the overlay")
+eq(catcher.battle.text, Game3.giveCaughtNickText("WURMPLE"), "GiveNickname")
+press(catcher, "b")
+check(not catcher.battle, "B skips the naming screen")
+eq(catcher.party[2].name, "WURMPLE", "species-name nickname stays")
+
+local again = Game3.new()
+again.data.pokemon = catcher.data.pokemon
+again.data.moves = catcher.data.moves
+again.party = { again:makeMon(280, 5) }
+again:markCaught(290)
+again.balls = 5
+again.rng = function() return 1 end
+again:startWildBattle(290, 2)
+again:throwBall()
+eq(again.battle.showDexEntry, nil, "trysetcaughtmondexflags skips a recatch")
+local joined = table.concat(again.battle.queue or {}, "\n")
+check(joined:find("POKeDEX", 1, true) == nil, "no AddedToDex line")
+drain(again)
+eq(again.battle.kind, "catch_nick", "recatch still asks for a nickname")
+press(again, "a")
+eq(again.field.kind, "nickname", "YES opens DoNamingScreen")
+eq(again.field.name, "WURMPLE", "buffer starts as the species name")
+again.field.name = "WURM"
+again.field.cursor = 0
+local keys = again.field.keys
+for i = 1, #keys do
+  if keys[i] == "END" then again.field.cursor = i - 1 break end
+end
+press(again, "a")
+eq(again.party[2].name, "WURM", "SetMonData nickname")
+check(not again.field, "naming screen closed")
+
+local wally = Game3.new()
+wally.data.pokemon = catcher.data.pokemon
+wally.data.moves = catcher.data.moves
+wally.party = { wally:makeMon(280, 5) }
+wally.rng = function() return 1 end
+wally:startWildBattle(290, 2)
+wally.battle.wallyTutorial = true
+wally.balls = 5
+wally:throwBall()
+eq(wally.battle.showDexEntry, nil, "Wally's catch skips the dex")
+end)()
+
+;(function()
+local Contest3 = require("src.core.Contest3")
+eq(Contest3.areMovesCombo(1, 3), 1, "Pound into Double Slap is a combo")
+eq(Contest3.areMovesCombo(3, 1), 0, "reverse is not a combo")
+eq(Contest3.getMoveExcitement(1, 52), 1, "Ember excites a Beauty contest")
+eq(Contest3.getMoveExcitement(1, 33), -1, "Tackle cools a Beauty contest")
+eq(Contest3.effectRow(0).a, 40, "HIGHLY_APPEALING is 40")
+eq(Contest3.moveRow(52).c, 1, "Ember is Beauty")
+eq(Contest3.moveRow(1).s, 60, "Pound is a combo starter")
+
+local g = Game3.new()
+g.phase = "play"
+g.rng = function(max)
+  g._contestRng = (g._contestRng or 0) + 1
+  return (g._contestRng % (max or 65536)) + 1
+end
+g.data.pokemon = {
+  byIndex = {
+    [280] = {
+      name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+      spa = 70, spd = 50, type1 = 10, type2 = 10, catchRate = 45,
+      expYield = 65, growthRate = 3,
+    },
+  },
+}
+g.data.moves = {
+  byId = {
+    [1] = { id = 1, name = "POUND", type = 0, power = 40, pp = 35 },
+    [3] = { id = 3, name = "DOUBLESLAP", type = 0, power = 15, pp = 10 },
+    [52] = { id = 52, name = "EMBER", type = 10, power = 40, pp = 25 },
+  },
+}
+g.party = { g:makeMon(280, 5, { 1, 3 }) }
+g.party[1].item = Contest3.ITEM_RED_SCARF
+g.party[1].cool = 10
+local player = Contest3.createPlayerMon(g, 1)
+eq(player.cool, 30, "Red Scarf adds 20 Cool")
+
+local npcs = Contest3.pickOpponents(g, 1, 2)
+eq(#npcs, 3, "Hyper Beauty still picks three NPCs")
+check(npcs[1].trainerName ~= "JIMMY", "Hyper is not the Normal pool")
+
+local engine = Contest3.start(g, 1, 0, 0)
+check(engine, "Cool Normal engine")
+eq(engine.playerIndex, 3, "TryPutPlayerLast")
+eq(engine.round1[3], Contest3.round1Points(engine.mons[3], 0), "round-1 uses sheen")
+Contest3.runRound(engine, g, 0)
+eq(engine.status[3].prevMove, 1, "player appealed with Pound")
+check((engine.status[3].hasJudgesAttention or 0) ~= 0
+  or (engine.status[3].pointTotal or 0) >= 0, "combo starter can grab the judge")
+Contest3.runRound(engine, g, 1)
+eq(engine.status[3].prevMove, 3, "second turn is Double Slap")
+check((engine.status[3].completedComboFlag or 0) ~= 0
+  or (engine.status[3].pointTotal or 0) > 0, "combo or at least an appeal")
+Contest3.runRound(engine, g, 1)
+check((engine.status[3].repeatJam or 0) >= 0, "repeat jam is tracked")
+for _ = 1, 2 do Contest3.runRound(engine, g, 0) end
+check(engine.done, "five rounds finish the contest")
+check(type(engine.finalStandings[3]) == "number", "player has a final place")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Input = require("src.core.Input")
+local RM = require("src.core.Game3RegionMap")
+local g = Game3.new()
+eq(g:regionMapKind(RM.MAPSEC_NONE), RM.KIND_NONE, "NONE is 0")
+eq(g:regionMapKind(0), RM.KIND_TOWN, "unvisited Littleroot is 3")
+g.flags[Game3.FLAG_VISITED_LITTLEROOT_TOWN] = true
+eq(g:regionMapKind(0), RM.KIND_FLY, "visited town is Fly 2")
+eq(g:regionMapKind(RM.MAPSEC_BATTLE_TOWER), RM.KIND_NONE, "tower hidden")
+g.flags[Game3.FLAG_LANDMARK_BATTLE_TOWER] = true
+eq(g:regionMapKind(RM.MAPSEC_BATTLE_TOWER), RM.KIND_SPECIAL, "tower is Fly 4")
+eq(g:regionMapKind(RM.MAPSEC_SOUTHERN_ISLAND), RM.KIND_NONE, "island hidden")
+g.flags[Game3.FLAG_LANDMARK_SOUTHERN_ISLAND] = true
+eq(g:regionMapKind(RM.MAPSEC_SOUTHERN_ISLAND), RM.KIND_LANDMARK, "island is 1")
+
+g:openPokeNav()
+eq(g.field.kind, "pokenav", "POKeNAV")
+eq(g.field.zoomed, false, "starts unzoomed")
+Input:init()
+local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+check(g.field.zooming, "A starts the 16-frame zoom")
+for _ = 1, RM.ZOOM_FRAMES do g:stepRegionMap(g.field) end
+eq(g.field.zoomed, true, "then 2x affine")
+eq(g.field.zooming, false, "anim done")
+check(g.field.scrollX ~= 0 or g.field.cursorX == 1, "scroll follows the cursor")
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+check(g.field.zooming, "A zooms back out")
+for _ = 1, RM.ZOOM_FRAMES do g:stepRegionMap(g.field) end
+eq(g.field.zoomed, false, "unzoomed again")
+Input.wasPressed = function(_, key) return key == "b" end
+g:stepField()
+Input.wasPressed = old
+eq(g.field.kind, "menu", "B still returns to START")
+
+local little = {
+  id = "g0_9", mapType = Game3.MAP_TYPE_TOWN, width = 3, height = 3,
+  spawn = { x = 1, y = 1 },
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+g = Game3.new()
+g.phase = "play"
+g.party = { { name = "SWELLOW", moves = { { id = Game3.MOVE_FLY } } } }
+g.flags[Game3.FLAG_BADGE06_GET] = true
+g.flags[Game3.FLAG_VISITED_LITTLEROOT_TOWN] = true
+g.data.maps = { start = "g0_9", maps = { g0_9 = little } }
+g.map = little
+g:useFly()
+eq(g.field.kind, "fly", "FLY opens the region map")
+check(g.field.flyMode, "CB2_FlyRegionMap")
+eq(#g.field.list, 1, "visited list is still filled")
+local cx, cy = Game3.regionMapCursorForSection(0)
+g.field.cursorX, g.field.cursorY = cx, cy
+Input:init()
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+Input.wasPressed = old
+eq(g.map.id, "g0_9", "A on a visited town flies")
+check(g.field.kind == "talk", "then the flew line")
 end)()
 
 S.finish()

@@ -508,14 +508,23 @@ function Battle.collectSpecies(encounters, evolutions, trainers)
   local used = {
     [Battle.STARTER_SPECIES] = true,
     [277] = true,
+    [278] = true, -- Grovyle
+    [279] = true, -- Sceptile (Treecko's second hop)
     [281] = true, -- Combusken
+    [282] = true, -- Blaziken
     [283] = true,
+    [284] = true, -- Marshtomp
+    [285] = true, -- Swampert
     [286] = true, -- Poochyena (Birch chase; not national dex 261)
     [291] = true, -- Silcoon
     [292] = true, -- Cascoon
     [293] = true, -- Beautifly
     [294] = true, -- Dustox
     [350] = true, -- Azurill (Birch speech)
+    [360] = true, -- Wynaut (Lavaridge giveegg)
+    [385] = true, -- Castform (Weather Institute givemon)
+    [388] = true, -- Lileep (Devon Root Fossil)
+    [390] = true, -- Anorith (Devon Claw Fossil)
     [405] = true, -- Groudon (title / intro)
   }
   local byMap = encounters and encounters.byMap
@@ -536,14 +545,19 @@ function Battle.collectSpecies(encounters, evolutions, trainers)
   if type(evolutions) == "table" then
     local extra = {}
     for id in pairs(used) do extra[#extra + 1] = id end
-    for i = 1, #extra do
+    local i = 1
+    while i <= #extra do
       local list = evolutions[extra[i]]
       if type(list) == "table" then
         for e = 1, #list do
           local t = list[e] and list[e].target
-          if type(t) == "number" and t > 0 then used[t] = true end
+          if type(t) == "number" and t > 0 and not used[t] then
+            used[t] = true
+            extra[#extra + 1] = t
+          end
         end
       end
+      i = i + 1
     end
   end
   if type(trainers) == "table" then

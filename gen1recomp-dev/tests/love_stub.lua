@@ -117,6 +117,11 @@ stub.graphics = {
   end,
   setCanvas = function(c) gstate.canvas = c or nil end,
   getCanvas = function() return gstate.canvas end,
+  newShader = function()
+    local sh = { sends = {} }
+    function sh:send(name, v) self.sends[name] = v end
+    return sh
+  end,
   setShader = function(s) gstate.shader = s or nil end,
   getShader = function() return gstate.shader end,
   setBlendMode = function(m) gstate.blend = m or "alpha" end,

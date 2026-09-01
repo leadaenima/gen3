@@ -408,6 +408,30 @@ function love.load(args)
   -- of each flashing their own cmd.exe window (#606).  No-op elsewhere.
   require("src.core.HostShell").hideHostConsole()
 
+  -- Unfused desktop: pin the OS working directory to the source tree so
+  -- leftover relative io.open / screenshot dumps stay in the project
+  -- instead of the launcher CWD (often the Desktop).
+  do
+    local osName = love.system.getOS()
+    local desktop = osName == "Windows" or osName == "OS X" or osName == "Linux"
+    local src = love.filesystem.getSource and love.filesystem.getSource()
+    if desktop and type(src) == "string" and src ~= "" then
+      local lower = src:lower()
+      if lower:sub(-5) ~= ".love" and lower:sub(-4) ~= ".exe" then
+        local ok, ffi = pcall(require, "ffi")
+        if ok then
+          if osName == "Windows" then
+            pcall(ffi.cdef, "int SetCurrentDirectoryA(const char *lpPathName);")
+            pcall(ffi.C.SetCurrentDirectoryA, src)
+          else
+            pcall(ffi.cdef, "int chdir(const char *path);")
+            pcall(ffi.C.chdir, src)
+          end
+        end
+      end
+    end
+  end
+
   -- Hang gen1tls on love.system before mods boot.  Android already has tls*
   -- from JNI; this is the desktop half.  No DLL / no FFI is fine -- ws://
   -- rooms still work, wss:// just won't.

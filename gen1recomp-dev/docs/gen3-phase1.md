@@ -265,8 +265,9 @@ Truant loafs every other turn (`"%s is loafing around!"`), after freeze /
 sleep / paralysis so those still skip the toggle. Send-out clears the
 loaf flag. Pickup is 10% after a win or catch (not RUN / blackout).
 Ruby uses the RS item/chance pairs (Super Potion 30%, … King's Rock 1%),
-not Emerald's level bands. The find goes in the bag (`"%s found a %s!"`)
-because this engine has no held-item UI yet. No cache bump.
+not Emerald's level bands. The find is a held item
+(`SetMonData MON_DATA_HELD_ITEM`); an occupied slot or an egg skips.
+No in-battle line. No cache bump.
 
 ## Phase 24 — Protect, stat-ups, OHKO, two-turn
 
@@ -486,7 +487,7 @@ move 291. You must already be surfing on deep water (behavior 0x12 or
 0x14) and the map must have a `dive` connection (dir 5). That warps to
 the paired underwater map at the same x/y. Using Dive again on an
 underwater map (`mapType` 5) follows the `emerge` connection (dir 6)
-unless the tile is no-surfacing (0x18 / 0x28). The extractor now keeps
+unless the tile is no-surfacing (0x19 / 0x2A). The extractor now keeps
 those two connection dirs; re-import an existing cache so Route 124 and
 friends pick them up. No required-files bump.
 
@@ -1739,6 +1740,975 @@ station (6,4).
 
 No cache bump.
 
+## Phase 157 — rotating gates, slots id, daycare till
+
+Fortree gym and Trick House puzzle 6 load `RotatingGate_InitPuzzle`
+(201) / `InitPuzzleAndGraphics` (202). Arms are the ROM layouts
+(L1–L4, T1–T4) at the cart coordinates; bumping an arm with a free
+sweep spins it and the step goes through, a `MapGrid` collision of 1
+in the sweep blocks. Graphics are brown bars (no dumped 4bpp). Lua 0
+is truthy, so anticlockwise from orientation 0 is an explicit `~= 0`
+check, not `if orientation`.
+
+`HasEnoughMoneyFor` / `PayMoneyFor` (197/198) compare and subtract
+`VAR_0x8005`. `GetSlotMachineId` (286) is the easy-chat salt into the
+12-row payout table; `playslotmachine` is still a sized IR nop.
+
+No cache bump.
+
+## Phase 158 — wall clock, coins, slots
+
+Mom's `StartWallClock` (154) opens the setter at 10:00
+(`wallclock.c` tHours/tMinutes). LEFT/RIGHT step a minute, UP/DOWN an
+hour, A asks `Is this the correct time?`. YES writes
+`RtcInitLocalTimeOffset` then `InitTimeBasedEvents` (`FLAG_SYS_CLOCK_SET`
+0x835, `VAR_DAYS` 0x4040). `ViewWallClock` (155) is read-only and does
+not set the sys flag (existing saves may have `FLAG_SET_WALL_CLOCK` 0x51
+from Mom while the UI was still a waitstate nop).
+
+Coins are `self.coins` 0..9999 (`coins.c`). `checkcoins` / `addcoins` /
+`removecoins` (0xB3–B5) and the coin box (0xC0–C2) match `scrcmd.c`:
+add/remove write RESULT **0 on success**, 1 on full / not enough
+(inverted vs `additem`). `playslotmachine` (0x89) `VarGet`s the machine
+id, opens a 1–3 bet cabinet, and `ScriptContext_Stop`s until B. Reel
+strips, `GetMatchFromSymbolsInRow`, and `sSlotPayouts` are the ROM
+tables; Pika Power / stop-bias is not ported (random window on the same
+strips). Live carts need a re-import for the new IR.
+
+No cache bump.
+
+## Phase 159 — Mauville old man
+
+Mauville Center's old man (`data/scripts/mauville_man.inc`, specials
+97–118) is bard / hipster / trader / storyteller / giddy from
+`(trainerId % 10) / 2` (`new_game.c` `SetupMauvilleOldMan`). Gfx is
+`VAR_OBJ_GFX_ID_0 = 69 + id`. Default bard lyrics are SISTER EATS
+SWEETS / VORACIOUS AND DROOLING. Easy Chat mode 6 edits six words;
+`PlayBardSong` waitstates the text (`0x8004==0` saved lyrics else
+temporary). Hipster unlocks trendy-saying group 0x14 (33 words);
+`new_game` already unlocks one. Trader stock is DUSKULL DOLL / BALL
+CUSHION / TIRE / PRETTY FLOWERS. Storyteller has 36 tales; game-stat
+id 50 remaps to 0 (saved game). Giddy writes string var 4. `special`
+(not only `specialvar`) writes `VAR_RESULT`, including bard id 0.
+Save stores the man, trendy unlocks, decorations, and game stats.
+`writeSave` increments `GAME_STAT_SAVED_GAME` before the snapshot.
+`Game3.new()` does not call `SetupMauvilleOldMan` (that would write
+`VAR_OBJ_GFX_ID_0` and steal the rival's `GFX_VAR_0` fallback). NEW
+GAME `wipeNewGameState` and special 104 do; CONTINUE restores the man
+without overwriting loaded gfx vars.
+
+No cache bump.
+
+## Phase 160 — PlayRoulette
+
+Mauville Game Corner `PlayRoulette` (specials.inc 173 − 11 = 162)
+opens the 12-pocket table (`roulette.c` / pokeemerald names). `VAR_0x8004`
+bit 0 is the table; `getpricereduction 2` (opcode 0x96) adds 128 for the
+PokéNews rate. Min bets are `{1, 3, 1, 6}`. Columns start at 4× and
+rows at 3×, then 4 / 6 / 12 as that poke or color is hit; a square is
+always 12× until it lands. Six balls then the board clears (last
+result stays on screen). Payout is `minBet * multiplier` frozen when
+the bet is placed. `GAME_STAT_CONSECUTIVE_ROULETTE_WINS` 29 is a
+high-water `SetGameStat`. Exit writes `VAR_0x8004` TRUE if coins are
+below the min bet. Shroomish/Taillow party bias is not ported
+(same as slots skipping Pika Power). `GetPriceReduction` is still
+false until PokéNews. Live carts need a re-import for 0x96; special
+162 is already decoded. Bard 10:00 is still the wall clock (154).
+
+No cache bump.
+
+## Phase 161 — setwildbattle / New Mauville Voltorb
+
+New Mauville's three Voltorb (and other statics: Electrode, Kecleon,
+Regi, Groudon, Rayquaza) are `setwildbattle` 0xB6 then `dowildbattle`
+0xB7 (`scrcmd.c` `CreateScriptedWildMon` / `BattleSetup_StartScriptedWildBattle`).
+Species and item are raw halfwords, not `VarGet`. ITEM_NONE 0 holds
+nothing. The fight `ScriptContext_Stop`s; stats 7 and 8 increment.
+Returning to the field runs ON_RESUME (`sub_8054D4C`) so
+`FLAG_SYS_CTRL_OBJ_DELETE` 0x861 can `removeobject VAR_LAST_TALKED`
+while the hide flag is already set. The entrance door and green/blue
+barriers are existing `setmetatile`. Live carts need a re-import for
+0xB6/0xB7.
+
+No cache bump.
+
+## Phase 162 — Rock Smash script path
+
+Talking to a smash rock is `data/field_move_scripts.inc`
+`S_BreakableRock` / `DoRockSmashMovement`, not the BAG `useRockSmash`
+shortcut. `checkpartymove` 0x7C writes RESULT = 0-based slot or
+`PARTY_SIZE` 6; a hit also writes `VAR_0x8004` = species. Empty
+species breaks the loop (packed party). Eggs are skipped. Slot 0 is
+the lead (Lua 0 is truthy). Move id is a raw halfword, not `VarGet`.
+`bufferpartymonnick` 0x7F and `buffermovename` 0x82 fill
+`"{STR_VAR_1} used {STR_VAR_2}."`.
+
+Special 171 (`ScrSpecial_RockSmashWildEncounter`) rolls the map's rock
+table (`DoWildEncounterTest` ignoreAbility, `GenerateWildMon` area 2,
+Repel on). RESULT 1 starts the fight, increments stats 7/8, and
+`ScriptContext_Stop`s so the script's `waitstate` holds. RESULT 0 is
+no fight. Special 298 (`TryUpdateRusturfTunnelState`) is exact map
+`g24_4` (dungeons group 24, RusturfTunnel index 4): if the tunnel is
+not already open (`FLAG_RUSTURF_TUNNEL_OPENED` 0xC7) and hide-rock 1
+(0x3A3) or 2 (0x3A4) is set, `VAR_RUSTURF_TUNNEL_STATE` 0x409A becomes
+4 or 5 and RESULT is TRUE so the wild is skipped. Do not use
+`mapMatches` (non-`gN_M` stub ids match any map). BAG smash now follows
+the same remove → Rusturf → wild order. `dofieldeffect` stays a
+cinema-skip nop so `waitstate` after it does not hang. Live carts need
+a re-import for 0x7C / 0x7F / 0x82; specials 171 / 298 already decode.
+
+No cache bump.
+
+## Phase 163 — Route 111 overworld weather
+
+`setweather` 0xA4 `VarGet`s the type into `SaveBlock1.weather`
+(`TranslateWeatherNum`; Route 119/123 cycles use `weatherCycleStage`).
+`doweather` 0xA5 is `ChangeWeather` (current/visual). `resetweather`
+0xA3 reloads the map header. Route 111's header is SUNNY; ON_TRANSITION
+and the desert coord scripts switch SANDSTORM (8). Map load matches
+`overworld.c`: header weather, ON_TRANSITION, then `DoCurrentWeather`.
+Null-script `coord_weather_event`s call `SetWeather` immediately (coord
+id 9 = sandstorm, 8 = ash — not 1:1 after fog). CONTINUE restores sav1
+after `enterMap` so a desert save is not clobbered by the sunny header.
+Battles copy rain / sand / drought as permanent weather and print
+`It is raining.` / `A sandstorm is raging.` / `The sunlight is strong.`
+Light/med rain increments `GAME_STAT_GOT_RAINED_ON` 40. Field overlay
+is a tint (no ROM weather tiles). Live carts need a re-import for
+0xA3–0xA5; weather coords already have a null script.
+
+No cache bump.
+
+## Phase 164 — Gabby & Ty
+
+Route 111's interviewers are `data/scripts/gabby_and_ty.inc`.
+ON_TRANSITION `specialvar GabbyAndTyGetBattleNum` (172) then switch 0–8
+to show one pair. Battle 0 is Route 111 pair 1 (`FLAG_HIDE_GABBY_AND_TY_ROUTE111_1`
+0x31C). The first fight is `trainerbattle_double TRAINER_GABBY_AND_TY_1`
+with an after-script: that macro with `event_script` set assembles as
+`TRAINER_BATTLE_CONTINUE_SCRIPT_DOUBLE` (kind 6), already parsed. Kind 4
+DOUBLE has no after pointer.
+
+After a win: `GabbyAndTyBeforeInterview` (174) copies `gBattleResults`
+(player-side species at end, last player move, damaged / faint / heal /
+balls), increments `battleNum` unless 0xFF, takes the TV show off the
+air (`valA_4 = 0`), and `FlagSet(FLAG_TEMP_1)` if `lastMove == 0` so the
+interview YESNO is skipped. `GetGabbyAndTyLocalIds` (179) then fills
+0x8004/0x8005 for `applymovement` (case 1 = Route 111 objects 14/13).
+Easy Chat mode 10 writes `quote = 0xFFFF` then one word; confirm is
+RESULT 1. `GabbyAndTyAfterInterview` (173) copies valA→valB, sets
+airing, stores `regionMapSectionId`, and increments
+`GAME_STAT_GOT_INTERVIEWED` 6.
+
+Rematch scripts use `GabbyAndTyGetLastQuote` (177: 0xFFFF is FALSE;
+else STR_VAR_1 and `quote |= 0xFFFF`) and `GabbyAndTyGetLastBattleTrivia`
+(178: !damaged=1, balls=2, heal=3, faint=4, else 0).
+`GetBattleOutcome` (180) returns `gBattleOutcome`. `DoTVShowInSearchOfTrainers`
+(175) is still later. Cached IR already has kind 6 after-scripts and
+these specials; live carts do not need a re-import unless they want
+`regionMapSectionId` on maps (AfterInterview `mapnum`, TV later).
+
+No cache bump.
+
+## Phase 165 — Lavaridge gym buried trainers
+
+Lavaridge gym (and Route 113 ash) trainers are `TRAINER_TYPE_BURIED` 3
+with sight 1. ON_TRANSITION `setobjectmovementtype localId, 63` =
+`MOVEMENT_TYPE_HIDDEN` unless already defeated. `trainer_see.c` treats
+BURIED like SEE_ALL (all four directions). Range 1 is adjacent tiles;
+same-tile does not count.
+
+HIDDEN hides the sprite but still occupies the tile so A-talk and
+range-1 spotting work. That is the opposite of `MOVEMENT_TYPE_INVISIBLE`
+0x4C (Devon 3F dummies), which `npcAt` skips. After the `!`, the ROM
+plays `FLDEFF_POP_OUT_OF_ASH` then
+`SetTrainerMovementType` / `OverrideMovementTypeForObjectEvent` to
+FACE_*. Skip the cinema; reveal (visible + FACE_* + template override)
+is what matters. `enterMap` already `clearObjectPerms`, so a later visit
+reloads FACE_DOWN from the ROM template and ON_TRANSITION buries again
+only if undefeated.
+
+Hot springs coord: `GetPlayerFacingDirection` (287, already) then
+`incrementgamestat` 49. Rival `giveitem ITEM_GO_GOGGLES` 279 is a key
+item. Tree/mountain disguise is Route 119, later.
+
+No cache bump.
+
+## Phase 166 — Flannery: Overheat, screens, Attract, Flail
+
+Flannery's Slugma/Torkoal kit. Overheat is effect 204:
+`setmoveeffect SP_ATK_TWO_DOWN | AFFECTS_USER | CERTAIN` then EffectHit.
+A successful hit drops the user's Sp. Atk by 2 even if Clear Body
+(self-inflicted). Miss / Protect / immunity does not.
+
+Light Screen (35) and Reflect (65) set a 5-turn side timer. Special /
+physical damage is halved unless the hit crits; doubles with both
+defenders up is 2/3 (`calculate_base_damage.c`). Using one that is
+already up fails. End of turn decrements; 0 prints "wore off".
+
+Attract (120) infatuates opposite gender. Same gender, genderless,
+already infatuated, or semi-invulnerable fails. Oblivious (12) blocks.
+Each attack: always "in love", then `Random() & 1` (odd continues, even
+immobilizes). Flail/Reversal (99) uses `sFlailHpScaleToPowerTable`
+scaled to 48.
+
+No cache bump.
+
+## Phase 167 — Muddy slopes (Route 112 / Jagged Pass)
+
+`MB_MUDDY_SLOPE` 0xD0. `ForcedMovement_MuddySlope` slides south at
+`PlayerGoSpeed2` (run) with `facingDirectionLocked` unless
+`movementDirection == DIR_NORTH` and `GetPlayerSpeed() > 3`. Only the
+Mach Bike at FASTEST holding up climbs; walk, run, Acro (3), and idle
+Mach all slide. One tile per movement cycle; collision south yields to
+keypad. `Task_MuddySlope` is metatile cinema — skip. `MB_BUMPY_SLOPE`
+0xD1 is Acro wheelie, not a slide.
+
+This engine has no Mach gears, so Mach is always FASTEST. Climb is
+Mach **and hold up**, not facing-north-alone.
+
+No cache bump.
+
+## Phase 168 — Weather Institute: Forecast, Weather Ball, givemon item
+
+The building is script-complete (trainers, flags, `getpartysize`,
+`givemon SPECIES_CASTFORM, 25, ITEM_MYSTIC_WATER`). Music swap while
+infiltrated is cinema — skip.
+
+Forecast (59) is `CastformDataTypeChange`: Castform + Forecast + HP.
+Sun / rain / hail rewrite both types to Fire / Water / Ice. Sandstorm
+or Cloud Nine / Air Lock revert to Normal. Message is
+`"{name} transformed!"`. Switch-in, weather moves, ability weather, and
+weather ending all scan every battler. Types live on the party object
+in this engine, so switch-out and battle end restore the species row.
+
+Weather Ball (effect 203) is `atkE9_setweatherballtype`: any unsuppressed
+weather doubles power; type is Water / Rock / Fire / Ice / Normal.
+
+`givemon` already parsed the item halfword; the VM now passes it to
+`giveMon`.
+
+No cache bump.
+
+## Phase 169 — Route 119 / Fortree Kecleon
+
+Fortree gym is blocked by an `OBJ_EVENT_GFX_KECLEON_1` (204) with
+`MOVEMENT_TYPE_INVISIBLE` 0x4C until the player uses the Devon Scope
+from Route 120 Steven. Route 119 has the same Kecleons plus ninja boys
+on `MOVEMENT_TYPE_TREE_DISGUISE` 0x39 / `MOUNTAIN_DISGUISE` 0x3A.
+
+`GetObjectEventIdByXY` does not skip INVISIBLE: they collide and are
+talkable; the sprite is just not drawn. Phase 142 skipped them for the
+Devon 3F dummy. Restore ROM collision. `hideobjectat` already kept
+collision via the `invisible` flag alone.
+
+Tree / mountain disguise: hide the trainer sprite so the tree/rock
+metatile shows through; occupy the tile; `TRAINER_TYPE_NORMAL` still
+spots. After `!`, skip `FLDEFF_TREE/MOUNTAIN_DISGUISE` cinema;
+`revealHiddenTrainer` now covers 0x39/0x3A the same as HIDDEN (visible
++ FACE_* + template perm). `0x3C`/`0x3D` are `COPY_PLAYER_*_IN_GRASS`,
+not disguise — skip those this phase.
+
+`ITEM_DEVON_SCOPE` 288 is a key item. Fortree's `checkitem` / yesno /
+`removeobject` / `FLAG_KECLEON_FLED_FORTREE` 0x127 is script-complete
+once collision and talk work. Route 120 `setwildbattle` Kecleon +
+`giveitem` already exist.
+
+Color Change (16) is in the ROM's CONTACT ability case but does **not**
+check contact: damaging hit, not Struggle, power ≠ 0, not already that
+type, HP ≠ 0, not a no-effect hit. Both types become the move type.
+`"{name}'s COLOR CHANGE made it the {type} type!"`. Restore types on
+switch-out / battle end via `restoreSpeciesTypes` (same as Forecast).
+
+`SetRoute119Weather` (special 324) is not the gym-blocking hole;
+header weather already applies the 119 cycle.
+
+No cache bump.
+
+## Phase 170 — Fortree gym: Winona (Endeavor, TM40)
+
+Rotating gates and gym scripts (`trainerbattle_single`, Feather Badge
+`FLAG_BADGE06_GET` 0x80C, `giveitem ITEM_TM40_AERIAL_ACE`) were already
+in. Aerial Ace is `EFFECT_ALWAYS_HIT` 17 (accuracy 0). Double Team is
+`EFFECT_EVASION_UP`. Dragon Dance is `EFFECT_DRAGON_DANCE` 212 (+1 Atk
+and Speed). Protect / Sand-Attack / Steel Wing / Dragon Breath /
+multi-hit already exist.
+
+Swellow's Endeavor (effect 189) was the hole: power 1 would deal chip
+damage instead of equalizing HP. `BattleScript_EffectEndeavor` runs
+`setdamagetohealthdifference` (`atkD8`) **before** accuracycheck, then
+`typecalc`, clears SE/NVE, restores the HP difference, and
+`adjustsetdamage` (Endure / Focus Band only). Fail if target HP ≤ user
+HP (`But it failed!`). Ghost / Wonder Guard still immune. No STAB,
+screens, crit, or damage roll.
+
+TM40 is item 328 (TM01 289 + 39). Name `TM40`; `tmhmMove` is Aerial
+Ace 332.
+
+No cache bump.
+
+## Phase 171 — Lilycove dept-store elevator
+
+Walking into the elevator without saving `dynamicWarp` softlocks:
+the cab exits are `MAP_DYNAMIC` (group/num `0x7F`) / `WARP_ID_DYNAMIC`
+`0x7F`. `followWarp` takes the DYNAMIC branch, `followDynamicWarp`
+fails, and the function returns true without moving.
+
+ROM `field_control_avatar.c` `sub_8068C30`: when the **landing** warp's
+dest map is `MAP_DYNAMIC`, `saved_warp2_set` the current map group/num,
+the **source** warp event index, and player xy. `dest_warp_id` 0 is a
+real dest (1F door → elevator warp 0). Skip only `WARP_ID_NONE` /
+`WARP_ID_DYNAMIC`. The truck's `warpId = 0x7F` still hits the early
+DYNAMIC branch and never reaches this hook.
+
+Script once inside: `SetDepartmentStoreFloorVar` (216) from
+`dynamicWarp.mapNum` only (1F=0 … 5F=4, rooftop=15) → copy to
+`0x8005` → `DisplayCurrentElevatorFloor` (306) `Now on:` + name →
+`multichoice` 57 (`1F`–`5F`) → `setdynamicwarp` → `ShakeScreenInElevator`
+(273) + `waitstate` → `setvar VAR_DEPT_STORE_FLOOR`. Shake is cinema;
+do not `beginScriptWait`. `FLAG_TEMP_2` skips SetFloor after the first
+talk this visit. ROM `ClearTempFieldEventData` zeros flags `0x0`–`0x1F`
+on every map load; `FLAG_TEMP_20` (Victory Road rock) is not temp.
+`ITEM_RED_ORB` 276 is a key item (`RED ORB`) for Mt. Pyre `giveitem`.
+
+Indoor Lilycove is group 13. Dept-store nums: 1F 17 … 5F 21, rooftop
+22, elevator 23.
+
+No cache bump.
+
+## Phase 172 — Ice, currents, walk/slide pads
+
+Mt. Pyre's interior ice (`MB_ICE` 0x20) and Route 123 currents were
+plain floors / non-surfable water. ROM
+`sForcedMovementTestFuncs` in `field_player_avatar.c`: ice and Trick
+House puzzle 8 (`0x48`) call `ForcedMovement_Slip` —
+`DoForcedMovementInCurrentDirection(PlayerGoSpeed2)`. A wall
+(`collisionType` 1–4) runs `ForcedMovement_None` so input can turn.
+Walk pads `0x40–0x43` are Speed1 in a fixed dir. Slide pads `0x44–0x47`
+lock facing at Speed2. Currents `0x50–0x53` (`0x50` is
+`MB_UNUSED_EASTWARD_CURRENT` but `IsEastwardCurrent`) ride Speed2 and
+are surfable (`sTileBitAttributes` bit 2). Waterfall stays the existing
+climb path; forcing south would fight HM07.
+
+`ITEM_POKEBLOCK_CASE` 273 is a key item (`POKeBLOCK CASE`) so the Safari
+`checkitem` gate on Route 121 can see it.
+
+No cache bump.
+
+## Phase 173 — Safari Zone
+
+Route 121's entrance script is already decoded (`checkitem` Pokéblock
+Case, `checkmoney` 500, `getpartysize`, `specialvar CheckFreePokemonStorageSpace`,
+`special EnterSafariMode`, `setvar VAR_SAFARI_ZONE_STATE 2`, warp
+`MAP_SAFARI_ZONE_SOUTHEAST` 255, 32, 33). The hole was the specials and
+the safari battle / step / START rules.
+
+`EnterSafariMode` (specials.inc 216 − 11 = **205**) is
+`IncrementGameStat(GAME_STAT_ENTERED_SAFARI_ZONE)` **17**,
+`FLAG_SYS_SAFARI_MODE` **0x82C**, 30 `gNumSafariBalls`, 500
+`gSafariZoneStepCounter`. It does **not** `beginScriptWait`; the script
+warps after. `ExitSafariMode` is **206**. Balls are EWRAM, not the bag
+(`ITEM_SAFARI_BALL` 5 is still 1.5× when thrown). `noteUsedBall` already
+skips Safari Ball.
+
+`SafariZoneTakeStep` (in `tickWalkCounters`) decrements; remaining **0**
+runs the time-up message then `EventScript_1C341B` (`VAR_SAFARI_ZONE_STATE`
+**0x40A4** = 1, exit, warp entrance `g23_0` at 2, 5). START is RETIRE /
+POKeDEX / POKeMON / BAG / name / OPTION / EXIT — **no SAVE**, no PokéNav.
+RETIRE is the yes/no in `gUnknown_081C342D`.
+
+Wild battles while the flag is set use the RSE safari menu (BALL /
+POKeBLOCK / GO NEAR / RUN). BALL spends `safariBalls`. GO NEAR is
+`HandleAction_GoNear` (`gUnknown_081FA71B` / `081FA71F`, cap 20). Catch
+odds use `safariCatchFactor * 1275 / 100` instead of species catchRate
+(`atkEF_handleballthrow`). The wild mon watches or flees
+(`Random()%100 < safariFleeRate*5`). Last ball miss → `B_OUTCOME_NO_SAFARI_BALLS`
+**8** and an immediate warp (`sub_80C824C`). Last ball catch → outcome
+**7** then `gUnknown_081C3459`.
+
+`CheckFreePokemonStorageSpace` (**304**) is any empty slot in 14×30 PC
+boxes; 0 is valid (Lua 0 is truthy) and **must be returned** for
+`specialvar`. Feeder special **207** returns `0xFFFF` so the feeder
+script takes the empty path. Pokéblock inventory / blender / feeders
+are still later; battle POKeBLOCK throws flavor 0 (curious column)
+until the case UI exists.
+
+Entrance group 23, Safari SE `g26_3`. No cache bump.
+
+## Phase 174 — Mt. Pyre holes / hideout pads / arrow warps
+
+Lilycove → Route 122 Surf → Mt. Pyre → Harbor → Magma Hideout. Summit
+`giveitem` Red Orb and Harbor `jump_up` / hide-grunt flags were already
+decoded. The remaining field holes were warp *behaviors* and the
+specials the hole script calls.
+
+`MB_MT_PYRE_HOLE` **0x0F** is walkable. ROM `TryStartWarpEventScript`
+lands, `sub_8068C30` sets dest from the warp event, then
+`EventScript_FallDownHoleMtPyre` → special **DoFallWarp** (specials.inc
+330 − 11 = **319**). `DoFallWarp` is `sp13E_warp_to_last_warp` (**318**)
+plus the fall callback — dest is already `gWarpDestination`, not
+`gLastUsedWarp`. Neither special `beginScriptWait`s. Stepping onto 0x0F
+occupies then `doFallWarp` (fall text, follow the warp event).
+
+`MB_AQUA_HIDEOUT_WARP` **0x67** is the Magma/Aqua pad. Walk-into
+`warpAt` is the same dest as ROM land-then-`SE_WARP_IN`. Harbor
+`FLAG_HIDE_GRUNT_1/2_BLOCKING_HIDEOUT` **0x335/0x336** hide the 1F
+blockers (`TrySpawnObjectEvent` skips a set story flag).
+
+Arrow warps **0x62–0x65** / water-south **0x6D** / ship stairs **0x1B** /
+Shoal Cave **0x1C** only warp when walking onto the tile from that
+direction (`IsArrowWarpMetatileBehavior`). Any other approach occupies
+if the tile is walkable.
+
+Hideout trainers `MOVEMENT_TYPE_ROTATE_CLOCKWISE` **0x18** /
+`COUNTERCLOCKWISE` **0x17** stay put and turn every 48 frames
+(`gClockwiseDirections` S→W→N→E).
+
+Route 119/123 headers are `WEATHER_SUNNY`. Specials **324/325**
+(`SetRoute119Weather` / `SetRoute123Weather`) apply the rain cycle only
+when lastUsedWarp is not outdoor (`is_map_type_1_2_3_5_or_6`). Leaving
+Weather Institute starts the cycle; walking in from Route 118 keeps
+sunny. Connections do not update lastUsedWarp. Do not name an OW helper
+`setWeather`.
+
+Magma Hideout 1F is dungeon index **74** (`g24_74`). No cache bump.
+
+## Phase 175 — FACE look types / Mossdeep gym arrows
+
+Ruby Mossdeep gym (`g14_0`, IndoorMossdeep group 14 index 0) is not
+Emerald's light-floor warp maze. The ROM map has two entrance warps
+and four bg-sign switches. `setmetatile` swaps
+`METATILE_MossdeepGym_RedArrow_Right` **0x204** /
+`Down` **0x205** / `Left` **0x20C** / `Up` **0x20D**. pair_35 behaviors
+for those ids are walk pads **0x40–0x43** (Phase 172). Flipping the
+metatile changes `behaviorAt` so the conveyor turns. Switch flags
+`FLAG_MOSSDEEP_GYM_SWITCH_1..4` **0x64–0x67**. DrawWholeMapView is
+already special **142**. `MB_MOSSDEEP_GYM_WARP` 0x0E has no pokeruby
+helper and is not a gym warp. Tate & Liza are `trainerbattle_double`
+(already in).
+
+Mt. Pyre trainers use `MOVEMENT_TYPE_FACE_DOWN_AND_LEFT` **0x11** /
+`_RIGHT` **0x12** (and the rest of 0x0D–0x16). They stay put. After
+`gMovementDelaysMedium` {32, 64, 96, 128} they pick a facing from
+`gDownAndLeftDirections` etc. (4-entry tables weight a dir twice).
+`ObjectEventIsTrainerAndCloseToPlayer` only while dashing, NORMAL or
+BURIED, Chebyshev box of sight range — then
+`TryGetTrainerEncounterDirection` snaps via
+`GetLimitedVectorDirection_*` (WestSouth remaps east/NE to south).
+FACE_DOWN **0x08** still never turns. LOOK_AROUND **0x01** is still
+four-dir. No cache bump.
+
+## Phase 176 — Sootopolis gym ice
+
+Ruby Space Center is flavor NPCs + a Sun Stone. There is no Magma
+attack (that is Emerald). After Mind Badge / Dive, the gym hole is
+Sootopolis 1F (`g15_0`).
+
+ON_TRANSITION sets `VAR_ICE_STEP_COUNT` **0x4022** to 1. ON_RESUME is
+`setstepcallback` 4. Thin ice (pair_36 **0x20D**, `MB_THIN_ICE` 0x26)
+increments that var, cracks to **0x20E**, and sets a bit in
+`gUnknown_083763E4[y]` (`VAR_TEMP_1..A`, x 3–13). Cracked ice zeros
+the count and writes Broken **0x206**. ON_FRAME at 8 / 28 / 69
+`addvar`s then `setmetatile` stairs **0x207**; at 0 `warphole` group
+15 num 1 (B1F) at the player's xy. Do not snap to spawn first.
+
+Special **309** (`SetSootopolisGymCrackedIceMetatiles`, specials.inc
+320 − 11) paints 0x20E from the bits. `enterMap` now clears
+`VAR_TEMP_0..F` with the temp flags, so a warp to B1F resets the ice
+(ROM `ClearTempFieldEventData`). CONTINUE keeps the bits; ON_LOAD
+restores. Wallace / Rain Badge / TM03 were already decoded. No cache
+bump.
+
+## Phase 177 — Cave of Origin Groudon / Sootopolis Dive
+
+Ruby story after the gym is Seafloor Cavern Room 9 (`g24_36`) then
+Cave of Origin B4F (`g24_42`), not Emerald's Rayquaza-in-the-sky beat.
+Maxie is `trainerbattle_no_intro` (already in). The Groudon fight is
+`setwildbattle SPECIES_GROUDON, 45, ITEM_NONE` then special
+**ScrSpecial_StartGroudonKyogreBattle** (specials.inc 322 − 11 =
+**311**), not `dowildbattle`. Same `CB2_EndScriptedWildBattle` wait as
+a scripted wild, plus `BATTLE_TYPE_LEGENDARY | BATTLE_TYPE_KYOGRE_GROUDON`.
+Rayquaza **312** and Regi **313** are the same with legendary / regi.
+`CanRunFromBattle` does not check legendary; RUN still works. Lose
+white-outs; win/run/catch continue the script (`GetBattleOutcome` 180).
+
+Seafloor / Cave of Origin `waitstate` after **WaitWeather** (284),
+**sub_80818A4** (281), **sub_80818FC** (282), **sub_8081924** (332) is
+the orb / weather / fade cinema. Same as elevator shake 273: nop, do
+not `beginScriptWait`. `setmaplayoutindex` (0xA7) swaps
+`gMapLayouts[id - 1]` (Ruby layouts 327 / 313, Route 131 **320**).
+
+Sootopolis city (`g0_7`) and underwater (`g24_5`) have empty
+connections. ON_RESUME `setdivewarp` writes `gFixedDiveWarp`.
+`SetDiveWarp` uses a dive/emerge connection when one exists; otherwise
+`RunOnDiveWarpMapScript` then the stored warp. Dest xy is that warp
+(city → 9,6 underwater; emerge → 29,53 city), not the player's tile.
+`FLAG_SYS_WEATHER_CTRL` **0x82A** plus
+`Common_EventScript_SetLegendaryWeather` is `setweather` drought
+(already decoded). `FLAG_LEGENDARY_BATTLE_COMPLETED` 0x71 /
+`FLAG_LEGEND_ESCAPED_SEAFLOOR_CAVERN` 0x81 / `VAR_SOOTOPOLIS_STATE`
+0x405E / `VAR_CAVE_OF_ORIGIN_B4F_STATE` 0x409B are script flags.
+No cache bump.
+
+## Phase 178 — Elite Four / Hall of Fame GameClear
+
+Victory Road 1F Wally is `trainerbattle_no_intro` plus
+`moveobjectoffscreen` (already in). Cracked-floor callback 7 and
+`FLAG_TEMP_20` already exist. E4 doors are `setmetatile` +
+DrawWholeMapView 142: open frame **0x344** / opening **0x345**.
+`VAR_ELITE_4_STATE` **0x409C** survives `enterMap` (not `VAR_TEMP_*`).
+Sidney `g16_0` walk-in sets it to 1; Phoebe's ON_FRAME is state 1, and
+so on. Lobby guards use `FLAG_ENTERED_ELITE_FOUR` **0x107** and
+`getplayerxy` (already decoded).
+
+Hall of Fame `fadescreenspeed 1, 24` then `special GameClear`
+(specials.inc 283 − 11 = **272**) `waitstate`. `GameClear` heals,
+sets `FLAG_SYS_GAME_CLEAR` **0x804** on the first run (later runs set
+`gHasHallOfFameRecords`), writes `GAME_STAT_FIRST_HOF_PLAY_TIME` (1)
+only when that stat is **0** (Lua 0 is truthy), awards Champion
+ribbons (`MON_DATA_SANITY_BIT2` / not egg / not already ribboned),
+sets the bedroom heal, and warps there. Credits / HoF cinema is
+skipped; do not `beginScriptWait`. `UpdateTrainerFanClubGameClear`
+**169** is called from `SetGameClearFlags`: bit 7 of
+`VAR_FANCLUB_UNKNOWN_1` **0x4041** means already ran. First time ORs
+0x80/0x100/0x400/0x2000, unhides the four NPCs, state 1.
+`fadescreenspeed` **0x98** decodes as `fadescreen` (speed kept). No
+cache bump.
+
+## Phase 179 — Latios roamer / house TV news
+
+Post-game bedroom ON_FRAME (`VAR_LITTLEROOT_HOUSES_STATE` **3**) is
+already decoded: Mom, `giveitem` SS Ticket **265**,
+`FLAG_RECEIVED_SS_TICKET` **0x123**, both house vars to 4. Watching the
+house TV after Hall of Fame (`FLAG_SYS_TV_LATI` **0x85D**) is
+`CheckForBigMovieOrEmergencyNewsOnTV` (specials.inc 84 − 11 = **73**)
+then `InitRoamer` **297**. Must be the matching gender's Littleroot 1F
+(`g1_0` Brendan / `g1_2` May). Result **1** is Lati news, **2** is the
+moving-in movie (`FLAG_SYS_TV_HOME`), else **1**; **0** if the map is
+not that house. `InitRoamer` is Ruby **Latios** (408) lv40; location is
+`sRoamerLocations[Random() % 20][0]` (group 0). Land/water steps that
+pass the rate roll then `TryStartRoamerEncounter` (`IsRoamerAt` and
+`Random() % 4 == 0`): a TRUE that Repel blocks does **not** fall
+through to the grass table. Sweet Scent skips Repel. Win/catch set
+inactive; run/Roar/white-out bank HP and
+`RoamerMoveToOtherLocationSet`. Every `enterMap` (except CONTINUE /
+white-out) is `UpdateLocationHistoryForRoamer` then `RoamerMove`
+(1/16 jumps sets). CONTINUE keeps `sRoamerLocation` so Latios does not
+snap to Petalburg. No cache bump.
+
+## Phase 180 — SS Tidal cruise
+
+Harbor attendants after `FLAG_SYS_GAME_CLEAR` are decoded:
+`checkitem` SS Ticket, `multichoicedefault` lists **52** (Slateport:
+LILYCOVE / BATTLE TOWER / CANCEL) and **56** (Lilycove: SLATEPORT /
+BATTLE TOWER / CANCEL), `setvar VAR_PORTHOLE_STATE` 1 or 5, warp to the
+corridor. `SetSSTidalFlag` (specials.inc 214 − 11 = **203**) sets
+`FLAG_SYS_CRUISE_MODE` **0x82D** and zeros `VAR_CRUISE_STEP_COUNT`
+**0x404A**. `ResetSSTidalFlag` **204** clears the flag. Each walk
+`CountSSTidalStep(1)`: Lua **0** is still sailing; `(*count += 1) <=
+0xCC` (204) keeps cruising; the **205th** step runs
+`gUnknown_0815FD0D` (state **2** → **3** voyage ding-dong, state **7**
+→ **8** Slateport landing). Porthole `sub_80C7958` **270** FlagSets
+cruise without zeroing steps; ocean warp is skipped (do not
+`beginScriptWait`). White-out clears cruise. Sailor warps on states 4
+/ 8 are decoded. No cache bump.
+
+## Phase 181 — Sky Pillar island / `setmaplayoutindex`
+
+Route 131 ON_TRANSITION after `FLAG_SYS_GAME_CLEAR` is
+`setmaplayoutindex 320` (Sky Pillar island in the ocean). Opcode
+**0xA7** is `VarGet` then `sub_8053D14`: store `mapLayoutId`, point
+collision/tiles at `gMapLayouts[id - 1]`. Same events. LoadMap resets
+from the header first; CONTINUE uses the saved id
+(`LoadSaveblockMapHeader` does not re-run ON_TRANSITION).
+
+Every Ruby site: Route 131 **320**; Route 130 Mirage **46** / ocean
+**264**; Shoal entrance **169**/**165**, inner **170**/**166**; Cave of
+Origin B4F Ruby **313**; Seafloor Room 9 Ruby **327**. Alternate
+layouts have no map header; the extractor walks `gMapLayouts` and
+writes unused ones to `data/generated/layouts.lua` (re-import; no
+cache bump). Shared map grids are copied on enter so a swap cannot
+mutate the header.
+
+`IsMirageIslandPresent` (specials.inc 220 − 11 = **209**) is
+`VAR_MIRAGE_RND_H` vs `personality & 0xFFFF` of a non-empty party
+slot; must return **0**. `UpdateShoalTideFlag` **210** only when
+`is_map_type_1_2_3_5_or_6(GetLastUsedWarpMapType)` (same outdoor set
+as escape warp); `tide[hours]` 1 = `FLAG_SYS_SHOAL_TIDE` **0x83A**.
+Neither waits.
+
+## Phase 182 — battle items (party, Revive, X items, flee)
+
+BAG A on medicine / status heal / Revive opens the party (`ItemUseInBattle_Medicine`). A on a slot calls `useBattleItem(id, mon)` and does not switch. B returns to the bag. `useBattleItem(13)` still heals the battler so older tests stay green.
+
+Revive **24** / Max Revive **25** (`ITEM4_REVIVE`, 0xFE half / 0xFF full) work on fainted party mons; `useItemOnMon` revives before the HP≤0 reject. X Attack **75** … X Special **79** raise the menu battler +1 (ROM stages 0–12, engine −6..+6). Dire Hit **74** is Focus Energy. Guard Spec **73** sets player-side mist for 5 turns (`gSideTimers.mistTimer`); foe drops print `is protected by MIST!`. Poké Doll **80** / Fluffy Tail **81** flee wild fights (`ItemUseInBattle_Escape`); trainers get Dad's-advice (`This can't be used now.`) and do not spend. Unusable items still say that. No cache bump.
+
+## Phase 183 — Winstrate chain / Route 111 ruins wall
+
+Victor's outdoor script is four `trainerbattle_no_intro`s (Victor 292,
+Victoria 299, Vivi 606, Vicky 312) with `removeobject` / `addobject`
+between them. `removeobject` sets `FLAG_HIDE_VICTOR_WINSTRATE` **0x300**.
+`scriptTrainerBattle` was treating that hide flag as “this NPC is
+already beaten,” so the later trainer ids never started. Skip only when
+the command’s trainer id is already flagged, or when the talking object
+*is* that trainer.
+
+Route 111 ON_LOAD seals Desert Ruins (`setmetatile` 29,86 / 29,87 to
+`METATILE_General_RockWall_*`, collision 1) until `FLAG_REGI_DOORS_OPENED`
+**0xE4**. Script `setmetatile` / `opendoor` / `closedoor` now keep
+MAPGRID elevation bits 12–15 (`MapGridSetMetatileIdAt`). No cache bump.
+
+## Phase 184 — Route 111 picket fence (COVERED tops)
+
+The “invisible wall” on the dirt east of the Winstrate door is ROM
+collision: layout cell (14, 114) is General fence metatile **0x149**
+(329), collision 1, elevation 3. Bottom four tiles are the same dirt as
+metatile 1; LAYER_COVERED puts the posts on BG2. The east-west path is
+**y=115**. `metatileTopPassMode` now keys COVERED off the layer type
+(not the overlay flag). `layersFor` retries a missing top atlas instead
+of caching the miss, and the ground pass paints COVERED tops (BG2)
+before sprites so the fence cannot vanish if the later overlay pass
+never runs. No cache bump.
+
+## Phase 185 — Route 111 west connections (113 then 112)
+
+Route 111 (`g0_26`) lists two west connections: Route 113 (`g0_28`,
+offset 0, 20 tall) then Route 112 (`g0_27`, offset 20, 60 tall).
+`connectionDest` used the first same-dir entry, so walking west at the
+112 dirt (y=66–71, after Rock Smash, west of the desert) targeted 113
+at dest y=66. 113 is only 20 rows → `canStep` failed → invisible wall.
+`GetIncomingConnection` / `IsCoordInIncomingConnectingMap` keep a
+connection only when the player’s Y (west/east) or X (north/south) sits
+in `[max(offset,0), destSize+offset]`. y=8 → 113; y=66 → 112 (land at
+39,46). `connectionByDir` stays first-match (dive). No cache bump.
+
+## Phase 186 — Lavaridge hot springs metatile ids
+
+`MB_HOT_SPRINGS` is **0x28** (walkable land, not surf). `canStep` had
+it as `MB_SEAWEED_NO_SURFACING`, so the Lavaridge pools needed Surf.
+ROM: no-surfacing **0x19**, seaweed no-surfacing **0x2A**, gym B1F pad
+**0x29**, gym 1F pad **0x68**. Unused 0x18 is not water. No cache bump.
+
+## Phase 187 — Sceptile back pic / mid-battle evolve
+
+`collectSpecies` only followed one evolution hop, so Treecko yielded
+Grovyle’s pics and never Sceptile (279). The red square is
+`drawBattlePic`’s missing-back fallback. The walk now follows the full
+chain (and seeds the starter finals). `afterBattleMessages` no longer
+starts `EvolutionScene`; `TryEvolvePokemon` runs from `endBattle` only
+when `B_OUTCOME_WON`. Re-import for the new PNGs. No cache bump.
+
+## Phase 188 — Lavaridge giveegg / Glass Workshop
+
+Lavaridge egg woman (`giveegg SPECIES_WYNAUT`) was a sized nop: 0x7A
+walked past but never created the egg. `ScrCmd_giveegg` is `VarGet`
+species → `ScriptGiveEgg` (`CreateEgg` with hot-springs met location
+**253**, then `GiveMonToPlayer`). RESULT is 0 party / 1 PC / 2 full.
+Do not remap Wynaut **360** through daycare `eggSpeciesFrom` (that
+turns 360 into Wobbuffet 202). `collectSpecies` seeds 360 so the hatch
+pics exist. Re-import for the Wynaut PNGs and for cached IR.
+
+Route 113 Glass Workshop: special **274** (`ShowGlassWorkshopMenu`)
+waitstates a list of five flutes, Pretty Chair / Desk, CANCEL. A writes
+the cursor (0–7); B writes **127**. `callstd` 7 (`STD_OBTAIN_DECORATION`)
+and `adddecoration` 0x4B put the furniture in the PC bag.
+`bufferdecorationname` 0x81 fills `{STR_VAR_*}`. No cache bump.
+
+## Phase 189 — Fallarbor Move Relearner
+
+Fallarbor `House2` (`SelectMoveTutorMon` / `DisplayMoveTutorMenu`) was
+a nop: the Heart Scale check ran, then the party menu never opened.
+Special **219** (`specials.inc` 230 − 11) waitstates a party pick. A
+writes `0x8004` = 0-based index and `0x8005` = `sub_8040574` count
+(level-up moves at or below current level that the mon does not know;
+eggs 0; cap 20). B writes `0x8004` = **255**. Special **224**
+(`DisplayMoveTutorMenu`) lists those moves + EXIT. `GiveMoveToMon`
+into an empty slot, or the existing forget UI when all four are full,
+sets `0x8004` = **1**. EXIT / B then yes on “give up?” sets **0**
+(Lua 0 is valid — the script’s `compare VAR_0x8004, 0` is “back to
+ChooseMon”, not a failed special). Stopping a forget returns to the
+list; it does not write 0. No cache bump.
+
+## Phase 190 — Castform pics / EggHatch / BlackGlasses
+
+Weather Institute `givemon SPECIES_CASTFORM` had no extracted front/back
+because `collectSpecies` never saw 385 in encounters or trainers. The
+seed list now includes Castform **385**, Lileep **388**, and Anorith
+**390** (Devon fossils). Re-import for those PNGs.
+
+Party eggs already ticked `hatchLeft` every 255 steps. Special **194**
+(`EggHatch`) is the hatch cinema: skip it, still run
+`AddHatchedMonToParty` on `0x8004` (friendship 120, met level 0, Poké
+Ball, `GAME_STAT_HATCHED_EGGS` 13). Special **193** is the same hatch
+without the cinema task. `_ShouldEggHatch` writes `0x8004` before the
+walk-off hatch. Do not `beginScriptWait`.
+
+Route 116 glasses man: special **316** (`FoundBlackGlasses`) is
+`FlagGet(0x2B8)`. 0 (not found) is valid. No cache bump.
+
+## Phase 191 — Lilycove Move Deleter
+
+Lilycove `MoveDeletersHouse` uses `SelectMonForNPCTrade` (already done)
+then specials **223** (`CountPokemonMoves`, RESULT 1 is “only knows one
+move”), **220** (`SelectMove`), **222** (`GetPokemonNicknameAndMoveName`),
+and **221** (`DeleteMonMove`). `SelectMove` has no `waitstate` in the
+script: the ROM pauses because CB2 swaps to the summary screen, so the
+engine `beginScriptWait`s. A writes `0x8005` = the 0-based move; B / the
+5th slot writes **4**. `DeleteMonMove` zeros that slot and compact-swaps
+the rest down. HMs are allowed (`PSS_MODE_MOVE_DELETER` skips
+`IsHMMove`). No cache bump.
+
+## Phase 192 — Contest hall, blender, PokéNav, script PC
+
+Fallarbor Super Rank warps to `LINK_CONTEST_ROOM1` after
+`SetContestTrainerGfxIds` (83). `CheckSelectedMonAndInitContest` (84) is
+`CanMonParticipateInContest`: 0 not qualified, 1 ok, 2 already won the
+rank, 3 egg, 4 fainted. 0 is valid. NPC gfx come from the Super pool
+(Karina/Bobby/Claire) into `VAR_OBJ_GFX_ID_0..2`. Player is contestant
+3. `GetContestWinnerIdx` writes `0x8005`. `showcontestwinner` is opcode
+`0x77` (cached IR nops it until re-import). `sub_80C5044` (90) is the
+link-contest flag, not "has ribbon."
+
+Berry blender: `GetFirstFreePokeblockSlot` (160) returns `-1` when the
+40-slot case is full (`specialvar` stores `0xFFFF`). `DoBerryBlending`
+(161) waits, picks a berry, skips the RPM minigame, and `GivePokeblock`.
+Pecha → PINK. `ShowBerryBlenderRecordWindow` (259) waits. Feeder 208
+lists pokeblocks. PokéNav lists visited `FLAG_VISITED` towns; special
+251 waits. `ScriptMenu_CreatePCMultichoice` (262) / BedroomPC (249) /
+PlayerPC (250) / ShowPokemonStorageSystem (60) wait. Turn on/off 214/215
+are visual nops. No cache bump.
+
+## Phase 193 — Norman gym sliding doors
+
+Petalburg gym doors are bg signs (`PetalburgCity_Gym_EventScript_*Door`)
+on collision + warp tiles. ROM only bump-warps `MB_ANIMATED_DOOR` walking
+north; gym doors are `MB_PETALBURG_GYM_DOOR` (0x8D). Walking in was
+following the paired warp (often into a wall). Locked: A-press "This
+door appears to be locked". Unlocked: yesno then `warpdoor` with
+`VAR_0x8008`/`VAR_0x8009`. `lightExitDoors` no longer strips collision
+on those signs. No cache bump.
+
+## Phase 194 — house TVs, lottery, leftover field specials
+
+`UpdateTVScreensOnMap` still sets `FLAG_SYS_TV_WATCH` on every load, then
+clears it when `FLAG_SYS_TV_START` (0x832) and Gabby `valA_4` is on the
+air so house TVs take the interview show instead of Mom/Dad. `special_0x44`
+(65) returns 255 (no queued `tvShows`). `DoPokeNews` (64) RESULT 0.
+`DoTVShow` (63) RESULT 1 so the waitmessage loop cannot hang.
+`DoTVShowInSearchOfTrainers` (175) is the 0–8 Gabby state machine; last
+page RESULT 1 and `TakeTVShowInSearchOfTrainersOffTheAir`. Mom/Dad (74)
+matches `tv.c` (Brendan 1F male / May 1F female → MOM). Lottery: 32-bit
+in `VAR_LOTTERY_RND_L/H`, Retrieve u16, Pick matching digits >1, prizes
+PP Up / Exp Share / Max Revive / Master Ball. Computer effect 217/218
+cinema skip. Abandoned Ship keys 288–291 copy the flag into `0x8004`.
+`IsGrassTypeInParty` 299 / `IsPokerusInParty` 308 / `CheckRelicanthWailord`
+279 return 0 when false. `GetWeekCount` 256 is `days/7`. `ShakeCamera` 310
+and `DoBrailleWait` 280 do not `beginScriptWait`; Braille skip still opens
+the Regice chamber. No cache bump.
+
+## Phase 195 — field poison, whiteout money, SaveGame, leftover specials
+
+`VAR_POISON_STEP_COUNTER` (0x402B) ticks every walk (`++ % 4`) except on
+secret bases. On wrap, `DoPoisonFieldEffect` drops 1 HP from poisoned
+party mons; return 2 (any faint) starts the whiteout talk without the
+extracted `gUnknown_081A14B8` script. `ExecuteWhiteOut` (199) applies
+`FRIENDSHIP_EVENT_FAINT_OUTSIDE_BATTLE`, clears status, and RESULT 1 if
+every valid mon is down. Walk path appends the ROM "whited out" line and
+`thenWhiteout`. `DoWhiteOut` halves money, runs `EventScript_WhiteOut`
+(ResetEliteFour, Go-Goggles rival, Mr. Briney), and `FlagClear`s cycling /
+safari / strength / flash / cruise. `SaveGame` (93) is `writeSave` with
+RESULT 1/0 and no waitstate. Trainer EventScript specials 51-56/61/314,
+interview 67-70/72, `CountAlive` 133, `ScriptRandom` 340, and
+`ScriptGetMultiplayerId` 326 (4 when not link). No cache bump.
+
+## Phase 196 — trainer-eye rematches
+
+After five badges, every step increments `trainerRematchStepCounter`
+(cap 255). On warp / connection (`enterMap`, not CONTINUE), if the
+counter is maxed, each `gTrainerEyeTrainers` row on this map that has
+already been fought rolls `Random() % 100 <= 30` and sets
+`trainerRematches[i]` to the next unfought rematch slot. Special 57 is
+the rematch flag or `WasSecondRematchWon`; 58 is the flag; 59 starts
+the rematch. `trainerbattle_rematch` (kind 5/7) loads
+`GetRematchTrainerId` party, not the first-fight NPC party. Win clears
+the flag and sets the rematch trainer bit. Cindy skips `_2`. No cache
+bump.
+
+## Phase 197 — Pokerus, Pacifidlog TM, size records, fan club, diploma
+
+After every non-link battle the party can catch Pokérus (`Random()` is
+`0x4000` / `0x8000` / `0xC000`) and spread it (`Random() % 3 == 0`) to
+neighbors whose high nibble is 0. `IsPokerusInParty` is the **low
+nibble**; cured `0x10` is 0. Day decay runs from `DoTimeBasedEvents` on
+map load once the wall clock is set. Pacifidlog TM specials 333/334 use
+`VAR_PACIFIDLOG_TM_RECEIVED_DAY` (7-day wait; 0 is available). Sootopolis
+size records 119-122 are imperial inches (Marco `0x8100` = 15.7). Lilycove
+fan-club move bits are specials 163-168/170. Diploma 264 is a waitstate.
+Enigma 50 is always 0 without e-reader data; 339 names a held Enigma.
+Southern Island 323 is a scripted legendary wild like Rayquaza. No cache
+bump.
+
+## Phase 198 — leftover daycare / HoF PC / cinema skips
+
+GetSelectedDaycareMonNickname 186 returns SPECIES and buffers the nick
+(0 is valid). DaycareMonReceivedMail 195 is 0 unless that slot has mail
+whose stored nick/OT differs. GetDaycareMonNicknames 181 was a missing
+runSpecial branch. ChooseSend B writes 255. GameClear records the party
+(SPECIES2) into 50 Hall of Fame teams and increments stat 10 (cap 999).
+AccessHallOfFamePC 263 is a waitstate: newest team first, A older/close,
+B close. Watering anim 94, camera dummy 275/276, sealed-chamber shake
+305/315, and Route 128 fade 317 are cinema skips (no wait). No cache bump.
+
+## Phase 199 — herb shop / Lava Cookie / decoration marts
+
+Lavaridge Herb Shop `pokemart` stock (Energy Powder 30 / Energy Root 31 /
+Heal Powder 32 / Revival Herb 33) now matches `item_effects.h`: 50 HP,
+200 HP, full status, half revive. Successful use applies the signed
+ITEM5_FRIENDSHIP bands (-5/-5/-10, -10/-10/-15, -5/-5/-10, -15/-15/-20).
+Negative deltas skip Soothe Bell. Mt. Chimney's 200-yen Lava Cookie (38)
+is Full Heal with no friendship drop.
+
+`pokemartdecoration` 0x87 and `pokemartdecoration2` 0x88 decode like
+`pokemart` but buy through `AddDecoration` / `gDecorations[].price`
+(shop.c MART_TYPE_1/2). Fortree desks/chairs and Slateport dolls use
+this. Lilycove 5F lists item constants that are decoration ids (Pichu
+Doll = 76). Cached IR nops 0x87/0x88 until re-import. No cache bump.
+
+## Bugfix — Norman gym door A-press
+
+`Script.parse` sorts by ROM offset, so a `goto` to the earlier shared
+`EnterRoom` label became `ops[1]`. Speed Room (lowest address) still
+set `0x8008`/`0x8009`; Accuracy and every later door warped with those
+vars unset into the wall by Norman. Run starts at `ops.entry`; ruby27
+cache without that field starts at the first `lockall` after a
+closemessage prefix that a later goto targets as 1. No cache bump.
+
+## Bugfix — YES/NO waits for leftover dialogue
+
+`Std_MsgboxYesNo` is `waitmessage` then `yesnobox`. A long prompt (gym
+door "go through?", lost `\p`) wrapped to three lines, showed YES/NO
+immediately, and A answered instead of paging. Extra lines now page
+first; the menu draws only when the last page is up. Glued `\p`
+(`says.Do`) becomes a newline. No cache bump.
+
+## Phase 200 — Cable Club / Battle Tower leftovers
+
+No GBA link. Cable Club 2F Teala with a script runs the map script
+(GFX_TEALA indoor only opens contest when there is no script). Link
+connect specials 28/29/30/36/341 return RESULT 5 (sub_80833EC goodbye)
+and do not wait; RESULT 0 would fall through into the Colosseum warp.
+CloseLink 31 / records 196 / 283 are cinema skips. SetCableClubWarp
+reads the warp underfoot; DoCableClubWarp / sub_80810DC skip the fade.
+
+Battle Tower lobby ON_FRAME sub_8134548 sets VAR_TEMP_0 = 5 so it does
+not re-fire. BattleTowerUtil case 0 / GetBestBattleTowerStreak 0 are
+valid. Party pick 245 cancels (RESULT 0, no wait). Empty e-reader is
+RESULT 1 (Mossdeep door closed). Secret-base PC decoration/registry
+and owner-name buffers skip the UI; registration validity 0 is
+can-register. No cache bump.
+
+## Phase 201 — DoTimeBasedEvents UpdatePerDay
+
+`clock.c` already ticked Pokerus. The rest of `UpdatePerDay` now runs
+on the same day change after `FLAG_SYS_CLOCK_SET`: `ClearDailyFlags`
+zeros 0x8C0–0x8FF (Route 111/114 berry ladies, lotto ticket, etc.),
+Dewford trends decay/rise by `days * 5` then sort by pop/maxPop,
+weather cycle `% 4`, mirage LCG on `VAR_MIRAGE_RND_H/L`, Birch
+`VAR_BIRCH_STATE += days; %= 7`, `SetShoalItemFlag` (ignores days,
+FlagSet 0x85F), lottery Random then `days` LCG steps. TV show /
+outbreak decay is a nop until those tables exist. Special 211
+`InitBirchState` zeros Birch (Wally gym-exit). No cache bump.
+
+## Phase 202 — Glass Workshop flutes / DoWildEncounterTest
+
+Route 113 White/Black Flute field use sets `FLAG_SYS_ENC_UP_ITEM`
+`0x84D` / `FLAG_SYS_ENC_DOWN_ITEM` `0x84E` and is not consumed (ROM
+`ItemUseOutOfBattle_BlackWhiteFlute`). `DoWildEncounterTest` now
+matches `wild_encounter.c`: `*16`, bike `*80/100`, White `+rate/2` or
+Black `/2`, Cleanse Tag `*2/3`, then lead Stench `/2` or Illuminate
+`*2` (eggs skip; Rock Smash sets `ignoreAbility`), cap 2880.
+Blue/Yellow/Red Flutes are reusable medicine (sleep / confusion /
+infatuation). `ClearTempFieldEventData` also FlagClears the flute
+flags, Strength `0x829`, and `FLAG_SYS_CTRL_OBJ_DELETE` `0x861`.
+Item ids: Black 42, White 43 (`items.h`). No cache bump.
+
+## Phase 203 — Gym-guide dialogue freeze
+
+Rustboro gym-guide `msgbox` froze on `WATER-type andGRASS-type moves.`:
+`\l` (0xFA) decoded to empty so "and" glued to "GRASS", and the
+typewriter ran through the whole speech while the 2-line box already
+looked full, so A never paged. Typewriter now prints the current box
+only; A pages immediately. `readText` uses `decodePages` (`\n`/`\l`
+lines, `\p` pages). `TEXT_LEN` 1024 (speech is ~581 bytes). Cached IR
+still has glued `\l` until re-import. No cache bump.
+
+## Phase 204 — FONT3 widths, ROM menus, boot cinema layout
+
+Latin FONT3 already had 8×16 glyphs; advance was a fake 8px. Extractor
+now finds `sFont3Widths` (space 3, `A` 6) and writes `font.lua.widths`.
+Runtime uses that table, else USA 1.0. Wrap, `drawText`, and
+`stringWidthTiles` follow `GetGlyphWidth`. Field dialogue is
+`text_window.c` (2, 15) in the 0,14 frame. START is
+`start_menu.c` `(22, 0, 29, n*2+3)`. Title CONTINUE/NEW GAME/OPTION and
+OPTION match `main_menu.c` / `option_menu.c` tiles. Intro is GAME FREAK
+then Groudon (affine bike ride still skipped). Re-import picks up ROM
+widths; no cache bump.
+
+## Phase 205 — ROM boot cinema stills
+
+Copyright, intro, and title no longer paint FONT3 stand-ins. The
+extractor pulls `intro.c` / `title_screen.c` LZ77 (copyright tilemap,
+intro1 BGs + VOFS, intro2 grass, Groudon+lava+logo+RUBY VERSION) into
+optional PNGs. Timings match `gIntroFrameCounter` (part 1 1026, bike
+2068). Affine bike/pokeball zoom is still a still, not Mode 1. Re-import
+to see them. No cache bump (files are optional).
+
+## Phase 206 — boot cinema motion + title affine logo
+
+Title was a sequential 8bpp sheet (shredded POKeMON strips) and Groudon
+used pal 14 dark (silhouette). Logo now paints `gUnknown_08E9F7E4` as
+Mode 1 affine 8bpp; Groudon body uses the glow pal; RUBY VERSION is two
+64x32 OBJ; PRESS START is a blinking overlay, not FONT3 on Groudon's
+head. GAME FREAK is the OBJ composite from frame 560. Intro2 is
+grass+trees scrolling ~4px/frame. Affine bike/pokeball zoom still
+skipped. Re-import + restart LÖVE. No cache bump.
+
+## Phase 216 — Roxanne badge after TryEvolvePokemon
+
+`endBattle` ran `TryEvolvePokemon` and returned without
+`gotobeatenscript`. Starters evolve at 16 as Roxanne faints, so
+`FLAG_BADGE01_GET` never set. `finishPostBattleScenes` resumes the
+beaten script after the evo / learn prompts. CONTINUE_SCRIPT `after`
+starts at `.entry`, not ops[1]. No cache bump.
+
+## Phase 217 — field medicine party picker
+
+BAG USE on a Potion / Revive / status heal called `itemTarget` and
+applied to the first legal mon, so Revive could not pick a fainted
+slot behind a healthy lead. `ItemUseOutOfBattle_Medicine` fades to
+the party (`OtherText_UseWhat`). A runs `UseMedicine`; an egg is
+`SE_FAILURE` and stays; B or CANCEL (`sprite data[0] == 7`) returns
+to the bag; after the message, `sub_808B224` fades back to the pack.
+`useItemOnMon` is still the apply. No cache bump.
+
+Three offsets were wrong and were found by rendering the extractor
+output to PNG and looking at it:
+
+- **Copyright was a black screen.** `gIntroCopyright_Gfx` LZ ends at
+  `0xE9CA21`; the palette is the next 4-byte aligned address `0xE9CA24`
+  and the raw 32x20 tilemap follows at `0xE9CA44`. The old values were
+  each 3 bytes low, so both the palette and map were garbage. Text is
+  index 15 (white) on index 1 (black); verified against the PLTE of
+  pokeruby `graphics/intro/copyright.png`.
+- **Title logo sat too low.** Setup writes `REG_BG2Y = -33 * 256`, but
+  `Task_TitleScreenPhase2` slides the logo up and `Phase3` rests at
+  `REG_BG2Y = 0`. The still uses the resting value; BG2X stays -29.
+- **Intro part 1 was half black.** Each of the four BG tilemaps is one
+  2048-byte screenblock (32x32 = 256x256), not 256x512 — the second
+  screenblock is `DmaClear16`ed. The four BGs also parallax at
+  different rates, so they are now four separate layers
+  (`intro1_bg0..3.png`) scrolled independently at 1.5 / 1.0 / 0.75 / 0
+  px per frame from their `0x28 / 0x18 / 0x50 / 0` start VOFS.
+
 ## Layout
 
 | Piece | Where |
@@ -1756,7 +2726,423 @@ No cache bump.
 | Runtime | `src/core/Game3.lua` + `src/core/Game3Boot.lua` |
 | Map cache shards | `src/import/Gen3MapPack.lua` |
 | Cache contract | `CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby` |
+| Agent index (grep first) | `docs/gen3-index.md` |
+
+## Phase 218 — running field bugs
+
+NEW GAME no longer plants five POKe BALLs; Birch's lab still hands
+`START_BALLS`. `lock` / talk freeze wandering, not facing, so Wally's
+`applymovement` can turn. Maps smaller than 240×160 skip clamp on that
+axis so the player stays at 120,80 (houses no longer pin to the
+top-left). `useMove` reads `effect` from `moves.byId` when a party slot
+only stored id/pp, so Absorb drains. A nurse with a ROM script runs it;
+the stub heal is only for objects with no script. `expandScriptText` /
+`setStringVar` stringify so a numeric `{STR_VAR_n}` cannot traceback in
+LuaJIT gsub. Berry `tickBerryTrees` converts seconds to RTC minutes
+(was 60× too fast). `waitfanfare` gives up after 8s if a jingle loops.
+OW sprites on surfable water draw a flipped reflection. Affine bike /
+pokéball intro zoom is still skipped. No cache bump.
+
+## Phase 219 — vitamins, Rare Candy, PP, stones, Sacred Ash
+
+Field bag USE for HP Up / Protein / Iron / Carbos / Calcium / Zinc,
+Rare Candy, Ether / Max Ether / Elixir / Max Elixir / Leppa, PP Up /
+PP Max, and the six evolution stones opens the party
+(`ItemUseOutOfBattle_*` → `ITEM_USE_SINGLE_MON`). Ether / Leppa / PP
+Up / PP Max then open the move list (`OtherText_RestoreWhatMove` /
+`OtherText_BoostPP`). Elixir restores every move with no submenu.
+Vitamins cap at 100 EV per stat (party total 510); Shedinja refuses
+HP Up. Rare Candy sets exp to the next level, queues learn/evo, and
+does not `resolvePendingEvolve`. Stones call `GetEvolutionTargetSpecies`
+type 2 (Everstone blocks). Sacred Ash is `ITEM_USE_ALL_MONS`: revive
+every fainted mon to full HP and consume once if any hit. No cache bump.
+
+## Phase 220 — Pickup held item / Air Lock 77
+
+`tryPickup` wrote the find into the BAG. pokeruby `atkE5_pickup` sets
+`MON_DATA_HELD_ITEM` when the slot is empty (eggs skip; no battle
+line). `ABILITY_AIR_LOCK` is 77 (`CACOPHONY` is the unused 76). No
+cache bump.
+
+## Phase 221 — remaining ItemUseOutOfBattle / ItemUseInBattle
+
+CannotUse is `gOtherText_DadsAdvice` (not "no effect"). Empty party
+on a type-1 item is `gOtherText_NoPokemon`. Coin Case prints
+`Your COINS:\n%d`. Mail opens `mail_read`. Pokéblock Case is a list
+plus CANCEL (not the feeder special). Berry pocket plants if facing
+empty soil (`S_PlantBerryTreeFromBag`, GAME_STAT 3) else the berry's
+own fieldUseFunc. TM/HM boot (`gOtherText_BootedTM` / `BootedHM`) then
+ContainsMove YES/NO then `party_teach`. Rare Candy shows two stat
+pages (deltas, then values) before learn/evo. Battle Ether / Leppa /
+Max Ether open the party then `item_pp`. Full party+PC ball is
+`gOtherText_BoxIsFull`. Itemfinder increments GAME_STAT 39. No cache
+bump.
+
+## Phase 222 — cable car cinema waitstate
+
+`CableCar` (special 152) no longer warps on the same frame.
+`LockPlayerFieldControls` + `unk_0004` (0x15e going up, 0x109 going
+down) then `WarpIntoMap`. MUS_CABLE_CAR is 425. Mountain / car tiles
+are not extracted yet; the overlay is a weather-tinted scroll. No
+cache bump.
+
+## Phase 223 — remaining RS battle abilities
+
+IDs from `abilities.h`. Speed Boost end-of-turn `SPEED +1` except
+`isFirstTurn == 2` (switch-in). Sturdy makes OHKO miss. Battle Armor
+and Shell Armor skip the crit roll. Damp stops Explosion/Selfdestruct
+for everyone (`atk78_faintifabilitynotdamp`) and the user still faints
+on a miss. Effect Spore 10% poison/para/sleep on contact; Cute Charm
+30% infatuates the attacker. Soundproof uses `gSoundMovesTable` (not
+Heal Bell / Perish Song). Pressure extra PP. Hustle 150% physical
+Attack and 80% physical accuracy. Plus/Minus 150% Sp. Atk if the
+partner ability is on the field. Suction Cups blocks Roar/Whirlwind.
+Explosion is effect 7 (defense /2); Roar is effect 28 (wild =
+`B_OUTCOME_PLAYER_TELEPORTED`; trainer benches and sends a
+replacement). No cache bump.
+
+## Phase 224 — egg hatch + in-game trade cinema waitstates
+
+`EggHatch` (special 194) is `LockPlayerFieldControls` + wobble +
+`"{name} hatched from the EGG!"` + nickname YES/NO, then
+`playMapMusic`. `AddHatchedMonToParty` runs at cinema start;
+`GAME_STAT_HATCHED_EGGS` (13) is incremented by the TakeStep
+`Huh?` path, not by the special. `ScriptHatchMon` (193) still
+hatches `0x8004` with no wait. Egg tiles are not extracted; the
+overlay is a dark wobble at `(0x78, 0x4B)`.
+
+`CreateInGameTradePokemon` (253) fills `gEnemyParty[0]`
+(`inGameTradeIncoming`) and does not swap. `DoInGameTradeScene`
+(254) waits: sent-to / Bye-bye / swap (`sub_804BA94`) / sent-over /
+take-care, `MUS_EVOLUTION`. No cache bump.
+
+## Phase 225 — Heal Bell / Perish Song / Uproar / Ingrain
+
+Heal Bell (effect 102, move 215) and Aromatherapy (312) are
+`atkAE_healpartystatus`: status1 only. Heal Bell skips Soundproof
+battlers then `"A bell chimed!"` plus the block line; Aromatherapy
+heals everyone including Soundproof (`"A soothing aroma wafted
+through the area!"`). Heal Bell is not in `gSoundMovesTable`.
+
+Perish Song (effect 114, move 195) sets `perishSong = 3` except
+Soundproof / already-perishing; fail if nobody is hit. End of turn
+prints the current count then decrements; 0 faints. Extra Pressure PP
+is `PressurePPLoseOnUsingPerishSong` (1 + other Pressure). Regular
+switch clears it.
+
+Uproar (effect 159, move 253) is a sound move: first hit locks
+`uproarTurns = (Random() & 3) + 2` (2–5) and skips PP afterward.
+End of turn wakes non-Soundproof sleepers then decrements;
+`canStatus` sleep and Rest fail in an Uproar unless Soundproof.
+
+Ingrain (effect 181, move 275) sets `rooted`; residual heals
+`maxHP/16` (min 1) before leech seed. Roar and fleeing already
+check `rooted`.
+
+`ABILITYEFFECT_IMMUNITY` runs after Trace on switch-in: Immunity /
+Limber / Insomnia / Vital Spirit / Water Veil / Magma Armor / Own
+Tempo / Oblivious cure the matching status. No cache bump.
+
+## Phase 226 — Cave of Origin cinema waitstates
+
+`WaitWeather` (284) CreateTask until `IsWeatherChangeComplete` (next
+vblank after `doweather` snaps). `sub_80818A4` (281) expands a flash
+hole 1→160 px (delta 2) then enables; the orb stays up. `sub_80818FC`
+(282) blend-out 186 frames. `sub_8081924` (332) `FadeOutBGM(4)` (64
+frames if a song is playing, 1 if already stopped). `ShakeCamera`
+(310) 8 pans every 5 frames. Orb tiles are not extracted; the overlay
+is the flash hole plus a red/blue wash. No cache bump.
+
+## Phase 227 — cable car mountain tiles
+
+`CableCar` still waits `unk_0004` then warps. The overlay now paints
+the cart's BG2 mountain (`gCableCarMountainTilemap` 30×20), wrapping
+BG1 trees and BG3 pylon, a parked case-6 BG0 chimney, and the 64×64
+car / 16×8 door / 16×16 cord OBJs. Scroll is `sub_81239E4` /
+`sub_8123AF8` (BG3 ±1/frame, V ±1/2 frames, BG1 ±1/8 frames) plus
+`sub_8123CB8` `(u8)(0.14*t)` / `(u8)(0.067*t)`. Live chimney tile
+rewrite, the player-in-car OW sprite, the 1/64 hiker, and ash weather
+sprites are still parked. Re-import (`rom-cache-v10-ruby33`).
+
+## Phase 228 — field-effect cinema + EndTrainerApproach
+
+`dofieldeffect` 0x9C is `FieldEffectStart` (script continues).
+`setfieldeffectargument` 0x9D writes `gFieldEffectArguments[argNum]`
+from `VarGet`. `waitfieldeffect` 0x9E is `SetupNativeScript` until
+`!FieldEffectActiveListContains` — not `waitstate`. A missing effect
+continues immediately. Sparkle is 48 frames at the script's map-local
+tile (no MAP_OFFSET +7). NPCFLY_OUT is 32 frames + `SE_M_FLY` 158
+(Steven / Wallace leave). HoF record is `25*(party-1)+185` (pokéball
+glow tiles unextracted; gold wash). Unknown ids last 16 frames so a
+wait cannot hang. `EndTrainerApproach` 55 waits 1 vblank. Cached IR
+nops 0x9C–0x9E until a re-import. Lottery 217 still does not wait
+(Lilycove uses `delay 220`). No cache bump.
+
+## Phase 229 — watering / elevator / sealed chamber / Route 128
+
+Berry watering (94) waits 11 × 16-frame walk-in-place then enables
+(can gfx unextracted; the player steps in place). Elevator (273) is
+23 pans every 3 frames, `SE_ELEVATOR` then `SE_DING_DONG`. Sealed
+chamber 305/315 pan (0,±2)×50 and (0,±3)×2 every 5 frames. Route 128
+`sub_807E25C` (317, Ruby only) is a 167-frame white BLDY flash.
+Camera dummy 275/276 still does not wait (`waitmovement` 127). Lottery
+217 still does not wait. No cache bump.
+
+## Phase 230 — egg hatch tiles + trade GBA BG
+
+EggHatch still waits 280 frames then the hatch line / nickname YES/NO.
+The overlay now paints trade `shadow_map` (BG2) and the four 32×32
+crack frames from `sEggHatchTiles`, wobbling with `Sin` like
+`SpriteCB_Egg_0..2`. After Egg_3 the shell hides and the hatched
+front pic sits at (120, 70). Shards, the white fade, and affine zoom
+are still parked. In-game trade dialogue sits on `gba_map`. Re-import
+(`rom-cache-v10-ruby34`).
+
+## Phase 231 — braille wait / lottery laptop / porthole
+
+DoBrailleWait (280) waits 7200 frames then 30, then `S_OpenRegiceChamber`.
+First JOY_NEW erases + `SE_SELECT`; a second cancels without opening.
+Lottery 217/218 blinks Shop laptop metatiles (MapGrid 18,8/9) every 7
+frames × 5; Lilycove still uses `delay 220` (no wait). Porthole 270
+waitstates: FlagSet cruise + music/name flags, `portholeReturn`, warp
+to GetSSTidalLocation (Routes 134/133/132), hide player; A or 0xCD
+steps (state 9/10) warp back. CountSSTidalStep during the view does
+not run walking arrival. Camera dummy 275/276 still does not wait.
+No cache bump.
+
+## Phase 232 — egg hatch shards + white fade
+
+`CreateRandomEggShardSprite` at Egg_0 / Egg_2 cracks and the first
+four Egg_4 frames, using `sEggShardVelocities` Q_8_8 + gravity 100.
+Shards die when y2 > 20 while falling. Egg_4 is a 16-frame white pal
+fade with the shell still up; Egg_5 hides it, scales the front pic
+from 0x28 + 0x12×12 (affine anim 1), and lifts y by 1px for 10 frames.
+Shard tiles were already extracted in 230. Flying-shard `Random() % 4`
+is parked as `vid % 4`. No cache bump.
+
+## Phase 233 — camera dummy / PC / Cable Club warp / records
+
+SpawnCameraDummy (275) puts an invisible local 127 on the player tile
+and `visualTile` follows it so `applymovement 127` / `waitmovement 0`
+pans. RemoveCameraDummy restores the player. No waitstate. PC 214
+blinks Building/Brendan/May On/Off every 7 frames × 5 at the facing
+offset (N 0,-1 / W -1,-1 / E 1,-1 / else 0,0); 215 snaps Off. No wait.
+DoCableClubWarp 2 / sub_80810DC 3 wait `FADE_FRAMES` then WarpIntoMap
+(`SE_EXIT`). sub_80839A4 does not wait. Link records 196 and Battle
+Tower records 283 open a field UI (A/B close); scripts still use
+waitbuttonpress (cached IR nops). ChooseBattleTowerPlayerParty 245
+stays RESULT 0 cancel. No cache bump.
+
+## Phase 234 — in-game trade cable cinema
+
+`DoInGameTradeScene` still waitstates. The overlay now runs
+`DoTradeAnim_Cable`: platform slide (bg2hofs 0xB4 − 3), 80-frame
+WillBeSent, ByeBye + trade ball, gba_affine zoom, gba_map pan with
+glow / cable-end OBJs, cable_closeup crossing, incoming ball, 0xF0
+SentOver, 60-frame TakeGoodCare, then A runs `sub_804BA94`.
+TradeEvolutionScene is Phase 252. Re-import (`rom-cache-v10-ruby35`).
+
+## Phase 235 — TV metatiles / secret-base PC / waitbuttonpress
+
+`UpdateTVScreensOnMap` paints `TV_On` on `MB_TELEVISION` when Lati
+news, the Cove Lily motel, or `FLAG_SYS_TV_START` plus an airing show
+(Gabby / queued / PokéNews). `FLAG_SYS_TV_HOME` movie leaves tiles.
+TurnOffTVScreen (62) snaps `TV_Off`. FLDEFF 61 blinks secret-base PC
+548/544 for 21 frames and waitstates. Special 26 snaps Off + `SE_PC_OFF`
+(own 0x220 / other 0x221). `waitbuttonpress` 0x6D waits A/B; cached IR
+still nops until re-import. No cache bump.
+
+## Phase 236 — rotating-gate 4bpp / orb RGB555
+
+Fortree gym and Trick House puzzle 6 draw the eight ROM gate sheets
+(`graphics/rotating_gates/0..7.4bpp`, pal tag 0x1108) instead of brown
+bars. L1/T1 are 32×32; the rest 64×64. Affine 0 / −64 / −128 / +64
+rotates around the tile top-left (`sub_8060388`). Cave of Origin orb
+cinema stays a WIN0 hole plus pal 0x1F / 0x7C00 — there are no orb
+tiles. Re-import (`rom-cache-v10-ruby36`).
+
+## Phase 237 — setrespawn all heal locations
+
+`Overworld_SetHealLocationWarp` used only bedroom ids 1/2, so every
+Center `setrespawn` was a no-op and whiteout stayed on the truck's
+bedroom. `sHealLocations` 1–22 now write the outdoor door (Slateport
+is 19,20). A save still pointing at the bedroom after visiting a Center
+town CONTINUE-warps to the furthest Center door (not after HoF). Walk
+into a Center once after this drop to refresh an old save. No cache bump.
+
+## Phase 238 — watering-can 4bpp
+
+`DoWateringBerryTreeAnim` still waits 11 × 16-frame walk-in-place.
+`sub_8059D08` swaps the player to `OBJ_EVENT_GFX_BRENDAN_WATERING` 191
+or May 192 (32×32 Standard anim, pal tags 0x1100 / 0x1110). Those
+sheets now extract with the other player forms. Re-import
+(`rom-cache-v10-ruby37`).
+
+## Phase 239 — HoF / Pokécenter pokéball glow
+
+`FLDEFF_HALL_OF_FAME_RECORD` 62 and `FLDEFF_POKECENTER_HEAL` spawn
+`CreatePokeballGlowSprite` at screen (0x75,0x34) / (0x5D,0x24) plus
+`gUnknown_0839F2A8` deltas. The 8×8 glow tile (pal tag 0x1007) replaces
+the gold wash; HoF big/small monitors blink after stage 1 (32 frames
+past the last ball, 16-frame toggle, die at data[2]>127); the Center
+monitor plays anim 1 (8×16-frame 0/1) from pal tag 0x1004. Duration
+stays `25*(n-1)+185` / Center glow 80. Pal multiply is parked. Re-import
+(`rom-cache-v10-ruby38`).
+
+## Phase 240 — painted region map
+
+`FieldShowRegionMap` 251 and START POKeNAV draw the ROM 8bpp affine
+BG2 (`region_map.8bpp.lz` at 0x3E5DA0, 64×64 tilemap, pal at 0x70)
+instead of a visited-town list. D-pad walks the 28×15 `sRegionMapLayout`
+cells; A/B/START still close. Cursor and Brendan/May icons are the
+16×16 OBJs. Zoom, fly targets, and landmark-name flags stay parked.
+Re-import (`rom-cache-v10-ruby39`).
+
+## Phase 241 — contest hall unstuck
+
+`LinkContestRoom1` ON_WARP hides the player and ON_FRAME waitstates on
+`startcontest`. B ignored appeals and START never opened the pause
+menu while `field` was `move`/`wait`/`contest_move`, so a hang in the
+hall had no exit. START now warps to the lobby `15FB64` would have
+used (`VAR_CONTEST_LOCATION` 1–5). B on the appeal list skips remaining
+turns so the hall script can show results and warp. Movement `delay_*`
+holds even when the player sprite is hidden. No cache bump.
+
+## Phase 242 — FIGHT SELECT move reorder
+
+`HandleAction_ChooseMove` SELECT (`battle_controller_player.c`) with two
+or more moves opens dest-cursor swap mode. Dest starts at slot 0 unless
+the source already is 0, then 1. The PP panel prints `Switch` / `which?`.
+A or SELECT swaps the two move records (PP included) and lands the
+cursor on dest; B cancels. The battler is the party slot, so the order
+survives the fight.
+
+## Phase 243 — Pokédex list and catch entry
+
+`gPokedexEntries` (0x3B1858, 0x24 per national number) plus
+`gSpeciesToHoennPokedexNum` / `gSpeciesToNationalPokedexNum` /
+`gHoennToNationalOrder` (0x1FC1E0 / 0x1FC516 / 0x1FC84C) land on each
+species row as `hoennDex`, `nationalDex`, `category`, `height`, `weight`,
+and two flavour pages. START POKeDEX is a full-screen list (Hoenn number,
+GOT/SEEN); A opens the entry (front pic at 0x30,0x38, imperial HT/WT,
+page1 then page2). A first-time catch prints BattleText_AddedToDex and
+then `displaydexinfo` (`sub_809070C`); a recatch and Wally's tutorial skip
+it. Nickname-after-catch is Phase 253; list/entry chrome tiles stay
+parked. Re-import (`rom-cache-v10-ruby40`).
+
+## Phase 244 — OPTION GAME SPEED
+
+Ruby OPTION grows three GameSpeed.lua rows (OVERWORLD / BATTLE / MENU)
+after SOUND, then ZOOM / TILT / CANCEL. Same ladder and logic-clock
+multiplier as Gen 1: FixedStep runs `logicStep` at `dt * logicSpeed()`,
+audio and tilt stay on real time. Hotkey `1` and L/R shoulders cycle
+the active category (boot/title is menu, the field is overworld
+including START, a fight is battle). `speedOverride` still wins.
+
+## Phase 245 — ripe berry-tree frames
+
+`gObjectEventPicTable_PechaBerryTree` mixes three 16×16 dirt/sprout
+images with six 16×32 bushes. gfx 62 is 16×32, so the extractor used
+to take the dirt pile as the whole late sheet and ripe plants drew as
+sprouts. It now skips the undersized prefix and keeps the six bush
+frames (`ow_62.png`). Per-berry Cheri/Nanab pics are still that shared
+Pecha late sheet.
+
+Re-import (`rom-cache-v10-ruby41`).
+
+## Phase 246 — cycling-road gates keep the bike
+
+`Overworld_IsBikingAllowed` returns TRUE on the Route 110 Seaside
+Cycling Road south/north entrance maps (indoor group 29, nums 11/12)
+before the indoor/secret-base/underwater reject, and FALSE on Seafloor
+Cavern Room 9 and Cave of Origin B4F. `canBikeOn` only checked mapType,
+so walking the bike into a gate dismounted, `GetPlayerAvatarBike` was 0,
+and the guard walked you out. Ride the bike on Route 110 (or mount
+inside the gate); bag-only is not enough. No cache bump.
+
+## Phase 247 — Pokécenter heal on the machine
+
+FldEff_PokecenterHeal / HallOfFameRecord CreateSprite coords are 240×160
+centres. Zoomed+tilted overworld drew them in window space (the void
+above the room). gbaScreenToWorld still maps the GBA camera, and
+drawGbaFieldSprite now goes through drawStandingAt so the balls and
+monitor billboard on the machine like NPCs. No cache bump.
+
+## Phase 248 — contest appeal engine
+
+`CB2_StartContest` is no longer a 5-turn score dummy. `Contest3.lua`
+ports `gContestMoves` / `gContestEffects` / `gContestOpponents` (from
+pokeruby headers, not graphics), `CalculateAppealMoveImpact`, the 48
+effect funcs, combo / jam / nervous / condition / applause, round-1
+condition points, and `DetermineFinalStandings`. NPCs pick from their
+four moves with CONTEST_AI_COMMON-style scoring. Move select shows
+appeal/jam hearts and the ROM description; A confirms; B does not
+cancel. START still warps out of LinkContestRoom1. Link contests and
+painting CG stay parked. No cache bump.
+
+## Phase 249 — region-map zoom, Fly icons, landmark names
+
+PokéNav A runs the 16-frame affine zoom (`sub_80FAEC4` / `sub_80FAFC0`: PA 256→128, scroll to `cursor*8-52/68`, D-pad then pans). B/START still close. FieldShowRegionMap 251 is still A/B close, no zoom.
+
+HM Fly opens `CB2_FlyRegionMap` on the painted map: visited towns are light icons (unvisited stay dim), Battle Tower is the red special if `FLAG_LANDMARK_BATTLE_TOWER`; A on unk16 2/4 warps to the heal tile (spawn fallback on tiny test maps). Landmark flags hide Battle Tower / Southern Island names until set; PokéNav lists `GetLandmarkName` rows. No cache bump.
+
+## Phase 250 — Ruby launcher save slots
+
+In-game SAVE wrote `save3_ruby.lua`, which the launcher never listed
+(`saves/ruby/slotN.lua`). Game3 now creates/uses the active Ruby slot the
+same way Gold does; a leftover flat file migrates into slot1, or into an
+empty slot the launcher already registered. `slotSummary` reads
+`playerName` / `playSeconds` / `caught` / `badgeCount`. GBA .sav
+import/export is still refused (same message shape as Gen 2). The save
+editor Edit chip is hidden on Ruby rows. Restart LÖVE. No cache bump.
+
+## Phase 251 — pokéball glow pal pulse
+
+`MultiplyInvertedPaletteRGBComponents` on pal tag 0x1007 colors during
+`PokeballGlowEffect_2` (96 frames, staggered) and `_3` (24 frames, unified).
+Factors are `{16,12,8,0}` on R/G and 0 on B (yellow wash toward 31). Stage 1
+is the 32-frame wait; stage 4 leaves the pal at rest (last write is factor 0).
+The 8×8 balls lerp R/G toward white by `factor/16` while they are on screen.
+Per-color stagger (slots 8/6/2 vs 5/3) stays parked. No cache bump.
+
+## Phase 252 — TradeEvolutionScene
+
+In-game trade take-care A still runs `sub_804BA94`, then
+`GetEvolutionTargetSpecies` type 1 (`EVO_TRADE` / `EVO_TRADE_ITEM`).
+Everstone blocks (type != 3). A matching trade-item is zeroed during
+the check. `TradeEvolutionScene` cannot B-cancel (`TASK_BIT_CAN_STOP`
+is off). Sparkles are colored rects at (120, 64); species apply +
+`EvolutionRenameMon` + dex + `GAME_STAT_EVOLVED_POKEMON` happen at
+FinishEvo. Link Standby is skipped (in-game `gCB2_AfterEvolution`).
+No cache bump.
+
+## Phase 253 — dex screens and catch nickname
+
+START entry keeps two flavour pages on INFO (`sub_8090C68` toggles; B
+closes). Left/right moves the INFO / AREA / CRY / SIZE bar; A opens
+that screen. SIZE draws black silhouettes at (88,56) / (152,56) with
+OAM affine `256/pokemonScale` and `256/trainerScale` (defaults 256
+until a re-import copies the fields). CRY plays `PlayCry_Normal`; AREA
+is a stub (habitat map parked). Catch overlay still A→page2→close, now
+cries on open, then `trygivecaughtmonnick` YES/NO / B. Recatch skips
+the overlay and still asks; Wally skips both. Chrome tiles and
+footprints stay parked. No cache bump.
+
+## Phase 254 — party gender icons and double layout
+
+`PartyMenuDoPrintGenderIcon` stamps tile 0x42 / 0x44 from `GetMonGender`
+(`monGender` / pid vs `genderRatio`). `makeMon` never wrote `mon.gender`,
+so the icons never appeared. Genderless has no switch arm (Magnemite
+stamps nothing). Nidoran hide unless renamed; eggs skip. Battle doubles
+use `PARTY_MENU_LAYOUT_DOUBLE`: two 11×7 lead boxes stacked left
+(`gUnknown_083769A8` row 1, icons from `gUnknown_08376678[TYPE_BATTLE]`).
+Field START stays STANDARD. Link-double tables are ported but unused.
+No cache bump.
 
 ## Later engines
 
-- The painted region map
+- Dex chrome tiles / footprints / habitat AREA map
+- Cave of Origin orb tiles; field weather tiles
+- TV `tvShows`; lottery laptop wait; roulette drop bias
+- Berry-bag 44 waitstate
+- Link-double / multi party layouts (tables only)

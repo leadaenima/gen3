@@ -423,6 +423,18 @@ do
   end
 end
 
+do
+  fresh()
+  local ok, err = SaveFileIO.importToSlot(string.rep("\0", 32768), "ruby")
+  eq(ok, false, "Ruby cart import is refused")
+  check(tostring(err):find("GBA save", 1, true) ~= nil,
+    "Ruby import names a GBA save")
+  ok, err = SaveFileIO.exportActiveSlot("ruby")
+  eq(ok, false, "Ruby cart export is refused")
+  check(tostring(err):find("GBA save", 1, true) ~= nil,
+    "Ruby export names a GBA save")
+end
+
 love.filesystem = realFS
 
 T.finish("save_file_io")

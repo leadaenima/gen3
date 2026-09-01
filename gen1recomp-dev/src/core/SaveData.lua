@@ -862,10 +862,19 @@ local function slotNames(key, id)
 end
 
 -- the pre-slots flat names a scope uses before any slot exists (save.lua for
--- Red, save_blue.lua / save_yellow.lua for the other versions, and
--- save_cart_<id>.lua for a cart)
+-- Red, save_blue.lua / save_yellow.lua for the other versions,
+-- save3_ruby.lua for Ruby before launcher slots, and save_cart_<id>.lua
+-- for a cart)
 local function legacyNames(key)
-  local suffix = isCartKey(key) and ("_" .. key) or GameVersion.saveSuffix(key)
+  if isCartKey(key) then
+    local main = "save_" .. key .. ".lua"
+    return main, main .. ".bak", main .. ".tmp"
+  end
+  if key == "ruby" then
+    local main = "save3_ruby.lua"
+    return main, main .. ".bak", main .. ".tmp"
+  end
+  local suffix = GameVersion.saveSuffix(key)
   local main = "save" .. suffix .. ".lua"
   return main, main .. ".bak", main .. ".tmp"
 end
@@ -932,6 +941,26 @@ local function decodeSlot(fs, key, id)
   return data or nil
 end
 
+-- Copy a still-flat legacy save into an empty slot, then delete the
+-- originals.  No-op (false) when there is no legacy file or the slot
+-- already has a save -- never overwrite a slot the launcher is using.
+local function copyLegacyIntoSlot(key, fs, slotId)
+  local lmain, lbak, ltmp = legacyNames(key)
+  local mainBody = fs.getInfo(lmain) and fs.read(lmain)
+  local bakBody = fs.getInfo(lbak) and fs.read(lbak)
+  if not (mainBody or bakBody) then return false end
+  if decodeSlot(fs, key, slotId) then return false end
+  local dmain, dbak = slotNames(key, slotId)
+  ensureParentDir(fs, dmain)
+  if mainBody then fs.write(dmain, mainBody) end
+  if bakBody then fs.write(dbak, bakBody) end
+  if not decodeSlot(fs, key, slotId) then return false end
+  remove(fs, lmain)
+  remove(fs, lbak)
+  remove(fs, ltmp)
+  return true
+end
+
 -- One-time legacy consolidation: a pre-slots install has a flat save file
 -- (+ .bak) and no saves/<version>/ registry.  Copy both into slot1, verify
 -- the copy reads back, then remove the originals and register slot1 as the
@@ -939,21 +968,8 @@ end
 -- migrate or the copy could not be verified (originals left in place so no
 -- data is ever lost to a failed move).
 local function tryMigrateLegacy(key, fs)
-  local lmain, lbak, ltmp = legacyNames(key)
-  local mainBody = fs.getInfo(lmain) and fs.read(lmain)
-  local bakBody = fs.getInfo(lbak) and fs.read(lbak)
-  if not (mainBody or bakBody) then return nil end
   local id = "slot1"
-  local dmain, dbak = slotNames(key, id)
-  ensureParentDir(fs, dmain)
-  if mainBody then fs.write(dmain, mainBody) end
-  if bakBody then fs.write(dbak, bakBody) end
-  -- refuse to delete the originals unless the new slot is loadable (from
-  -- the main copy or, failing that, the backup)
-  if not decodeSlot(fs, key, id) then return nil end
-  remove(fs, lmain)
-  remove(fs, lbak)
-  remove(fs, ltmp)
+  if not copyLegacyIntoSlot(key, fs, id) then return nil end
   local opts = SaveData.loadOptions(fs)
   putRegistry(opts, key, { list = { id }, active = id })
   -- A tool may have allocated the legacy scope before the player made their
@@ -1014,7 +1030,12 @@ local function ensureSlots(key, fs)
   local opts = SaveData.loadOptions(fs)
   local reg = registryOf(opts, key)
   if reg and type(reg.list) == "table" and #reg.list > 0 then
-    activeSlotCache[key] = reg.active or reg.list[1]
+    local id = reg.active or reg.list[1]
+    activeSlotCache[key] = id
+    -- Launcher "+ New save slot" can register an empty slot while Ruby
+    -- is still writing save3_ruby.lua.  Fold that flat file into the
+    -- empty active slot so CONTINUE and the slot card share one save.
+    copyLegacyIntoSlot(key, fs, id)
     return
   end
   local migrated = tryMigrateLegacy(key, fs)
@@ -1054,10 +1075,36 @@ end
 -- flat launcher meta line needs.
 function SaveData.slotSummary(save)
   if type(save) ~= "table" then return nil, nil end
+  local vinfo = type(save.version) == "string" and GameVersion.info(save.version)
+  local gen3 = save.engine == "gen3"
+      or (vinfo and vinfo.generation == 3)
+      or (type(save.format) == "string" and tostring(save.format):find("^gen3") ~= nil)
+  if gen3 then
+    local dexCount = tonumber(save.dexCount)
+    if not dexCount then
+      dexCount = 0
+      local caught = save.caught
+      if type(caught) == "table" then
+        if caught[1] ~= nil then
+          dexCount = #caught
+        else
+          for _, yes in pairs(caught) do
+            if yes then dexCount = dexCount + 1 end
+          end
+        end
+      end
+    end
+    local t = math.floor(tonumber(save.playSeconds) or 0)
+    return save.playerName, {
+      badges = tonumber(save.badgeCount) or 0,
+      timeText = ("%d:%02d"):format(math.floor(t / 3600),
+                                    math.floor(t / 60) % 60),
+      dexCount = dexCount,
+    }
+  end
   local name = save.player and save.player.name or nil
   -- A Gen 2 slot carries no badge items and fills pokedex.caught, so both
   -- counts come off wJohtoBadges/wPokedexCaught (engine/menus/intro_menu.asm:461).
-  local vinfo = type(save.version) == "string" and GameVersion.info(save.version)
   local gen2 = save.generation == 2 or (vinfo and vinfo.generation == 2) or false
   local dexCount = 0
   if gen2 then
@@ -1869,6 +1916,15 @@ local function semverLt(a, b)
 end
 
 function SaveData.runMigrations(save, modChains, activeMods)
+  if type(save) ~= "table" then return save end
+  -- A Ruby snapshot is not Gen 1 SRAM.  Stamping Version.saveFormat onto
+  -- it would wipe format "gen3-ruby-1" and run Kanto migrations.
+  if save.engine == "gen3"
+      or GameVersion.generation(save.version) == 3
+      or (type(save.format) == "string"
+        and tostring(save.format):find("^gen3") ~= nil) then
+    return save
+  end
   table.sort(coreMigrations, function(a, b)
     if a.from ~= b.from then return a.from < b.from end
     return a.seq < b.seq

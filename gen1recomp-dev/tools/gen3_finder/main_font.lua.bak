@@ -1,0 +1,121 @@
+-- Dev tool: locate sFontType1Map and sFont4Widths so the party menu can
+-- print level and HP in font 4 (8x8) instead of FONT3 (8x16).
+local ROM = "C:/Users/Feces/Desktop/Pokemon - Ruby Version (USA).gba"
+local REPO = "C:/Users/Feces/Desktop/pkmn gen1recomp/gen1recomp-dev"
+package.path = REPO .. "/?.lua;" .. REPO .. "/?/init.lua;" .. package.path
+
+local POOL = 0xEA6BC4
+local GLYPH = 32
+local BLANK = 0xD4
+
+-- type1_map.h opens with the blank pair then a run of lower tiles that
+-- climbs by one, which is specific enough to find it outright.
+local SIG = string.char(
+  0xD4, 0xD4, 0xD4, 0x31, 0xD4, 0x32, 0xD4, 0x33, 0xD4, 0x34,
+  0xD4, 0x35, 0xD4, 0x36, 0xD4, 0x37, 0xD4, 0x38, 0xD4, 0x39)
+
+local function run()
+  local ImageWriter = require("src.import.ImageWriter")
+  local f = io.open(ROM, "rb")
+  local rom = f:read("*a")
+  f:close()
+
+  local at, hits = 1, {}
+  while true do
+    local found = rom:find(SIG, at, true)
+    if not found then break end
+    hits[#hits + 1] = found - 1
+    at = found + 1
+  end
+  print("sFontType1Map candidates: " .. #hits)
+  for _, off in ipairs(hits) do
+    print(string.format("   0x%06X", off))
+  end
+  if #hits == 0 then return end
+  local map = hits[1]
+
+  local function lower(code) return rom:byte(map + code * 2 + 2) or 0 end
+  local function upper(code) return rom:byte(map + code * 2 + 1) or 0 end
+
+  -- If this is the right table, the digits and letters map to tiles that
+  -- render as digits and letters, and their upper halves are all blank.
+  local blanks = 0
+  for code = 0, 255 do
+    if upper(code) == BLANK then blanks = blanks + 1 end
+  end
+  print(string.format("upper tile is blank for %d/256 codes", blanks))
+  print(string.format("'0' 0xA1 -> tile 0x%02X   'A' 0xBB -> 0x%02X"
+    .. "   'a' 0xD5 -> 0x%02X", lower(0xA1), lower(0xBB), lower(0xD5)))
+
+  -- Render what the map claims are the digits, uppercase and lowercase.
+  local BANDS = { { 0xA1, 10 }, { 0xBB, 26 }, { 0xD5, 26 } }
+  local SC = 6
+  local img = ImageWriter.blank(26 * 8 * SC, #BANDS * 8 * SC, 0, 0, 0, 1)
+  for b, band in ipairs(BANDS) do
+    for i = 0, band[2] - 1 do
+      local tile = lower(band[1] + i)
+      local gx, gy = i * 8 * SC, (b - 1) * 8 * SC
+      for py = 0, 7 do
+        for px = 0, 7 do
+          local byte = rom:byte(POOL + tile * GLYPH + py * 4
+            + math.floor(px / 2) + 1) or 0
+          local ci = (px % 2 == 0) and (byte % 16) or math.floor(byte / 16)
+          local r, g, bl = 0.88, 0.88, 0.88
+          if ci == 1 then r, g, bl = 0.55, 0.55, 0.60
+          elseif ci >= 14 then r, g, bl = 0.06, 0.06, 0.10 end
+          for sy = 0, SC - 1 do
+            for sx = 0, SC - 1 do
+              img:setPixel(gx + px * SC + sx, gy + py * SC + sy, r, g, bl, 1)
+            end
+          end
+        end
+      end
+    end
+  end
+  img:encode("png", "font4_mapped.png")
+  print("wrote font4_mapped.png")
+
+  -- sFont4Widths is indexed by pool tile. Look for a byte table near the
+  -- map whose entries are all sane glyph widths.
+  local function widthish(off, n)
+    for i = 0, n - 1 do
+      local w = rom:byte(off + i + 1) or 0
+      if w < 1 or w > 10 then return false end
+    end
+    return true
+  end
+  -- Narrow it: a real width table has every digit the same width, and
+  -- narrow letters strictly narrower than wide ones.
+  local function w(off, code) return rom:byte(off + lower(code) + 1) or 0 end
+  local function sane(off)
+    if not widthish(off, 224) then return false end
+    local d = w(off, 0xA1)
+    for c = 0xA1, 0xAA do
+      if w(off, c) ~= d then return false end
+    end
+    if w(off, 0xDD) >= w(off, 0xE1) then return false end   -- i < m
+    if w(off, 0xE0) >= w(off, 0xE6) then return false end   -- l < r? no: l < s
+    if w(off, 0xC3) >= w(off, 0xCD) then return false end   -- I < M
+    if w(off, 0xD1) <= w(off, 0xC3) then return false end   -- W > I
+    return true
+  end
+  local found = {}
+  for off = map - 0x4000, map + 0x4000 do
+    if sane(off) then found[#found + 1] = off end
+  end
+  print("plausible sFont4Widths: " .. #found)
+  for i = 1, math.min(10, #found) do
+    local off = found[i]
+    print(string.format(
+      "   0x%06X  (%+d)  '0'=%d 'A'=%d 'I'=%d 'M'=%d 'W'=%d 'a'=%d 'i'=%d 'm'=%d",
+      off, off - map,
+      w(off, 0xA1), w(off, 0xBB), w(off, 0xC3), w(off, 0xCD), w(off, 0xD1),
+      w(off, 0xD5), w(off, 0xDD), w(off, 0xE1)))
+  end
+end
+
+function love.load()
+  local ok, err = pcall(run)
+  if not ok then print("HARNESS ERROR: " .. tostring(err)) end
+  love.event.quit()
+end

@@ -41,6 +41,7 @@ local function normalizeVersion(v)
     g = "gold", gold = "gold",
     s = "silver", silver = "silver",
     c = "crystal", crystal = "crystal",
+    ruby = "ruby", ru = "ruby",
   }
   v = alias[v] or v
   if GameVersion.VERSIONS and not GameVersion.VERSIONS[v] then return nil end

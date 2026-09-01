@@ -43,5 +43,9 @@ if (-not $LoveBin) {
     Fail 'LÖVE not found,  run scripts\setup.ps1 (or install from https://love2d.org)'
 }
 
+# LÖVE inherits this process CWD. Relative io.open dumps (and some harness
+# encodes) otherwise land on Desktop when the launcher was started there.
+Set-Location $Root
+
 & $LoveBin $Root @args
 exit $LASTEXITCODE

@@ -49,7 +49,7 @@ rom = overlay(rom, 0xC0, table.concat(names))
 local H, L = 0x2000, 0x2100
 local TS0, TS1 = 0x2200, 0x2300
 local PAL, META, ATTR = 0x2400, 0x2600, 0x2700
-local TILES, GRID, EVENTS, WARPS, DUMMY = 0x2800, 0x2A00, 0x2B00, 0x2C00, 0x2D00
+local TILES, GRID, EVENTS, WARPS, DUMMY, BORDER = 0x2800, 0x2A00, 0x2B00, 0x2C00, 0x2D00, 0x2D80
 
 rom = overlay(rom, H,
   GbaBin.packPtr(L)
@@ -62,7 +62,7 @@ rom = overlay(rom, H,
 
 rom = overlay(rom, L,
   GbaBin.packU32(2) .. GbaBin.packU32(2)
-  .. GbaBin.packPtr(DUMMY)
+  .. GbaBin.packPtr(BORDER)
   .. GbaBin.packPtr(GRID)
   .. GbaBin.packPtr(TS0)
   .. GbaBin.packPtr(TS1))
@@ -89,6 +89,11 @@ rom = overlay(rom, META, meta)
 rom = overlay(rom, GRID,
   GbaBin.packU16(0) .. GbaBin.packU16(1024)
   .. GbaBin.packU16(0) .. GbaBin.packU16(0))
+
+-- fieldmap.c GetBorderBlockAt 2x2
+rom = overlay(rom, BORDER,
+  GbaBin.packU16(7) .. GbaBin.packU16(8)
+  .. GbaBin.packU16(9) .. GbaBin.packU16(10))
 
 rom = overlay(rom, EVENTS,
   string.char(0, 1, 0, 0)
@@ -118,6 +123,10 @@ eq(map.width, 2, "decoded width")
 eq(map.height, 2, "decoded height")
 eq(map.grid[1], 0, "cell (0,0) is open")
 eq(map.grid[2], 1024, "cell (1,0) carries collision")
+eq(map.border[1], 7, "layout border[0]")
+eq(map.border[2], 8, "layout border[1]")
+eq(map.border[3], 9, "layout border[2]")
+eq(map.border[4], 10, "layout border[3]")
 eq(map.spawn.x, 1, "spawn prefers the center cell when it is open")
 eq(map.spawn.y, 1, "spawn y is the center")
 eq(#map.warps, 1, "one warp")
@@ -220,6 +229,11 @@ eq(GbaText.decodeText(GbaText.encodeLatin("LINE")
   .. GbaText.encodeLatin("TWO")
   .. string.char(GbaText.EOS)), "LINE TWO",
   "sign newlines collapse to spaces")
+eq(GbaText.decodeText(GbaText.encodeLatin("and")
+  .. string.char(GbaText.SCROLL)
+  .. GbaText.encodeLatin("GRASS")
+  .. string.char(GbaText.EOS)), "and GRASS",
+  "\\l CHAR_PROMPT_SCROLL is a space in one string")
 eq(GbaText.decodeText(GbaText.encodeLatin("TRAINER")
   .. string.char(GbaText.EXCLAMATION, GbaText.PARA)
   .. GbaText.encodeLatin("You")
@@ -376,6 +390,35 @@ eq(g.scriptWait, nil, "waitmoncry is immediate without audio")
 end)()
 
 ;(function()
+eq(Gen3Script.PLAYSLOTMACHINE, 0x89, "playslotmachine is 0x89")
+eq(Gen3Script.CHECKCOINS, 0xB3, "checkcoins is 0xB3")
+eq(Gen3Script.ADDCOINS, 0xB4, "addcoins is 0xB4")
+eq(Gen3Script.REMOVECOINS, 0xB5, "removecoins is 0xB5")
+eq(Gen3Script.SHOWCOINSBOX, 0xC0, "showcoinsbox is 0xC0")
+eq(Gen3Script.HIDECOINSBOX, 0xC1, "hidecoinsbox is 0xC1")
+eq(Gen3Script.UPDATECOINSBOX, 0xC2, "updatecoinsbox is 0xC2")
+local coinOps = Gen3Script.parse(
+  string.char(0xC0, 0, 0)
+  .. string.char(0xB3, 0x00, 0x40)
+  .. string.char(0xB4, 10, 0)
+  .. string.char(0xB5, 3, 0)
+  .. string.char(0xC2, 0, 0)
+  .. string.char(0xC1, 0, 0)
+  .. string.char(0x89, 0x0D, 0x80)
+  .. string.char(0x02), 0)
+eq(coinOps[1].op, "showcoinsbox", "Game Corner opens the coin window")
+eq(coinOps[2].op, "checkcoins", "then reads the till")
+eq(coinOps[2].var, 0x4000, "into a dest var")
+eq(coinOps[3].op, "addcoins", "then addcoins")
+eq(coinOps[3].count, 10, "count is a VarGet halfword")
+eq(coinOps[4].op, "removecoins", "then removecoins")
+eq(coinOps[5].op, "updatecoinsbox", "reprint")
+eq(coinOps[6].op, "hidecoinsbox", "close")
+eq(coinOps[7].op, "playslotmachine", "then the cabinet")
+eq(coinOps[7].id, 0x800D, "machine id is often VAR_RESULT")
+end)()
+
+;(function()
 eq(Gen3Script.PLAYFANFARE, 0x31, "playfanfare is 0x31")
 eq(Gen3Script.WAITFANFARE, 0x32, "waitfanfare is 0x32")
 local ops = Gen3Script.parse(
@@ -464,6 +507,7 @@ local giveMonOps = Gen3Script.parse(giveMonRom, 0)
 eq(giveMonOps[1].op, "givemon", "givemon is kept")
 eq(giveMonOps[1].species, 277, "species is Treecko")
 eq(giveMonOps[1].level, 5, "level 5")
+eq(giveMonOps[1].item, 0, "no held item")
 
 local ynRom = string.char(0x6E, 0, 0, 0x02)
 local ynOps = Gen3Script.parse(ynRom, 0)
@@ -618,6 +662,24 @@ Gen3Script.run(host, ops)
 eq(host.flags[0xA5], true, "a defeated gym leader runs the next opcode")
 eq(host.flags[0x807], nil, "and does not re-run RoxanneDefeated")
 
+-- Sorted IR can put a shared common label at ops[1]; gotobeatenscript
+-- must start at after.entry, not 1.
+host.scriptTrainerBattle = function() return true end
+host.flags = {}
+host._scriptPause = nil
+local shared = {
+  { op = "setflag", flag = 0x1 },
+  { op = "setflag", flag = 0x807 },
+  { op = "end" },
+}
+shared.entry = 2
+Gen3Script.run(host, {
+  { op = "trainerbattle", kind = 1, trainerId = 265, after = shared },
+  { op = "end" },
+})
+eq(host._scriptPause.at, 2, "gotobeatenscript starts at after.entry")
+eq(host._scriptPause.ops[2].flag, 0x807, "that is FLAG_BADGE01_GET")
+
 -- EventScript_NotEnoughMonsForDoubleBattle: the 3rd pointer is speech,
 -- then release/end -- not the post-battle GetPlayerBigGuyGirlString line.
 host.scriptTrainerBattle = function() return false, "ONLY ONE" end
@@ -722,6 +784,24 @@ eq(flashOps[1].op, "setflashradius", "setflashradius is kept")
 eq(flashOps[1].level, 4, "radius word")
 eq(flashOps[2].op, "animateflash", "animateflash is kept")
 eq(flashOps[2].level, 3, "dest byte")
+eq(Gen3Script.DOFIELDEFFECT, 0x9C, "dofieldeffect is 0x9C")
+eq(Gen3Script.SETFIELDEFFECTARGUMENT, 0x9D, "setfieldeffectargument")
+eq(Gen3Script.WAITFIELDEFFECT, 0x9E, "waitfieldeffect")
+local sparkleOps = Gen3Script.parse(
+  string.char(0x9D, 0) .. GbaBin.packU16(9)
+    .. string.char(0x9D, 1) .. GbaBin.packU16(13)
+    .. string.char(0x9C) .. GbaBin.packU16(54)
+    .. string.char(0x9E) .. GbaBin.packU16(54)
+    .. string.char(0x02), 0)
+eq(sparkleOps[1].op, "setfieldeffectargument", "set arg 0")
+eq(sparkleOps[1].index, 0, "arg index is a byte")
+eq(sparkleOps[1].value, 9, "Cave of Origin x")
+eq(sparkleOps[2].index, 1, "arg 1")
+eq(sparkleOps[2].value, 13, "Cave of Origin y")
+eq(sparkleOps[3].op, "dofieldeffect", "sparkle start")
+eq(sparkleOps[3].id, 54, "FLDEFF_SPARKLE")
+eq(sparkleOps[4].op, "waitfieldeffect", "sparkle wait")
+eq(sparkleOps[4].id, 54, "same id")
 eq(Gen3Script.SETSTEPCALLBACK, 0xA6, "setstepcallback is 0xA6")
 eq(Gen3Script.OPENDOOR, 0xAC, "opendoor is 0xAC")
 eq(Gen3Script.LOCALID_PLAYER, 0xFF, "LOCALID_PLAYER is 0xFF")
@@ -807,6 +887,11 @@ eq(doorOps[1].y, 4, "door y")
 local stepOps = Gen3Script.parse(string.char(0xA6, 1, 0x02), 0)
 eq(stepOps[1].op, "setstepcallback", "setstepcallback is kept")
 eq(stepOps[1].id, 1, "callback id")
+eq(Gen3Script.SETMAPLAYOUTINDEX, 0xA7, "setmaplayoutindex is 0xA7")
+eq(Gen3Script.parse(string.char(0xA7) .. GbaBin.packU16(320) .. string.char(0x02),
+  0)[1].op, "setmaplayoutindex", "setmaplayoutindex is kept")
+eq(Gen3Script.parse(string.char(0xA7) .. GbaBin.packU16(320) .. string.char(0x02),
+  0)[1].index, 320, "layout word")
 
 local bubble = Gen3Script.parseMovement(
   string.char(0x56, 0x54, 0x55, 0x10, 0x3E, 0xFE), 0)
@@ -1074,6 +1159,18 @@ eq(field.playerY, 1, "south of the wall")
 eq(field.ignoreWarp, false, "the exit step leaves the warp tile")
 eq(field.facing, "south", "leaving a house door faces south")
 
+eq(hoenn.maps.g0_0.border[1], 7, "decodeHoenn keeps the 2x2 border")
+eq(Game3.borderIndex(0, 0), 4, "GetBorderBlockAt (0,0) is border[3]")
+eq(Game3.borderIndex(1, 0), 3, "GetBorderBlockAt (1,0) is border[2]")
+eq(Game3.borderIndex(0, 1), 2, "GetBorderBlockAt (0,1) is border[1]")
+eq(Game3.borderIndex(1, 1), 1, "GetBorderBlockAt (1,1) is border[0]")
+eq(Game3.borderIndex(2, 0), 4, "x wraps every two cells")
+eq(Game3.borderIndex(-1, 0), 3, "negative x uses two's-complement &1")
+eq(Game3.borderCell(hoenn.maps.g0_0, 0, 0), 10, "(0,0) samples border[3]")
+eq(Game3.borderCell(hoenn.maps.g0_0, 1, 1), 7, "(1,1) samples border[0]")
+field:markTilesDirty()
+eq(next(field.tileWindows), nil, "setmetatile drops the tile window")
+
 local blocked = Game3.new()
 blocked.data.maps = { maps = { g0_0 = { width = 2, height = 1, grid = { 0, 0 },
   objects = { { x = 1, y = 0, graphicsId = 8 } } } } }
@@ -1082,9 +1179,16 @@ check(not blocked:tryWalk(1, 0), "an object event occupies its cell")
 eq(blocked.playerX, 0, "NPC collision does not move")
 
 field:enterMap(hoenn.maps.g0_0, 0, 0, false)
+check(field:npcsFor(hoenn.maps.g0_1) ~= nil,
+  "the north route is spawned as a neighbor")
+field.tileWindows.kept = true
 check(field:tryWalk(0, -1), "walk north off the town")
 eq(field.map.id, "g0_1", "north connection is the route")
 eq(field.playerY, 1, "appear on the south edge of the route")
+eq(field.walkFromY, 2, "lerp from one tile past the landing")
+check((field.walkCooldown or 0) > 0, "the crossing keeps walking")
+check(field.tileWindows.kept == true,
+  "crossing keeps the neighbor tile batches")
 check(field:tryWalk(0, 1), "walk south off the route")
 eq(field.map.id, "g0_0", "south connection returns to town")
 
@@ -1363,7 +1467,11 @@ g:enterMap(indoor, 1, 1, true)
 
 local dummy = g:npcByLocalId(2)
 check(dummy and dummy.invisible, "invisible dummy is spawned hidden")
-eq(g:npcAt(indoor, 2, 1), nil, "and does not block the tile")
+eq(g:npcAt(indoor, 2, 1), dummy, "INVISIBLE still occupies the tile")
+g.facing = "east"
+eq(g:facingNpc(), dummy, "and is talkable")
+check(not g:tryWalk(1, 0), "and blocks the step")
+eq(g.playerX, 1, "player stays put")
 
 g.facing = "west"
 local npc = g:facingNpc()
@@ -1482,6 +1590,14 @@ check(Game3.shouldAnimCorner(128, 0, { 127, 128, 129, 130 }, 1),
   "a flower-only metatile still sways")
 check(Game3.shouldAnimCorner(120, Game3.MB_POND_WATER), true,
   "pond water still sways")
+check(not Game3.shouldAnimCorner(127, 0, { 120, 121, 127, 128 }, 1),
+  "water-edge foam does not borrow the flower flip")
+check(not Game3.shouldAnimCorner(128, 0, { 127, 128, 129, 130 }, 1, 1),
+  "solid harbor walls do not blink")
+check(Game3.shouldAnimCorner(127, 0, { 127, 128, 129, 130 }, 1, 0),
+  "walkable flowers still sway")
+check(Game3.shouldAnimCorner(120, Game3.MB_OCEAN_WATER, nil, nil, 1),
+  "surfable ocean still sways through collision")
 end)()
 
 ;(function()
@@ -1524,6 +1640,1809 @@ local off = Script.parse(
   string.char(0x64) .. GbaBin.packU16(2) .. string.char(0x02), 0)
 eq(off[1].op, "moveobjectoffscreen", "moveobjectoffscreen is kept")
 eq(off[1].localId, 2, "Briney")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Script = require("src.import.Gen3Script")
+eq(Game3.ITEM_GO_GOGGLES, 279, "ITEM_GO_GOGGLES")
+eq(Game3.GAME_STAT_ENTERED_HOT_SPRINGS, 49, "hot springs stat")
+local g = Game3.new()
+eq(g:itemPocket(Game3.ITEM_GO_GOGGLES), Game3.POCKET_KEY, "Go-Goggles are KEY ITEMS")
+eq(g:itemName(Game3.ITEM_GO_GOGGLES), "GO-GOGGLES", "name")
+local gym = {
+  id = "g4_1", width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  objects = {
+    {
+      localId = 2, x = 1, y = 1, graphicsId = 10,
+      movementType = Game3.MOVEMENT_TYPE_FACE_DOWN,
+      trainerType = Game3.TRAINER_TYPE_BURIED, trainerRange = 1,
+    },
+  },
+  mapScripts = {
+    onTransition = {
+      { op = "setobjectmovementtype", localId = 2, movementType = 63 },
+      { op = "end" },
+    },
+  },
+  warps = {}, connections = {},
+}
+g.phase = "play"
+g:enterMap(gym, 0, 1, true)
+local npc = g:npcByLocalId(2)
+check(npc.invisible, "ON_TRANSITION 63 hides the sprite")
+eq(npc.movementType, Game3.MOVEMENT_TYPE_HIDDEN, "HIDDEN")
+eq(g:npcAt(gym, 1, 1), npc, "but still occupies the tile")
+g.facing = "east"
+check(g:tryTalk(), "A talks to the pit")
+check(not npc.invisible, "and reveals")
+eq(npc.movementType, Game3.MOVEMENT_TYPE_FACE_LEFT, "faces the player")
+eq(gym.objects[1].permMovementType, Game3.MOVEMENT_TYPE_FACE_LEFT,
+  "and overrides the template like the ROM")
+g:enterMap(gym, 0, 1, true)
+npc = g:npcByLocalId(2)
+check(npc.invisible, "re-enter still buries undefeated")
+local ops = Script.parse(string.char(0xC3, 49) .. string.char(0x02), 0)
+eq(ops[1].op, "incrementgamestat", "0xC3")
+eq(ops[1].id, 49, "stat 49")
+g = Game3.new()
+Script.run(g, ops)
+eq(g:getGameStat(Game3.GAME_STAT_ENTERED_HOT_SPRINGS), 1, "hot springs +1")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Input = require("src.core.Input")
+eq(Game3.MB_MUDDY_SLOPE, 0xD0, "MB_MUDDY_SLOPE")
+eq(Game3.MB_BUMPY_SLOPE, 0xD1, "MB_BUMPY_SLOPE is Acro, not a slide")
+local hill = {
+  id = "hill", width = 3, height = 4,
+  grid = {
+    0, 0, 0,
+    0, 0, 0,
+    0, 0, 0,
+    0, 0, 0,
+  },
+  behavior = {
+    0, 0, 0,
+    Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE,
+    Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE,
+    0, 0, 0,
+  },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { start = "hill", maps = { hill = hill } }
+g:enterMap(hill, 1, 0, true)
+g.walkCooldown = 0
+g.facing = "south"
+check(g:tryWalk(0, 1), "step onto the slope")
+eq(g.playerY, 1, "on the first muddy row")
+g.facing = "north"
+g.walkCooldown = 0
+local oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerY, 2, "walkHeld idle slides south")
+eq(g.facing, "north", "facingDirectionLocked while sliding")
+eq(g.walkDuration, Game3.RUN_PERIOD, "PlayerGoSpeed2 even on foot")
+Input.isDown = oldDown
+
+g.walkCooldown = 0
+check(g:tryMuddySlope(), "next row still slides")
+eq(g.playerY, 3, "onto the flat landing")
+g.walkCooldown = 0
+check(not g:tryMuddySlope(), "flat ground is not a slope")
+eq(g.playerY, 3, "stays put")
+
+local blocked = {
+  id = "blocked", width = 3, height = 3,
+  grid = {
+    0, 0, 0,
+    0, 0, 0,
+    1024, 1024, 1024,
+  },
+  behavior = {
+    0, 0, 0,
+    Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE, Game3.MB_MUDDY_SLOPE,
+    0, 0, 0,
+  },
+}
+g = Game3.new()
+g.phase = "play"
+g.data.maps = { start = "blocked", maps = { blocked = blocked } }
+g:enterMap(blocked, 1, 1, true)
+g.walkCooldown = 0
+g.facing = "north"
+check(not g:tryMuddySlope(), "collision south stops the slide")
+eq(g.playerY, 1, "still on the slope")
+eq(g.facing, "north", "failed slide does not turn")
+
+g.data.maps.maps.hill = hill
+g:enterMap(hill, 1, 2, true)
+g.bike = "mach"
+g.walkCooldown = 0
+g.warpSettle = nil
+g.facing = "north"
+oldDown = Input.isDown
+Input.isDown = function(_, key) return key == "up" end
+eq(g:playerSpeed(), 4, "Mach is FASTEST (no gears)")
+check(g:canClimbMuddySlope(), "Mach + hold up climbs")
+check(not g:tryMuddySlope(), "so forced movement yields")
+eq(g.playerY, 2, "does not auto-slide")
+g:walkHeld(0)
+eq(g.playerY, 1, "holding up on Mach walks north")
+
+Input.isDown = function() return false end
+g.walkCooldown = 0
+g.playerY = 1
+g.facing = "north"
+check(g:tryMuddySlope(), "idle Mach still slides")
+eq(g.playerY, 2, "speed drops / not holding north")
+
+g.bike = "acro"
+g.playerY = 1
+g.walkCooldown = 0
+g.facing = "north"
+Input.isDown = function(_, key) return key == "up" end
+eq(g:playerSpeed(), 3, "Acro is SPEED_FASTER")
+check(not g:canClimbMuddySlope(), "Acro cannot climb")
+check(g:tryMuddySlope(), "so it slides too")
+eq(g.playerY, 2, "one tile south")
+
+g.bike = nil
+g.running = true
+g.playerY = 1
+g.walkCooldown = 0
+Input.isDown = function() return false end
+eq(g:playerSpeed(), 2, "run is SPEED_FAST")
+check(g:tryMuddySlope(), "run also slides")
+eq(g.playerY, 2, "south")
+Input.isDown = oldDown
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.MOVEMENT_TYPE_TREE_DISGUISE, 0x39, "TREE_DISGUISE")
+eq(Game3.MOVEMENT_TYPE_MOUNTAIN_DISGUISE, 0x3A, "MOUNTAIN_DISGUISE")
+eq(Game3.GFX_KECLEON_1, 204, "GFX_KECLEON_1")
+eq(Game3.ITEM_DEVON_SCOPE, 288, "ITEM_DEVON_SCOPE")
+eq(Game3.facingFromMovementType(0x39), "south", "tree faces south")
+eq(Game3.facingFromMovementType(0x3A), "south", "mountain faces south")
+check(Game3.movementTypeHidesSprite(0x39), "tree hides the sprite")
+check(Game3.movementTypeHidesSprite(0x3A), "mountain hides the sprite")
+local g = Game3.new()
+eq(g:itemPocket(Game3.ITEM_DEVON_SCOPE), Game3.POCKET_KEY, "Devon Scope is KEY ITEMS")
+eq(g:itemName(Game3.ITEM_DEVON_SCOPE), "DEVON SCOPE", "name")
+g:addItem(Game3.ITEM_DEVON_SCOPE, 1)
+eq(g:itemCount(Game3.ITEM_DEVON_SCOPE), 1, "bag has it")
+
+local trail = {
+  id = "g_r119", width = 5, height = 4,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  objects = {
+    {
+      localId = 1, x = 2, y = 1, graphicsId = Game3.GFX_KECLEON_1,
+      movementType = Game3.MOVEMENT_TYPE_INVISIBLE,
+    },
+    {
+      localId = 2, x = 0, y = 1, graphicsId = 10,
+      movementType = Game3.MOVEMENT_TYPE_TREE_DISGUISE,
+      trainerType = Game3.TRAINER_TYPE_NORMAL, trainerRange = 2,
+      party = { { species = 296, level = 18 } },
+      trainerName = "LAO", trainerClass = "NINJA BOY",
+    },
+    {
+      localId = 3, x = 4, y = 1, graphicsId = 10,
+      movementType = Game3.MOVEMENT_TYPE_MOUNTAIN_DISGUISE,
+      trainerType = Game3.TRAINER_TYPE_NORMAL, trainerRange = 3,
+      party = { { species = 296, level = 19 } },
+      trainerName = "LUNG", trainerClass = "NINJA BOY",
+    },
+  },
+  warps = {}, connections = {},
+}
+g.phase = "play"
+g.party = { g:makeMon(258, 20) }
+g:enterMap(trail, 2, 2, true)
+local kecleon = g:npcByLocalId(1)
+local tree = g:npcByLocalId(2)
+local rock = g:npcByLocalId(3)
+check(kecleon.invisible, "Kecleon sprite is hidden")
+eq(g:npcAt(trail, 2, 1), kecleon, "but it occupies")
+g.facing = "north"
+eq(g:facingNpc(), kecleon, "A finds it")
+check(g:tryTalk(), "talking works")
+g:closeField()
+
+check(tree.invisible, "tree disguise hides the trainer")
+eq(g:npcAt(trail, 0, 1), tree, "and occupies")
+g.playerX, g.playerY = 0, 2
+check(g:seesPlayer(tree, trail), "NORMAL tree sees south")
+g.playerX, g.playerY = 0, 0
+check(not g:seesPlayer(tree, trail), "not behind")
+g.playerX, g.playerY = 0, 2
+check(g:tryTrainerSpot(), "spotting a tree ninja")
+check(not tree.invisible, "pops the disguise")
+eq(tree.movementType, Game3.MOVEMENT_TYPE_FACE_DOWN, "faces the player")
+g.field = nil
+
+check(rock.invisible, "mountain disguise hides")
+eq(g:npcAt(trail, 4, 1), rock, "and occupies")
+g.playerX, g.playerY = 4, 2
+check(g:tryTrainerSpot(), "spotting a mountain ninja")
+check(not rock.invisible, "pops")
+eq(rock.movementType, Game3.MOVEMENT_TYPE_FACE_DOWN, "faces south")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.MAP_DYNAMIC_GROUP, 0x7F, "MAP_DYNAMIC group")
+eq(Game3.MAP_DYNAMIC_NUM, 0x7F, "MAP_DYNAMIC num")
+eq(Game3.MAP_LILYCOVE_INDOOR_GROUP, 13, "Lilycove indoor group")
+eq(Game3.MAP_DEPT_STORE_1F_NUM, 17, "1F num")
+eq(Game3.MAP_DEPT_STORE_ELEVATOR_NUM, 23, "elevator num")
+eq(Game3.DEPT_STORE_FLOOR[17], 0, "1F is floor 0")
+eq(Game3.DEPT_STORE_FLOOR[22], 15, "rooftop is 15")
+eq(Game3.ELEVATOR_FLOOR_NAMES[0], "1F", "name 0")
+eq(Game3.ELEVATOR_FLOOR_NAMES[15], "ROOFTOP", "name 15")
+eq(Game3.SPECIAL_SET_DEPARTMENT_STORE_FLOOR, 216, "SetDepartmentStoreFloorVar")
+eq(Game3.SPECIAL_SHAKE_SCREEN_IN_ELEVATOR, 273, "ShakeScreenInElevator")
+eq(Game3.SPECIAL_DISPLAY_CURRENT_ELEVATOR_FLOOR, 306,
+  "DisplayCurrentElevatorFloor")
+eq(Game3.VAR_DEPT_STORE_FLOOR, 0x4043, "VAR_DEPT_STORE_FLOOR")
+eq(Game3.FLAG_TEMP_2, 0x2, "FLAG_TEMP_2")
+eq(Game3.ITEM_RED_ORB, 276, "ITEM_RED_ORB")
+local labels = Game3.MULTICHOICE[57]
+eq(#labels, 5, "multichoice 57 has five floors")
+eq(labels[1], "1F", "first label")
+eq(labels[5], "5F", "last label")
+
+local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+local floor1 = {
+  id = "g13_17", group = 13, index = 17,
+  width = 3, height = 3, grid = cells,
+  warps = {
+    { x = 1, y = 0, mapGroup = 13, mapNum = 23, warpId = 0 },
+  },
+}
+local elev = {
+  id = "g13_23", group = 13, index = 23,
+  width = 3, height = 3, grid = cells,
+  warps = {
+    { x = 1, y = 1, mapGroup = Game3.MAP_DYNAMIC_GROUP,
+      mapNum = Game3.MAP_DYNAMIC_NUM, warpId = Game3.WARP_ID_DYNAMIC },
+    { x = 2, y = 1, mapGroup = Game3.MAP_DYNAMIC_GROUP,
+      mapNum = Game3.MAP_DYNAMIC_NUM, warpId = Game3.WARP_ID_DYNAMIC },
+  },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g13_17 = floor1, g13_23 = elev } }
+eq(g:itemPocket(Game3.ITEM_RED_ORB), Game3.POCKET_KEY, "Red Orb is KEY ITEMS")
+eq(g:itemName(Game3.ITEM_RED_ORB), "RED ORB", "name")
+g:enterMap(floor1, 1, 1, true)
+g.ignoreWarp = false
+check(g:tryWalk(0, -1), "1F door into the elevator")
+eq(g.map.id, "g13_23", "inside")
+eq(g.dynamicWarp.mapGroup, 13, "saved group")
+eq(g.dynamicWarp.mapNum, 17, "saved 1F")
+eq(g.dynamicWarp.warpId, 0, "saved source warp 0")
+eq(g.dynamicWarp.x, 1, "saved x")
+eq(g.dynamicWarp.y, 1, "saved y")
+check(g:tryWalk(0, 1), "step off the pad")
+eq(g.map.id, "g13_23", "still inside")
+check(g:tryWalk(0, -1), "step onto MAP_DYNAMIC")
+eq(g.map.id, "g13_17", "returns to 1F")
+
+g:setDynamicWarp(13, 17, 0, 1, 1)
+g:runSpecial(Game3.SPECIAL_SET_DEPARTMENT_STORE_FLOOR)
+eq(g:varGet(Game3.VAR_DEPT_STORE_FLOOR), 0, "1F floor var is 0")
+g:setDynamicWarp(13, 22, 0, 1, 1)
+g:runSpecial(Game3.SPECIAL_SET_DEPARTMENT_STORE_FLOOR)
+eq(g:varGet(Game3.VAR_DEPT_STORE_FLOOR), 15, "rooftop floor var is 15")
+
+g:setScriptVar(0x8005, 0)
+g:runSpecial(Game3.SPECIAL_DISPLAY_CURRENT_ELEVATOR_FLOOR)
+eq(g._scriptSays[#g._scriptSays], "Now on: 1F", "display 1F")
+g:setScriptVar(0x8005, 15)
+g:runSpecial(Game3.SPECIAL_DISPLAY_CURRENT_ELEVATOR_FLOOR)
+eq(g._scriptSays[#g._scriptSays], "Now on: ROOFTOP", "display rooftop")
+
+g.scriptWait = nil
+g.phase = "play"
+g:runSpecial(Game3.SPECIAL_SHAKE_SCREEN_IN_ELEVATOR)
+check(g:scriptWaiting(), "elevator CreateTask")
+g:walkHeld((Game3.ELEVATOR_SHAKE_PERIOD * Game3.ELEVATOR_SHAKE_HITS) / 60)
+check(not g:scriptWaiting(), "23 pans then ScriptContext_Enable")
+
+g.flags[Game3.FLAG_TEMP_2] = true
+g.flags[Game3.FLAG_TEMP_20] = true
+g:enterMap(floor1, 1, 1, true)
+eq(g.flags[Game3.FLAG_TEMP_2], nil, "TEMP_2 clears on enter")
+eq(g.flags[Game3.FLAG_TEMP_20], true, "TEMP_20 stays")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Input = require("src.core.Input")
+eq(Game3.MB_ICE, 0x20, "MB_ICE")
+eq(Game3.MB_WALK_SOUTH, 0x43, "MB_WALK_SOUTH")
+eq(Game3.MB_SLIDE_EAST, 0x44, "MB_SLIDE_EAST")
+eq(Game3.MB_TRICK_HOUSE_PUZZLE_8_FLOOR, 0x48, "Trick House 8 ice")
+eq(Game3.MB_EASTWARD_CURRENT, 0x50, "east current")
+eq(Game3.MB_SOUTHWARD_CURRENT, 0x53, "south current")
+eq(Game3.ITEM_POKEBLOCK_CASE, 273, "ITEM_POKEBLOCK_CASE")
+check(Game3.isSurfable(Game3.MB_EASTWARD_CURRENT), "currents are surfable")
+check(Game3.isSurfable(Game3.MB_SOUTHWARD_CURRENT), "south current too")
+local g = Game3.new()
+eq(g:itemPocket(Game3.ITEM_POKEBLOCK_CASE), Game3.POCKET_KEY,
+  "Pokéblock Case is KEY ITEMS")
+eq(g:itemName(Game3.ITEM_POKEBLOCK_CASE), "POKeBLOCK CASE", "name")
+
+local rink = {
+  id = "rink", width = 4, height = 3,
+  grid = {
+    0, 0, 0, 1024,
+    0, 0, 0, 1024,
+    0, 0, 0, 1024,
+  },
+  behavior = {
+    0, Game3.MB_ICE, Game3.MB_ICE, 0,
+    0, Game3.MB_ICE, Game3.MB_ICE, 0,
+    0, 0, 0, 0,
+  },
+}
+g.phase = "play"
+g.data.maps = { start = "rink", maps = { rink = rink } }
+g:enterMap(rink, 0, 0, true)
+g.walkCooldown = 0
+g.facing = "east"
+check(g:tryWalk(1, 0), "step onto ice")
+eq(g.playerX, 1, "on ice")
+g.walkCooldown = 0
+local oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerX, 2, "idle slips east")
+eq(g.walkDuration, Game3.RUN_PERIOD, "PlayerGoSpeed2")
+g.walkCooldown = 0
+g:walkHeld(0)
+eq(g.playerX, 2, "wall stops the slip")
+g.facing = "south"
+g.walkCooldown = 0
+g:walkHeld(0)
+eq(g.playerY, 1, "after the wall you can turn")
+Input.isDown = oldDown
+
+local river = {
+  id = "river", width = 4, height = 1,
+  grid = { 1024, 1024, 1024, 1024 },
+  behavior = {
+    Game3.MB_EASTWARD_CURRENT, Game3.MB_EASTWARD_CURRENT,
+    Game3.MB_EASTWARD_CURRENT, Game3.MB_OCEAN_WATER,
+  },
+}
+g = Game3.new()
+g.phase = "play"
+g.surfing = true
+g.data.maps = { start = "river", maps = { river = river } }
+g:enterMap(river, 0, 0, true)
+g.walkCooldown = 0
+oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerX, 1, "current rides east")
+eq(g.walkDuration, Game3.RUN_PERIOD, "PlayerRideWaterCurrent is Speed2")
+g.walkCooldown = 0
+g:walkHeld(0)
+eq(g.playerX, 2, "still on the current")
+g.walkCooldown = 0
+g:walkHeld(0)
+eq(g.playerX, 3, "onto ocean")
+g.walkCooldown = 0
+g:walkHeld(0)
+eq(g.playerX, 3, "ocean is not a current")
+Input.isDown = oldDown
+check(g.surfing, "still surfing")
+
+local belt = {
+  id = "belt", width = 3, height = 1,
+  grid = { 0, 0, 0 },
+  behavior = { Game3.MB_WALK_EAST, Game3.MB_WALK_EAST, 0 },
+}
+g = Game3.new()
+g.phase = "play"
+g.data.maps = { start = "belt", maps = { belt = belt } }
+g:enterMap(belt, 0, 0, true)
+g.walkCooldown = 0
+oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerX, 1, "walk pad")
+eq(g.walkDuration, Game3.WALK_PERIOD, "PlayerGoSpeed1")
+Input.isDown = oldDown
+
+local chute = {
+  id = "chute", width = 3, height = 1,
+  grid = { 0, 0, 0 },
+  behavior = { Game3.MB_SLIDE_EAST, Game3.MB_SLIDE_EAST, 0 },
+}
+g = Game3.new()
+g.phase = "play"
+g.data.maps = { start = "chute", maps = { chute = chute } }
+g:enterMap(chute, 0, 0, true)
+g.walkCooldown = 0
+g.facing = "north"
+oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerX, 1, "slide pad")
+eq(g.facing, "north", "facingDirectionLocked")
+eq(g.walkDuration, Game3.RUN_PERIOD, "PlayerGoSpeed2")
+Input.isDown = oldDown
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_ENTER_SAFARI_MODE, 205, "EnterSafariMode")
+eq(Game3.SPECIAL_EXIT_SAFARI_MODE, 206, "ExitSafariMode")
+eq(Game3.SPECIAL_SAFARI_ZONE_GET_POKEBLOCK_NAME, 207, "feeder name")
+eq(Game3.SPECIAL_CHECK_FREE_POKEMON_STORAGE, 304, "CheckFreePokemonStorage")
+eq(Game3.FLAG_SYS_SAFARI_MODE, 0x82C, "FLAG_SYS_SAFARI_MODE")
+eq(Game3.VAR_SAFARI_ZONE_STATE, 0x40A4, "VAR_SAFARI_ZONE_STATE")
+eq(Game3.GAME_STAT_ENTERED_SAFARI_ZONE, 17, "stat 17")
+eq(Game3.SAFARI_BALLS, 30, "30 balls")
+eq(Game3.SAFARI_STEPS, 500, "500 steps")
+eq(Game3.MAP_SAFARI_ENTRANCE_GROUP, 23, "entrance group")
+eq(Game3.MAP_SAFARI_SOUTHEAST_GROUP, 26, "SE group")
+eq(Game3.MAP_SAFARI_SOUTHEAST_NUM, 3, "SE is index 3")
+
+local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+local entrance = {
+  id = "g23_0", group = 23, index = 0,
+  width = 3, height = 3, grid = cells,
+}
+local se = {
+  id = "g26_3", group = 26, index = 3,
+  width = 3, height = 3, grid = cells,
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g23_0 = entrance, g26_3 = se } }
+g:enterMap(se, 1, 1, true)
+
+local labels = g:startMenuItems()
+check(labels[1] ~= "RETIRE", "START is normal outside safari")
+local hasSave = false
+for i = 1, #labels do
+  if labels[i] == "SAVE" then hasSave = true end
+end
+check(hasSave, "SAVE is on START outside safari")
+
+g:runSpecial(Game3.SPECIAL_ENTER_SAFARI_MODE)
+check(g:inSafariMode(), "EnterSafariMode sets the flag")
+eq(g.safariBalls, 30, "gNumSafariBalls = 30")
+eq(g.safariSteps, 500, "gSafariZoneStepCounter = 500")
+eq(g:getGameStat(Game3.GAME_STAT_ENTERED_SAFARI_ZONE), 1, "stat 17")
+eq(g:itemCount(Game3.ITEM_SAFARI_BALL), 0, "balls are not bag items")
+
+labels = g:startMenuItems()
+eq(labels[1], "RETIRE", "safari START begins RETIRE")
+eq(#labels, 7, "seven safari rows")
+hasSave = false
+local hasNav = false
+for i = 1, #labels do
+  if labels[i] == "SAVE" then hasSave = true end
+  if labels[i] == "POKeNAV" then hasNav = true end
+end
+check(not hasSave, "no SAVE in safari")
+check(not hasNav, "no POKeNAV in safari")
+eq(labels[2], "POKeDEX", "POKeDEX is always listed")
+
+local ok = g:writeSave()
+check(not ok, "cannot SAVE in safari")
+
+eq(g:runSpecial(Game3.SPECIAL_SAFARI_ZONE_GET_POKEBLOCK_NAME), 0xFFFF,
+  "empty feeder is 0xFFFF")
+eq(g:varGet(Gen3Script.VAR_RESULT), 0xFFFF, "specialvar stores FFFF")
+
+eq(g:runSpecial(Game3.SPECIAL_CHECK_FREE_POKEMON_STORAGE), 1,
+  "empty PC has space")
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "storage specialvar 1")
+g:ensurePc()
+for b = 1, Game3.BOX_COUNT do
+  local box = g.pc[b]
+  for s = 1, Game3.BOX_SIZE do
+    box[s] = { species = 1 }
+  end
+end
+eq(g:runSpecial(Game3.SPECIAL_CHECK_FREE_POKEMON_STORAGE), 0,
+  "full PC is 0")
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "storage 0 is valid")
+
+for _ = 1, 499 do g:tickWalkCounters() end
+eq(g.safariSteps, 1, "499 steps leave 1")
+check(g:inSafariMode(), "still in safari")
+check(not g.field, "not over yet")
+g:tickWalkCounters()
+eq(g.safariSteps, 0, "step 0 is time up")
+check(g.field and g.field.thenSafariExit, "gUnknown_081C3448")
+eq(g.field.text, Game3.TEXT_SAFARI_TIME_UP, "Ding-dong")
+g:leaveSafari()
+check(not g:inSafariMode(), "ExitSafariMode")
+eq(g.safariBalls, 0, "balls cleared")
+eq(g.safariSteps, 0, "steps cleared")
+eq(g:varGet(Game3.VAR_SAFARI_ZONE_STATE), 1, "state 1 for ON_FRAME")
+eq(g.map.id, "g23_0", "warp to the entrance")
+eq(g.playerX, 2, "warp x 2")
+eq(g.playerY, 5, "warp y 5")
+
+g:runSpecial(Game3.SPECIAL_ENTER_SAFARI_MODE)
+g:answerSafariRetire(false)
+check(g:inSafariMode(), "RETIRE no stays")
+g:openSafariRetirePrompt()
+g:answerSafariRetire(true)
+check(not g:inSafariMode(), "RETIRE yes leaves")
+eq(g.map.id, "g23_0", "retire warp")
+
+g:runSpecial(Game3.SPECIAL_EXIT_SAFARI_MODE)
+check(not g:inSafariMode(), "ExitSafariMode special")
+eq(g.safariBalls, 0, "exit zeros balls")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.MB_MT_PYRE_HOLE, 0x0F, "MB_MT_PYRE_HOLE")
+eq(Game3.MB_AQUA_HIDEOUT_WARP, 0x67, "MB_AQUA_HIDEOUT_WARP")
+eq(Game3.MB_WEST_ARROW_WARP, 0x63, "west arrow")
+eq(Game3.MB_SOUTH_ARROW_WARP, 0x65, "south arrow")
+eq(Game3.SPECIAL_WARP_TO_LAST_WARP, 318, "sp13E")
+eq(Game3.SPECIAL_DO_FALL_WARP, 319, "DoFallWarp")
+eq(Game3.SPECIAL_SET_ROUTE_119_WEATHER, 324, "SetRoute119Weather")
+eq(Game3.SPECIAL_SET_ROUTE_123_WEATHER, 325, "SetRoute123Weather")
+eq(Game3.FLAG_HIDE_GRUNT_1_BLOCKING_HIDEOUT, 0x335, "Harbor hide grunt 1")
+eq(Game3.FLAG_HIDE_GRUNT_2_BLOCKING_HIDEOUT, 0x336, "Harbor hide grunt 2")
+eq(Game3.VAR_SLATEPORT_HARBOR_STATE, 0x40A0, "VAR_SLATEPORT_HARBOR_STATE")
+eq(Game3.VAR_MT_PYRE_STATE, 0x40B9, "VAR_MT_PYRE_STATE")
+eq(Game3.MAP_MAGMA_HIDEOUT_1F_NUM, 74, "Magma 1F is dungeon 74")
+eq(Game3.MOVEMENT_TYPE_ROTATE_CLOCKWISE, 0x18, "ROTATE_CLOCKWISE")
+eq(Game3.nextRotateFacing("south", true), "west", "gClockwiseDirections")
+eq(Game3.nextRotateFacing("south", false), "east", "gCounterclockwiseDirections")
+check(Game3.arrowWarpMatches(Game3.MB_SOUTH_ARROW_WARP, 0, 1), "south onto south")
+check(not Game3.arrowWarpMatches(Game3.MB_SOUTH_ARROW_WARP, 1, 0), "east is not south")
+check(Game3.arrowWarpMatches(Game3.MB_STAIRS_OUTSIDE_ABANDONED_SHIP, 0, -1),
+  "ship stairs are a north arrow")
+
+local floor = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+local hole = {
+  id = "g24_15", group = 24, index = 15,
+  width = 3, height = 3, grid = floor,
+  behavior = { 0, Game3.MB_MT_PYRE_HOLE, 0, 0, 0, 0, 0, 0, 0 },
+  warps = { { x = 1, y = 0, mapGroup = 24, mapNum = 16, warpId = 0 } },
+}
+local below = {
+  id = "g24_16", group = 24, index = 16,
+  width = 3, height = 3, grid = floor,
+  warps = { { x = 1, y = 0, mapGroup = 24, mapNum = 15, warpId = 0 } },
+}
+local hideout = {
+  id = "g24_74", group = 24, index = 74,
+  width = 3, height = 3, grid = floor,
+  mapType = Game3.MAP_TYPE_INDOOR,
+  behavior = { 0, Game3.MB_AQUA_HIDEOUT_WARP, 0, 0, 0, 0, 0, 0, 0 },
+  warps = { { x = 1, y = 0, mapGroup = 24, mapNum = 75, warpId = 0 } },
+  objects = {
+    {
+      localId = 1, x = 0, y = 2, graphicsId = 10,
+      movementType = Game3.MOVEMENT_TYPE_ROTATE_CLOCKWISE,
+      flagId = Game3.FLAG_HIDE_GRUNT_1_BLOCKING_HIDEOUT,
+    },
+  },
+}
+local b1f = {
+  id = "g24_75", group = 24, index = 75,
+  width = 3, height = 3, grid = floor,
+  mapType = Game3.MAP_TYPE_INDOOR,
+  behavior = { 0, 0, 0, 0, Game3.MB_AQUA_HIDEOUT_WARP, 0, 0, 0, 0 },
+  warps = { { x = 1, y = 1, mapGroup = 24, mapNum = 74, warpId = 0 } },
+}
+local arrows = {
+  id = "arrows", width = 3, height = 3, grid = floor,
+  behavior = { 0, 0, 0, 0, Game3.MB_SOUTH_ARROW_WARP, 0, 0, 0, 0 },
+  warps = { { x = 1, y = 1, mapGroup = 24, mapNum = 75, warpId = 0 } },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = {
+  maps = {
+    g24_15 = hole, g24_16 = below, g24_74 = hideout, g24_75 = b1f,
+    arrows = arrows,
+  },
+}
+
+g:enterMap(hole, 1, 1, true)
+g.ignoreWarp = false
+check(g:tryWalk(0, -1), "step onto the Mt. Pyre hole")
+eq(g.map.id, "g24_16", "DoFallWarp follows the hole warp")
+eq(g.field and g.field.text, Game3.TEXT_FELL_THROUGH, "fall message")
+
+g.field = nil
+g:enterMap(hole, 1, 0, true)
+g:runSpecial(Game3.SPECIAL_DO_FALL_WARP)
+eq(g.map.id, "g24_16", "special 319 from the hole tile")
+eq(g.field and g.field.text, Game3.TEXT_FELL_THROUGH, "special also falls")
+
+g.field = nil
+g:enterMap(hideout, 1, 1, true)
+g.ignoreWarp = false
+check(g:tryWalk(0, -1), "step onto the hideout pad")
+eq(g.map.id, "g24_75", "0x67 warps via the pad event")
+eq(g.playerX, 1, "dest warp x")
+eq(g.playerY, 1, "dest warp y")
+check(g.ignoreWarp, "land on the dest pad")
+
+g:enterMap(arrows, 1, 0, true)
+g.ignoreWarp = false
+check(g:tryWalk(0, 1), "walk south onto a south arrow")
+eq(g.map.id, "g24_75", "matching dir warps")
+
+g:enterMap(arrows, 0, 1, true)
+g.ignoreWarp = false
+check(g:tryWalk(1, 0), "walk east onto a south arrow")
+eq(g.map.id, "arrows", "wrong dir does not warp")
+eq(g.playerX, 1, "and occupies the arrow")
+eq(g.playerY, 1, "same row")
+
+g:enterMap(hideout, 1, 1, true)
+local grunt = g:npcByLocalId(1)
+check(grunt, "blocking grunt is spawned")
+eq(grunt.facing, "south", "ROTATE_CLOCKWISE starts south")
+g:stepNpcs(1)
+eq(grunt.facing, "west", "then turns clockwise")
+g:stepNpcs(1)
+eq(grunt.facing, "north", "S→W→N")
+g.flags = g.flags or {}
+g.flags[Game3.FLAG_HIDE_GRUNT_1_BLOCKING_HIDEOUT] = true
+g:resetNpcs()
+check(not g:npcByLocalId(1), "Harbor setflag hides the grunt")
+
+g.lastUsedWarp = { mapType = Game3.MAP_TYPE_INDOOR }
+g.weatherCycleStage = 1
+g:setSav1Weather(Game3.OW_WEATHER_SUNNY)
+g:runSpecial(Game3.SPECIAL_SET_ROUTE_119_WEATHER)
+eq(g.sav1Weather, 3, "indoor last warp starts the 119 cycle")
+g.lastUsedWarp = { mapType = Game3.MAP_TYPE_ROUTE }
+g.weatherCycleStage = 1
+g:setSav1Weather(Game3.OW_WEATHER_SUNNY)
+g:runSpecial(Game3.SPECIAL_SET_ROUTE_119_WEATHER)
+eq(g.sav1Weather, 2, "outdoor last warp leaves header sunny")
+g.lastUsedWarp = { mapType = Game3.MAP_TYPE_INDOOR }
+g.weatherCycleStage = 2
+g:setSav1Weather(Game3.OW_WEATHER_SUNNY)
+g:runSpecial(Game3.SPECIAL_SET_ROUTE_123_WEATHER)
+eq(g.sav1Weather, 3, "123 cycle stage 2 is light rain")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.MOVEMENT_TYPE_FACE_DOWN_AND_LEFT, 0x11, "FACE_DOWN_AND_LEFT")
+eq(Game3.MOVEMENT_TYPE_FACE_DOWN_AND_RIGHT, 0x12, "FACE_DOWN_AND_RIGHT")
+eq(Game3.wanderDirs(0x0D), "face_look", "FACE_DOWN_AND_UP")
+eq(Game3.FACE_LOOK[0x11].dirs[1], "south", "gDownAndLeftDirections")
+eq(Game3.FACE_LOOK[0x11].dirs[2], "west", "then west")
+eq(Game3.limitedVectorDir(5, 0, 1), "south", "WestSouth player south")
+eq(Game3.limitedVectorDir(5, -1, 0), "west", "WestSouth player west")
+eq(Game3.limitedVectorDir(5, 1, 0), "south", "WestSouth remaps east")
+eq(Game3.limitedVectorDir(5, 1, -1), "south", "WestSouth remaps NE")
+eq(Game3.MT_MOSSDEEP_ARROW_RIGHT, 0x204, "RedArrow_Right")
+eq(Game3.MT_MOSSDEEP_ARROW_LEFT, 0x20C, "RedArrow_Left")
+eq(Game3.FLAG_MOSSDEEP_GYM_SWITCH_1, 0x64, "gym switch 1")
+
+local room = {
+  id = "pyre", width = 5, height = 3, grid = {
+    0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0,
+  },
+  objects = {
+    {
+      localId = 1, x = 2, y = 1, graphicsId = 10,
+      movementType = Game3.MOVEMENT_TYPE_FACE_DOWN_AND_LEFT,
+      trainerType = Game3.TRAINER_TYPE_NORMAL,
+      trainerRange = 2,
+    },
+  },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { pyre = room } }
+g:enterMap(room, 2, 2, true)
+local npc = g:npcByLocalId(1)
+check(npc, "Mt. Pyre maniac spawned")
+eq(npc.facing, "south", "FACE_DOWN_AND_LEFT starts south")
+eq(npc.x, 2, "stays put")
+g.rng = function() return 2 end
+npc.wait = 0
+g:stepNpcs(0)
+eq(npc.facing, "west", "Random() picks west")
+eq(npc.x, 2, "still on the tile")
+eq(npc.wait, Game3.MOVEMENT_DELAYS_MEDIUM[2], "gMovementDelaysMedium")
+
+npc.facing = "west"
+npc.wait = 10
+g.running = false
+g:stepNpcs(0.01)
+eq(npc.facing, "west", "walk does not skip the delay")
+check(npc.wait > 9, "wait still running")
+
+npc.wait = 10
+g.running = true
+g:stepNpcs(0.01)
+eq(npc.facing, "south", "dash in range snaps south")
+check(npc.wait < 3, "close trainer skips the delay")
+
+local gym = {
+  id = "gym", width = 3, height = 1,
+  grid = { Game3.MT_MOSSDEEP_ARROW_LEFT, Game3.MT_MOSSDEEP_ARROW_LEFT, 0 },
+  tileset = "moss",
+}
+g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { gym = gym } }
+g.data.tilesets = {
+  byId = {
+    moss = {
+      behavior = {
+        [Game3.MT_MOSSDEEP_ARROW_RIGHT] = Game3.MB_WALK_EAST,
+        [Game3.MT_MOSSDEEP_ARROW_DOWN] = Game3.MB_WALK_SOUTH,
+        [Game3.MT_MOSSDEEP_ARROW_LEFT] = Game3.MB_WALK_WEST,
+        [Game3.MT_MOSSDEEP_ARROW_UP] = Game3.MB_WALK_NORTH,
+      },
+    },
+  },
+}
+g:enterMap(gym, 1, 0, true)
+eq(g:behaviorAt(gym, 1, 0), Game3.MB_WALK_WEST, "left arrow is WALK_WEST")
+g:setMetatile(1, 0, Game3.MT_MOSSDEEP_ARROW_RIGHT, 0)
+eq(g:behaviorAt(gym, 1, 0), Game3.MB_WALK_EAST, "setmetatile flips the pad")
+g.walkCooldown = 0
+local Input = require("src.core.Input")
+local oldDown = Input.isDown
+Input.isDown = function() return false end
+g:walkHeld(0)
+eq(g.playerX, 2, "flipped arrow walks east")
+Input.isDown = oldDown
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.VAR_ICE_STEP_COUNT, 0x4022, "VAR_ICE_STEP_COUNT")
+eq(Game3.SPECIAL_SET_SOOTOPOLIS_GYM_CRACKED_ICE, 309, "special 309")
+eq(Game3.MT_SOOTOPOLIS_ICE_THIN, 0x20D, "thin ice metatile")
+eq(Game3.MT_SOOTOPOLIS_ICE_CRACKED, 0x20E, "cracked ice metatile")
+eq(Game3.MT_SOOTOPOLIS_ICE_BROKEN, 0x206, "broken ice metatile")
+eq(Game3.MAP_SOOTOPOLIS_GYM_B1F_NUM, 1, "B1F is indoor 1")
+local id, bit = Game3.sootopolisIceBit(3, 6)
+eq(id, Game3.VAR_TEMP_1, "y 6 is VAR_TEMP_1")
+eq(bit, 0, "x 3 is bit 0")
+check(not Game3.sootopolisIceBit(2, 6), "x 2 is outside the rink")
+check(not Game3.sootopolisIceBit(3, 10), "y 10 has no row var")
+
+local floor = {}
+for i = 1, 20 * 20 do floor[i] = 0 end
+floor[7 * 20 + 4 + 1] = Game3.MT_SOOTOPOLIS_ICE_THIN
+floor[7 * 20 + 5 + 1] = Game3.MT_SOOTOPOLIS_ICE_THIN
+local b1f = {
+  id = "g15_1", group = 15, index = 1,
+  width = 3, height = 3, grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}
+local gym = {
+  id = "g15_0", group = 15, index = 0,
+  width = 20, height = 20, grid = floor,
+  tileset = "pair_36",
+  spawn = { x = 8, y = 24 },
+  mapScripts = {
+    onTransition = {
+      { op = "setvar", var = Game3.VAR_ICE_STEP_COUNT, val = 1 },
+      { op = "end" },
+    },
+    onFrame = {
+      {
+        var = Game3.VAR_ICE_STEP_COUNT, value = 8,
+        script = {
+          { op = "addvar", var = Game3.VAR_ICE_STEP_COUNT, val = 1 },
+          { op = "setmetatile", x = 8, y = 15,
+            tile = Game3.MT_SOOTOPOLIS_ICE_STAIRS, collision = 0 },
+          { op = "end" },
+        },
+      },
+      {
+        var = Game3.VAR_ICE_STEP_COUNT, value = 0,
+        script = {
+          { op = "warphole", mapGroup = 15, mapNum = 1 },
+          { op = "end" },
+        },
+      },
+    },
+  },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g15_0 = gym, g15_1 = b1f } }
+g.data.tilesets = {
+  byId = {
+    pair_36 = {
+      behavior = {
+        [Game3.MT_SOOTOPOLIS_ICE_THIN] = Game3.MB_THIN_ICE,
+        [Game3.MT_SOOTOPOLIS_ICE_CRACKED] = Game3.MB_CRACKED_ICE,
+        [Game3.MT_SOOTOPOLIS_ICE_BROKEN] = Game3.MB_CRACKED_FLOOR_HOLE,
+        [Game3.MT_SOOTOPOLIS_ICE_STAIRS] = 0,
+      },
+    },
+  },
+}
+g:enterMap(gym, 4, 7, true)
+eq(g:varGet(Game3.VAR_ICE_STEP_COUNT), 1, "ON_TRANSITION sets the count to 1")
+g:setScriptVar(Game3.VAR_TEMP_1, 99)
+g:enterMap(gym, 4, 7, true)
+eq(g:varGet(Game3.VAR_TEMP_1), 0, "enterMap clears VAR_TEMP")
+eq(g.map.id, "g15_0", "count 1 does not fall")
+g:setStepCallback(Game3.STEP_CB_ICE)
+g:setScriptVar(Game3.VAR_ICE_STEP_COUNT, 7)
+check(g:tryWalk(1, 0), "step onto thin ice")
+eq(g:varGet(Game3.VAR_ICE_STEP_COUNT), 8, "thin ice increments the count")
+eq(Game3.metatileOf(gym.grid[7 * 20 + 5 + 1]),
+  Game3.MT_SOOTOPOLIS_ICE_CRACKED, "0x20D cracks to 0x20E")
+check(g:sootopolisIceWasCracked(5, 7), "bit is saved in VAR_TEMP_2")
+g:tryMapFrameScript()
+eq(g:varGet(Game3.VAR_ICE_STEP_COUNT), 9, "ON_FRAME addvar so it does not re-fire")
+eq(Game3.metatileOf(gym.grid[15 * 20 + 8 + 1]),
+  Game3.MT_SOOTOPOLIS_ICE_STAIRS, "8 steps open the first stairs")
+
+g:writeMetatile(5, 7, Game3.MT_SOOTOPOLIS_ICE_THIN)
+g:runSpecial(Game3.SPECIAL_SET_SOOTOPOLIS_GYM_CRACKED_ICE)
+eq(Game3.metatileOf(gym.grid[7 * 20 + 5 + 1]),
+  Game3.MT_SOOTOPOLIS_ICE_CRACKED, "special 309 restores the crack")
+
+g.playerX, g.playerY = 4, 7
+g.walkFromX, g.walkFromY = 4, 7
+g.walkCooldown = 0
+g.field = nil
+g:setScriptVar(Game3.VAR_ICE_STEP_COUNT, 9)
+check(g:tryWalk(1, 0), "step onto the crack")
+eq(g:varGet(Game3.VAR_ICE_STEP_COUNT), 0, "cracked ice zeros the count")
+eq(g.map.id, "g15_0", "does not snap to spawn")
+eq(g.playerX, 5, "still on the hole")
+g.field = nil
+g:tryMapFrameScript()
+eq(g.map.id, "g15_1", "ON_FRAME warphole to B1F")
+eq(g.playerX, 5, "at the same x")
+eq(g.playerY, 7, "and y")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+eq(Gen3Script.SETDIVEWARP, 0x40, "setdivewarp")
+eq(Game3.MAP_SOOTOPOLIS_CITY_NUM, 7, "Sootopolis is g0_7")
+eq(Game3.MAP_UNDERWATER_SOOTOPOLIS_NUM, 5, "underwater is g24_5")
+eq(Game3.MAP_CAVE_OF_ORIGIN_B4F_NUM, 42, "Cave of Origin B4F")
+eq(Game3.MAP_SEAFLOOR_CAVERN_ROOM9_NUM, 36, "Seafloor Room 9")
+eq(Game3.FLAG_SYS_WEATHER_CTRL, 0x82A, "SYSTEM_FLAGS+0x2A")
+eq(Game3.FLAG_LEGENDARY_BATTLE_COMPLETED, 0x71, "beat or catch Groudon")
+eq(Game3.FLAG_LEGEND_ESCAPED_SEAFLOOR_CAVERN, 0x81, "Maxie woke it")
+eq(Game3.VAR_SOOTOPOLIS_STATE, 0x405E, "Sootopolis state")
+eq(Game3.VAR_CAVE_OF_ORIGIN_B4F_STATE, 0x409B, "B4F state")
+local ops = Gen3Script.parse(
+  string.char(0x40, 24, 5, 0xFF, 9, 0, 6, 0)
+  .. string.char(0x02), 0)
+eq(ops[1].op, "setdivewarp", "setdivewarp is kept")
+eq(ops[1].mapGroup, 24, "dungeons group")
+eq(ops[1].mapNum, 5, "Underwater_SootopolisCity")
+eq(ops[1].warpId, 0xFF, "WARP_ID_NONE")
+eq(ops[1].x, 9, "dest x")
+eq(ops[1].y, 6, "dest y")
+
+local city = {
+  id = "g0_7", group = 0, index = 7, mapType = Game3.MAP_TYPE_CITY,
+  width = 12, height = 8, tileset = "wat",
+  spawn = { x = 2, y = 2 },
+  grid = {},
+  connections = {},
+  mapScripts = {
+    onResume = {
+      { op = "setdivewarp", mapGroup = 24, mapNum = 5,
+        warpId = 0xFF, x = 9, y = 6 },
+    },
+  },
+}
+local under = {
+  id = "g24_5", group = 24, index = 5,
+  mapType = Game3.MAP_TYPE_UNDERWATER,
+  width = 12, height = 8, tileset = "wat",
+  spawn = { x = 1, y = 1 },
+  grid = {},
+  connections = {},
+  mapScripts = {
+    onResume = {
+      { op = "setdivewarp", mapGroup = 0, mapNum = 7,
+        warpId = 0xFF, x = 4, y = 5 },
+    },
+  },
+}
+for i = 1, 12 * 8 do
+  city.grid[i] = 0
+  under.grid[i] = 0
+end
+city.grid[2 * 12 + 2 + 1] = 1027
+under.grid[6 * 12 + 9 + 1] = 1027
+under.grid[5 * 12 + 4 + 1] = 1027
+city.grid[5 * 12 + 4 + 1] = 1027
+local g = Game3.new()
+g.phase = "play"
+g.party = { { name = "WAILORD", moves = { { id = Game3.MOVE_DIVE } } } }
+g.flags[Game3.FLAG_BADGE07_GET] = true
+g.data.maps = { maps = { g0_7 = city, g24_5 = under } }
+g.data.tilesets = {
+  byId = { wat = { behavior = { [1] = 0x10, [3] = 0x12 } } },
+}
+g.surfing = true
+g:enterMap(city, 2, 2, true)
+eq(g.diveWarp.mapNum, 5, "ON_RESUME setdivewarp")
+eq(g.diveWarp.x, 9, "fixed dest x, not player x")
+g.surfing = true
+local okDive = g:useDive()
+check(okDive, "Sootopolis DIVE uses gFixedDiveWarp")
+eq(g.map.id, "g24_5", "underwater Sootopolis")
+eq(g.playerX, 9, "lands at warp x")
+eq(g.playerY, 6, "not the player's tile")
+eq(g.diveWarp.mapNum, 7, "ON_RESUME stores the emerge dest")
+local okUp = g:useDive()
+check(okUp, "emerge uses the stored warp")
+eq(g.map.id, "g0_7", "back in the crater")
+eq(g.playerX, 4, "emerge x")
+eq(g.playerY, 5, "emerge y")
+city.mapScripts = nil
+g.diveWarp = nil
+g.surfing = true
+check(not g:useDive(), "no connection and no fixed warp")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_UPDATE_TRAINER_FAN_CLUB_GAME_CLEAR, 169,
+  "UpdateTrainerFanClubGameClear")
+eq(Game3.MT_ELITE_FOUR_OPEN_DOOR_FRAME, 0x344, "E4 open door frame")
+eq(Game3.MT_ELITE_FOUR_OPEN_DOOR_OPENING, 0x345, "E4 open door opening")
+eq(Game3.FLAG_SYS_POKEMON_LEAGUE_FLY, 0x854, "league fly")
+local fade = Gen3Script.parse(string.char(0x98, 1, 24, 0x02), 0)
+eq(fade[1].op, "fadescreen", "fadescreenspeed is a fade")
+eq(fade[1].mode, 1, "FADE_TO_BLACK")
+eq(fade[1].speed, 24, "delay 24")
+local g = Game3.new()
+g.flags[Game3.FLAG_HIDE_FANCLUB_OLD_LADY] = true
+g.flags[Game3.FLAG_HIDE_FANCLUB_BOY] = true
+g.flags[Game3.FLAG_HIDE_FANCLUB_LITTLE_BOY] = true
+g.flags[Game3.FLAG_HIDE_FANCLUB_LADY] = true
+g.playSeconds = 5 * 3600
+g:runSpecial(Game3.SPECIAL_UPDATE_TRAINER_FAN_CLUB_GAME_CLEAR)
+eq(g:varGet(Game3.VAR_LILYCOVE_FAN_CLUB_STATE), 1, "fan club state 1")
+eq(g:varGet(Game3.VAR_FANCLUB_UNKNOWN_1), 0x2580, "init bits")
+eq(g:varGet(Game3.VAR_FANCLUB_UNKNOWN_2), 5, "hours")
+eq(g.flags[Game3.FLAG_HIDE_FANCLUB_OLD_LADY], nil, "old lady shown")
+eq(g.flags[Game3.FLAG_HIDE_FANCLUB_BOY], nil, "boy shown")
+g:setScriptVar(Game3.VAR_LILYCOVE_FAN_CLUB_STATE, 9)
+g:runSpecial(Game3.SPECIAL_UPDATE_TRAINER_FAN_CLUB_GAME_CLEAR)
+eq(g:varGet(Game3.VAR_LILYCOVE_FAN_CLUB_STATE), 9, "bit 7 skips a second run")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.SPECIAL_CHECK_FOR_BIG_MOVIE_OR_EMERGENCY_NEWS_ON_TV, 73,
+  "CheckForBigMovieOrEmergencyNewsOnTV")
+eq(Game3.FLAG_SYS_TV_LATI, 0x85D, "SYSTEM_FLAGS+0x5D")
+eq(Game3.FLAG_LATIOS_OR_LATIAS_ROAMING, 0xFF, "TV script setflag")
+eq(Game3.ITEM_SS_TICKET, 265, "SS Ticket")
+eq(Game3.MAP_BRENDANS_HOUSE_1F_NUM, 0, "Brendan 1F")
+eq(Game3.MAP_MAYS_HOUSE_1F_NUM, 2, "May 1F")
+local function house(id, index)
+  local grid = {}
+  for i = 1, 16 do grid[i] = 0 end
+  return {
+    id = id, group = 1, index = index,
+    width = 4, height = 4, grid = grid,
+  }
+end
+local brendan = house("g1_0", 0)
+local may = house("g1_2", 2)
+local g = Game3.new()
+g.phase = "play"
+g.gender = Game3.GENDER_MALE
+g.data.maps = { maps = { g1_0 = brendan, g1_2 = may } }
+g:enterMap(brendan, 1, 1, true)
+g.flags[Game3.FLAG_SYS_TV_LATI] = true
+eq(g:runSpecial(Game3.SPECIAL_CHECK_FOR_BIG_MOVIE_OR_EMERGENCY_NEWS_ON_TV),
+  1, "Lati news in Brendan 1F")
+g.flags[Game3.FLAG_SYS_TV_LATI] = nil
+g.flags[Game3.FLAG_SYS_TV_HOME] = true
+eq(g:checkForBigMovieOrEmergencyNewsOnTV(), 2, "moving-in movie")
+g.flags[Game3.FLAG_SYS_TV_HOME] = nil
+eq(g:checkForBigMovieOrEmergencyNewsOnTV(), 1, "neither flag is still 1")
+g:enterMap(may, 1, 1, true)
+eq(g:checkForBigMovieOrEmergencyNewsOnTV(), 0, "boy is not in May 1F")
+g.gender = Game3.GENDER_FEMALE
+eq(g:checkForBigMovieOrEmergencyNewsOnTV(), 1, "May in her 1F")
+g:enterMap(brendan, 1, 1, true)
+eq(g:checkForBigMovieOrEmergencyNewsOnTV(), 0, "girl is not in Brendan 1F")
+g.rng = function() return 1 end
+g:initRoamer()
+eq(g.roamerLocation[2], 25, "starts on Route 110")
+local calls = 0
+g.gbaRandom = function()
+  calls = calls + 1
+  if calls == 1 then return 0 end
+  return 1
+end
+g:enterMap(brendan, 1, 1, true)
+eq(g.roamerLocation[2], 26, "1/16 jumps to another set")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Input = require("src.core.Input")
+Input:init()
+eq(Game3.SPECIAL_SET_SS_TIDAL_FLAG, 203, "SetSSTidalFlag")
+eq(Game3.SPECIAL_RESET_SS_TIDAL_FLAG, 204, "ResetSSTidalFlag")
+eq(Game3.SPECIAL_SUB_80C7958, 270, "porthole cinema")
+eq(Game3.FLAG_SYS_CRUISE_MODE, 0x82D, "SYSTEM_FLAGS+0x2D")
+eq(Game3.VAR_CRUISE_STEP_COUNT, 0x404A, "cruise steps")
+eq(Game3.VAR_PORTHOLE_STATE, 0x40B4, "porthole state")
+eq(Game3.CRUISE_STEP_ARRIVE, 0xCC, "still sailing at 204")
+eq(Game3.MAP_ROUTE132_NUM, 47, "Route 101 is 16")
+eq(Game3.MAP_ROUTE134_NUM, 49, "Route 134")
+eq(Game3.PORTHOLE_ARRIVED_VIA_VIEW_LILYCOVE, 9, "porthole arrive Lilycove")
+eq(Game3.MULTICHOICE[52][1], "LILYCOVE", "Slateport harbor list")
+eq(Game3.MULTICHOICE[52][2], "BATTLE TOWER", "then the tower")
+eq(Game3.MULTICHOICE[56][1], "SLATEPORT", "Lilycove harbor list")
+local g = Game3.new()
+g.phase = "play"
+g:runSpecial(Game3.SPECIAL_SET_SS_TIDAL_FLAG)
+check(not g:scriptWaiting(), "SetSSTidalFlag does not wait")
+check(g:inCruiseMode(), "FLAG_SYS_CRUISE_MODE")
+eq(g:varGet(Game3.VAR_CRUISE_STEP_COUNT), 0, "steps start at 0")
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_LILYCOVE)
+for _ = 1, 204 do g:tickWalkCounters() end
+eq(g:varGet(Game3.VAR_CRUISE_STEP_COUNT), 204, "204 is still <= 0xCC")
+check(g:inCruiseMode(), "still cruising")
+check(not g.field, "no ding-dong yet")
+g:tickWalkCounters()
+eq(g:varGet(Game3.VAR_CRUISE_STEP_COUNT), 205, "205th step arrives")
+check(not g:inCruiseMode(), "ResetSSTidalFlag")
+eq(g:varGet(Game3.VAR_PORTHOLE_STATE), Game3.PORTHOLE_ARRIVED_LILYCOVE,
+  "state 2 becomes 3")
+eq(g.field.text, Game3.TEXT_SS_TIDAL_VOYAGE, "gUnknown_0815FD0D")
+g.field = nil
+g:runSpecial(Game3.SPECIAL_SET_SS_TIDAL_FLAG)
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_SLATEPORT)
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 0xCC)
+g:tickWalkCounters()
+eq(g:varGet(Game3.VAR_PORTHOLE_STATE), Game3.PORTHOLE_ARRIVED_SLATEPORT,
+  "state 7 becomes 8")
+eq(g.field.text, Game3.TEXT_SS_TIDAL_LAND_SLATEPORT, "landed in Slateport")
+check(not g:inCruiseMode(), "arrival clears cruise")
+g.field = nil
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 50)
+g:runSpecial(Game3.SPECIAL_SUB_80C7958)
+check(g:inCruiseMode(), "porthole FlagSet cruise")
+eq(g:varGet(Game3.VAR_CRUISE_STEP_COUNT), 50, "does not zero steps")
+check(g:scriptWaiting(), "porthole waitstate")
+eq(g.field.kind, "porthole", "Task_HandlePorthole")
+check(g.invisible, "player hidden")
+eq(g.flags[Game3.FLAG_DONT_TRANSITION_MUSIC], true, "skip music fade")
+local oldPorthole = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:walkHeld(1 / 60)
+Input.wasPressed = oldPorthole
+eq(g:scriptWaiting(), false, "A exits the porthole")
+eq(g:varGet(Game3.VAR_CRUISE_STEP_COUNT), 50, "A does not count a step")
+check(g:inCruiseMode(), "A exit keeps cruise")
+eq(g.flags[Game3.FLAG_DONT_TRANSITION_MUSIC], nil, "clears music skip")
+eq(g.invisible, nil, "player shown")
+
+g = Game3.new()
+g.phase = "play"
+local function fill(w, h)
+  local grid = {}
+  for i = 1, w * h do grid[i] = 1 end
+  return grid
+end
+local ship = {
+  id = "g26_1", group = 26, index = 1, width = 10, height = 10,
+  grid = fill(10, 10),
+}
+local ocean = {
+  id = "g0_49", group = 0, index = 49, width = 80, height = 25,
+  grid = fill(80, 25),
+}
+g.data.maps = { maps = { [ship.id] = ship, [ocean.id] = ocean } }
+g:enterMap(ship, 5, 4, true)
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_LILYCOVE)
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 0)
+g.flags[Game3.FLAG_SYS_CRUISE_MODE] = true
+local og, on, ox, oy = g:getSSTidalLocation()
+eq(og, 0, "ocean group")
+eq(on, Game3.MAP_ROUTE134_NUM, "state 2 step 0 is Route 134")
+eq(ox, 19, "x = steps+19")
+eq(oy, 20, "y is 20")
+g:runSpecial(Game3.SPECIAL_SUB_80C7958)
+eq(g.map.id, ocean.id, "warps to GetSSTidalLocation")
+eq(g.playerX, 19, "ocean x")
+eq(g.playerY, 20, "ocean y")
+check(g.invisible, "hidden on the ocean")
+oldPorthole = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:walkHeld(1 / 60)
+Input.wasPressed = oldPorthole
+eq(g.map.id, ship.id, "A warps back")
+eq(g.playerX, 5, "saved x")
+eq(g.playerY, 4, "saved y")
+
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_LILYCOVE)
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, Game3.CRUISE_STEP_ARRIVE)
+g.flags[Game3.FLAG_SYS_CRUISE_MODE] = true
+g:runSpecial(Game3.SPECIAL_SUB_80C7958)
+g:walkHeld(Game3.WALK_PERIOD)
+eq(g:varGet(Game3.VAR_PORTHOLE_STATE),
+  Game3.PORTHOLE_ARRIVED_VIA_VIEW_LILYCOVE, "arrive sets 9 not 3")
+check(g:inCruiseMode(), "Reset is the corridor ON_FRAME")
+eq(g.map.id, ship.id, "arrive warps back")
+eq(g:scriptWaiting(), false, "arrive Enables")
+
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_SLATEPORT)
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 0)
+local sg, sn, sx = g:getSSTidalLocation()
+eq(sn, Game3.MAP_ROUTE132_NUM, "state 7 step 0 is Route 132")
+eq(sx, 65, "x = 65-steps")
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, Game3.PORTHOLE_SAILING_TO_LILYCOVE)
+g:setScriptVar(Game3.VAR_CRUISE_STEP_COUNT, 60)
+sg, sn, sx = g:getSSTidalLocation()
+eq(sn, Game3.MAP_ROUTE133_NUM, "state 2 step 60 is Route 133")
+eq(sx, 0, "x = steps-60")
+g:setScriptVar(Game3.VAR_PORTHOLE_STATE, 1)
+eq(g:getSSTidalLocation(), nil, "docked states do not warp")
+
+g:runSpecial(Game3.SPECIAL_RESET_SS_TIDAL_FLAG)
+check(not g:inCruiseMode(), "ResetSSTidalFlag special")
+g.flags[Game3.FLAG_SYS_CRUISE_MODE] = true
+g:blackout()
+check(not g:inCruiseMode(), "white-out FlagClear cruise")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.SPECIAL_IS_MIRAGE_ISLAND_PRESENT, 209, "IsMirageIslandPresent")
+eq(Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG, 210, "UpdateShoalTideFlag")
+eq(Game3.FLAG_SYS_SHOAL_TIDE, 0x83A, "SYSTEM_FLAGS+0x3A")
+eq(Game3.VAR_MIRAGE_RND_H, 0x4024, "mirage high")
+eq(Game3.LAYOUT_ROUTE131_SKY_PILLAR, 320, "post-game Route 131")
+eq(Game3.SHOAL_TIDE_BY_HOUR[1], 1, "hour 0 is high")
+eq(Game3.SHOAL_TIDE_BY_HOUR[4], 0, "hour 3 is low")
+local g = Game3.new()
+g.phase = "play"
+local island = { width = 2, height = 2, grid = { 9, 9, 9, 9 }, tileset = "sky" }
+local route = {
+  id = "g0_r131", layoutId = 47, width = 2, height = 2,
+  grid = { 1, 2, 3, 4 }, tileset = "ocean",
+  mapScripts = {
+    onTransition = {
+      { op = "checkflag", flag = Game3.FLAG_SYS_GAME_CLEAR },
+      {
+        op = "call_if", cond = 1,
+        body = { { op = "setmaplayoutindex", index = 320 } },
+      },
+    },
+  },
+}
+g.data.maps = { maps = { g0_r131 = route }, layouts = { [320] = island } }
+g:enterMap(route, 0, 0, true)
+eq(g.map.grid[1], 1, "pre-clear Route 131 stays ocean")
+eq(g.mapLayoutId, 47, "header layout")
+eq(route.baseGrid[1], 1, "extracted grid is frozen")
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = true
+g:enterMap(route, 0, 0, true)
+eq(g.mapLayoutId, 320, "setmaplayoutindex 320")
+eq(g.map.grid[1], 9, "Sky Pillar island tiles")
+eq(g.map.tileset, "sky", "island tileset")
+eq(route.baseGrid[1], 1, "swap does not mutate the header grid")
+g.map.grid[1] = 99
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = nil
+g:enterMap(route, 0, 0, true)
+eq(g.map.grid[1], 1, "re-enter restores the header layout")
+g.flags[Game3.FLAG_SYS_GAME_CLEAR] = true
+g:enterMap(route, 0, 0, true)
+local snap = g:snapshotSave()
+eq(snap.mapLayoutId, 320, "CONTINUE stores mapLayoutId")
+snap.flags[Game3.FLAG_SYS_GAME_CLEAR] = nil
+g.flags = {}
+g:applySave(snap)
+eq(g.mapLayoutId, 320, "CONTINUE keeps the saved layout")
+eq(g.map.grid[1], 9, "island tiles after CONTINUE")
+check(not g:scriptWaiting(), "setmaplayoutindex does not wait")
+g.party = { { species = 277, pid = 0x1234 } }
+g:setScriptVar(Game3.VAR_MIRAGE_RND_H, 0x1234)
+eq(g:runSpecial(Game3.SPECIAL_IS_MIRAGE_ISLAND_PRESENT), 1, "pid low 16")
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "specialvar stores 1")
+g:setScriptVar(Game3.VAR_MIRAGE_RND_H, 0x9999)
+eq(g:runSpecial(Game3.SPECIAL_IS_MIRAGE_ISLAND_PRESENT), 0, "no match is 0")
+check(not g:scriptWaiting(), "IsMirageIslandPresent does not wait")
+g.lastUsedWarp = { mapType = Game3.MAP_TYPE_ROUTE }
+g:rtcInitLocalTimeOffset(0, 0)
+g:runSpecial(Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG)
+check(g.flags[Game3.FLAG_SYS_SHOAL_TIDE], "hour 0 is high tide")
+g:rtcInitLocalTimeOffset(3, 0)
+g:runSpecial(Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG)
+check(not g.flags[Game3.FLAG_SYS_SHOAL_TIDE], "hour 3 is low tide")
+g.flags[Game3.FLAG_SYS_SHOAL_TIDE] = true
+g.lastUsedWarp = { mapType = Game3.MAP_TYPE_INDOOR }
+g:runSpecial(Game3.SPECIAL_UPDATE_SHOAL_TIDE_FLAG)
+check(g.flags[Game3.FLAG_SYS_SHOAL_TIDE], "indoor last warp does not update")
+check(not g:scriptWaiting(), "UpdateShoalTideFlag does not wait")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local function floor(w, h)
+  local grid = {}
+  for i = 1, w * h do grid[i] = 0 end
+  return grid
+end
+local r113 = { id = "g0_28", width = 100, height = 20, grid = floor(100, 20) }
+local r112 = { id = "g0_27", width = 40, height = 60, grid = floor(40, 60) }
+local r111 = {
+  id = "g0_26", width = 40, height = 140, grid = floor(40, 140),
+  connections = {
+    { dir = "west", mapGroup = 0, mapNum = 28, offset = 0 },
+    { dir = "west", mapGroup = 0, mapNum = 27, offset = 20 },
+  },
+}
+local g = Game3.new()
+g.data.maps = { maps = { g0_26 = r111, g0_27 = r112, g0_28 = r113 } }
+check(Game3.connectionCoordInRange(r111.connections[1], r111, r113, "west", 0, 8),
+  "y=8 is on the Route 113 span")
+check(not Game3.connectionCoordInRange(r111.connections[1], r111, r113, "west", 0, 66),
+  "y=66 is past Route 113")
+check(Game3.connectionCoordInRange(r111.connections[2], r111, r112, "west", 0, 66),
+  "and on the Route 112 span")
+local dest, dx, dy = g:connectionDest(r111, 0, 8, -1, 0)
+eq(dest and dest.id, "g0_28", "north-west edge is Route 113")
+eq(dy, 8, "113 offset 0 keeps y")
+dest, dx, dy = g:connectionDest(r111, 0, 66, -1, 0)
+eq(dest and dest.id, "g0_27", "west of the desert is Route 112")
+eq(dx, 39, "east edge of 112")
+eq(dy, 46, "y minus offset 20")
+eq(g:connectionDest(r111, 0, 100, -1, 0), nil,
+  "south of both spans is no connection")
+g:enterMap(r111, 0, 66, true)
+check(g:tryWalk(-1, 0), "walking west at y=66 leaves 111")
+eq(g.map.id, "g0_27", "onto Route 112")
+eq(g.playerX, 39, "east column")
+eq(g.playerY, 46, "aligned by offset 20")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.MB_NO_SURFACING, 0x19, "MB_NO_SURFACING")
+eq(Game3.MB_HOT_SPRINGS, 0x28, "hot springs are 0x28")
+eq(Game3.MB_LAVARIDGE_GYM_B1F_WARP, 0x29, "gym B1F pad")
+eq(Game3.MB_SEAWEED_NO_SURFACING, 0x2A, "seaweed no-surfacing")
+eq(Game3.MB_LAVARIDGE_GYM_1F_WARP, 0x68, "gym 1F pad")
+check(not Game3.isSurfable(Game3.MB_HOT_SPRINGS), "springs are land")
+check(not Game3.isSurfable(Game3.MB_LAVARIDGE_GYM_B1F_WARP), "B1F pad is land")
+check(Game3.isSurfable(Game3.MB_NO_SURFACING), "no-surfacing is water")
+check(Game3.isSurfable(Game3.MB_SEAWEED_NO_SURFACING), "seaweed too")
+check(Game3.isSurfable(Game3.MB_WATER_DOOR), "water door is surfable")
+check(Game3.isSurfable(Game3.MB_WATER_SOUTH_ARROW_WARP), "water south arrow too")
+check(not Game3.isSurfable(Game3.MB_WARP_OR_BRIDGE), "cycling road is land")
+check(Game3.isUnableToEmerge(Game3.MB_NO_SURFACING), "blocks emerge")
+check(not Game3.isUnableToEmerge(Game3.MB_HOT_SPRINGS), "springs are not a ceiling")
+local g = Game3.new()
+local map = {
+  id = "g0_12", width = 2, height = 1,
+  grid = { 0, 0 },
+  behavior = { 0, Game3.MB_HOT_SPRINGS },
+}
+g:enterMap(map, 0, 0, true)
+check(g:canStep(map, 1, 0), "can walk into the springs")
+check(g:tryWalk(1, 0), "and does")
+eq(g.playerX, 1, "on the spring tile")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+local GbaBin = require("src.import.GbaBin")
+eq(Gen3Script.parse(string.char(0x7A) .. GbaBin.packU16(360)
+  .. string.char(0x02), 0)[1].op, "giveegg", "giveegg is kept")
+eq(Gen3Script.parse(string.char(0x7A) .. GbaBin.packU16(360)
+  .. string.char(0x02), 0)[1].species, 360, "species is Wynaut")
+eq(Gen3Script.parse(string.char(0x4B) .. GbaBin.packU16(13)
+  .. string.char(0x02), 0)[1].op, "adddecoration", "adddecoration is kept")
+eq(Gen3Script.parse(string.char(0x81, 0) .. GbaBin.packU16(6)
+  .. string.char(0x02), 0)[1].op, "bufferdecoration", "bufferdecorationname")
+local g = Game3.new()
+eq(Game3.SPECIES_WYNAUT, 360, "Wynaut is 360")
+eq(Game3.EGG_MET_HOT_SPRINGS, 253, "hot springs met location")
+eq(g:giveEgg(360), 0, "ScriptGiveEgg returns 0 in the party")
+eq(#g.party, 1, "one slot")
+eq(g.party[1].species, 360, "Wynaut stays 360")
+eq(g.party[1].isEgg, true, "is an egg")
+eq(g.party[1].name, "EGG", "nickname EGG")
+eq(g.party[1].metLocation, 253, "CreateEgg setMetLocation")
+eq(g.party[1].level, Game3.EGG_HATCH_LEVEL, "hatch level 5")
+check(not g:hasCaught(360), "eggs do not set the dex")
+g:hatchEgg(g.party[1])
+eq(g.party[1].species, 360, "hatches as Wynaut")
+eq(g.party[1].isEgg, nil, "no longer an egg")
+check(g:hasCaught(360), "hatch sets the dex")
+
+local host = Game3.new()
+Gen3Script.run(host, { { op = "giveegg", species = 360 } })
+eq(host.party[1].species, 360, "VM giveegg")
+eq(host:varGet(Gen3Script.VAR_RESULT), 0, "RESULT 0 is party")
+
+local full = Game3.new()
+full.party = {}
+for i = 1, Game3.PARTY_MAX do
+  full.party[i] = full:makeMon(277, 5)
+end
+eq(full:giveEgg(360), 1, "party full is SendMonToPC 1")
+eq(full.pc[1][1].species, 360, "egg is in box 1")
+eq(full.pc[1][1].isEgg, true, "still an egg")
+check(not full:hasCaught(360), "PC eggs do not set the dex")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+eq(Game3.MB_PETALBURG_GYM_DOOR, 0x8D, "MB_PETALBURG_GYM_DOOR")
+local locked = "This door appears to be locked right now..."
+local doorOps = {
+  { op = "compare", var = Game3.VAR_PETALBURG_GYM_STATE, val = 6 },
+  { op = "goto_if", cond = 0, to = 5 },
+  { op = "warp", mapGroup = 8, mapNum = 1, warpId = 255, x = 32776, y = 32777 },
+  { op = "end" },
+  { op = "loadword", text = locked },
+  { op = "callstd", id = Gen3Script.STD_MSGBOX_DEFAULT },
+  { op = "end" },
+}
+local function gymMap()
+  local w, h = 5, 5
+  local grid = {}
+  for i = 1, w * h do grid[i] = 0 end
+  grid[1 * w + 1 + 1] = 1024
+  return {
+    id = "g8_1", width = w, height = h, grid = grid,
+    warps = {
+      { x = 1, y = 1, mapGroup = 8, mapNum = 1, warpId = 1 },
+      { x = 3, y = 3, mapGroup = 8, mapNum = 1, warpId = 0 },
+    },
+    bgEvents = {
+      { x = 1, y = 1, kind = 0, script = doorOps },
+    },
+  }
+end
+local g = Game3.new()
+g.phase = "play"
+local gym = gymMap()
+g.data.maps = { maps = { g8_1 = gym } }
+g:enterMap(gym, 1, 2, true)
+g.facing = "north"
+check(not g:tryWalk(0, -1), "locked gym door does not bump-warp")
+eq(g.playerX, 1, "still in front of the door X")
+eq(g.playerY, 2, "still in front of the door Y")
+eq(Game3.collisionOf(gym.grid[1 * 5 + 1 + 1]) ~= 0, true,
+  "lightExitDoors leaves the sliding door solid")
+check(g:tryTalk(), "A-press runs the door sign")
+eq(g.playerX, 1, "A-press does not warp X")
+eq(g.playerY, 2, "A-press does not warp Y")
+eq(g.field and g.field.text, locked, "appears locked until the script opens it")
+
+g:setScriptVar(Game3.VAR_PETALBURG_GYM_STATE, 6)
+g:setScriptVar(0x8008, 3)
+g:setScriptVar(0x8009, 3)
+g.field = nil
+g:tryTalk()
+eq(g.playerX, 3, "warpdoor VarGets 0x8008")
+eq(g.playerY, 3, "warpdoor VarGets 0x8009")
+end)()
+
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+-- Petalburg EnterRoom sits at a lower ROM address than AccuracyRoomDoor.
+-- parse sorts by offset, so ops[1] is the shared warp unless .entry is set.
+local enterOff, doorOff = 0, 10
+local rom = string.rep("\0", 64)
+rom = overlay(rom, enterOff,
+  string.char(Gen3Script.CLOSEMESSAGE)
+  .. string.char(Gen3Script.WARPDOOR, 8, 1, 0xFF)
+  .. GbaBin.packU16(0x8008) .. GbaBin.packU16(0x8009)
+  .. string.char(0x02))
+rom = overlay(rom, doorOff,
+  string.char(Gen3Script.LOCKALL)
+  .. string.char(Gen3Script.SETVAR)
+  .. GbaBin.packU16(0x8008) .. GbaBin.packU16(1)
+  .. string.char(Gen3Script.SETVAR)
+  .. GbaBin.packU16(0x8009) .. GbaBin.packU16(98)
+  .. string.char(Gen3Script.GOTO) .. GbaBin.packPtr(enterOff)
+  .. string.char(0x02))
+local ops = Gen3Script.parse(rom, doorOff)
+eq(ops[1].op, "closemessage", "shared EnterRoom sorts first")
+eq(ops.entry, 4, "entry is the door lockall")
+eq(ops[ops.entry].op, "lockall", "AccuracyRoomDoor is not ops[1]")
+local host = {
+  scriptVars = {},
+  flags = {},
+  scriptWarp = function(self, _, _, _, x, y)
+    self.wx, self.wy = x, y
+  end,
+}
+Gen3Script.run(host, ops)
+eq(host.wx, 1, "Accuracy door sets 0x8008 before warpdoor")
+eq(host.wy, 98, "and 0x8009, not the wall by Norman")
+
+local cached = {
+  { op = "closemessage" },
+  { op = "delay", frames = 30 },
+  { op = "warp", mapGroup = 8, mapNum = 1, warpId = 255, x = 32776, y = 32777 },
+  { op = "waitstate" },
+  { op = "releaseall" },
+  { op = "end" },
+  { op = "lockall" },
+  { op = "setvar", var = 32776, val = 1 },
+  { op = "setvar", var = 32777, val = 98 },
+  { op = "goto", to = 1 },
+  { op = "end" },
+}
+eq(Gen3Script.entryOf(cached), 7, "ruby27 cache starts at lockall")
+host.scriptVars, host.wx, host.wy = {}, nil, nil
+Gen3Script.run(host, cached)
+eq(host.wx, 1, "cached Accuracy door still sets dest X")
+eq(host.wy, 98, "and dest Y")
+
+-- One A-press: skip delay/waitstate so the warp finishes in this call.
+local fieldOps = {
+  { op = "closemessage" },
+  { op = "warp", mapGroup = 8, mapNum = 1, warpId = 255, x = 32776, y = 32777 },
+  { op = "end" },
+  { op = "lockall" },
+  { op = "setvar", var = 32776, val = 1 },
+  { op = "setvar", var = 32777, val = 98 },
+  { op = "goto", to = 1 },
+  { op = "end" },
+}
+eq(Gen3Script.entryOf(fieldOps), 4, "field IR still skips EnterRoom")
+local gym = {
+  id = "g8_1", width = 9, height = 112, grid = {},
+  bgEvents = { { x = 7, y = 105, kind = 0, script = fieldOps } },
+}
+for i = 1, 9 * 112 do gym.grid[i] = 0 end
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g8_1 = gym } }
+g:enterMap(gym, 7, 106, true)
+g.facing = "north"
+g:setScriptVar(0x8008, 0)
+g:setScriptVar(0x8009, 0)
+g:tryTalk()
+eq(g.playerX, 1, "live A-press lands in the Accuracy room X")
+eq(g.playerY, 98, "not the corner wall by Norman")
+end)()
+
+;(function()
+  local Game3 = require("src.core.Game3")
+  local Gen3Script = require("src.import.Gen3Script")
+  eq(Gen3Script.POKEMART_DECORATION, 0x87, "pokemartdecoration is 0x87")
+  eq(Gen3Script.POKEMART_DECORATION2, 0x88, "pokemartdecoration2 is 0x88")
+  local listOff = 0x20
+  local rom = string.rep("\0", 0x40)
+  rom = overlay(rom, listOff,
+    GbaBin.packU16(1) .. GbaBin.packU16(10) .. GbaBin.packU16(0))
+  rom = overlay(rom, 0,
+    string.char(0x87) .. GbaBin.packPtr(listOff) .. string.char(0x02))
+  local ops = Gen3Script.parse(rom, 0)
+  eq(ops[1].op, "pokemartdecoration", "Fortree clerks stay aligned")
+  eq(ops[1].items[1], 1, "SMALL DESK")
+  eq(ops[1].items[2], 10, "SMALL CHAIR")
+  eq(ops[2].op, "end", "then end")
+  rom = overlay(rom, 0,
+    string.char(0x88) .. GbaBin.packPtr(listOff) .. string.char(0x02))
+  ops = Gen3Script.parse(rom, 0)
+  eq(ops[1].op, "pokemartdecoration", "type 2 is the same shop")
+  local g = Game3.new()
+  g.money = 5000
+  g:openMartList({ 1 }, "decor")
+  eq(g.field.martKind, "decor", "kind is decor")
+  local ok, msg = g:buyMartItem(1, "decor")
+  check(ok, "bought a desk")
+  eq(g.money, 2000, "SMALL DESK is 3000")
+  eq(g.decorations[1], 1, "AddDecoration")
+  check(msg:find("SMALL DESK", 1, true) ~= nil, "desk name")
+  eq(g:decorationPrice(13), 2000, "PRETTY CHAIR")
+end)()
+
+-- Survey zoom / tilt: same Zoom/Tilt modules as Gen 1. A larger view
+-- unclamps the camera so connected maps (and the 2x2 border) can show.
+;(function()
+  local Game3 = require("src.core.Game3")
+  local Zoom = require("src.render.Zoom")
+  local Tilt = require("src.render.Tilt")
+  local oldOff, oldLevel = Zoom.offset, Tilt.level
+  Zoom.reset()
+  Tilt.reset()
+  local g = Game3.new()
+  eq(select(1, g:viewSize()), Game3.SCREEN_W, "view defaults to 240")
+  eq(select(2, g:viewSize()), Game3.SCREEN_H, "view defaults to 160")
+check(g:fieldShowsWorld(), "no field keeps the world")
+eq(g:playHudActive(), false, "free roam has no HUD overlay")
+g.field = { kind = "talk" }
+check(g:fieldShowsWorld(), "dialogue stays over the map")
+check(g:playHudActive(), "dialogue still uses the HUD letterbox")
+g.field = { kind = "script_yesno" }
+check(g:fieldShowsWorld(), "yes/no stays over the map")
+check(g:playHudActive(), "yes/no still uses the HUD letterbox")
+g.field = { kind = "script_choice" }
+check(g:fieldShowsWorld(), "multichoice stays over the map")
+g.field = { kind = "wait" }
+eq(g:playHudActive(), false, "script wait is not a HUD plate")
+g.field = nil
+g:beginScreenFade(Game3.FADE_TO_BLACK)
+g:stepScreenFade((g.FADE_FRAMES or 16) / 60)
+eq(g:playHudActive(), false, "a screen fade is not a HUD plate")
+g.screenFade = nil
+g.field = { kind = "talk", text = "planted." }
+g:beginScreenFade(Game3.FADE_TO_BLACK)
+g:clearTransientOverlay()
+eq(g.field, nil, "overlay clear drops talk")
+eq(g.screenFade, nil, "and the fade veil")
+eq(g:playHudActive(), false, "so the HUD plate is gone")
+g.field = { kind = "party" }
+  check(not g:fieldShowsWorld(), "party covers the map")
+  g.field = nil
+  g.viewW, g.viewH = 480, 320
+  g.map = { width = 40, height = 40 }
+  g.camX, g.camY = 0, 0
+  local x0, y0, x1, y1 = g:visibleRange()
+  eq(x1, math.floor(480 / Game3.TILE), "survey view reaches tile 30, not 14")
+  eq(y1, math.floor(320 / Game3.TILE), "survey view reaches tile 20, not 9")
+  -- Player stays at view centre even on a map bigger than the window, so
+  -- connected maps and the 2x2 border stay visible at the edge.
+  g.map = { width = 10, height = 10 }
+  g.playerX, g.playerY = 0, 0
+  g:clampCamera()
+  eq(g.camX, Game3.snapPixel(8 - 240), "wide view keeps the player centred")
+  eq(g.camY, Game3.snapPixel(8 - 160), "tall view keeps the player centred")
+  g.viewW, g.viewH = Game3.SCREEN_W, Game3.SCREEN_H
+  g.map = { width = 40, height = 40 }
+  g.playerX, g.playerY = 0, 20
+  g:clampCamera()
+  eq(g.camX, Game3.snapPixel(8 - 120), "the west edge of a large map stays centred")
+  -- Zoom must re-follow: a camera from the previous view size leaves the
+  -- player off centre (World:draw calls camera:follow after sizing).
+  g.playerX, g.playerY = 10, 10
+  g.viewW, g.viewH = Game3.SCREEN_W, Game3.SCREEN_H
+  g:clampCamera()
+  eq(g.camX, Game3.snapPixel(10 * 16 + 8 - 120), "FIT camera is view centre")
+  g.viewW, g.viewH = 480, 320
+  g:clampCamera()
+  eq(g.camX, Game3.snapPixel(10 * 16 + 8 - 240), "zoom-out recentres on the player")
+  -- Live draw stores the window and scale; even-padded viewW is only the cull.
+  g._zoomS = 3
+  g._tiltGw, g._tiltGh = 800, 600
+  g.viewW, g.viewH = 268, 200
+  g:clampCamera()
+  eq(g.camX, Game3.snapPixel(10 * 16 + 8 - 800 / 6), "zoom centres on the window")
+  eq(g.camY, Game3.snapPixel(10 * 16 + 8 - 600 / 6), "and on the window height")
+  g._zoomS, g._tiltGw, g._tiltGh = nil, nil, nil
+  g.phase = "play"
+  g.map = { width = 10, height = 10 }
+  check(g:displayGateOK(), "free roam accepts zoom")
+  check(g:hotkey("4"), "4 cycles zoom")
+  check(Zoom.offset ~= 0, "zoom offset moved")
+  g.field = { kind = "talk" }
+  check(not g:displayGateOK(), "dialogue blocks zoom")
+  g.field = nil
+  check(g:hotkey("3"), "3 cycles tilt")
+  eq(Tilt.level, 1, "tilt steps to 15")
+  Zoom.offset = oldOff
+  Tilt.applyOptions({ tilt = oldLevel })
+end)()
+
+-- Overlay border fill must not cover the map body: tree-top BG1 tiles
+-- wrapping the whole view painted Littleroot's paths.
+;(function()
+  local Game3 = require("src.core.Game3")
+  local inside = Game3.punchHoles(10, 10, 50, 50, { { 0, 0, 100, 100 } })
+  eq(#inside, 0, "a view inside the map punches to nothing")
+  local around = Game3.punchHoles(0, 0, 100, 80, { { 20, 10, 80, 70 } })
+  eq(#around, 4, "a hole in the middle leaves four strips")
+  local g = Game3.new()
+  g.map = { width = 10, height = 8 }
+  local holes = g:mapCoverRects()
+  eq(holes[1][3], 10 * Game3.TILE, "cover width is the map")
+  eq(holes[1][4], 8 * Game3.TILE, "cover height is the map")
+  local view = Game3.punchHoles(16, 16, 160, 128, holes)
+  eq(#view, 0, "camera inside town has no overlay border")
+  local edge = Game3.punchHoles(-32, 0, 48, 32, holes)
+  check(#edge >= 1, "west of the map still fills")
+  check(edge[1][3] <= 0, "the west strip stops at the map edge")
+  -- Ocean layouts still store the general tree wall as the 2x2 border.
+  -- Survey zoom must not wrap that across the water void.
+  g.map = { width = 10, height = 8, mapType = Game3.MAP_TYPE_TOWN }
+  eq(g:borderPad(), Game3.MAP_OFFSET * Game3.TILE, "towns keep the GBA ring")
+  g.map.mapType = Game3.MAP_TYPE_OCEAN_ROUTE
+  eq(g:borderPad(), 0, "ocean routes do not wallpaper trees into the void")
+  g.map.mapType = Game3.MAP_TYPE_UNDERWATER
+  eq(g:borderPad(), 0, "underwater neither")
+  g.map.mapType = Game3.MAP_TYPE_TOWN
+  local far = g:borderFillRects(g.map, 500, 0, 800, 200, false)
+  eq(#far, 0, "survey void past MAP_OFFSET is not tree-filled")
+  local ring = g:borderFillRects(g.map, -32, 0, 16, 32, false)
+  check(#ring >= 1, "the GBA ring west of town still fills")
+  g.map.mapType = Game3.MAP_TYPE_OCEAN_ROUTE
+  local ocean = g:borderFillRects(g.map, -200, 0, -16, 32, false)
+  eq(#ocean, 0, "ocean void is not the tree border")
+  -- Tilt ground capture skips roofs; the overlay pass covers sprites.
+  eq(Game3.metatileTopPassMode(Game3.LAYER_NORMAL, "covered", true), "skip",
+    "roofs stay out of the tilted ground")
+  eq(Game3.metatileTopPassMode(Game3.LAYER_NORMAL, "overlay", true), "full",
+    "the overlay pass draws the roof over the player")
+end)()
+
+-- Land wanderers stay off water (collision 0 + surfable). Reflections
+-- follow IsReflective, including the tile a 32px sprite covers north of
+-- the feet, so the pond-bank sign shows a face.
+;(function()
+  local Game3 = require("src.core.Game3")
+  eq(Game3.elevationOf(4 * 4096), 4, "elevation is bits 12-15")
+  check(Game3.zMismatch(4, 3), "cycling road is above the dirt")
+  check(not Game3.zMismatch(4, 0), "map z 0 is any height")
+  check(not Game3.zMismatch(0, 3), "object z 0 skips the check")
+  check(Game3.isReflective(Game3.MB_POND_WATER), "pond is a mirror")
+  check(Game3.isReflective(Game3.MB_ICE), "ice too")
+  check(not Game3.isReflective(Game3.MB_OCEAN_WATER), "ocean is not")
+
+  local g = Game3.new()
+  g.phase = "play"
+  g.map = {
+    id = "pond_edge",
+    width = 2, height = 2,
+    grid = { 0, 0, 0, 0 },
+    behavior = { 0, Game3.MB_POND_WATER, 0, Game3.MB_OCEAN_WATER },
+    objects = {
+      { x = 0, y = 0, graphicsId = 1, movementType = 2, rangeX = 2, rangeY = 2 },
+    },
+  }
+  g:enterMap(g.map, 0, 0, false)
+  local npc = g:npcsFor(g.map)[1]
+  check(not g:tryNpcWalk(npc, g.map, 1, 0), "land NPC does not walk onto the pond")
+  eq(npc.x, 0, "and stays put")
+  npc.x, npc.y = 0, 1
+  npc.homeX, npc.homeY = 0, 1
+  check(not g:tryNpcWalk(npc, g.map, 1, 0), "or onto the ocean")
+
+  g.map.behavior = {
+    Game3.MB_OCEAN_WATER, Game3.MB_OCEAN_WATER, 0, 0,
+  }
+  npc.x, npc.y = 0, 0
+  npc.fromX, npc.fromY = 0, 0
+  npc.homeX, npc.homeY = 0, 0
+  check(g:tryNpcWalk(npc, g.map, 1, 0), "a swimmer can wander on ocean")
+
+  local road, dirt = 4 * 4096, 3 * 4096
+  g.map.grid = { road, dirt, road, dirt }
+  g.map.behavior = { 0, 0, 0, 0 }
+  npc.x, npc.y = 0, 0
+  npc.fromX, npc.fromY = 0, 0
+  npc.homeX, npc.homeY = 0, 0
+  npc.elevation = 4
+  check(not g:tryNpcWalk(npc, g.map, 1, 0), "cyclist stays on elevation 4")
+
+  -- Elevation 0 skips zMismatch; elevation 1 is still the ROM water Z.
+  g.map.grid = { 0, 4096 }
+  g.map.width, g.map.height = 2, 1
+  g.map.behavior = { 0, 0 }
+  npc.x, npc.y = 0, 0
+  npc.fromX, npc.fromY = 0, 0
+  npc.homeX, npc.homeY = 0, 0
+  npc.elevation = 0
+  npc.rangeX, npc.rangeY = 2, 2
+  check(not g:tryNpcWalk(npc, g.map, 1, 0), "land NPC does not stroll elevation-1 shallows")
+
+  -- Route 110 seaside strip: 0x70 road beside ocean. 32px bikes hang off
+  -- the road; they must not actually step onto the water.
+  local road15 = 15 * 4096
+  g.map = {
+    id = "route110_strip",
+    width = 3, height = 1,
+    grid = { road15, road15, 4096 },
+    behavior = {
+      Game3.MB_WARP_OR_BRIDGE, Game3.MB_WARP_OR_BRIDGE, Game3.MB_OCEAN_WATER,
+    },
+    objects = {
+      { x = 1, y = 0, graphicsId = 56, movementType = 2,
+        rangeX = 2, rangeY = 1, elevation = 4 },
+    },
+  }
+  g:enterMap(g.map, 1, 0, false)
+  npc = g:npcsFor(g.map)[1]
+  npc.elevation = 4
+  check(g:tryNpcWalk(npc, g.map, -1, 0), "cyclist can ride the other road tile")
+  npc.x, npc.y = 1, 0
+  npc.fromX, npc.fromY = 1, 0
+  check(not g:tryNpcWalk(npc, g.map, 1, 0), "and does not ride onto the ocean")
+
+  -- LAYER_NORMAL ocean (Route 110 mid 786) must not cover bike sprites.
+  g.data.tilesets = {
+    byId = {
+      pair_2 = {
+        behavior = { [786] = Game3.MB_OCEAN_WATER, [724] = Game3.MB_WARP_OR_BRIDGE },
+        layerType = { [724] = Game3.LAYER_COVERED },
+        tiles = {
+          [786] = { 454, 455, 455, 454, 690, 690, 706, 706 },
+          [724] = { 575, 575, 575, 575, 575, 575, 575, 575 },
+        },
+      },
+    },
+  }
+  g.map = {
+    tileset = "pair_2",
+    width = 2, height = 1,
+    grid = { 724, 786 },
+  }
+  check(not g:topIsOverlayAt(g.map, 1, 0), "ocean tops stay under cyclists")
+  check(not g:topIsOverlayAt(g.map, 0, 0), "LAYER_COVERED road stays under sprites")
+
+  g.map = {
+    width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    behavior = {
+      0, 0, 0,
+      Game3.MB_POND_WATER, 0, 0,
+      0, 0, 0,
+    },
+  }
+  check(g:actorReflects(0, 2, false, 32), "bank south of the pond reflects")
+  check(not g:actorReflects(2, 2, false, 32), "dry ground does not")
+  check(not g:actorReflects(0, 2, true, 32), "hideReflection skips it")
+  g.map.behavior = {
+    0, 0, 0,
+    Game3.MB_OCEAN_WATER, 0, 0,
+    Game3.MB_OCEAN_WATER, 0, 0,
+  }
+  check(not g:actorReflects(0, 2, false, 32), "standing by ocean does not mirror")
+
+  local wet = Game3.new()
+  wet.map = {
+    width = 3, height = 1,
+    -- collision 1 ocean, collision 0 elevation-1 shallows, land
+    grid = { 1024, 4096, 0 },
+    behavior = { Game3.MB_OCEAN_WATER, 0, 0 },
+  }
+  wet.playerX, wet.playerY = 2, 0
+  check(not Game3.walkable(wet.map, 0, 0), "ocean collision 1 is solid")
+  check(not wet:canStep(wet.map, 0, 0), "and blocked without Surf")
+  check(not wet:canStep(wet.map, 1, 0), "elevation-1 shallows need Surf")
+  check(wet:canStep(wet.map, 2, 0), "land is fine")
+  check(not Game3.walkable(wet.map, 0.4, 0), "fractional coords still hit the ocean cell")
+  wet.surfing = true
+  check(wet:canStep(wet.map, 0, 0), "Surf walks collision-1 ocean")
+  check(wet:canStep(wet.map, 1, 0), "and the shallows")
 end)()
 
 S.finish()

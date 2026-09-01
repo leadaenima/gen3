@@ -67,7 +67,7 @@ function Gen3MapPack.indexFromPack(pack)
   end
   local index = { ids = ids }
   for k, v in pairs(pack) do
-    if k ~= "maps" and k ~= "tilesets" and k ~= "ids" then
+    if k ~= "maps" and k ~= "tilesets" and k ~= "ids" and k ~= "layouts" then
       index[k] = v
     end
   end

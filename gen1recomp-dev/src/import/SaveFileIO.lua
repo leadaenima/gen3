@@ -76,6 +76,12 @@ end
 -- are dropped and the 32768-byte save imports.
 function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
+  if GameVersion.generation(version) > 1 then
+    local info = GameVersion.info(version)
+    local kind = GameVersion.generation(version) == 3 and "GBA save" or "Gen 2 cart save"
+    return false, (info and info.displayName or version)
+      .. " uses a " .. kind .. "; importing one is not supported yet."
+  end
   local bytes, readErr = readSource(source)
   if not bytes then return false, readErr end
   if #bytes ~= SAVE_SIZE then
@@ -123,6 +129,12 @@ end
 -- message otherwise.
 function SaveFileIO.exportActiveSlot(version)
   version = version or GameVersion.get()
+  if GameVersion.generation(version) > 1 then
+    local info = GameVersion.info(version)
+    local kind = GameVersion.generation(version) == 3 and "GBA save" or "Gen 2 cart save"
+    return false, (info and info.displayName or version)
+      .. " uses a " .. kind .. "; exporting one is not supported yet."
+  end
   local save = SaveData.load(version)
   if not save then return false, "this game has no save to export yet" end
   local bytes, exportErr = SaveConvert.exportSav(save, version)

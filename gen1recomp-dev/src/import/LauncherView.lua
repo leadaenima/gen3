@@ -1877,7 +1877,8 @@ local function buildSlotCard(imp, x, y, w, availH, m, version, ready)
           key = rowKey .. "-rename",
           action = function() imp:_beginRename(scope, slot.id) end }
       end
-      if imp.onEditSave and slot.exists and not onCart then
+      if imp.onEditSave and slot.exists and not onCart
+          and GameVersion.generation(version) ~= 3 then
         chips[#chips + 1] = { label = Strings("Edit"), kind = "accent",
           key = rowKey .. "-edit",
           action = function() imp.onEditSave(version, slot.id) end }
