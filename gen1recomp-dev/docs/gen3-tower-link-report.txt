@@ -1,0 +1,122 @@
+﻿Battle Tower lobby specials + link-battle assessment
+====================================================
+Date: 2026-09-07 (America/New_York)
+Project: gen1recomp-dev (Pokemon Ruby LÖVE / Game3)
+No git commit (per request).
+
+ROM compare (specials.inc ordinals vs Game3.SPECIAL_*)
+------------------------------------------------------
+All Tower-related specials match pokeruby data/specials.inc:
+
+  231 sub_8134548
+  232 ChooseNextBattleTowerTrainer
+  233 CheckPartyBattleTowerBanlist
+  234 PrintBattleTowerTrainerGreeting
+  235 PrintEReaderTrainerGreeting
+  236 StartSpecialBattle
+  237 SetBattleTowerProperty
+  238 BattleTowerUtil
+  239 SetBattleTowerParty
+  240 SaveBattleTowerProgress
+  241 BattleTower_SoftReset
+  242 DetermineBattleTowerPrize
+  243 GiveBattleTowerPrize
+  244 AwardBattleTowerRibbons
+  245 ChooseBattleTowerPlayerParty
+  246 ValidateEReaderTrainer
+  247 GetBestBattleTowerStreak
+  248 ReducePlayerPartyToThree
+  283 ShowBattleTowerRecords
+  322 SetEReaderTrainerGfxId
+  329 TryInitBattleTowerAwardManObjectEvent
+  338 TryEnableBravoTrainerBattleTower
+
+TASK A — Battle Tower lobby / challenge progression
+---------------------------------------------------
+Was stubbed (cinema no-ops in runSpecial dispatch):
+  ChooseNextBattleTowerTrainer, PrintBattleTowerTrainerGreeting,
+  PrintEReaderTrainerGreeting, StartSpecialBattle,
+  SaveBattleTowerProgress, BufferEReaderTrainerName,
+  SetEReaderTrainerGfxId, TryInitBattleTowerAwardManObjectEvent,
+  TryEnableBravoTrainerBattleTower.
+
+Implemented (pokeruby battle_tower.c behavior, existing save fields):
+  * src/data/battle_tower.lua — extracted from pokeruby trainers.h +
+    level_50/100_mons.h + held-item / facility-class / OBJ gfx tables
+    (100 trainers, 300+300 mons). Loaded via require("src.data.battle_tower").
+  * ChooseNextBattleTowerTrainer — streak-bracket RNG, no duplicates
+    within a 7-battle set; sets VAR_OBJ_GFX_ID_0 for the hallway NPC.
+  * FillBattleTowerTrainerParty + StartSpecialBattle (mode 0) —
+    builds IV/EV/item parties and starts a script-wait trainer battle.
+  * SaveBattleTowerProgress — records outcome / var_4AE / player record
+    meta, then writeSave(); SoftReset still separate (special 241).
+  * SetBattleTowerProperty / BattleTowerUtil — filled missing cases
+    6/7/11/12/13/14 (win bump, set bump, reset streak, restore saved
+    var_4AE, current streak mirror, lastStreakLevelType).
+  * initBattleTowerOnFrame (sub_8134548) — walks both level modes and
+    sets VAR_TEMP_0 for award / continue / lose / idle branches.
+  * PrintBattleTowerTrainerGreeting — stringVars[4] text for
+    ShowFieldMessageStringVar4 (Easy Chat words not decoded).
+  * Award man / Bravo Trainer specials — no-hang stubs (no local-object
+    template system / TV queue is best-effort).
+  * Persist battleTower + linkBattleRecords in snapshotSave/applySave.
+
+Preserved (not rewritten):
+  DetermineBattleTowerPrize, GiveBattleTowerPrize,
+  AwardBattleTowerRibbons, party banlist, party picker, records UI.
+
+Still limited / out of scope inside Tower:
+  * E-reader trainer battles (ValidateEReaderTrainer still RESULT 1).
+  * Record-mix opponents (no mixed records ingested).
+  * Easy Chat greeting strings (plain “CLASS NAME wants to battle!”).
+  * TryInitLocalObjectEvent(6) award-man sprite injection.
+
+TASK B — Link battles (honest assessment)
+-----------------------------------------
+What Game3 cableClubNoLink / link specials do today:
+  * Connect specials 28/29/30/36/341 → cableClubNoLink() sets
+    VAR_RESULT = 5 (receptionist goodbye). No beginScriptWait.
+  * CloseLink / partner-name / blender-sprite specials clear
+    isLinkContest and return without waiting.
+  * scriptGetMultiplayerId returns 4 (not-linked sentinel).
+  * ShowLinkBattleRecords draws empty/total W-L-D from gameStats.
+  * src/link/LinkBattle.lua is the Gen1/Gen2 Net.lua peer lockstep
+    path — it is NOT wired into Game3 Cable Club / Colosseum scripts.
+
+What full GBA link would require (not feasible here):
+  * GBA SIO multiplayer (master/slave clock, JoyBus, serial IRQ timing).
+  * Faithful link standby, trade/colosseum state machines, block
+    transfer, and save-block record mixing.
+  * Two real clients with matching ROM state — LÖVE has no GBA SIO.
+
+Minimal safe improvements done:
+  * cableClubNoLink clears isLinkContest and documents RESULT 5.
+  * Added CABLE_CLUB_NO_LINK_MSG + cableClubNoLinkExplain() helper
+    (not forced into scripts that already print goodbye text — avoids
+    double dialogue).
+  * Softlocks avoided: no waitstate on link connect stubs; multipplayer
+    id stays 4; CloseLink does not soft-reset.
+
+Verdict: full GBA Cable Club / Colosseum / Trade Center remains OUT OF
+SCOPE. Local hotseat was not added (would be a new battle mode, not
+ROM behavior). Gen1/2 LinkBattle over Net.lua is a separate feature.
+
+Files touched
+-------------
+  src/core/Game3.lua
+  src/data/battle_tower.lua          (new, generated)
+  tools/_extract_battle_tower.py     (generator)
+  tools/_patch_tower.lua.py          (one-shot patch helper)
+  tools/_patch_fill.py               (one-shot patch helper)
+  docs/gen3-tower-link-report.txt    (this file)
+
+How to verify in-game
+---------------------
+  1. Restart LÖVE (no cache bump required for Lua-only changes).
+  2. Battle Tower lobby: pick Lv50/Lv100, pass banlist, choose 3 mons.
+  3. Hallway/Battle Room should pick an opponent (gfx via VAR_OBJ_GFX_ID_0),
+     show greeting, and enter a real battle.
+  4. Win → SaveBattleTowerProgress persists streak; prizes/ribbons at
+     set clear still use the previous prize/ribbon code.
+  5. Pokemon Center 2F Cable Club → receptionist goodbye (RESULT 5),
+     no hang.

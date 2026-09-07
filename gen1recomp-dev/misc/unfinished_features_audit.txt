@@ -1,0 +1,87 @@
+Unfinished features audit -- Ruby, generated 2026-09-02
+======================================================================
+
+WHAT THIS IS
+
+The earlier NPC audit (misc/npc_placeholder_audit.txt) checked whether
+scripts run to completion and show text -- and found they all do. That
+was the wrong layer to look at. The actual gap is one level deeper:
+Ruby's ROM scripts call into a table of ~344 native engine functions
+via the `special` / `specialvar` opcodes (Game3.lua's runSpecial,
+keyed by a numeric id pulled straight from the ROM). Some of those
+native functions were never implemented here -- runSpecial's dispatch
+chain has NO fallback case, so an unhandled id just silently does
+nothing. No error, no log line, nothing visibly wrong until you notice
+the feature itself never happens.
+
+Cross-referenced every `special`/`specialvar` call in the real,
+extracted Ruby script data (all 394 maps) against runSpecial's
+dispatch chain in src/core/Game3.lua, then resolved each missing id to
+its real function name via pokeruby's data/specials.inc.
+
+13 ids are called by real Ruby scripts but not implemented:
+
+  id  name                              where (map : call count)
+  --  --------------------------------  --------------------------------
+  16  SecretBasePC_Registry             every SecretBase_* map (24 maps, 1x each)
+  17  sub_80BCE1C                       every SecretBase_* map (24 maps, 1x each)
+  18  sub_80BCE90                       every SecretBase_* map (24 maps, 1x each)
+       (also LittlerootTown_BrendansHouse_2F, LittlerootTown_MaysHouse_2F)
+  24  sub_8100A7C                       every SecretBase_* map (24 maps, 1x each)
+  25  sub_80BBC78                       every SecretBase_* map (24 maps, 20x each)
+  41  LoadPlayerParty                   MossdeepCity_GameCorner_1F, one SecretBase variant
+  92  GiveMonArtistRibbon               LilycoveCity_ContestLobby (1x)
+  96  ShowEasyChatScreen                PetalburgCity_PokemonCenter_1F (1x)
+ 295  ScrSpecial_AreLeadMonEVsMaxedOut  SecretBase Tree/Shrub variants (2 maps)
+ 296  sub_8064EAC                       SecretBase Tree/Shrub variants (2 maps)
+ 300  IsGrassTypeInParty                LilycoveCity_ContestLobby (10x)
+ 321  ShowContestEntryMonPic            SecretBase Rock/decoration variants (12 maps)
+ 331  MoveSecretBase                    the 2F link room of EVERY Pokemon Center
+                                        (15 cities: Oldale, Petalburg, Rustboro,
+                                        Dewford, Slateport, Mauville, Verdanturf,
+                                        Fallarbor, Lavaridge, Fortree, Lilycove,
+                                        Mossdeep, Sootopolis, Ever Grande, Pacifidlog)
+
+READING THIS
+
+  - Secret Bases are the single biggest unfinished system here: naming/
+    registering a base (id 16), moving your base from any Pokemon
+    Center link room (id 331), and several internal setup/decoration
+    routines (17, 18, 24, 25, 295, 296, 321) are all no-ops right now.
+    Walking into a secret base and using the PC, or picking "move
+    secret base" upstairs in any Pokemon Center, currently does
+    nothing visible -- that's this gap, not a rendering bug.
+  - LilycoveCity_ContestLobby has two gaps: the art promoter's ribbon
+    reward for a Master Rank painting (id 92, GiveMonArtistRibbon)
+    and a grass-type hint check used by an NPC there (id 300).
+  - id 41 (LoadPlayerParty) at the Game Corner is probably part of the
+    slot-machine prize-claim flow.
+  - id 96 (ShowEasyChatScreen) at the Petalburg Pokemon Center is
+    likely the naming-rater/EasyChat screen some Center NPCs offer.
+
+NOT IN THIS LIST
+
+MagmaHideout_1F/B1F/B2F and Route119_WeatherInstitute_1F/2F (both
+already in misc/bugs.txt as "not finished") do NOT call any missing
+`special` -- their scripts all resolve cleanly through implemented
+specials. Whatever's actually wrong with them (submarine graphics,
+the weather machine) is a different mechanism than this list; a
+graphicsId/sprite-atlas check for every object event across all 394
+maps also came back clean (0 missing sprite entries, dynamic
+GFX_VAR_0..F slots aside), so it isn't a missing-sprite-asset problem
+either. Those two need their own targeted look, separate from this
+audit.
+
+METHOD (for reproducing or extending this)
+
+  1. Extracted every `Game3.SPECIAL_*` name referenced inside
+     Game3:runSpecial's body (src/core/Game3.lua) and resolved each to
+     its numeric id from the `Game3.SPECIAL_X = N` constant table.
+  2. Loaded every map from the real Ruby ROM cache
+     (data/generated/maps/*.lua) and collected every distinct `id`
+     argument passed to a `special`/`specialvar` op.
+  3. Diffed the two sets. 274 distinct ids are actually used across
+     Ruby; 13 have no handler.
+  4. Resolved each missing id's real function name via pokeruby's
+     data/specials.inc (def_special entries are 0-indexed in
+     declaration order, matching the ROM's own numbering exactly).

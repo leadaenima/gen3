@@ -1,0 +1,184 @@
+Decoration placement -- scope + progress, Ruby, verified 2026-09-02
+======================================================================
+
+Follows on from misc/decoration_system_research.txt (which found
+gDecorations but wired nothing) and misc/secret_base_scope.txt (A-D
+done). This covers the placement system itself.
+
+DONE
+
+  1. Catalog extraction. RomExtractorGen3.parseDecorations reads
+     gDecorations at ROM 0x083EB6C4 -- located by structural signature
+     (id counts 0..120 over a 32-byte stride with two valid ROM pointers
+     per entry), one match, and the parse re-checks it. Emitted to
+     data/generated/decorations.lua as permission / shape / width /
+     height / category / price / tiles / gfx.
+
+     tiles LENGTH IS NOT ALWAYS w*h. For everything the room bakes into
+     its grid it is one metatile per footprint cell (sub_80FF1EC indexes
+     tiles[i * w + j]). For DECORPERM_SOLID_MAT it is a single
+     OBJ_EVENT_GFX id whatever the shape -- DecorGfx_SNORLAX_DOLL is
+     shape 1x2 and holds ONE entry -- so sizing those by w*h reads the
+     next decoration's array as tiles. parseDecorations special-cases it.
+
+     Spot-checked against the decomp: id 37 TIRE 2x2 ->
+     [0x80,0x81,0x88,0x89] exactly; id 77 PIKACHU DOLL -> [143] =
+     OBJ_EVENT_GFX_PIKACHU_DOLL; id 111 (1x2 doll) -> one entry.
+     Cache contract ruby49 -> ruby50.
+
+  2. Placement legality. Game3:canPlaceDecoration(id, x, y, map) is
+     decoration.c sub_80FFC24 with its three helpers (sub_80FFB6C,
+     sub_80FFB94, sub_80FFBDC). Anchored bottom-left, walking upward the
+     way the ROM does (curY = data[1] - i). Coordinates are map-local;
+     the ROM's +7 is only its MapGrid offset.
+       SOLID_FLOOR / PASS_FLOOR  every cell plain, nothing standing on
+                                 it, and never the player's tile when
+                                 that cell carries a layer type.
+                                 SOLID BOARD (id 33 -- NOT 87) may
+                                 additionally bridge a secret base hole.
+       BEHIND_FLOOR              upper rows may also sit on a
+                                 block-decoration cell whose layer type
+                                 is 0; the bottom row may sit against
+                                 the north wall.
+       NA_WALL                   all cells north wall, and the tile
+                                 below must not be metatile 0x28C.
+       SOLID_MAT                 one row on mat tiles; shape 1x2 demands
+                                 MB_LARGE_MAT_CENTER, others take centre
+                                 or edge.
+     Layer types come from the tileset's own layerType table at
+     DECOR_TILE_BASE + tile (0x200 + tile -- the decoration's metatiles
+     live in the SECONDARY tileset), which is the same nibble the ROM
+     reads via GetMetatileAttributesById.
+     Verified headlessly, 12 assertions across all four classes,
+     including the 1x2-doll-needs-centre rule and the SOLID BOARD hole
+     case.
+
+  3. Inventory model -- now the ROM's, verified 2026-09-02. The flat
+     owned-count map (self.decorations[id] = count) was a placeholder and
+     is gone. Game3 now keeps decoration_inventory.c's eight per-category
+     slot arrays as self.decorInv, sized off SaveBlock1 0x26A0..0x2735:
+
+       DECORCAT_  DESK CHAIR PLANT ORNAMENT MAT POSTER DOLL CUSHION
+       slots        10    10    10       30  30     10   40      10   = 150
+       catalog ids   9     9     6       23  18     10   35      10   = 120
+
+     A slot holds a decoration id, DECOR_NONE (0) for empty, and the same
+     id may occupy several slots -- that is how owning three of something
+     works. The cap is per CATEGORY, not per id.
+
+     Ported one-for-one: ClearDecorationInventory(ies),
+     FindFreeDecorationInventorySlot, AddDecoration,
+     CheckDecorationInventoryHasSpace, InventoryContainsDecoration,
+     RemoveDecorationFromInventory, SortDecorationInventory (the same
+     pairwise pass: ascending id, DECOR_NONE pushed to the back),
+     GetNumDecorationsInInventory{,Category}.
+
+     The two trader specials were placeholders too and now follow
+     trader.c exactly. ScrSpecial_IsDecorationFull is NOT "is the
+     inventory full" -- it is TRUE only when the decoration you would
+     RECEIVE (0x8004) is a different category from the one you GIVE
+     (0x8006) AND that category has no free slot; a same-category swap
+     always fits because the give frees the slot first. It also writes
+     the category name into STR_VAR_2 (sub_80FE7D4 /
+     gUnknown_083EC5E4: DESK CHAIR PLANT ORNAMENT MAT POSTER DOLL
+     CUSHION, singular). ScrSpecial_DoesPlayerHaveNoDecorations is TRUE
+     only when all eight categories are empty.
+     ScrSpecial_TraderDoDecorationTrade removes then adds, in that order.
+
+     scrcmd.c's other three decoration opcodes were decoded as unknown
+     and silently skipped; they are wired now -- 0x4C removedecoration,
+     0x4D checkdecor, 0x4E checkdecorspace, each dropping its bool8 into
+     VAR_RESULT.
+
+     Decoration marts now follow shop.c: one purchase is one
+     AddDecoration (there is no quantity selector for decorations), the
+     money is checked first, a failure is gOtherText_SpaceForIsFull
+     ("The space for {item} is full.") and costs nothing, and the
+     confirmation is the martType's own line -- MART_TYPE_1
+     "Thank you! / I'll send it to your home PC." for pokemartdecoration
+     (0x87), MART_TYPE_2 "Thanks! / I'll send it to your PC at home." for
+     pokemartdecoration2 (0x88). The parser collapsed both opcodes into
+     one op and lost the distinction; it now keeps op.martType.
+
+     Old saves migrate: a save carrying the flat `decorations` count map
+     is replayed through addDecoration in ascending id order, so it lands
+     in the right categories and is clamped by their capacities.
+
+     Cross-checked while here: Game3.DECOR_PRICES matches the extracted
+     gDecorations price field for all 120 ids, so the hardcoded table
+     stays.
+
+  RESOLVED: PACK UP does not need to refund anything. decoration.c never
+  calls AddDecoration or RemoveDecorationFromInventory -- placing a
+  decoration does not consume it. The inventory is the master owned list;
+  the room's 16 (or 12) slots are only where things are shown, and
+  sub_80FEFA4 refuses to place one that is already out ("That's already
+  in use"). So ClearSecretBase zeroing decorations[]/decorationPos[] IS
+  SecretBase_Text_AllDecorationsWillBeReturned being honoured, and
+  crediting anything back would duplicate them.
+
+  4. Stamping -- DONE 2026-09-02. The two tables item 3 below said still
+     needed extracting are eight bytes each at ROM 0x083EC97C and
+     0x083EC984, verified against the cart:
+       gUnknown_083EC97C  DECOR_STAND (38)  {4,4,4,4,0,3,3,0}
+       gUnknown_083EC984  DECOR_SLIDE (34)  {4,4,4,4,0,4,3,0}
+     Both are 8-cell shapes (4x2 and 2x4). sub_80FF1B0 returns 0xFFFF for
+     every other decoration, i.e. leave the cell's elevation alone.
+     sub_80FF1EC, sub_80FF394 and InitSecretBaseAppearance are ported.
+     The ROM re-reads the layout from the cart on each map load so its
+     stamps land clean; this engine shares one cached table per map, so a
+     pristine grid copy is taken before the first write and restored
+     before each stamping pass.
+
+  5. The PC menu -- DONE 2026-09-02. Special 14 is no longer a no-op.
+     See misc/secret_base_scope.txt's FINISHED section for the detail.
+
+NOT DONE -- nothing. Items 3 and 5 below are the original write-up and
+are kept for the ROM references; both are now implemented.
+
+  3. Stamping -- decoration.c sub_80FF1EC / sub_80FF394. Per footprint
+     cell it writes metatile (0x200 + tiles[i*w+j] + v0) with
+       collision 0xC00 when the decoration's own metatile is
+         MB_SECRET_BASE_IMPASSABLE, or its layer type is non-zero and
+         the permission is not PASS_FLOOR; else 0
+       v0 = 1 when permission is not NA_WALL and the target tile is
+         MB_SECRET_BASE_NORTH_WALL (shifts to the wall variant)
+       v1 = sub_80FF1B0(id, cell), an elevation nibble << 12, which is
+         0xFFFF (no override) for everything EXCEPT DECOR_STAND and
+         DECOR_SLIDE, whose per-cell tables gUnknown_083EC97C and
+         gUnknown_083EC984 still need extracting.
+     This engine packs a cell as metatile + collision * 1024 +
+     elevation * 4096, which lines up with the ROM's u16 entry, so the
+     write itself is direct once those two tables exist.
+
+  4. The PC menu -- special 14 SecretBasePC_Decoration (still the
+     documented no-op) and its DECORATE / PUT AWAY / TOSS branches, then
+     the placing-decoration avatar mode (cursor, preview sprite,
+     confirm/cancel). Needs the stamping above. This is the ~90-function
+     bulk; see decoration.h.
+     The inventory it browses is done: it lists a category's slots,
+     sub_80FEFA4 refuses one already out, and "no more room" is
+     sub_80FF58C scanning the ROOM's 16/12 placement slots -- not the
+     inventory, which sub_80FF5BC reports separately.
+
+VERIFICATION
+
+  tests/engine/{ruby_map,ruby_boot,ruby_save,ruby_sprite,ruby_battle}
+  all pass. Three suites had assertions written against the old flat
+  count map and were rewritten against the slot arrays:
+    ruby_save   PRETTY FLOWERS now goes in via addDecoration and comes
+                back via inventoryContainsDecoration; the "save without
+                the man" case drops decorInv rather than decorations.
+    ruby_map    the decoration-mart block now asserts the DECORCAT_DESK
+                slot, both martType confirmation lines, and the 11th-desk
+                refusal.
+    ruby_battle callstd 7 and the workshop chair now assert which
+                category slot they landed in.
+  Those three suites are fixture-only, so each gained the gDecorations
+  rows for the ids it uses (category is all the inventory reads).
+  Separately, a throwaway script ran the same API against the REAL
+  extracted catalog -- 176 checks, all passing: the eight capacities and
+  their 150-slot total, all 120 rows parsing into a category, ten
+  duplicates of one id fitting and the eleventh not, the sort order,
+  both IsDecorationFull branches with STR_VAR_2, the trader swap, and
+  the old-save migration clamping 12 desks to 10.

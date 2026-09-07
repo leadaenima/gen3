@@ -1,0 +1,32 @@
+Battle polish A+B report
+
+TASK A — 24px battle healthbox status icons
+- Source: pokeruby graphics/battle_interface/status_{psn,par,slp,frz,brn}.png (24x8, DynPal baked)
+- Exported: assets/generated/ui/battle_status_*.png + battle_status_pills.png sheet
+- drawHealthboxStatus now prefers battle pills over party 32px / FONT3
+- Positions: player (16,24) tile 0x1A; enemy (8,16) tile 0x11
+- ROM healthbox_elements @ 0xD1216C = 2112 bytes / 66 tiles (pill bases present)
+- Pixel+DynPal compare vs pokeruby source: ALL MATCH
+- Compare image: assets/generated/ui/rom_compare_status_pills.png
+- Existing healthbox polish (HP font4, bars, frames) untouched
+
+TASK B — Timed multi-SE chains
+- New: MA.stepSeChain + spec.seChain / chargeSeChain
+- armMoveAnim uses chain when present; else primary seId
+- stepBattle advances SE against post-dt time before anim clear
+- playSe (SE voice) only — does not stop BGM
+Schedules:
+  EMBER: f0->151, f5->151, f28->144
+  FLAMETHROWER: f6->146
+  SURF: f24->163
+  DIG: f0->141, f8->175
+  HYPER_BEAM: f18->215, f50->247, f65->247, f80->247, f95->247, f110->247
+  DOUBLE_TEAM: f0->135, f32->135, f56->135, f72->135, f80->135, f88->135, f96->135, f104->135, f112->135
+  THUNDERBOLT: f12->118, f19->118, f26->118, f48->215, f78->119
+  THUNDER: f16->138, f39->138, f47->138, f88->221
+  BLIZZARD: f16->154
+  PSYCHIC: f8->184, f18->184, f28->184
+  EXPLOSION: f22->178, f28->178, f34->178, f40->178, f46->178
+
+Preserved: move anims FX, SE pack effectiveness deferral, catch/send-out/switch cinema
+No git commit.

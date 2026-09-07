@@ -1,0 +1,84 @@
+Decoration system research -- Ruby, verified 2026-09-02
+======================================================================
+
+STATUS: research complete, verified against the real ROM. Nothing
+wired into the engine yet. This is a reference for picking the work
+back up, not a changelog.
+
+WHERE gDecorations LIVES IN THE ROM
+
+Found via text-anchor search (GbaText.encodeLatin, matching this
+project's own signature-scan convention used elsewhere in
+RomExtractorGen3.lua -- e.g. findMapGroups anchors off Littleroot
+Town's header). "SOLID BOARD" is a reliable, unique anchor.
+
+  struct Decoration (32 bytes / entry, 121 entries, ids 0-120):
+    +0x00  u8   id
+    +0x01  u8[16] name (Gen3 text, GbaText.decodeName)
+    +0x11  u8   permission (0-4: SOLID_FLOOR/PASS_FLOOR/BEHIND_FLOOR/NA_WALL/SOLID_MAT)
+    +0x12  u8   shape (0-9: 1x1/2x1/3x1/4x2/2x2/1x2/1x3/2x4/3x3/3x2)
+    +0x13  u8   category (0-7: DESK/CHAIR/PLANT/ORNAMENT/MAT/POSTER/DOLL/CUSHION
+                 -- this is the PC browsing category)
+    +0x14  u16  price (little-endian; id 0 is DECOR_NONE, price 0)
+    +0x18  u32  description text pointer (ROM address, not yet extracted)
+    +0x1c  u32  tile-graphics pointer (ROM address, not yet extracted --
+                 needed to actually draw a decoration; a separate pass)
+
+  Full 121-entry dump (id, name, permission, shape, category, price),
+  independently verified byte-for-byte: decoration_catalog_verified.txt
+  (same folder). Spot-checked several against known vanilla items --
+  all correct (e.g. id 37 TIRE/SOLID_FLOOR/2x2/ORNAMENT/3, id 76-100 the
+  Pichu..Seedot 1x1 dolls at 11, id 111-120 the Snorlax..Registeel 1x2
+  dolls at 39).
+
+  The extraction script used (throwaway, not in the repo) is a ~40-line
+  Lua loop: encode "SOLID BOARD" -> find in ROM -> back up 1 byte to the
+  struct start -> walk backward/forward by the 32-byte stride while the
+  id field increments by exactly 1 each step, to find the array bounds.
+  This is the same technique to formalize as
+  RomExtractorGen3.findDecorations(data) when this gets built for real.
+
+WHAT'S MISSING BEFORE THIS IS PLAYABLE
+
+  1. Wire findDecorations into the actual generated-data write path.
+     Where moves.lua/trainers.lua/items.lua currently get written was
+     NOT located during this pass -- no LuaWriter.write call for them
+     turned up in RomImporter.lua, so it likely runs through an offline
+     tool (tools/*.py, or a separate CLI script) rather than the
+     runtime import path. Needs tracing before decorations.lua can be
+     added the same way.
+
+  2. Tile-graphics extraction (the two ROM pointers per entry) --
+     needed to actually draw a placed decoration. Not attempted yet.
+
+  3. Save schema: self.secretBase.decorations / decorationPos (16
+     slots) and self.playerRoomDecor / playerRoomDecorPos (12 slots).
+     Doesn't exist at all right now -- only a flat owned-count inventory
+     (self.decorations[id] = count) exists, no placement data.
+
+  4. Rendering, split into two mechanisms in vanilla:
+       a. Regular decorations (desk/chair/plant/etc): baked as
+          metatiles into the room's grid on map load
+          (InitSecretBaseAppearance's non-solid-mat branch).
+       b. DECORPERM_SOLID_MAT decorations (dolls/cushions -- anything
+          sitting on a large mat): rendered as an actual object-event
+          sprite via dynamic GFX_VAR_x graphics
+          (sub_80BBDD0 == runSpecial id 18, still unimplemented).
+
+  5. The placement UI -- far and away the largest piece. In vanilla
+     this is a task-based state machine of roughly 90 separate
+     functions (decoration.h): PC category browsing, sprite-icon
+     preview, a dedicated "placing decoration" player-avatar mode with
+     per-shape collision/legality checking (shapes range 1x1 to 4x2/
+     3x3), confirm/cancel, and a remove flow. Nothing like this exists
+     in Game3.lua today. This is a project on its own, not a quick
+     wire-up.
+
+RECOMMENDED NEXT STEP WHEN THIS GETS PICKED BACK UP
+
+Start with #1 (trace the real write-path for generated data) and #3
+(save schema) together -- both are small, mechanical, and unblock
+everything else. Then #4a (tile-baked regular decorations) is the next
+highest-value slice since it's pure rendering with no new UI. Save the
+placement UI and solid-mat sprite rendering (#2, #4b) for last -- they
+depend on the UI existing to ever have real placement data to render.

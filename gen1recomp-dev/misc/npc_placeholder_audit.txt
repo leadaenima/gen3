@@ -1,0 +1,830 @@
+NPC / object-event audit -- Ruby, generated 2026-09-02
+======================================================================
+
+SUMMARY
+
+Ran every NPC's talk-script headlessly against the real extracted Ruby
+ROM data (all 394 maps, 2268 object events, 1641 with a real script),
+with all 8 badges / starter / Pokedex / a full-HM party set so flag-gated
+content wouldn't look broken.
+
+  - Scripted NPCs that produced NO text/effect: 0 / 1641
+  - Scripted NPCs whose script threw a Lua error: 0 / 1641
+  - Script opcodes used in Ruby data but NOT implemented by the
+    interpreter: 1 (`setwarp`, 10 uses, all in LilycoveCity_ContestLobby
+    -- a warp-target setter, not dialogue; doesn't affect text)
+
+CONCLUSION: the Gen3 script interpreter is essentially complete for
+Ruby. Every real ROM dialogue script already produces real text. The
+"..." you've been seeing is NOT missing/unfinished dialogue -- it was a
+bug in tryTalk's fallback (Game3.lua), now fixed: when an object event
+has no script at all and isn't a special-cased type (nurse/mom/mart/
+Birch/daycare/rival/etc), it now shows nothing, matching vanilla
+exactly (field_control_avatar.c: a NULL script pointer makes A do
+nothing in the real game -- no textbox, not even "...").
+
+Cross-checked directly against the pokeruby decomp source: e.g.
+PetalburgCity's Wally (OBJ_EVENT_GFX_WALLY, pre-cutscene) and every
+`OBJ_EVENT_GFX_VAR_0` rival-cameo slot (Route119's is
+FLAG_HIDE_RIVAL_ROUTE119) have `script = 0x0` in the ROM itself --
+genuinely non-interactive by design, not a gap in this recomp.
+
+The list below is every object event that has NO script and isn't one
+of the special-cased NPC types. It is almost entirely this kind of
+vanilla-faithful scenery/pre-scene actor (background decorations,
+hidden-until-triggered rival/Wally cameos). It is included for
+completeness / spot-checking, not because these need dialogue written.
+If you find one in this list that a real player CAN walk up to and
+which you know says something in the actual game, that specific one is
+worth flagging -- but the audit above found zero evidence of that
+happening anywhere in Ruby.
+
+----------------------------------------------------------------------
+620 object events across 81 maps, no script + no handler:
+(most are OBJ_EVENT_GFX_VAR_0..F "dynamic" slots -- rival cameos, or
+link-contest opponent placeholders that only render with a live link
+partner -- and pre-scene actors like Wally, all with script = 0x0 in
+the actual ROM)
+
+PetalburgCity (g0_0)  [3]
+  (15,10) localId=2  OBJ_EVENT_GFX_WALLY (id 135)
+  (15,11) localId=5  OBJ_EVENT_GFX_MAN_1 (id 19)
+  (14,11) localId=6  OBJ_EVENT_GFX_WOMAN_2 (id 18)
+
+DewfordTown (g0_11)  [1]
+  (12,8) localId=4  OBJ_EVENT_GFX_MR_BRINEYS_BOAT (id 88)
+
+LavaridgeTown (g0_12)  [1]
+  (6,16) localId=7  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+
+Route101 (g0_16)  [1]
+  (10,13) localId=4  OBJ_EVENT_GFX_POOCHYENA (id 98)
+
+Route104 (g0_19)  [2]
+  (12,54) localId=7  OBJ_EVENT_GFX_MR_BRINEYS_BOAT (id 88)
+  (12,51) localId=8  OBJ_EVENT_GFX_OLD_MAN_1 (id 21)
+
+Route109 (g0_24)  [1]
+  (21,26) localId=1  OBJ_EVENT_GFX_MR_BRINEYS_BOAT (id 88)
+
+Route110 (g0_25)  [3]
+  (8,82) localId=26  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (34,54) localId=28  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (34,54) localId=29  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+
+Route111 (g0_26)  [3]
+  (13,113) localId=2  OBJ_EVENT_GFX_WOMAN_2 (id 18)
+  (13,113) localId=3  OBJ_EVENT_GFX_LASS (id 47)
+  (13,113) localId=4  OBJ_EVENT_GFX_OLD_WOMAN_1 (id 22)
+
+RustboroCity (g0_3)  [1]
+  (13,21) localId=10  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+
+Route117 (g0_32)  [4]
+  (33,3) localId=4  OBJ_EVENT_GFX_ZIGZAGOON (id 208)
+  (39,4) localId=5  OBJ_EVENT_GFX_KECLEON_1 (id 204)
+  (42,2) localId=6  OBJ_EVENT_GFX_AZUMARILL (id 210)
+  (49,2) localId=7  OBJ_EVENT_GFX_PIKACHU (id 209)
+
+Route118 (g0_33)  [1]
+  (44,7) localId=19  OBJ_EVENT_GFX_STEVEN (id 134)
+
+Route119 (g0_34)  [2]
+  (25,32) localId=16  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (17,33) localId=25  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+
+Route120 (g0_35)  [1]
+  (12,16) localId=36  OBJ_EVENT_GFX_KECLEON_2 (id 212)
+
+Route121 (g0_36)  [3]
+  (30,8) localId=12  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (30,7) localId=13  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (31,7) localId=14  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+
+Route128 (g0_43)  [3]
+  (40,22) localId=3  OBJ_EVENT_GFX_STEVEN (id 134)
+  (37,22) localId=4  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (38,21) localId=5  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+
+LittlerootTown (g0_9)  [2]
+  (2,10) localId=5  OBJ_EVENT_GFX_TRUCK (id 94)
+  (11,10) localId=6  OBJ_EVENT_GFX_TRUCK (id 94)
+
+LilycoveCity_Harbor (g13_10)  [2]
+  (8,9) localId=2  OBJ_EVENT_GFX_SS_TIDAL (id 140)
+  (8,10) localId=4  OBJ_EVENT_GFX_SAILOR (id 49)
+
+LilycoveCity_ContestLobby (g13_4)  [2]
+  (1,1) localId=4  OBJ_EVENT_GFX_ARTIST (id 99)
+  (13,1) localId=11  OBJ_EVENT_GFX_ARTIST (id 99)
+
+MossdeepCity_GameCorner_B1F (g14_12)  [1]
+  (6,5) localId=1  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+
+EverGrandeCity_HallOfFame (g16_11)  [1]
+  (6,16) localId=1  OBJ_EVENT_GFX_STEVEN (id 134)
+
+EverGrandeCity_ChampionsRoom (g16_4)  [2]
+  (6,5) localId=1  OBJ_EVENT_GFX_STEVEN (id 134)
+  (6,12) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+
+Route112_CableCarStation (g19_0)  [1]
+  (6,3) localId=2  OBJ_EVENT_GFX_CABLE_CAR (id 114)
+
+MtChimney_CableCarStation (g19_1)  [1]
+  (6,3) localId=2  OBJ_EVENT_GFX_CABLE_CAR (id 114)
+
+LittlerootTown_BrendansHouse_1F (g1_0)  [1]
+  (5,6) localId=5  OBJ_EVENT_GFX_NORMAN (id 129)
+
+LittlerootTown_BrendansHouse_2F (g1_1)  [12]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (1,0) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,1) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,2) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,3) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,4) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,5) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+
+LittlerootTown_MaysHouse_1F (g1_2)  [1]
+  (5,6) localId=5  OBJ_EVENT_GFX_NORMAN (id 129)
+
+LittlerootTown_MaysHouse_2F (g1_3)  [13]
+  (0,6) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (1,6) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (2,6) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (3,6) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (4,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (5,6) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,7) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,7) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (2,7) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (3,7) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (4,7) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (5,7) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (3,4) localId=15  OBJ_EVENT_GFX_PICHU_DOLL (id 142)
+
+Route121_SafariZoneEntrance (g23_0)  [1]
+  (8,2) localId=3  OBJ_EVENT_GFX_CAMPER (id 31)
+
+MeteorFalls_1F_1R (g24_0)  [5]
+  (12,20) localId=5  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (14,21) localId=6  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (6,20) localId=7  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (6,20) localId=8  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (6,21) localId=9  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+
+PetalburgWoods (g24_11)  [2]
+  (26,17) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (26,20) localId=4  OBJ_EVENT_GFX_MAN_2 (id 23)
+
+MtPyre_Summit (g24_22)  [1]
+  (23,6) localId=2  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+
+AquaHideout_B2F (g24_25)  [1]
+  (19,20) localId=4  OBJ_EVENT_GFX_SUBMARINE_SHADOW (id 141)
+
+SeafloorCavern_Room9 (g24_36)  [6]
+  (17,38) localId=1  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (9,42) localId=2  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (9,42) localId=3  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (8,41) localId=4  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (8,42) localId=5  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (17,38) localId=7  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+
+RusturfTunnel (g24_4)  [1]
+  (5,4) localId=5  OBJ_EVENT_GFX_OLD_MAN_1 (id 21)
+
+CaveOfOrigin_B4F (g24_42)  [1]
+  (9,10) localId=1  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+
+MagmaHideout_B2F (g24_76)  [1]
+  (12,20) localId=3  OBJ_EVENT_GFX_SUBMARINE_SHADOW (id 141)
+
+SecretBase_RedCave1 (g25_0)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BrownCave1 (g25_1)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Tree2 (g25_10)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Shrub2 (g25_11)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_RedCave3 (g25_12)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BrownCave3 (g25_13)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BlueCave3 (g25_14)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_YellowCave3 (g25_15)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Tree3 (g25_16)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Shrub3 (g25_17)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_RedCave4 (g25_18)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BrownCave4 (g25_19)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BlueCave1 (g25_2)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BlueCave4 (g25_20)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_YellowCave4 (g25_21)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Tree4 (g25_22)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Shrub4 (g25_23)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+LinkContestRoom1 (g25_28)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+UnknownMap_25_29 (g25_29)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+SecretBase_YellowCave1 (g25_3)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+UnknownMap_25_30 (g25_30)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+UnknownMap_25_31 (g25_31)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+UnknownMap_25_32 (g25_32)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+UnknownMap_25_33 (g25_33)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+UnknownMap_25_34 (g25_34)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+LinkContestRoom2 (g25_35)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+LinkContestRoom3 (g25_36)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+LinkContestRoom4 (g25_37)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+LinkContestRoom5 (g25_38)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+LinkContestRoom6 (g25_39)  [15]
+  (6,4) localId=1  OBJ_EVENT_GFX_WOMAN_4 (id 24)
+  (7,4) localId=2  OBJ_EVENT_GFX_CONTEST_JUDGE (id 190)
+  (4,7) localId=3  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (6,7) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,7) localId=5  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (2,6) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (4,2) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (5,2) localId=8  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (9,2) localId=9  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (10,2) localId=10  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (12,5) localId=11  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (2,5) localId=12  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (7,5) localId=13  OBJ_EVENT_GFX_ITEM_BALL (id 59)
+  (10,7) localId=14  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (12,6) localId=15  OBJ_EVENT_GFX_ARTIST (id 99)
+
+SecretBase_Tree1 (g25_4)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_Shrub1 (g25_5)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_RedCave2 (g25_6)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BrownCave2 (g25_7)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_BlueCave2 (g25_8)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SecretBase_YellowCave2 (g25_9)  [14]
+  (0,0) localId=2  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (0,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (0,2) localId=4  OBJ_EVENT_GFX_VAR_2 (dynamic, resolved from a game var at runtime -- often the rival) (id 242)
+  (0,3) localId=5  OBJ_EVENT_GFX_VAR_3 (dynamic, resolved from a game var at runtime -- often the rival) (id 243)
+  (0,4) localId=6  OBJ_EVENT_GFX_VAR_4 (dynamic, resolved from a game var at runtime -- often the rival) (id 244)
+  (0,5) localId=7  OBJ_EVENT_GFX_VAR_5 (dynamic, resolved from a game var at runtime -- often the rival) (id 245)
+  (0,6) localId=8  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (1,0) localId=9  OBJ_EVENT_GFX_VAR_7 (dynamic, resolved from a game var at runtime -- often the rival) (id 247)
+  (1,1) localId=10  OBJ_EVENT_GFX_VAR_8 (dynamic, resolved from a game var at runtime -- often the rival) (id 248)
+  (1,2) localId=11  OBJ_EVENT_GFX_VAR_9 (dynamic, resolved from a game var at runtime -- often the rival) (id 249)
+  (1,3) localId=12  OBJ_EVENT_GFX_VAR_A (dynamic, resolved from a game var at runtime -- often the rival) (id 250)
+  (1,4) localId=13  OBJ_EVENT_GFX_VAR_B (dynamic, resolved from a game var at runtime -- often the rival) (id 251)
+  (1,5) localId=14  OBJ_EVENT_GFX_VAR_C (dynamic, resolved from a game var at runtime -- often the rival) (id 252)
+  (1,6) localId=15  OBJ_EVENT_GFX_VAR_D (dynamic, resolved from a game var at runtime -- often the rival) (id 253)
+
+SouthernIsland_Interior (g26_10)  [2]
+  (13,12) localId=1  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+  (13,2) localId=2  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+
+BattleTower_Outside (g26_4)  [1]
+  (19,26) localId=4  OBJ_EVENT_GFX_SS_TIDAL (id 140)
+
+BattleTower_BattleRoom (g26_8)  [1]
+  (5,1) localId=1  OBJ_EVENT_GFX_VAR_0 (dynamic, resolved from a game var at runtime -- often the rival) (id 240)
+
+SouthernIsland_Exterior (g26_9)  [1]
+  (13,25) localId=2  OBJ_EVENT_GFX_SS_TIDAL (id 140)
+
+Route119_WeatherInstitute_2F (g32_1)  [2]
+  (0,6) localId=4  OBJ_EVENT_GFX_MAN_5 (id 65)
+  (1,7) localId=6  OBJ_EVENT_GFX_MAN_5 (id 65)
+
+PetalburgCity_Gym (g8_1)  [1]
+  (4,111) localId=10  OBJ_EVENT_GFX_WALLY (id 135)
+
+SlateportCity_SternsShipyard_2F (g9_1)  [1]
+  (10,7) localId=1  OBJ_EVENT_GFX_SCIENTIST_1 (id 46)
+
+SlateportCity_OceanicMuseum_2F (g9_7)  [3]
+  (6,1) localId=2  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (6,1) localId=3  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (6,1) localId=4  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+
+SlateportCity_Harbor (g9_8)  [4]
+  (8,9) localId=5  OBJ_EVENT_GFX_SS_TIDAL (id 140)
+  (7,10) localId=6  OBJ_EVENT_GFX_VAR_1 (dynamic, resolved from a game var at runtime -- often the rival) (id 241)
+  (8,10) localId=7  OBJ_EVENT_GFX_VAR_6 (dynamic, resolved from a game var at runtime -- often the rival) (id 246)
+  (7,9) localId=8  OBJ_EVENT_GFX_SUBMARINE_SHADOW (id 141)
+

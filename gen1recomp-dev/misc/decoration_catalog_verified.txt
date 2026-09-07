@@ -1,0 +1,121 @@
+  0  SMALL DESK       perm=SOLID_FLOOR    shape=1x1  cat=DESK      price=0
+  1  SMALL DESK       perm=SOLID_FLOOR    shape=1x1  cat=DESK      price=3000
+  2  POKeMON DESK     perm=SOLID_FLOOR    shape=1x1  cat=DESK      price=3000
+  3  HEAVY DESK       perm=SOLID_FLOOR    shape=3x2  cat=DESK      price=6000
+  4  RAGGED DESK      perm=SOLID_FLOOR    shape=3x2  cat=DESK      price=6000
+  5  COMFORT DESK     perm=SOLID_FLOOR    shape=3x2  cat=DESK      price=6000
+  6  PRETTY DESK      perm=SOLID_FLOOR    shape=3x3  cat=DESK      price=9000
+  7  BRICK DESK       perm=SOLID_FLOOR    shape=3x3  cat=DESK      price=9000
+  8  CAMP DESK        perm=SOLID_FLOOR    shape=3x3  cat=DESK      price=9000
+  9  HARD DESK        perm=SOLID_FLOOR    shape=3x3  cat=DESK      price=9000
+ 10  SMALL CHAIR      perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 11  POKeMON CHAIR    perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 12  HEAVY CHAIR      perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 13  PRETTY CHAIR     perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 14  COMFORT CHAIR    perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 15  RAGGED CHAIR     perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 16  BRICK CHAIR      perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 17  CAMP CHAIR       perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 18  HARD CHAIR       perm=PASS_FLOOR     shape=1x1  cat=CHAIR     price=2000
+ 19  RED PLANT        perm=BEHIND_FLOOR   shape=1x2  cat=PLANT     price=3000
+ 20  TROPICAL PLANT   perm=BEHIND_FLOOR   shape=1x2  cat=PLANT     price=3000
+ 21  PRETTY FLOWERS   perm=BEHIND_FLOOR   shape=1x2  cat=PLANT     price=3000
+ 22  COLORFUL PLANT   perm=BEHIND_FLOOR   shape=2x2  cat=PLANT     price=5000
+ 23  BIG PLANT        perm=BEHIND_FLOOR   shape=2x2  cat=PLANT     price=5000
+ 24  GORGEOUS PLANT   perm=BEHIND_FLOOR   shape=2x2  cat=PLANT     price=5000
+ 25  RED BRICK        perm=SOLID_FLOOR    shape=1x2  cat=ORNAMENT  price=500
+ 26  YELLOW BRICK     perm=SOLID_FLOOR    shape=1x2  cat=ORNAMENT  price=500
+ 27  BLUE BRICK       perm=SOLID_FLOOR    shape=1x2  cat=ORNAMENT  price=500
+ 28  RED BALLOON      perm=PASS_FLOOR     shape=1x1  cat=ORNAMENT  price=500
+ 29  BLUE BALLOON     perm=PASS_FLOOR     shape=1x1  cat=ORNAMENT  price=500
+ 30  YELLOW BALLOON   perm=PASS_FLOOR     shape=1x1  cat=ORNAMENT  price=500
+ 31  RED TENT         perm=PASS_FLOOR     shape=3x3  cat=ORNAMENT  price=10000
+ 32  BLUE TENT        perm=PASS_FLOOR     shape=3x3  cat=ORNAMENT  price=10000
+ 33  SOLID BOARD      perm=PASS_FLOOR     shape=1x2  cat=ORNAMENT  price=3000
+ 34  SLIDE            perm=PASS_FLOOR     shape=2x4  cat=ORNAMENT  price=8000
+ 35  FENCE LENGTH     perm=SOLID_FLOOR    shape=1x1  cat=ORNAMENT  price=500
+ 36  FENCE WIDTH      perm=SOLID_FLOOR    shape=1x1  cat=ORNAMENT  price=500
+ 37  TIRE             perm=SOLID_FLOOR    shape=2x2  cat=ORNAMENT  price=800
+ 38  STAND            perm=PASS_FLOOR     shape=4x2  cat=ORNAMENT  price=7000
+ 39  MUD BALL         perm=PASS_FLOOR     shape=1x1  cat=ORNAMENT  price=200
+ 40  BREAKABLE DOOR   perm=PASS_FLOOR     shape=1x2  cat=ORNAMENT  price=3000
+ 41  SAND ORNAMENT    perm=BEHIND_FLOOR   shape=1x2  cat=ORNAMENT  price=3000
+ 42  SILVER SHIELD    perm=BEHIND_FLOOR   shape=1x2  cat=ORNAMENT  price=0
+ 43  GOLD SHIELD      perm=BEHIND_FLOOR   shape=1x2  cat=ORNAMENT  price=0
+ 44  GLASS ORNAMENT   perm=BEHIND_FLOOR   shape=1x2  cat=ORNAMENT  price=0
+ 45  TV               perm=SOLID_FLOOR    shape=1x1  cat=ORNAMENT  price=3000
+ 46  ROUND TV         perm=SOLID_FLOOR    shape=1x1  cat=ORNAMENT  price=4000
+ 47  CUTE TV          perm=SOLID_FLOOR    shape=1x1  cat=ORNAMENT  price=4000
+ 48  GLITTER MAT      perm=PASS_FLOOR     shape=1x1  cat=MAT       price=2000
+ 49  JUMP MAT         perm=PASS_FLOOR     shape=1x1  cat=MAT       price=2000
+ 50  SPIN MAT         perm=PASS_FLOOR     shape=1x1  cat=MAT       price=2000
+ 51  C Low NOTE MAT   perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 52  D NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 53  E NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 54  F NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 55  G NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 56  A NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 57  B NOTE MAT       perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 58  C High NOTE MAT  perm=PASS_FLOOR     shape=1x1  cat=MAT       price=500
+ 59  SURF MAT         perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 60  THUNDER MAT      perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 61  FIRE BLAST MAT   perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 62  POWDER SNOW MAT  perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 63  ATTRACT MAT      perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 64  FISSURE MAT      perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 65  SPIKES MAT       perm=PASS_FLOOR     shape=3x3  cat=MAT       price=4000
+ 66  BALL POSTER      perm=NA_WALL        shape=1x1  cat=POSTER    price=1000
+ 67  GREEN POSTER     perm=NA_WALL        shape=1x1  cat=POSTER    price=1000
+ 68  RED POSTER       perm=NA_WALL        shape=1x1  cat=POSTER    price=1000
+ 69  BLUE POSTER      perm=NA_WALL        shape=1x1  cat=POSTER    price=1000
+ 70  CUTE POSTER      perm=NA_WALL        shape=1x1  cat=POSTER    price=1000
+ 71  PIKA POSTER      perm=NA_WALL        shape=2x1  cat=POSTER    price=1500
+ 72  LONG POSTER      perm=NA_WALL        shape=2x1  cat=POSTER    price=1500
+ 73  SEA POSTER       perm=NA_WALL        shape=2x1  cat=POSTER    price=1500
+ 74  SKY POSTER       perm=NA_WALL        shape=2x1  cat=POSTER    price=1500
+ 75  KISS POSTER      perm=NA_WALL        shape=2x1  cat=POSTER    price=1500
+ 76  PICHU DOLL       perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 77  PIKACHU DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 78  MARILL DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 79  TOGEPI DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 80  CYNDAQUIL DOLL   perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 81  CHIKORITA DOLL   perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 82  TOTODILE DOLL    perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 83  JIGGLYPUFF DOLL  perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 84  MEOWTH DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 85  CLEFAIRY DOLL    perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 86  DITTO DOLL       perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 87  SMOOCHUM DOLL    perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 88  TREECKO DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 89  TORCHIC DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 90  MUDKIP DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 91  DUSKULL DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 92  WYNAUT DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 93  BALTOY DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 94  KECLEON DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 95  AZURILL DOLL     perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 96  SKITTY DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 97  SWABLU DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 98  GULPIN DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+ 99  LOTAD DOLL       perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+100  SEEDOT DOLL      perm=SOLID_MAT      shape=1x1  cat=DOLL      price=3000
+101  PIKA CUSHION     perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+102  ROUND CUSHION    perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+103  KISS CUSHION     perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+104  ZIGZAG CUSHION   perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+105  SPIN CUSHION     perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+106  DIAMOND CUSHION  perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+107  BALL CUSHION     perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+108  GRASS CUSHION    perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+109  FIRE CUSHION     perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+110  WATER CUSHION    perm=SOLID_MAT      shape=1x1  cat=CUSHION   price=2000
+111  SNORLAX DOLL     perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+112  RHYDON DOLL      perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+113  LAPRAS DOLL      perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+114  VENUSAUR DOLL    perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+115  CHARIZARD DOLL   perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+116  BLASTOISE DOLL   perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+117  WAILMER DOLL     perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+118  REGIROCK DOLL    perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+119  REGICE DOLL      perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
+120  REGISTEEL DOLL   perm=SOLID_MAT      shape=1x2  cat=DOLL      price=10000
