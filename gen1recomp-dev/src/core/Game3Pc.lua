@@ -19,8 +19,13 @@ function Pc.attach(Game3)
   Game3.PC_CLOSE_CY = 0x84
   Game3.PC_TITLE_CX = 0xa2
   Game3.PC_TITLE_CY = 0x0c
+  -- Cursor centres for CURSOR_AREA_BUTTONS (sub_809AACC case 3).
   Game3.PC_BTN_Y = 14
+  Game3.PC_BTN_Y_PARTY = 8
   Game3.PC_BTN_X = { 0x78, 0x78 + 0x58 }
+  -- CLOSE BOX tilemap blit: 9×2 at screen tile (21,0).
+  Game3.PC_CLOSE_BTN_X = 168
+  Game3.PC_CLOSE_BTN_Y = 0
   Game3.PC_MSG_LEFT = 10
   Game3.PC_MSG_TOP = 16
   Game3.PC_MSG_RIGHT = 29
@@ -60,6 +65,33 @@ function Pc.attach(Game3)
     { "ETCETERA", { 12, 13, 14, 15 } },
   }
   Game3.PC_MARKS = { "●", "■", "▲", "♥" }
+  Game3.PC_WALLPAPER_FILES = {
+    "forest", "city", "desert", "savanna", "crag", "volcano", "snow", "cave",
+    "beach", "seafloor", "river", "sky", "polkadot", "pokecenter", "machine", "plain",
+  }
+  Game3.PC_ASSET = {
+    scroll = "assets/generated/pc/scrolling_bg.png",
+    header = "assets/generated/pc/header.png",
+    party = "assets/generated/pc/party_panel.png",
+    partyBar = "assets/generated/pc/party_close_bar.png",
+    btnClose = "assets/generated/pc/btn_close.png",
+    btnCloseFlash = "assets/generated/pc/btn_close_flash.png",
+    hand = "assets/generated/pc/hand_cursor.png",
+    shadow = "assets/generated/pc/hand_cursor_shadow.png",
+    arrow = "assets/generated/pc/arrow.png",
+    wallpaper = "assets/generated/pc/wallpapers/%s.png",
+  }
+  -- Wallpaper blit origin / size (BG2 20×18 tiles at tile (10,2)).
+  Game3.PC_WP_X = 80
+  Game3.PC_WP_Y = 16
+  Game3.PC_WP_W = 160
+  Game3.PC_WP_H = 144
+  -- Party panel: misc1 12×22 tiles copied to screen tile (10,0).
+  Game3.PC_PARTY_X = 80
+  Game3.PC_PARTY_Y = 0
+  -- Hand sprite sits 12px above the icon centre (sub_809AACC).
+  Game3.PC_HAND_DY = -12
+  Game3.PC_HAND_SHADOW_DY = 20
 
   function Game3.boxOccupancy(box)
     local n = 0
@@ -126,7 +158,9 @@ function Pc.attach(Game3)
       if slot then
         box[slot] = self:cloneMon(mon)
         if not mon.isEgg then self:markCaught(mon.species) end
-        return b
+        -- The slot matters: boxFirstFree can land anywhere in the box, so
+        -- callers must not guess the stored mon from #box.
+        return b, slot
       end
       b = b % Game3.BOX_COUNT + 1
     until b == start
@@ -147,6 +181,9 @@ function Pc.attach(Game3)
     local ok, msg = self:canDepositToPc(index)
     if not ok then return false, msg end
     local mon = self.party[index]
+    if self:pcMonHasMail(mon) then
+      return false, "Please remove the MAIL."
+    end
     local box = self:sendToPc(mon)
     if not box then return false, "The BOX is full." end
     table.remove(self.party, index)
@@ -178,12 +215,15 @@ function Pc.attach(Game3)
 
   function Game3:openPc()
     self:ensurePc()
+    local owner = "SOMEONE'S PC"
+    if self.pcOwnerTitle then owner = self:pcOwnerTitle() end
     self.field = {
       kind = "pc",
       mode = "root",
       cursor = 0,
       box = self.pcCurrentBox or 1,
       note = nil,
+      owner = owner,
     }
     return true
   end
@@ -201,15 +241,29 @@ function Pc.attach(Game3)
     return false
   end
 
+  function Game3:pcMonHasMail(mon)
+    if not mon then return false end
+    local item = tonumber(mon.item) or 0
+    if item ~= 0 and item ~= Game3.ITEM_NONE and Game3.isMailItem(item) then
+      return true
+    end
+    local mail = mon.mail
+    return type(mail) == "table"
+      and (tonumber(mail.itemId) or 0) ~= 0
+      and (tonumber(mail.itemId) or 0) ~= Game3.ITEM_NONE
+  end
+
   function Game3:enterPcStorage(pss)
     local f = self.field
     self:ensurePc()
     self.pcCurrentBox = self.pcCurrentBox or 1
+    local deposit = pss == "deposit"
     self.field = {
       kind = "pc",
       mode = "storage",
       pss = pss or "withdraw",
-      area = pss == "deposit" and "party" or "box",
+      area = deposit and "party" or "box",
+      partyOpen = deposit,
       cursor = 0,
       box = self.pcCurrentBox,
       held = nil,
@@ -485,11 +539,18 @@ function Pc.attach(Game3)
 
   function Game3:pcDoDeposit()
     local f = self.field
-    local box, id = self:pcBox()
+    local box = self:pcBox()
     local slot = Game3.boxFirstFree(box)
     if not slot then
       self:playSe(Game3.SE_FAILURE)
       f.msg = "The BOX is full."
+      f.wait = true
+      return false
+    end
+    local mailMon = f.held or self:pcMonAt()
+    if self:pcMonHasMail(mailMon) then
+      self:playSe(Game3.SE_FAILURE)
+      f.msg = "Please remove the MAIL."
       f.wait = true
       return false
     end
@@ -543,6 +604,12 @@ function Pc.attach(Game3)
     if mon.isEgg then
       self:playSe(Game3.SE_FAILURE)
       f.msg = "You can't release an EGG."
+      f.wait = true
+      return false
+    end
+    if self:pcMonHasMail(mon) then
+      self:playSe(Game3.SE_FAILURE)
+      f.msg = "Please remove the MAIL."
       f.wait = true
       return false
     end
@@ -620,19 +687,19 @@ function Pc.attach(Game3)
   end
 
   function Game3:pcOpenBoxName()
+    local Naming = require("src.ui.gen3.NamingScreen")
     local f = self.field
     local resume = {}
     for k, v in pairs(f) do resume[k] = v end
     local name = (self.boxNames and self.boxNames[f.box]) or self:defaultBoxName(f.box)
-    self.field = {
-      kind = "nickname",
+    self.field = Naming.open({
+      template = "box",
+      initial = name,
       nameBox = true,
       fromPc = resume,
-      name = name:sub(1, Game3.BOX_NAME_LEN),
-      keys = Game3.nameKeys(),
-      cursor = 0,
       box = f.box,
-    }
+      scripted = false,
+    })
   end
 
   function Game3:pcCursorXY(area, cursor)
@@ -657,7 +724,9 @@ function Pc.attach(Game3)
       return Game3.PC_TITLE_CX, Game3.PC_TITLE_CY
     end
     local x = Game3.PC_BTN_X[(cursor or 0) + 1] or Game3.PC_BTN_X[1]
-    return x, Game3.PC_BTN_Y
+    local f = self.field
+    local partyOpen = f and (f.partyOpen or f.area == "party")
+    return x, partyOpen and Game3.PC_BTN_Y_PARTY or Game3.PC_BTN_Y
   end
 
   function Game3:pcMoveBoxCursor(dir)
@@ -698,6 +767,7 @@ function Pc.attach(Game3)
         if f.cursor < 1 then f.cursor = 1 end
         if f.cursor > 6 then f.cursor = 6 end
       else
+        if f.pss ~= "deposit" then f.partyOpen = false end
         f.area = "box"
         f.cursor = 0
       end
@@ -910,6 +980,7 @@ function Pc.attach(Game3)
     end
     if f.area == "buttons" then
       if (f.cursor or 0) == 0 then
+        f.partyOpen = true
         f.area = "party"
         f.cursor = 0
         self:playSe(Game3.SE_SELECT)
@@ -923,6 +994,7 @@ function Pc.attach(Game3)
       if f.pss == "deposit" then
         self:pcAskExit("exit")
       else
+        f.partyOpen = false
         f.area = "box"
         f.cursor = 0
         self:playSe(Game3.SE_SELECT)
@@ -978,6 +1050,7 @@ function Pc.attach(Game3)
     end
     if Input:wasPressed("b") then
       if f.area == "party" and f.pss ~= "deposit" then
+        f.partyOpen = false
         f.area = "box"
         f.cursor = 0
         self:playSe(Game3.SE_SELECT)
@@ -1045,6 +1118,10 @@ function Pc.attach(Game3)
     love.graphics.setColor(0.10, 0.10, 0.12, 1)
     local y = Game3.DLG_TEXT_ROW * Game3.MENU_TILE
     local x = Game3.DLG_TEXT_COL * Game3.MENU_TILE
+    local owner = f.owner
+    if not owner and self.pcOwnerTitle then owner = self:pcOwnerTitle() end
+    if not owner then owner = "SOMEONE'S PC" end
+    self:drawText(owner, x, y - Game3.MSG_LINE_H)
     local line = 0
     for part in (desc .. "\n"):gmatch("(.-)\n") do
       if line < Game3.MSG_LINES then
@@ -1063,6 +1140,49 @@ function Pc.attach(Game3)
     end
   end
 
+  function Game3:pcGrab(path)
+    if not path then return nil end
+    if self.grabImage then return self:grabImage(path) end
+    if love and love.graphics and love.graphics.newImage then
+      local ok, img = pcall(love.graphics.newImage, path)
+      if ok then return img end
+    end
+  end
+
+  function Game3:pcBlit(path, x, y, sx, sy, sw, sh)
+    local img = self:pcGrab(path)
+    if not img then return false end
+    local G = love.graphics
+    G.setColor(1, 1, 1, 1)
+    if sx then
+      if not self._pcQuadCache then self._pcQuadCache = {} end
+      local key = path .. ":" .. sx .. "," .. sy .. "," .. sw .. "," .. sh
+      local quad = self._pcQuadCache[key]
+      if not quad then
+        quad = G.newQuad(sx, sy, sw, sh, img:getDimensions())
+        self._pcQuadCache[key] = quad
+      end
+      G.draw(img, quad, x, y)
+    else
+      G.draw(img, x, y)
+    end
+    return true
+  end
+
+  function Game3:pcTileBlit(path, x, y, w, h)
+    local img = self:pcGrab(path)
+    if not img then return false end
+    local G = love.graphics
+    local tw, th = img:getDimensions()
+    G.setColor(1, 1, 1, 1)
+    for ty = y, y + h - 1, th do
+      for tx = x, x + w - 1, tw do
+        G.draw(img, tx, ty)
+      end
+    end
+    return true
+  end
+
   function Game3:drawPcIcon(mon, cx, cy)
     if not mon then return end
     local x, y = cx - 16, cy - 16
@@ -1072,58 +1192,154 @@ function Pc.attach(Game3)
     end
   end
 
+  function Game3:drawPcHand(cx, cy, quick)
+    local hx, hy = cx - 16, cy + Game3.PC_HAND_DY - 16
+    -- hand_cursor.png is 32×128 (four 32×32 frames). Frame 0 pointing;
+    -- frame 2 is SELECT. Asset must be RGBA with pink keyed out.
+    local frame = quick and 2 or 0
+    if not self:pcBlit(Game3.PC_ASSET.hand, hx, hy, 0, frame * 32, 32, 32) then
+      self:drawCursor(cx - 22, cy - 8, { 0.95, 0.22, 0.18, 1 })
+    end
+  end
+
+  function Game3:drawPcPartyPanel()
+    local A = Game3.PC_ASSET
+    -- ROM: Copy 12×22 from misc1 tilemap to BG1 at tile (10,0) = (80,0).
+    if self:pcBlit(A.party, Game3.PC_PARTY_X, Game3.PC_PARTY_Y) then
+      return
+    end
+    local G = love.graphics
+    local x0, y0, w, h = Game3.PC_PARTY_X, Game3.PC_PARTY_Y, 96, 160
+    for x = x0, x0 + w - 1, 4 do
+      if (math.floor((x - x0) / 4) % 2) == 0 then
+        G.setColor(0.58, 0.84, 0.42, 1)
+      else
+        G.setColor(0.48, 0.74, 0.50, 1)
+      end
+      G.rectangle("fill", x, y0, 4, h)
+    end
+    local closeX, closeY = self:pcCursorXY("party", 6)
+    G.setColor(0.22, 0.45, 0.88, 1)
+    G.rectangle("fill", closeX - 30, closeY - 8, 60, 16)
+    G.setColor(1, 1, 1, 1)
+    if self.drawText then self:drawText("CANCEL", closeX - 26, closeY - 6) end
+  end
+
+  function Game3:drawPcMonInfo(mon)
+    if not mon then return end
+    local G = love.graphics
+    -- Header sprite window ~ (8,24)-(72,72); info under it.
+    -- pokemon_storage_system_4.c GetMonSpritePal / GetMonSpritePalFromOtIdPersonality
+    -- for the preview; box/party icons stay non-shiny (drawPcIcon → drawMonIcon).
+    if self.battlePic and mon.species and not mon.isEgg then
+      local shiny = self.isShinyMon and self:isShinyMon(mon)
+      local front = self:battlePic(mon.species, "front", shiny)
+      if front then
+        G.setColor(1, 1, 1, 1)
+        local sw, sh = front:getDimensions()
+        local scale = math.min(56 / sw, 40 / sh)
+        G.draw(front, 12, 28, 0, scale, scale)
+      end
+    end
+    G.setColor(0.10, 0.10, 0.12, 1)
+    local name = self:pcMonName(mon)
+    if self.drawText then
+      self:drawText(name, 8, 80)
+      if not mon.isEgg then
+        self:drawText(("Lv%d"):format(mon.level or 1), 8, 96)
+        local gender = mon.gender
+        if gender == nil and self.monGender then gender = self:monGender(mon) end
+        if gender == 0 then
+          G.setColor(0.20, 0.45, 0.90, 1)
+          self:drawText("♂", 48, 96)
+        elseif gender == 1 then
+          G.setColor(0.90, 0.30, 0.45, 1)
+          self:drawText("♀", 48, 96)
+        end
+        G.setColor(0.10, 0.10, 0.12, 1)
+        local item = tonumber(mon.item) or 0
+        local itemName = (item > 0 and item ~= Game3.ITEM_NONE and self.itemName)
+          and self:itemName(item) or "NONE"
+        self:drawText(itemName, 8, 112)
+      end
+    end
+  end
+
   function Game3:drawPcStorage(f)
     local G = love.graphics
+    local A = Game3.PC_ASSET
+    if not self:pcTileBlit(A.scroll, 0, 0, Game3.SCREEN_W, Game3.SCREEN_H) then
+      G.setColor(0.45, 0.72, 0.55, 1)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    end
+
     local paper = (self.boxWallpapers or {})[f.box or 1] or 0
-    local wp = Game3.PC_WALLPAPERS[paper + 1] or Game3.PC_WALLPAPERS[16]
-    G.setColor(wp[2], wp[3], wp[4], 1)
-    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
-    G.setColor(wp[2] * 0.7, wp[3] * 0.7, wp[4] * 0.7, 1)
-    G.rectangle("fill", 80, 16, 152, 112)
+    local wpName = Game3.PC_WALLPAPER_FILES[paper + 1] or "plain"
+    local wpPath = A.wallpaper:format(wpName)
+    if not self:pcBlit(wpPath, Game3.PC_WP_X, Game3.PC_WP_Y) then
+      local wp = Game3.PC_WALLPAPERS[paper + 1] or Game3.PC_WALLPAPERS[16]
+      G.setColor(wp[2], wp[3], wp[4], 1)
+      G.rectangle("fill", Game3.PC_WP_X, Game3.PC_WP_Y, Game3.PC_WP_W, Game3.PC_WP_H)
+    end
 
-    self:drawWindow(8, 8, 72, 24)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    if not self:pcBlit(A.header, 0, 0) then
+      G.setColor(0.35, 0.38, 0.42, 1)
+      G.rectangle("fill", 0, 0, 80, 160)
+    end
+
     local boxName = (self.boxNames and self.boxNames[f.box]) or self:defaultBoxName(f.box)
-    self:drawText(boxName, 14, 12)
-
-    local box = self:pcBox()
-    for i = 0, 29 do
-      local col, row = i % 6, math.floor(i / 6)
-      local cx = Game3.PC_BOX_CX + col * Game3.PC_CELL
-      local cy = Game3.PC_BOX_CY + row * Game3.PC_CELL
-      G.setColor(0, 0, 0, 0.18)
-      G.rectangle("fill", cx - 12, cy - 12, 24, 24)
-      self:drawPcIcon(box and box[i + 1], cx, cy)
+    -- Box title + arrows sit on the wallpaper header strip.
+    local titleX, titleY = Game3.PC_TITLE_CX, Game3.PC_TITLE_CY
+    self:pcBlit(A.arrow, titleX - 40, titleY - 4, 0, 0, 8, 16)
+    self:pcBlit(A.arrow, titleX + 28, titleY - 4, 0, 16, 8, 16)
+    G.setColor(0.10, 0.10, 0.12, 1)
+    if self.drawText then
+      local tw = self.font3Width and self:font3Width(boxName) or (#boxName * 6)
+      self:drawText(boxName, titleX - math.floor(tw / 2), titleY - 4)
     end
 
-    local party = self.party or {}
-    for i = 0, 5 do
-      local cx, cy = self:pcCursorXY("party", i)
-      G.setColor(0, 0, 0, 0.22)
-      G.rectangle("fill", cx - 12, cy - 12, 24, 24)
-      self:drawPcIcon(party[i + 1], cx, cy)
+    local partyOpen = f.partyOpen or f.area == "party"
+    if not partyOpen then
+      local box = self:pcBox()
+      for i = 0, 29 do
+        local col, row = i % 6, math.floor(i / 6)
+        local cx = Game3.PC_BOX_CX + col * Game3.PC_CELL
+        local cy = Game3.PC_BOX_CY + row * Game3.PC_CELL
+        self:drawPcIcon(box and box[i + 1], cx, cy)
+      end
     end
 
-    local closeX, closeY = self:pcCursorXY("party", 6)
-    self:drawWindow(closeX - 28, closeY - 10, 56, 20)
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("CLOSE", closeX - 20, closeY - 6)
+    if partyOpen then
+      self:drawPcPartyPanel()
+      local party = self.party or {}
+      for i = 0, 5 do
+        local cx, cy = self:pcCursorXY("party", i)
+        self:drawPcIcon(party[i + 1], cx, cy)
+      end
+    else
+      -- Closed: PARTY POKEMON tab (misc1 rows 20–21) — this is the party button.
+      self:pcBlit(A.partyBar, Game3.PC_PARTY_X, Game3.PC_PARTY_Y)
+    end
+    -- CLOSE BOX sits at tile (21,0) whether party is open or closed.
+    if not self:pcBlit(A.btnClose, Game3.PC_CLOSE_BTN_X, Game3.PC_CLOSE_BTN_Y) then
+      self:drawWindow(Game3.PC_CLOSE_BTN_X + 4, Game3.PC_CLOSE_BTN_Y + 2, 64, 14)
+      G.setColor(0.10, 0.10, 0.12, 1)
+      if self.drawText then
+        self:drawText("CLOSE BOX", Game3.PC_CLOSE_BTN_X + 8, Game3.PC_CLOSE_BTN_Y + 4)
+      end
+    end
 
-    local partyBtnX, partyBtnY = self:pcCursorXY("buttons", 0)
-    local closeBtnX = self:pcCursorXY("buttons", 1)
-    self:drawWindow(partyBtnX - 28, partyBtnY - 8, 56, 18)
-    self:drawWindow(closeBtnX - 28, partyBtnY - 8, 56, 18)
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("PARTY", partyBtnX - 22, partyBtnY - 4)
-    self:drawText("CLOSE", closeBtnX - 22, partyBtnY - 4)
+    local infoMon = f.held or self:pcMonAt()
+    if infoMon then self:drawPcMonInfo(infoMon) end
 
     if f.held then
       local cx, cy = self:pcCursorXY(f.area, f.cursor)
-      self:drawPcIcon(f.held, cx, cy - 8)
+      self:pcBlit(A.shadow, cx - 8, cy + Game3.PC_HAND_SHADOW_DY - 8)
+      self:drawPcIcon(f.held, cx, cy + Game3.PC_HAND_DY)
     end
 
     local cx, cy = self:pcCursorXY(f.area, f.cursor)
-    self:drawCursor(cx - 22, cy - 8, { 0.95, 0.22, 0.18, 1 })
+    self:drawPcHand(cx, cy, f.quick)
 
     self:drawStdWindow(Game3.PC_MSG_LEFT, Game3.PC_MSG_TOP,
       Game3.PC_MSG_RIGHT, Game3.PC_MSG_BOTTOM)

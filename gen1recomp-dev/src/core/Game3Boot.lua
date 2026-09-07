@@ -1,7 +1,7 @@
--- Ruby boot cinema and main menu.  pokeruby: intro.c copyright graphic →
--- intro.c part 1 (GAME FREAK / water) → part 2 (bike grass) →
--- title_screen.c (logo + Groudon + RUBY VERSION) →
--- main_menu.c CONTINUE/NEW GAME/OPTION → Birch speech → overworld.
+-- Ruby boot cinema and main menu.  pokeruby: intro.c copyright graphic ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢
+-- intro.c part 1 (GAME FREAK / water) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ part 2 (bike grass) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢
+-- title_screen.c (logo + Groudon + RUBY VERSION) ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢
+-- main_menu.c CONTINUE/NEW GAME/OPTION ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ Birch speech ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ overworld.
 -- Title logo is the affine 8bpp tilemap; intro BGs scroll at runtime.
 -- Affine bike / pokeball zoom uses a pre-rendered 256x256 sheet.
 local Input = require("src.core.Input")
@@ -43,6 +43,41 @@ local INTRO2_LATIOS_Y = 0x3C
 local TITLE_LOOP_SEC = 80
 local BLINK = 16 / 60
 local NAME_LEN = 7
+-- title_screen.c / intro.c gUnknown_08393E64 BLDALPHA pairs (EVA, EVB).
+local BLDALPHA = {
+  0x10, 0x110, 0x210, 0x310, 0x410, 0x510, 0x610, 0x710,
+  0x810, 0x910, 0xA10, 0xB10, 0xC10, 0xD10, 0xE10, 0xF10,
+  0x100F, 0x100E, 0x100D, 0x100C, 0x100B, 0x100A, 0x1009, 0x1008,
+  0x1007, 0x1006, 0x1005, 0x1004, 0x1003, 0x1002, 0x1001, 0x1000,
+}
+local function bldAlpha(coeff)
+  coeff = math.floor(coeff or 0)
+  if coeff < 0 then coeff = 0 end
+  if coeff > 31 then coeff = 31 end
+  local v = BLDALPHA[coeff + 1]
+  local eva = math.floor(v / 256) % 256
+  local evb = v % 256
+  if eva > 16 then eva = 16 end
+  return eva / 16
+end
+-- CreateGameFreakLogo task: fade out 64, hold transparent 128, fade in 62 (+16 settle).
+local function gameFreakAlpha(frame)
+  -- Logo appears at INTRO_GF frame 560; task age = frame - 560.
+  -- intro.c sub_813CCE8: EVA 1->0 (64f), hold transparent (128f), EVA 0->1 (~62f).
+  local age = frame - 560
+  if age < 0 or age >= (831 - 560) then return 0 end
+  if age < 64 then
+    local foo = math.floor((63 - age) / 2)
+    return bldAlpha(foo)
+  end
+  if age < 64 + 128 then return 0 end
+  local outAge = age - 64 - 128
+  if outAge <= 0x3D then
+    return bldAlpha(math.floor(outAge / 2))
+  end
+  if outAge <= 0x3D + 16 then return 1 end
+  return 0
+end
 local LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 local FALLBACK = {
@@ -98,7 +133,11 @@ end
 local function withPlayer(text, name)
   text = tostring(text or "")
   name = name or "BRENDAN"
-  return (text:gsub("{PLAYER}", name))
+  -- ExpandPlaceholder_KunChan: English gExpandedPlaceholder_Kun/Chan are "".
+  text = text:gsub("{PLAYER}", name)
+  text = text:gsub("{KUN}", "")
+  text = text:gsub("{CHAN}", "")
+  return text
 end
 
 local SINE = {}
@@ -289,7 +328,14 @@ local function intro2Bike(frame)
     -- Unknown_40AE38: 4-frame pedal, duration 4, from sprite create.
     anim = math.floor((frame - INTRO2_START) / 4) % 4
   end
-  return { x = x, y = INTRO2_BIKE_Y, anim = anim }
+  -- Rider callback: every 8 frames y2 is 0, else Random()&3 -> -1/1/0/0.
+  local y2 = 0
+  local tick = frame - INTRO2_START
+  if tick >= 0 and (tick % 8) ~= 7 then
+    local r = (tick * 1103515245 + 12345) % 4
+    if r == 0 then y2 = -1 elseif r == 1 then y2 = 1 end
+  end
+  return { x = x, y = INTRO2_BIKE_Y + y2, anim = anim, y2 = y2 }
 end
 
 local function intro2Latios(frame)
@@ -417,7 +463,7 @@ local function flyInRight(x0, y0, age, flip)
 end
 
 local function dashIn(x0, y0, age, fromRight)
-  -- sub_813E10C / sub_813E210: 7 frames of x2±8, y2∓6, then idle bob.
+  -- sub_813E10C / sub_813E210: 7 frames of x2ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±8, y2ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“6, then idle bob.
   local steps = math.min(age, 7)
   local x2 = (fromRight and -8 or 8) * steps
   local y2 = (fromRight and 6 or -6) * steps
@@ -585,7 +631,7 @@ local function intro3Actors(p3)
   if p3 >= 384 and p3 < 462 then
     -- sub_813DE70 case 4: CreateSprite at the thrown balls' x+x2, y+y2
     -- (not the 16,104 / 12,106 throw origin). sub_813DD58 then grows
-    -- affine 2048→256 and at 432 falls (y2=t^2/32, x2=±t/4).
+    -- affine 2048ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢256 and at 432 falls (y2=t^2/32, x2=ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±t/4).
     local grow = 2048 - 128 * (p3 - 384 + 1)
     if grow < 256 then grow = 256 end
     local sc = 256 / grow
@@ -627,7 +673,7 @@ local function intro3Actors(p3)
     end
   end
   if p3 >= 781 and p3 < 850 then
-    -- case 3: reset to spawn, then x2±4 / y2∓3. Hidden mons reappear here.
+    -- case 3: reset to spawn, then x2ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â±4 / y2ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“3. Hidden mons reappear here.
     local t = p3 - 781
     add(INTRO3_SHARPEDO, "front", 208 - t * 4, 8 + t * 3, false, 1, false)
     add(INTRO3_DUSKULL, "front", 248 - t * 4, 16 + t * 3, false, 1, false)
@@ -766,6 +812,19 @@ function Boot.attach(Game3)
         self.options = opt
         if self.persistDisplayOptions then self:persistDisplayOptions() end
         return
+      elseif id == "voidFill" then
+        local Game3 = require("src.core.Game3")
+        local cur = self:voidFillMode()
+        local at = 1
+        for i, m in ipairs(Game3.VOID_FILLS) do
+          if m == cur then at = i break end
+        end
+        local n = #Game3.VOID_FILLS
+        at = (at - 1 + dir) % n + 1
+        opt.voidFill = Game3.VOID_FILLS[at]
+        self.options = opt
+        if self.persistDisplayOptions then self:persistDisplayOptions() end
+        return
       else
         if onClose then onClose() end
         return
@@ -829,13 +888,25 @@ function Boot.attach(Game3)
   -- screen each have their own theme, and the main menu keeps the title's
   -- playing rather than restarting it.
   function Game3:openTitle()
-    self.boot = { kind = Game3.BOOT_TITLE, t = 0, cursor = 0, blink = 0 }
+    -- title_screen.c: Phase1 counter 256, logo BG2Y starts -32 (data[3]).
+    self.boot = {
+      kind = Game3.BOOT_TITLE, t = 0, cursor = 0, blink = 0,
+      titlePhase = 1, titleCounter = 256, logoBg2Y = -32,
+      bannerBlend = 88, lavaY = 0, skipTitle = false,
+      shine = {}, showBanner = false, showBanners = false,
+      entryFade = 1,
+    }
     if self.playSong then self:playSong(self:namedSong("title"), true) end
     return true
   end
 
   function Game3:openIntro()
-    self.boot = { kind = Game3.BOOT_INTRO, t = 0, cursor = 0, blink = 0 }
+    -- intro.c gUnknown_02039318 = Random() & 1: 0 Brendan / 1 May.
+    local female = (math.random(0, 1) == 1)
+    self.boot = {
+      kind = Game3.BOOT_INTRO, t = 0, cursor = 0, blink = 0,
+      introFemale = female,
+    }
     if self.playSong then self:playSong(self:namedSong("intro"), true) end
     return true
   end
@@ -883,7 +954,8 @@ function Boot.attach(Game3)
       kind = Game3.BOOT_BIRCH,
       t = 0, cursor = 0, blink = 0,
       queue = queue, qi = 1,
-      showMon = false,
+      showMon = false, showTrainer = false,
+      spriteAlpha = 0, bgAlpha = 0,
     }
     return true
   end
@@ -904,7 +976,12 @@ function Boot.attach(Game3)
       return true
     end
     self.phase = "play"
-    self.field = nil
+    -- CB2_NewGame: gFieldCallback = ExecuteTruckSequence after map load.
+    if Game3.isTruckMap(self.map) then
+      self:executeTruckSequence()
+    else
+      self.field = nil
+    end
     return true
   end
 
@@ -934,15 +1011,24 @@ function Boot.attach(Game3)
   end
 
   function Game3:openNaming()
+    local Naming = require("src.ui.gen3.NamingScreen")
     local seed = self.customName
     if not seed or seed == "" then
       seed = self:isFemale() and "MAY" or "BRENDAN"
     end
+    local field = Naming.open({
+      template = "player",
+      initial = seed:sub(1, NAME_LEN),
+      maxChars = NAME_LEN,
+      title = "YOUR NAME?",
+      playerGender = self:isFemale() and 1 or 0,
+    })
+    field.kind = "nickname"
     self.boot = {
       kind = Game3.BOOT_NAMING,
       t = 0, cursor = 0, blink = 0,
-      name = seed:sub(1, NAME_LEN),
-      keys = letters(),
+      naming = field,
+      name = field.name,
     }
     return true
   end
@@ -984,6 +1070,7 @@ function Boot.attach(Game3)
       t = 0, cursor = 0, blink = 0,
       queue = queue, qi = 1,
       after = "play",
+      showTrainer = true, spriteAlpha = 1, bgAlpha = 1,
     }
     return true
   end
@@ -999,7 +1086,10 @@ function Boot.attach(Game3)
       return
     end
     if b.kind == Game3.BOOT_BIRCH then
-      self.boot = { kind = Game3.BOOT_GENDER, t = 0, cursor = 0, blink = 0 }
+      self.boot = {
+        kind = Game3.BOOT_GENDER, t = 0, cursor = 0, blink = 0,
+        showTrainer = true, spriteAlpha = 0, bgAlpha = 1,
+      }
     elseif b.after == "ready" then
       self:birchReady()
     else
@@ -1027,11 +1117,22 @@ function Boot.attach(Game3)
       return
     end
     if kind == Game3.BOOT_TITLE then
-      if Input:wasPressed("a") or Input:wasPressed("start") then
-        self:openMainMenu()
+      -- title_screen.c: A/B/Start/Select skip phase1/2; only A/Start open menu in phase3.
+      local phase = b.titlePhase or 3
+      if Input:wasPressed("a") or Input:wasPressed("b")
+          or Input:wasPressed("start") or Input:wasPressed("select") then
+        if phase < 3 then
+          b.skipTitle = true
+          b.titleCounter = 0
+        elseif Input:wasPressed("a") or Input:wasPressed("start") then
+          self:openMainMenu()
+          return
+        end
       elseif b.t >= TITLE_LOOP_SEC then
         self:resetBoot()
+        return
       end
+      if self.stepTitleScreen then self:stepTitleScreen(dt) end
       return
     end
     if kind == Game3.BOOT_MENU then
@@ -1062,6 +1163,9 @@ function Boot.attach(Game3)
       return
     end
     if kind == Game3.BOOT_BIRCH or kind == Game3.BOOT_CONFIRM then
+      -- StartSpriteFadeIn / StartBackgroundFadeIn approximations.
+      b.spriteAlpha = math.min(1, (b.spriteAlpha or 0) + dt * 3)
+      b.bgAlpha = math.min(1, (b.bgAlpha or 0) + dt * 1.5)
       b.text = self:expandBootText((b.queue and b.queue[b.qi or 1]) or "")
       self:stepPrinter(b, dt)
       if Input:wasPressed("a") or Input:wasPressed("b") then
@@ -1073,6 +1177,7 @@ function Boot.attach(Game3)
           if tostring(text):find("call a POKeMON", 1, true)
               or tostring(text):find("This is what we call", 1, true) then
             b.showMon = true
+            b.spriteAlpha = 0
           end
         end
         self:advanceBootTalk()
@@ -1080,8 +1185,12 @@ function Boot.attach(Game3)
       return
     end
     if kind == Game3.BOOT_GENDER then
+      b.showTrainer = true
+      b.spriteAlpha = math.min(1, (b.spriteAlpha or 0) + dt * 4)
+      b.bgAlpha = math.min(1, (b.bgAlpha or 0) + dt * 2)
       if Input:wasPressed("up") or Input:wasPressed("down") then
         b.cursor = 1 - (b.cursor or 0)
+        b.spriteAlpha = 0
       elseif Input:wasPressed("b") then
         self:startBirchSpeech()
       elseif Input:wasPressed("a") then
@@ -1094,11 +1203,15 @@ function Boot.attach(Game3)
           t = 0, cursor = 0, blink = 0,
           queue = pagesOf(birch.whatsYourName, FALLBACK.birch.whatsYourName),
           qi = 1,
+          showTrainer = true, spriteAlpha = 1, bgAlpha = 1,
         }
       end
       return
     end
     if kind == Game3.BOOT_NAME then
+      b.showTrainer = true
+      b.spriteAlpha = math.min(1, (b.spriteAlpha or 0) + dt * 4)
+      b.bgAlpha = 1
       local names = self:presetNames()
       local n = #names
       if Input:wasPressed("up") then
@@ -1107,7 +1220,10 @@ function Boot.attach(Game3)
       elseif Input:wasPressed("down") then
         b.cursor = ((b.cursor or 0) + 1) % n
       elseif Input:wasPressed("b") then
-        self.boot = { kind = Game3.BOOT_GENDER, t = 0, cursor = 0, blink = 0 }
+        self.boot = {
+          kind = Game3.BOOT_GENDER, t = 0, cursor = 0, blink = 0,
+          showTrainer = true, spriteAlpha = 1, bgAlpha = 1,
+        }
       elseif Input:wasPressed("a") then
         if (b.cursor or 0) == 0 then
           self:setPresetName(1)
@@ -1120,37 +1236,21 @@ function Boot.attach(Game3)
       return
     end
     if kind == Game3.BOOT_NAMING then
-      local keys = b.keys or letters()
-      local n = #keys
-      local cols = 9
-      if Input:wasPressed("left") then
-        b.cursor = ((b.cursor or 0) - 1) % n
-        if b.cursor < 0 then b.cursor = n - 1 end
-      elseif Input:wasPressed("right") then
-        b.cursor = ((b.cursor or 0) + 1) % n
-      elseif Input:wasPressed("up") then
-        b.cursor = ((b.cursor or 0) - cols) % n
-        if b.cursor < 0 then b.cursor = b.cursor + n end
-      elseif Input:wasPressed("down") then
-        b.cursor = ((b.cursor or 0) + cols) % n
-      elseif Input:wasPressed("b") then
-        local name = b.name or ""
-        b.name = name:sub(1, math.max(0, #name - 1))
-      elseif Input:wasPressed("a") or Input:wasPressed("start") then
-        local key = keys[(b.cursor or 0) + 1]
-        if key == "END" or Input:wasPressed("start") then
-          local name = b.name or ""
+      local Naming = require("src.ui.gen3.NamingScreen")
+      local f = b.naming
+      if not f then return end
+      local Input = require("src.core.Input")
+      local finish = {
+        finishNickname = function()
+          local name = f.name or ""
           if name == "" then name = self:isFemale() and "MAY" or "BRENDAN" end
           self.customName = name:sub(1, NAME_LEN)
           self:confirmPlayerName()
-        elseif key == "DEL" then
-          local name = b.name or ""
-          b.name = name:sub(1, math.max(0, #name - 1))
-        else
-          local name = b.name or ""
-          if #name < NAME_LEN then b.name = name .. key end
-        end
-      end
+          return true
+        end,
+      }
+      Naming.step(finish, f, Input)
+      b.name = f.name
     end
   end
 
@@ -1186,6 +1286,103 @@ function Boot.attach(Game3)
       return self._cinemaCache[name] or nil
     end
     local img = self:grabImage(path)
+    -- logoShine: soften opaque extract for additive OBJ-mode-1 sweep.
+    if img and name == "logoShine" and love and love.image then
+      local ok, data = pcall(love.image.newImageData, path)
+      if ok and data and data.mapPixel then
+        data:mapPixel(function(_, _, r, g, b, a)
+          if (a or 0) > 1 then r,g,b,a = r/255,g/255,b/255,a/255 end
+          local lum = math.max(r or 0, g or 0, b or 0)
+          if (a or 0) < 0.01 or lum < 0.02 then return 0, 0, 0, 0 end
+          -- Keep color, drive alpha from luminance so additive is a thin sweep.
+          return r, g, b, math.min(1, lum * 0.65)
+        end)
+        local ok2, keyed = pcall(love.graphics.newImage, data)
+        if ok2 and keyed then
+          if keyed.setFilter then keyed:setFilter("nearest", "nearest") end
+          img = keyed
+        end
+      end
+    end
+    -- titleGroudon: paletted PNG encode often drops tRNS, so color 0 and the
+    -- opaque fill matte hide the lava. Key clear texels to alpha. Keep Ruby
+    -- blue markings (pret LEGENDARY_MARKING_COLOR RGB(0,0,c)); do NOT remap
+    -- body reds to transparent (they share hues with the lost-alpha matte).
+    if img and name == "titleGroudon" and love and love.image then
+      local ok, data = pcall(love.image.newImageData, path)
+      if ok and data and data.mapPixel then
+        local function channel(v)
+          v = v or 0
+          if v > 1 then return v / 255 end
+          return v
+        end
+        local tw, th = data:getWidth(), data:getHeight()
+        -- Paletted PNG encode (LOVE) drops tRNS: clear texels become the
+        -- opaque red fill (pal0 ~ RGB(120,0,0)). Body is near-black / dark
+        -- red and MUST stay -- earlier near-black + solid-red/black matte
+        -- keying punched holes through Groudon. Only key the red fill.
+        local matte = {}
+        for by = 0, th - 1, 8 do
+          for bx = 0, tw - 1, 8 do
+            local ur, ug, ub, n, same = nil, nil, nil, 0, true
+            for y = by, math.min(by + 7, th - 1) do
+              for x = bx, math.min(bx + 7, tw - 1) do
+                local r, g, b, a = data:getPixel(x, y)
+                r, g, b, a = channel(r), channel(g), channel(b), channel(a)
+                if a < 0.01 then
+                  same = false
+                else
+                  n = n + 1
+                  if not ur then
+                    ur, ug, ub = r, g, b
+                  elseif math.abs(r - ur) > 0.02 or math.abs(g - ug) > 0.02 or
+                      math.abs(b - ub) > 0.02 then
+                    same = false
+                  end
+                end
+              end
+            end
+            -- Fill matte only: mid/high pure red, not black body tiles.
+            local solidMatte = same and n > 0 and ug ~= nil and
+              ug < 0.02 and ub < 0.02 and ur ~= nil and ur > 0.20
+            if solidMatte then
+              for y = by, math.min(by + 7, th - 1) do
+                for x = bx, math.min(bx + 7, tw - 1) do
+                  matte[y * tw + x] = true
+                end
+              end
+            end
+          end
+        end
+        data:mapPixel(function(x, y, r, g, b, a)
+          r, g, b, a = channel(r), channel(g), channel(b), channel(a)
+          if a < 0.01 then return 0, 0, 0, 0 end
+          -- Extract chroma (green) stamped on clear texels.
+          if g > 0.85 and r < 0.08 and b < 0.08 then return 0, 0, 0, 0 end
+          if matte[y * tw + x] then return 0, 0, 0, 0 end
+          -- Lost-alpha fill: pure red with no green/blue (pal0 ~120,0,0).
+          -- Do NOT key near-black -- that is Groudon body (stock silhouette).
+          if g < 0.02 and b < 0.02 and r > 0.20 then return 0, 0, 0, 0 end
+          -- Remap any leftover red/orange baked markings -> stock Ruby blue.
+          -- Markings stay fully opaque; body stays opaque in the ImageData.
+          -- Translucency is applied at draw time (stock BLDCNT/BLDALPHA).
+          if r > b + 0.12 and g > 0.03 and g < r * 0.55 and b < 0.08 then
+            return 0, 0, math.max(r, 0.35), 1
+          end
+          if b > r + 0.10 and b > g + 0.10 then
+            return 0, 0, b, 1
+          end
+          return r, g, b, 1
+        end)
+        local ok2, keyed = pcall(love.graphics.newImage, data)
+        if ok2 and keyed then
+          if keyed.setFilter then keyed:setFilter("nearest", "nearest") end
+          img = keyed
+          -- Keep ImageData for marking-only pulse.
+          self._titleGroudonData = data
+        end
+      end
+    end
     self._cinemaCache[name] = img or false
     return img
   end
@@ -1217,8 +1414,10 @@ function Boot.attach(Game3)
     if t >= INTRO_GF_SEC and t < INTRO_GF_END_SEC then
       local gf = self:cinemaPic("gamefreak")
       if gf then
-        love.graphics.setColor(1, 1, 1, 1)
+        local a = gameFreakAlpha(frame)
+        love.graphics.setColor(1, 1, 1, a)
         love.graphics.draw(gf, 0, 0)
+        love.graphics.setColor(1, 1, 1, 1)
       end
     end
     if eon and eon.pri < 3 then
@@ -1266,14 +1465,17 @@ function Boot.attach(Game3)
     end
     local bike = intro2Bike(frame)
     if bike then
-      -- intro_create_brendan_sprite(x, 100): rider 64x64 centered at y,
-      -- bicycle 64x32 centered at y+8 (behind). Anim 2/3 is the look-back
-      -- / wheelie on the 64x64; the 64x32 only spins the wheels.
+      -- intro_create_brendan/may_sprite(x, 100): rider 64x64 centered at y,
+      -- bicycle 64x32 centered at y+8 (behind). Gender from intro random.
       local ped = math.floor((frame - INTRO2_START) / 8) % 4
       local anim = bike.anim or 0
+      local female = self.boot and self.boot.introFemale
+      local rider = female and self:cinemaPic("intro2may")
+        or self:cinemaPic("intro2brendan")
+      if not rider then rider = self:cinemaPic("intro2brendan") end
       self:drawSpriteCenter(self:cinemaPic("intro2bike"),
         bike.x, bike.y + 8, ped * 64, 0, 64, 32, 1)
-      self:drawSpriteCenter(self:cinemaPic("intro2brendan"),
+      self:drawSpriteCenter(rider,
         bike.x, bike.y, anim * 64, 0, 64, 64, 1)
     end
     if frame >= INTRO2_FADE_FRAME then
@@ -1352,14 +1554,28 @@ function Boot.attach(Game3)
       G.rectangle("fill", 0, 0, Game3.SCREEN_W, bar)
       G.rectangle("fill", 0, Game3.SCREEN_H - bar, Game3.SCREEN_W, bar)
     end
+    -- Attack FX first: stock InitIntroMudkip/TorchicAttackAnim creates the
+    -- beam/ember sprites at mon.subpriority+1 (behind the mon on GBA).
+    local water = self:cinemaPic("intro3water")
+    local ember = self:cinemaPic("intro3ember")
+    local atk = intro3Attacks(p3)
+    for i = 1, #atk do
+      local p = atk[i]
+      local img = (p.kind == "ember") and ember or water
+      self:drawSpriteCenter(img, p.x, p.y, 0, 0, 16, 16, p.scale)
+    end
     local actors = intro3Actors(p3)
     for i = 1, #actors do
       local a = actors[i]
       local sc = a.flip and -(a.scale or 1) or (a.scale or 1)
       if a.trainer then
-        local sheet = self:cinemaPic("intro3brendan")
+        local female = self.boot and self.boot.introFemale
+        local sheet = female and self:cinemaPic("intro3may")
+          or self:cinemaPic("intro3brendan")
+        if not sheet then sheet = self:cinemaPic("intro3brendan") end
         local frame = a.anim or 0
         if frame > 3 then frame = 3 end
+        -- Soft pink tint on mons is impractical without pal RAM; keep trainer.
         self:drawSpriteCenter(sheet, a.x, a.y, frame * 64, 0, 64, 64, a.scale)
       else
         local img = self:battlePic(a.species, a.which or "front")
@@ -1384,14 +1600,6 @@ function Boot.attach(Game3)
     local sparks = intro3Sparkles(p3)
     for i = 1, #sparks do
       self:drawSpriteCenter(spark, sparks[i].x, sparks[i].y, 0, 0, 8, 8, 1)
-    end
-    local water = self:cinemaPic("intro3water")
-    local ember = self:cinemaPic("intro3ember")
-    local atk = intro3Attacks(p3)
-    for i = 1, #atk do
-      local p = atk[i]
-      local img = (p.kind == "ember") and ember or water
-      self:drawSpriteCenter(img, p.x, p.y, 0, 0, 16, 16, p.scale)
     end
     if p3 >= 781 and p3 < 850 then
       local blast = self:cinemaPic("intro3blast")
@@ -1489,15 +1697,38 @@ function Boot.attach(Game3)
 
   function Game3:drawCopyright()
     local G = love.graphics
-    if self:drawCinemaStill("copyright") then return end
+    local b = self.boot
+    local t = (b and b.t) or 0
+    -- SetUpCopyrightScreen: white-in, hold, black-out (FADE_COLOR_WHITE / black).
+    local fadeIn = math.min(1, t / (16 / 60))
+    local fadeOut = 0
+    if t > COPYRIGHT_SEC - (16 / 60) then
+      fadeOut = math.min(1, (t - (COPYRIGHT_SEC - 16 / 60)) / (16 / 60))
+    end
+    local vis = fadeIn * (1 - fadeOut)
     G.setColor(0, 0, 0, 1)
     G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    local img = self:cinemaPic("copyright")
+    if img then
+      G.setColor(1, 1, 1, vis)
+      G.draw(img, 0, 0)
+    else
+      G.setColor(1, 1, 1, vis)
+      self:drawText("POKeMON RUBY VERSION", 40, 40)
+      self:drawText("C2002  POKEMON", 56, 72)
+      self:drawText("C1995-2002  NINTENDO", 40, 88)
+      self:drawText("C1995-2002  CREATURES inc.", 24, 104)
+      self:drawText("C1995-2002  GAME FREAK inc.", 16, 120)
+    end
+    if fadeIn < 1 then
+      G.setColor(1, 1, 1, 1 - fadeIn)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    end
+    if fadeOut > 0 then
+      G.setColor(0, 0, 0, fadeOut)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    end
     G.setColor(1, 1, 1, 1)
-    self:drawText("POKeMON RUBY VERSION", 40, 40)
-    self:drawText("C2002  POKEMON", 56, 72)
-    self:drawText("C1995-2002  NINTENDO", 40, 88)
-    self:drawText("C1995-2002  CREATURES inc.", 24, 104)
-    self:drawText("C1995-2002  GAME FREAK inc.", 16, 120)
   end
 
   -- A part-1 BG is BGCNT_TXT256x512. Content is the top 256px; y>=256 is
@@ -1588,26 +1819,282 @@ function Boot.attach(Game3)
     self:drawIntro2Obj(t)
   end
 
+  function Game3:stepTitleScreen(dt)
+    local b = self.boot
+    if not b then return end
+    local frames = math.max(1, math.floor((dt or 0) * 60 + 1e-9))
+    for _ = 1, frames do
+      b.entryFade = math.max(0, (b.entryFade or 0) - 1 / 16)
+      local phase = b.titlePhase or 3
+      if phase == 1 then
+        if b.skipTitle then b.titleCounter = 0 end
+        local c = b.titleCounter or 0
+        if c == 160 or c == 64 then
+          b.shine = b.shine or {}
+          b.shine[#b.shine + 1] = { x = 0, y = 68, flash = true, bright = 0 }
+        end
+        if c == 256 then
+          b.shine = b.shine or {}
+          b.shine[#b.shine + 1] = { x = 0, y = 68, flash = false, bright = 0 }
+        end
+        if c > 0 then
+          b.titleCounter = c - 1
+        else
+          b.showBanner = true
+          b.bannerY = 26
+          b.bannerBlend = 88
+          b.titleCounter = 144
+          b.titlePhase = 2
+        end
+      elseif phase == 2 then
+        if b.skipTitle then b.titleCounter = 0 end
+        local c = b.titleCounter or 0
+        if c > 0 then
+          b.titleCounter = c - 1
+        else
+          b.showBanners = true
+          b.titlePhase = 3
+          b.logoBg2Y = 0
+        end
+        -- stock SpriteCallback_VersionBanner*: tSkipToNext snaps to
+        -- VERSION_BANNER_Y_GOAL (66) and fully opaque; do not leave mid-drop.
+        if b.skipTitle then
+          b.bannerY = 66
+          b.bannerBlend = 0
+          b.logoBg2Y = 0
+        else
+          if b.bannerBlend and b.bannerBlend > 0 then
+            b.bannerBlend = b.bannerBlend - 1
+          end
+          if b.bannerY and b.bannerY < 66 then
+            b.bannerY = b.bannerY + 1
+          end
+        end
+        -- Phase2: every other frame data[3]++ from -32 toward 0.
+        if (c % 2) == 0 and (b.logoBg2Y or 0) < 0 then
+          b.logoBg2Y = (b.logoBg2Y or -32) + 1
+        end
+      end
+      -- Lava/markings animate in every title phase (BG1 scroll + pulse).
+      b.lavaY = (b.lavaY or 0) + 0.5
+      b.markFrame = (b.markFrame or 0) + 1
+      -- Advance shine sprites (+4 x / frame).
+      local shine = b.shine or {}
+      local keep = {}
+      for i = 1, #shine do
+        local s = shine[i]
+        if s.x < 272 then
+          if s.flash then
+            if s.x < 120 then
+              s.bright = math.min(31, (s.bright or 0) + 2)
+            else
+              s.bright = math.max(0, (s.bright or 0) - 2)
+            end
+          end
+          s.x = s.x + 4
+          keep[#keep + 1] = s
+        end
+      end
+      b.shine = keep
+    end
+  end
+
   function Game3:drawTitleScreen()
     local G = love.graphics
-    local hasCinema = self:drawCinemaStill("title")
-    if not hasCinema then
-      G.setColor(0.02, 0.02, 0.04, 1)
+    local b = self.boot
+    local lava = self:cinemaPic("titleLava")
+    local groudon = self:cinemaPic("titleGroudon")
+    local logo = self:cinemaPic("titleLogo")
+    local version = self:cinemaPic("versionBanner")
+    local layered = lava or groudon or logo
+    if layered then
+      G.setColor(0, 0, 0, 1)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+      local function drawWrappedRow(img, srcY, hofs, row, alpha)
+        if not img then return end
+        local iw, ih = img:getDimensions()
+        local ox = ((math.floor(hofs) % iw) + iw) % iw
+        local w1 = math.min(Game3.SCREEN_W, iw - ox)
+        G.setColor(1, 1, 1, alpha or 1)
+        local q1 = love.graphics.newQuad(ox, srcY % math.max(1, ih), w1, 1, iw, ih)
+        G.draw(img, q1, 0, row)
+        if w1 < Game3.SCREEN_W then
+          local q2 = love.graphics.newQuad(0, srcY % math.max(1, ih),
+            Game3.SCREEN_W - w1, 1, iw, ih)
+          G.draw(img, q2, w1, row)
+        end
+      end
+      local bubbles = self:cinemaPic("titleLavaBubbles")
+      if lava then
+        local iy = math.floor(b and b.lavaY or 0)
+        local ih = select(2, lava:getDimensions())
+        -- Dark base + lighter bubble overlay; ScanlineEffect_InitWave HOFS wrap.
+        for row = 0, Game3.SCREEN_H - 1 do
+          local wave = math.floor(math.sin((row + iy) * 0.2) * 4 + 0.5)
+          local srcY = (row + iy) % math.max(1, ih)
+          drawWrappedRow(lava, srcY, wave, row, 1)
+          if bubbles then
+            -- Bubbles scroll a touch faster for dual-layer parallax.
+            local bSrc = (row + math.floor(iy * 1.35)) % math.max(1, select(2, bubbles:getDimensions()))
+            drawWrappedRow(bubbles, bSrc, wave + math.floor(iy * 0.25), row, 0.55)
+          end
+        end
+      end
+      G.setColor(1, 1, 1, 1)
+      if groudon then
+        -- Stock UpdateLegendaryMarkingColor: every 4 frames ramp pal 0xEF.
+        -- Pulse ONLY blue marking pixels; body stays neutral.
+        local mf = (b and b.markFrame) or 0
+        local intensity = (math.floor(mf / 4) % 64)
+        if intensity > 31 then intensity = 63 - intensity end
+        local c = intensity / 31
+        local pulsed = groudon
+        local data = self._titleGroudonData
+        if data and love and love.image and love.graphics then
+          local key = intensity
+          if self._titleMarkPulseKey ~= key then
+            self._titleMarkPulseKey = key
+            local out = love.image.newImageData(data:getWidth(), data:getHeight())
+            out:mapPixel(function(x, y)
+              local r, g, b, a = data:getPixel(x, y)
+              if (a or 0) > 1 then r, g, b, a = r / 255, g / 255, b / 255, a / 255 end
+              -- Pulse marking pixels only (stock pal 0xEF / RGB(0,0,c)).
+              if (a or 0) > 0.01 and (b or 0) > (r or 0) + 0.10 and (b or 0) > (g or 0) + 0.10 then
+                return 0, 0, c, 1
+              end
+              return r or 0, g or 0, b or 0, a or 0
+            end)
+            local ok2, img2 = pcall(love.graphics.newImage, out)
+            if ok2 and img2 then
+              if img2.setFilter then img2:setFilter("nearest", "nearest") end
+              self._titleGroudonPulsed = img2
+            end
+          end
+          pulsed = self._titleGroudonPulsed or groudon
+        end
+        -- Stock title_screen.c Phase3:
+        --   REG_BLDCNT = 0x2142  (alpha: BG1 lava 1st, BG0 Groudon 2nd)
+        --   REG_BLDALPHA = 0x1F0F (EVA=15, EVB=16)
+        -- result = (15*lava + 16*groudon)/16 where both opaque.
+        -- LOVE cannot do dual-coeff blend, so approximate: body as a dark
+        -- translucent shadow over lava, then opaque (+ soft additive) markings.
+        if G.setBlendMode then G.setBlendMode("alpha") end
+        G.setColor(1, 1, 1, 0.55)
+        G.draw(pulsed, 0, 0)
+        -- Markings-only layer (blue plates / pal 0xEF).
+        local markKey = tostring(self._titleMarkPulseKey or -1)
+        if self._titleMarksBuiltKey ~= markKey then
+          self._titleMarksBuiltKey = markKey
+          local src = data
+          if src then
+            local out = love.image.newImageData(src:getWidth(), src:getHeight())
+            -- Reuse Phase3 marking intensity (mf/c computed above).
+            out:mapPixel(function(x, y)
+              local r, g, bb, a = src:getPixel(x, y)
+              if (a or 0) > 1 then r, g, bb, a = r / 255, g / 255, bb / 255, a / 255 end
+              if (a or 0) > 0.01 and (bb or 0) > (r or 0) + 0.10 and (bb or 0) > (g or 0) + 0.10 then
+                return 0, 0, c, 1
+              end
+              return 0, 0, 0, 0
+            end)
+            local okm, imgm = pcall(love.graphics.newImage, out)
+            if okm and imgm then
+              if imgm.setFilter then imgm:setFilter("nearest", "nearest") end
+              self._titleGroudonMarks = imgm
+            end
+          end
+        end
+        local markDraw = self._titleGroudonMarks
+        if markDraw then
+          if G.setBlendMode then G.setBlendMode("alpha") end
+          G.setColor(1, 1, 1, 1)
+          G.draw(markDraw, 0, 0)
+          if G.setBlendMode then G.setBlendMode("add") end
+          G.setColor(0.55, 0.55, 1.0, 0.35)
+          G.draw(markDraw, 0, 0)
+          if G.setBlendMode then G.setBlendMode("alpha") end
+        end
+        G.setColor(1, 1, 1, 1)
+      end
+      if logo then
+        -- REG_BG2X = -29*256 baked in; BG2Y negative shifts logo DOWN (stock).
+        -- Bake is rest (Y=0); draw at -logoBg2Y so phase1/2 match title_screen.c.
+        local yOff = (b and b.logoBg2Y) or 0
+        if (b and (b.titlePhase or 3) >= 3) then yOff = 0 end
+        -- Nudge logo 2px toward Groudon head / RUBY VERSION (stock-tight gap).
+        G.draw(logo, 0, -yOff + 2)
+      end
+    else
+      local hasCinema = self:drawCinemaStill("title")
+      if not hasCinema then
+        G.setColor(0.02, 0.02, 0.04, 1)
+        G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+        G.setColor(1, 1, 1, 1)
+        self:drawText("POKeMON", 88, 12)
+        self:drawText("RUBY VERSION", 72, 28)
+      end
+    end
+    -- Version banner drop + BLDALPHA (invisible until blend < 64, then EVA).
+    if b and b.showBanner and version then
+      local by = b.bannerY or 66
+      local alpha = 1
+      if b.titlePhase == 2 and b.bannerBlend then
+        if (b.bannerBlend or 0) >= 64 then
+          alpha = 0
+        else
+          -- Keep the drop readable; stock eases EVA down toward settle.
+          alpha = math.max(0.55, bldAlpha(math.floor((b.bannerBlend or 0) / 2)))
+        end
+      end
+      if alpha > 0 then
+        G.setColor(1, 1, 1, alpha)
+        -- Centers: left 98, right 162, sprite is 128x32.
+        G.draw(version, 98 - 32, by - 16)
+        G.setColor(1, 1, 1, 1)
+      end
+    end
+
+    -- Logo shine sweeps (stock OBJ mode 1 -> additive sweep over the logo).
+    local shineImg = self:cinemaPic("logoShine")
+    if shineImg and b and b.shine then
+      if G.setBlendMode then G.setBlendMode("add") end
+      for i = 1, #b.shine do
+        local s = b.shine[i]
+        -- Soft translucent sweep (stock OBJ mode 1), not a fat opaque bar.
+        local a = 0.55
+        if s.flash then a = 0.28 + 0.50 * ((s.bright or 0) / 31) end
+        G.setColor(1, 1, 1, a)
+        G.draw(shineImg, s.x - 32, s.y - 32)
+      end
+      if G.setBlendMode then G.setBlendMode("alpha") end
+      G.setColor(1, 1, 1, 1)
+    end
+    -- Title copyright banner (phase3+).
+    -- Title copyright banner (phase3+).
+    if b and b.showBanners then
+      local copy = self:cinemaPic("titleCopyright")
+      if copy then
+        G.setColor(1, 1, 1, 1)
+        G.draw(copy, 0, 0)
+      end
+    end
+    -- PRESS START blink (unchanged behaviour).
+    local on = math.floor(((b and b.blink) or 0) / BLINK) % 2 == 0
+    if on and b and (b.showBanners or not layered) then
+      local banner = self:cinemaPic("pressStart")
+      if banner then
+        G.setColor(1, 1, 1, 1)
+        G.draw(banner, 0, 0)
+      elseif not layered then
+        G.setColor(1, 1, 1, 1)
+        self:drawText("PRESS START", 72, 108)
+      end
+    end
+    -- Entry white fade.
+    if b and (b.entryFade or 0) > 0 then
+      G.setColor(1, 1, 1, b.entryFade)
       G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
       G.setColor(1, 1, 1, 1)
-      self:drawText("POKeMON", 88, 12)
-      self:drawText("RUBY VERSION", 72, 28)
-    end
-    local b = self.boot
-    local on = math.floor(((b and b.blink) or 0) / BLINK) % 2 == 0
-    if not on then return end
-    local banner = self:cinemaPic("pressStart")
-    if banner then
-      G.setColor(1, 1, 1, 1)
-      G.draw(banner, 0, 0)
-    elseif not hasCinema then
-      G.setColor(1, 1, 1, 1)
-      self:drawText("PRESS START", 72, 108)
     end
   end
 
@@ -1703,39 +2190,93 @@ function Boot.attach(Game3)
     end
   end
 
-  function Game3:drawBirchPortrait()
+  function Game3:drawBirchBg()
     local G = love.graphics
-    local spec = Game3.spriteSpec(self.data and self.data.sprites, Game3.GFX_BIRCH)
-    local img = spec and self:spriteImage(Game3.GFX_BIRCH)
-    if img then
-      local pose = Game3.poseFor(spec, "south", false, 0)
-      local quad = self:owQuad(spec, img, pose.frame or 0)
+    local bg = self:cinemaPic("birchBg")
+    if bg then
       G.setColor(1, 1, 1, 1)
-      G.draw(img, quad, 96, 24, 0, 2, 2)
+      G.draw(bg, 0, 0)
       return true
     end
-    G.setColor(0.82, 0.62, 0.32, 1)
+    G.setColor(0.55, 0.78, 0.45, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    return false
+  end
+
+  function Game3:drawBirchPortrait()
+    local G = love.graphics
+    local alpha = 1
+    if self.boot and self.boot.spriteAlpha then
+      alpha = self.boot.spriteAlpha
+    end
+    local img = self:cinemaPic("birchPortrait")
+    if img then
+      -- CreateBirchSprite(136, 60): 64x64 centered.
+      G.setColor(1, 1, 1, alpha)
+      G.draw(img, 136 - 32, 60 - 32)
+      G.setColor(1, 1, 1, 1)
+      return true
+    end
+    local spec = Game3.spriteSpec(self.data and self.data.sprites, Game3.GFX_BIRCH)
+    local ow = spec and self:spriteImage(Game3.GFX_BIRCH)
+    if ow then
+      local pose = Game3.poseFor(spec, "south", false, 0)
+      local quad = self:owQuad(spec, ow, pose.frame or 0)
+      G.setColor(1, 1, 1, alpha)
+      G.draw(ow, quad, 96, 24, 0, 2, 2)
+      G.setColor(1, 1, 1, 1)
+      return true
+    end
+    G.setColor(0.82, 0.62, 0.32, alpha)
     G.rectangle("fill", 96, 32, 48, 56)
     G.setColor(0.10, 0.10, 0.12, 1)
     self:drawText("BIRCH", 100, 92)
     return false
   end
 
+  function Game3:drawBirchTrainer()
+    local G = love.graphics
+    local female = self:isFemale()
+    if self.boot and self.boot.kind == Game3.BOOT_GENDER then
+      female = (self.boot.cursor or 0) == 1
+    end
+    local img = female and self:cinemaPic("trainerFrontMay")
+      or self:cinemaPic("trainerFrontBrendan")
+    if not img then return false end
+    local alpha = (self.boot and self.boot.spriteAlpha) or 1
+    -- CreateTrainerSprite(..., 120, 60): 64x64 centered.
+    G.setColor(1, 1, 1, alpha)
+    G.draw(img, 120 - 32, 60 - 32)
+    G.setColor(1, 1, 1, 1)
+    return true
+  end
+
   function Game3:drawBirchScene()
     local G = love.graphics
-    G.setColor(0.55, 0.78, 0.45, 1)
-    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    self:drawBirchBg()
     local b = self.boot
+    local bgA = (b and b.bgAlpha) or 1
+    if bgA < 1 then
+      G.setColor(0, 0, 0, 1 - bgA)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+      G.setColor(1, 1, 1, 1)
+    end
     if b and b.showMon then
       local azurill = self:bootSpecies()
       local img = self:bootPic(azurill)
-      G.setColor(1, 1, 1, 1)
+      local alpha = b.spriteAlpha or 1
+      G.setColor(1, 1, 1, alpha)
       if img then
-        G.draw(img, 88, 24)
+        -- CreateAzurillSprite(0x68, 0x48) = (104, 72) center.
+        local iw, ih = img:getDimensions()
+        G.draw(img, 104 - iw / 2, 72 - ih / 2)
       else
-        G.setColor(0.85, 0.55, 0.70, 1)
-        G.rectangle("fill", 96, 32, 48, 48)
+        G.setColor(0.85, 0.55, 0.70, alpha)
+        G.rectangle("fill", 80, 48, 48, 48)
       end
+      G.setColor(1, 1, 1, 1)
+    elseif b and b.showTrainer then
+      self:drawBirchTrainer()
     else
       self:drawBirchPortrait()
     end
@@ -1749,8 +2290,8 @@ function Boot.attach(Game3)
 
   function Game3:drawGenderPick()
     local G = love.graphics
-    G.setColor(0.55, 0.78, 0.45, 1)
-    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    self:drawBirchBg()
+    self:drawBirchTrainer()
     local data = self:bootData()
     local menu = data.menu or FALLBACK.menu
     local birch = data.birch or FALLBACK.birch
@@ -1769,8 +2310,8 @@ function Boot.attach(Game3)
 
   function Game3:drawNamePick()
     local G = love.graphics
-    G.setColor(0.55, 0.78, 0.45, 1)
-    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    self:drawBirchBg()
+    self:drawBirchTrainer()
     local names = self:presetNames()
     local b = self.boot
     local prompt = ""
@@ -1788,27 +2329,17 @@ function Boot.attach(Game3)
   end
 
   function Game3:drawNaming()
-    local G = love.graphics
-    G.setColor(0.10, 0.22, 0.45, 1)
-    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    local Naming = require("src.ui.gen3.NamingScreen")
     local b = self.boot
-    self:drawWindow(16, 16, 208, 32)
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("YOUR NAME?", 24, 24)
-    self:drawText(b and b.name or "", 120, 24)
-    self:drawWindow(16, 56, 208, 96)
-    local keys = b and b.keys or {}
-    local cursor = b and b.cursor or 0
-    local cols = 9
-    for i = 1, #keys do
-      local col = (i - 1) % cols
-      local row = math.floor((i - 1) / cols)
-      local x = 24 + col * 22
-      local y = 64 + row * 18
-      if (i - 1) == cursor then self:drawCursor(x - 8, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
-      self:drawText(keys[i], x, y)
+    local f = b and b.naming
+    if not f then
+      local G = love.graphics
+      G.setColor(0.10, 0.22, 0.45, 1)
+      G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+      return
     end
+    f.name = b.name or f.name
+    Naming.draw(self, f)
   end
 
   function Game3:drawBoot()

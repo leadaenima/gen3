@@ -143,4 +143,30 @@ eq(g.pc[1][2] ~= nil, true, "the dest slot has the mon")
 g:drawPc(g.field)
 check(true, "the box screen draws without error")
 
+-- Party panel opens for DEPOSIT; WITHDRAW keeps it closed until PARTY.
+g.party = { g:makeMon(280, 5), g:makeMon(290, 2) }
+g:openPc()
+press(g, "a")
+eq(g.field.partyOpen, false, "WITHDRAW starts with the party closed")
+g:openPc()
+press(g, "down")
+press(g, "a")
+eq(g.field.partyOpen, true, "DEPOSIT opens the party panel")
+eq(g.field.area, "party", "cursor starts on the party")
+
+-- Mail blocks deposit.
+local mailer = withGame()
+mailer:addToParty(mailer:makeMon(290, 2))
+mailer.party[1].item = Game3.ITEM_ORANGE_MAIL
+mailer.party[1].mail = { itemId = Game3.ITEM_ORANGE_MAIL }
+mailer:openPc()
+press(mailer, "down")
+press(mailer, "a")
+press(mailer, "a")
+press(mailer, "a")
+eq(mailer.field.msg, "Please remove the MAIL.", "deposit refuses mail")
+eq(#mailer.party, 2, "the mailed mon stayed in the party")
+
+eq(Game3.PC_HAND_DY, -12, "hand sits 12px above the icon")
+
 S.finish()

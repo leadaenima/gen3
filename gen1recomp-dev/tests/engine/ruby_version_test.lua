@@ -143,7 +143,7 @@ eq(RomExtractorGen3.decodeSpeciesNames("no names here"), nil,
 
 local required, isOverride = CacheContract.requiredFilesFor("ruby")
 check(isOverride == true, "ruby has its own required-file override")
-eq(#required, 40,
+eq(#required, 50,
   "Birch / menu copy, window and battle chrome, MP2K audio, and menu art")
 local seen = {}
 for _, path in ipairs(required) do seen[path] = true end
@@ -177,6 +177,9 @@ check(seen["data/generated/audio.lua"], "the MP2K registry is required")
 check(seen["assets/generated/audio/mp2k.bin"], "the MP2K blob is required")
 check(seen["data/generated/menus.lua"], "the menu registry is required")
 check(seen["assets/generated/icons/mon_icons.png"], "so is the icon atlas")
+check(seen["assets/generated/pc/header.png"], "PSS header chrome is required")
+check(seen["assets/generated/pc/wallpapers/forest.png"],
+  "PSS forest wallpaper is required")
 check(seen["assets/generated/party/tiles.png"], "and the party tile atlas")
 check(seen["assets/generated/egg_hatch/egg.png"],
   "the hatch egg sheet is required")
@@ -188,12 +191,16 @@ check(seen["assets/generated/sprites/ow_62.png"],
   "the ripe berry-tree sheet is required")
 check(seen["assets/generated/sprites/ow_191.png"],
   "Brendan's watering sheet is required")
+check(seen["assets/generated/sprites/ow_141.png"],
+  "the hideout submarine shadow is required")
 check(seen["assets/generated/field/pokeball_glow.png"],
   "the HoF pokéball glow tile is required")
 check(seen["assets/generated/pokenav/region_map.png"],
   "the painted Hoenn region map is required")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby41:",
-  "ripe berry-tree frames bump the cache marker")
+check(seen["assets/generated/starter/bg.png"],
+  "Birch's starter-choose bag is required")
+eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
+  "hideout submarine sprite bumps the cache marker")
 
 -- ------- 7. Game3 stub
 

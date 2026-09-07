@@ -423,16 +423,58 @@ do
   end
 end
 
+-- Ruby has no GBA hardware SRAM image to emulate (unlike Gen 1's cart
+-- .sav), so import/export use the engine's own SaveSerializer-encoded
+-- table directly: exportActiveSlotNative writes it, importToSlotNative
+-- reads the same shape back into a fresh slot.  A raw 32KB cart-shaped
+-- image is still refused, but for content reasons now, not a version gate.
 do
-  fresh()
+  local files = fresh()
+  GameVersion.set("ruby")
   local ok, err = SaveFileIO.importToSlot(string.rep("\0", 32768), "ruby")
-  eq(ok, false, "Ruby cart import is refused")
-  check(tostring(err):find("GBA save", 1, true) ~= nil,
-    "Ruby import names a GBA save")
+  eq(ok, false, "a cart-shaped blob is not a valid Ruby export")
+  check(tostring(err):find("not a valid exported save", 1, true) ~= nil,
+    "the refusal is about the content, not the GBA version gate: " .. tostring(err))
+
   ok, err = SaveFileIO.exportActiveSlot("ruby")
-  eq(ok, false, "Ruby cart export is refused")
-  check(tostring(err):find("GBA save", 1, true) ~= nil,
-    "Ruby export names a GBA save")
+  eq(ok, false, "nothing to export before any slot exists")
+  check(tostring(err):find("no save to export yet", 1, true) ~= nil,
+    "and the message says so, not GBA-not-supported: " .. tostring(err))
+
+  local slotId = SaveData.createSlot("ruby")
+  check(slotId ~= nil, "a ruby slot registers")
+  SaveData.setActiveSlot("ruby", slotId)
+  local original = {
+    version = "ruby", badgeCount = 6, mapId = "g0_6", x = 40, y = 20,
+    playerName = "MAY", money = 3000, party = {
+      { species = 279, level = 35, hp = 92, name = "PELIPPER" },
+    },
+  }
+  local wok, werr = SaveData.writeSlot("ruby", slotId, original)
+  check(wok, "the fixture slot writes: " .. tostring(werr))
+
+  local eok, path = SaveFileIO.exportActiveSlot("ruby")
+  check(eok, "export succeeds now that a slot exists: " .. tostring(path))
+  check(type(path) == "string" and path:find("%.lua$") ~= nil,
+    "the export is a .lua file, not a .sav (no hardware image to load it as)")
+  local exported
+  for candidate in pairs(files) do
+    if candidate:find("^exports/ruby/") then exported = candidate end
+  end
+  check(exported ~= nil, "the export landed under exports/ruby/ in the memfs")
+
+  -- Import by the save-directory-relative key the memfs stub actually reads
+  -- (readSource falls back to love.filesystem.read; the absolute `path`
+  -- exportActiveSlot returns is a real-disk path this fake fs never sees).
+  local iok, newSlot = SaveFileIO.importToSlot(exported, "ruby")
+  check(iok, "the just-exported file imports back in: " .. tostring(newSlot))
+  check(newSlot ~= slotId, "the import lands in a fresh slot, not overwriting the original")
+  local reloaded = SaveData.load("ruby")
+  eq(reloaded and reloaded.badgeCount, 6, "badge count survives the round trip")
+  eq(reloaded and reloaded.mapId, "g0_6", "location survives the round trip")
+  eq(reloaded and reloaded.playerName, "MAY", "player name survives the round trip")
+  check(reloaded and reloaded.party and reloaded.party[1]
+    and reloaded.party[1].species == 279, "the party survives the round trip")
 end
 
 love.filesystem = realFS

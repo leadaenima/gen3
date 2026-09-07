@@ -566,7 +566,9 @@ steps decrements party hatch counters; at 0 the egg hatches at level 5
 and is recorded in the dex. CONTINUE stores the pending pid, cycle
 counter, and `isEgg`. Extractor copies `genderRatio` / `eggCycles` /
 egg groups from base stats (no cache bump; old caches fall back).
-No required-files bump.
+`tryTalk` only stubs Day Care when the object has no ROM script — gfx
+29/30 are shared (Route 109, Berry Master, houses). No required-files
+bump.
 
 ## Phase 53 — Contests
 
@@ -1772,8 +1774,8 @@ add/remove write RESULT **0 on success**, 1 on full / not enough
 (inverted vs `additem`). `playslotmachine` (0x89) `VarGet`s the machine
 id, opens a 1–3 bet cabinet, and `ScriptContext_Stop`s until B. Reel
 strips, `GetMatchFromSymbolsInRow`, and `sSlotPayouts` are the ROM
-tables; Pika Power / stop-bias is not ported (random window on the same
-strips). Live carts need a re-import for the new IR.
+tables; Pika Power / stop-bias use `DrawMachineBias` odds and biased
+windows (Phase 277). Live carts need a re-import for the new IR.
 
 No cache bump.
 
@@ -1810,10 +1812,10 @@ always 12× until it lands. Six balls then the board clears (last
 result stays on screen). Payout is `minBet * multiplier` frozen when
 the bet is placed. `GAME_STAT_CONSECUTIVE_ROULETTE_WINS` 29 is a
 high-water `SetGameStat`. Exit writes `VAR_0x8004` TRUE if coins are
-below the min bet. Shroomish/Taillow party bias is not ported
-(same as slots skipping Pika Power). `GetPriceReduction` is still
-false until PokéNews. Live carts need a re-import for 0x96; special
-162 is already decoded. Bard 10:00 is still the wall clock (154).
+below the min bet. Shroomish/Taillow party bias is Phase 273.
+`GetPriceReduction` is still false until PokéNews. Live carts need a
+re-import for 0x96; special 162 is already decoded. Bard 10:00 is still
+the wall clock (154).
 
 No cache bump.
 
@@ -2470,12 +2472,12 @@ link-contest flag, not "has ribbon."
 
 Berry blender: `GetFirstFreePokeblockSlot` (160) returns `-1` when the
 40-slot case is full (`specialvar` stores `0xFFFF`). `DoBerryBlending`
-(161) waits, picks a berry, skips the RPM minigame, and `GivePokeblock`.
-Pecha → PINK. `ShowBerryBlenderRecordWindow` (259) waits. Feeder 208
-lists pokeblocks. PokéNav lists visited `FLAG_VISITED` towns; special
-251 waits. `ScriptMenu_CreatePCMultichoice` (262) / BedroomPC (249) /
-PlayerPC (250) / ShowPokemonStorageSystem (60) wait. Turn on/off 214/215
-are visual nops. No cache bump.
+(161) waits, picks a berry, then `blender_spin` RPM minigame (Phase 276),
+and `GivePokeblock`. Pecha → PINK. `ShowBerryBlenderRecordWindow` (259)
+waits. Feeder 208 lists pokeblocks. PokéNav lists visited `FLAG_VISITED`
+towns; special 251 waits. `ScriptMenu_CreatePCMultichoice` (262) /
+BedroomPC (249) / PlayerPC (250) / ShowPokemonStorageSystem (60) wait.
+Turn on/off 214/215 are visual nops. No cache bump.
 
 ## Phase 193 — Norman gym sliding doors
 
@@ -3139,10 +3141,235 @@ use `PARTY_MENU_LAYOUT_DOUBLE`: two 11×7 lead boxes stacked left
 Field START stays STANDARD. Link-double tables are ported but unused.
 No cache bump.
 
+## Phase 255 — side-approach door mats
+
+Indoor exits are south-arrow warps, often two tiles wide (house /
+Poké Center). `mapheader_run_first_tag2` warps when you are already
+on the mat and hold the matching dir — including a tap that only
+turned you that frame. A completed step (shuffle onto the other mat)
+clears `ignoreWarp`, so south into the wall/OOB still leaves. D-pad
+release does the same. Walking onto a south arrow from the east still
+does not warp until you press south. Restart LÖVE. No cache bump.
+
+## Phase 256 — starter-choose Birch bag cinema
+
+`CB2_ChooseStarter` (`starter_choose.c`) used a green-stripe
+placeholder and the Route 101 overworld bag sprite. The cart's
+`gBirchHelpGfx` / bag+grass tilemaps, `gBirchBallarrow_Gfx` (idle /
+wiggle / hand), and `gBirchCircle_Gfx` now extract to
+`assets/generated/starter/{bg,balls,circle}.png`. The hand bobs with
+`Sin(data[1], 8)`; the selected ball uses anim 1; A still grows the
+circle and front pic toward (120, 64). Yes/No stays input-responsive
+during that reveal. Re-import (`rom-cache-v10-ruby42`).
+
+## Phase 257 — Magma hideout submarine and hole pads
+
+`gObjectEventGraphicsInfo_SubmarineShadow` is 88×32 (size 1408). The
+OW extractor only accepted 8–64 widths, so gfx 141 never wrote
+`ow_141.png` and B2F had an invisible sub. `validOwSize` now allows
+tile-aligned 8–96 (SS Tidal 96×40 too). `MB_AQUA_HIDEOUT_WARP` 0x67
+plays `SE_WARP_IN` (`sub_8080F68`) then the pad's warp event, including
+after occupying the tile like `TryStartWarpEventScript`. Re-import
+(`rom-cache-v10-ruby43`).
+
+## Phase 258 — contest hall waitmovement and START
+
+`LinkContestRoom1` ON_WARP `hideobjectat LOCALID_PLAYER` then ON_FRAME
+`waitmovement 0`. A leftover D-pad/warp lerp kept `scriptMoving()` true
+with an empty job list, so the hall froze on `field=move` until START
+dumped you. Hidden leftover cooldown is not waitmovement; START still
+warps a stuck move/wait/delay cinema to the lobby, but not
+`contest_move` / results. Restart LÖVE. No cache bump.
+
+## Phase 259 — OW reflections south of the feet
+
+`ObjectEventCheckForReflectiveSurface` scans ceil(height/16) tiles
+south of current and previous coords. Scanning the tile a 32px sprite
+covers north put a face on Oldale dirt south of the Center pond. Tilt
+paints the flip on the ground canvas so it lies on the water instead
+of billboarding upright with the NPC. Restart LÖVE. No cache bump.
+
+## Phase 260 — Surf dismount and riding sprite
+
+`field_player_avatar.c` `sub_8058EF0`: while surfing, a Z-mismatch step
+onto elevation-3 beach grass becomes a dismount instead of collision 3.
+`canStep` now matches that before `tryWalk` clears `self.surfing`.
+Surfing gfx is `OBJ_EVENT_GFX_BRENDAN_SURFING` 2 / `MAY_SURFING` 92
+(32×32); extraction now errors without `ow_2`/`ow_92` and the ruby
+cache contract requires `ow_2.png`. Rebuild ROM cache (ruby44). Restart
+LÖVE.
+
+## Phase 261 — Day Care gfx stubs only without scripts
+
+`OBJ_EVENT_GFX_OLD_MAN_2` / `OLD_WOMAN_2` are shared (Route 109 beach
+grandpa + Zigzagoon, Berry Master's wife, Lavaridge mart, Mt. Pyre, …).
+`tryTalk` was routing every matching sprite on a route/indoor map into
+Day Care before `npc.script`, so those NPCs introduced themselves as the
+Day Care couple. Gate the stubs with `not npc.script` like nurse / Mom /
+Teala. Restart LÖVE. No cache bump.
+
+## Phase 262 — Teala contest stub only in lobbies
+
+Gfx 85 is lobby Teala, Cable Club Teala, and Battle Tower attendants.
+Battle Tower rooms stamp a NULL script; the indoor stub opened Contests
+there. `isContestLobbyMap` gates the stub to Verdanturf / Fallarbor /
+Slateport / Lilycove lobby group+num (plus `map.contestLobby` for tests).
+Restart LÖVE. No cache bump.
+
+## Phase 263 — Mom heal stub only downstairs
+
+Gfx 215 upstairs is a cinema stand-in with a NULL script
+(`FLAG_HIDE_MOM_UPSTAIRS`). The heal stub now requires
+`isMomHealMap` (Brendan/May house 1F, or `map.momHeal` for tests) and
+refuses bedroom maps. Restart LÖVE. No cache bump.
+
+## Phase 264 — Mart stub needs stock
+
+Gfx 83 is mart clerks, Oldale's street greeter, and Route 110 cycling
+guards. Opening a default POKe BALL shop on gfx alone made a missing
+script invent a store. `tryTalk` now requires baked `npc.mart` (from
+`pokemart` at extract) or an explicit `map.martStub` for tests.
+Restart LÖVE. No cache bump.
+
+## Phase 265 — Nurse heal stub only in Centers
+
+Gfx 58 only appears in Pokémon Centers and the League, all with ROM
+scripts. The no-script heal stub is gated by `isNurseHealMap`
+(`MUS_POKE_CENTER` 400, Center/League name, or `map.nurseHeal`).
+Restart LÖVE. No cache bump.
+
+## Phase 266 — Pokédex AREA habitat map
+
+AREA draws the Hoenn region map (`cinemaPic regionMap`) with
+`FindMapsWithMon` logic: town/route wild headers glow their MAPSEC
+(via `GetOverworldMapFromUnderwaterMap` remap); dungeon / Safari
+headers place blinking markers; Wynaut is hidden; Feebas always
+includes Route 119; Latios uses the active roamer tile; Sky Pillar /
+Seafloor Cavern markers need landmark flags. Empty habitats show
+AREA UNKNOWN. Chrome tiles and footprints stay parked. Restart LÖVE.
+No cache bump.
+
+## Phase 267 — Pokédex chrome tiles and footprints
+
+Import extracts `gPokedexMenu_Gfx` + detail layout + `menu1` pal into
+`assets/generated/pokedex/entry.png`, and the species footprint table into
+`footprints.png`. INFO / CRY / SIZE draw the entry chrome; owned INFO also
+stamps the 16×16 print at tile (25,8) (`sub_80C0DC0`). Cache **ruby46**.
+Re-import, then restart LÖVE.
+
+## Phase 268 — Contest painting CG
+
+`showcontestwinner` / special 138 open a full-screen painting: category
+frame, winner front pic with a mosaic fade (`sMosaicVal` from
+`sFrameCounter/2`), and the English caption (`COOL CONTEST WINNER` /
+museum lines). Museum saves store `{species,nickname,trainerName,category}`
+and still accept the old species-only rows. Link contests stay parked
+(no GBA cable; special 90 stays 0). Restart LÖVE. No cache bump.
+
+## Phase 269 — Safari POKeBLOCK with owned case
+
+Route 121 already gates on `checkitem ITEM_POKEBLOCK_CASE`. With the
+case owned (Slateport lobby), Safari battle POKeBLOCK opens the case
+(`SafariHandleOpenBag` / `sub_810BADC` mode 2) instead of always
+throwing flavor 0. USE runs `PokeblockGetGain` vs the wild mon's nature
+(`gPokeblockFlavorCompatibilityTable`) → curious / enthralled / ignored,
+clears the slot, then `HandleAction_ThrowPokeblock`. CANCEL / empty case
+returns to the safari menu. Feeder USE (special 208 pick) copies the
+block into `safariFeeder` then clears the case slot so special 207 can
+name it. Restart LÖVE. No cache bump.
+
+## Phase 270 — PC item storage / mailbox; Lanette title
+
+Player's PC ITEM STORAGE is WITHDRAW / DEPOSIT / TOSS over a 50-slot
+`pcItems` bag (`AddPCItem` / `RemovePCItem`, stack cap 999). New Game
+seeds 1 Potion. MAILBOX lists `pcMail` (10 letters): READ, MOVE TO BAG,
+GIVE to a party mon. Both round-trip in the save. Lanette chrome here
+is the PSS root owner line — `FLAG_SYS_PC_LANETTE` shows LANETTE'S PC
+instead of SOMEONE'S PC (PSS tile extract is Phase 274). Restart LÖVE. No cache bump.
+
+## Phase 271 — Field weather tiles; Cave of Origin orb chrome
+
+`field_weather_effects.c` sheets (rain 16×192, sand 64×80, ash 64×128,
+cloud/fog 64×64, snow 8×8×2, bubble 8×16) extract to
+`assets/generated/weather/` via `RomExtractorGen3Cinema` (pal 1 @
+0x397108, pal 2 for sand). `Game3WeatherFx` keeps the Phase 163 tint and
+scrolls OBJ-style drops on top (`stepWeatherFx` / `drawWeatherSprites`).
+Cave of Origin orb cutscene still has no cart tiles (`sub_808161C` is
+pal 0x1F/0x7C00 + WIN0 hole); a pulsing centre disc sits in the flash
+during open/hold. Re-import ROM cache (ruby47). Restart LÖVE.
+
+## Phase 272 — Link contest refuse (no GBA cable)
+
+Lilycove link-contest connect (`sub_808363C` special 92) returns RESULT 5
+like other Cable Club connect specials, so the lobby cancels with
+"Participate another time" instead of hanging on `waitstate`. `CloseLink`
+and link teardown specials are nops again (Phase 200) — they no longer
+soft-reset. `contestlinktransfer` (0x8E) writes `0x8004 = 2` if reached.
+Special 90 (`gUnknown_0203856C`) stays 0; a link win would still bump
+`GAME_STAT_WON_LINK_CONTEST`. Restart LÖVE. No cache bump. Real GBA-cable
+networking stays parked for a later engine.
+
+## Phase 273 — TV shows; lottery wait; roulette bias
+
+`SaveBlock1.tvShows` (25 slots) via `Game3Tv`: InterviewAfter queues air
+slots 5–23; `special_0x44` / GetTVShowType / DoTVShow play short talk
+pages; daily UpdateTVShowsPerDay clears inactive / ticks outbreaks;
+save round-trips. Lottery laptop (217) `beginScriptWait`s until 5 blinks
+or EndLottery (218). Roulette weights travel toward `lastSlot` when
+party has Shroomish and/or Taillow (hour-aware bias from
+`GetRandomForBallTravelDistance`). Restart LÖVE. No cache bump.
+
+## Phase 274 — PSS wallpaper / header tile extract
+
+`RomExtractorGen3Pc` pulls Lanette/Bill PC chrome from the cart into
+`assets/generated/pc/`: scrolling BG tile, 80×160 header, party panel /
+close bar / CLOSE BOX buttons, hand + shadow + arrows, and all 16
+160×144 wallpapers (frame+bg pals). `Game3Pc` blits those paths (color
+fallback remains if a file is missing). Re-import ROM cache (ruby48).
+Restart LÖVE.
+
+## Phase 275 — link-double / multi party layouts
+
+`PARTY_MENU_LAYOUT_LINK_DOUBLE` (2) and `MULTI` (3) coordinate tables
+are live: box / icon / name / level / HP from `gUnknown_083769C0`,
+`gUnknown_08376678[3]`, `gUnknown_08376858[2..3]`, and
+`PartyMonTextSettings`. `f.layout` / `b.partyLayout` selects them;
+in-game doubles still use layout 1. MULTI lead boxes are slots 0 and 3
+(left column). No real link battle yet. Restart LÖVE. No cache bump.
+
+## Phase 276 — Berry Blender RPM minigame
+
+After the berry pick, `blender_spin` runs the arrow timing game from
+`berry_blender.c`: seat-0 BEST/GOOD windows, speed (`field_56`) and
+progress (`field_13E` → 1000), RPM = `360000 * speed / 0x10000`, NPC
+partners auto-BEST on their seats when `0x8004` extras > 0. Finish
+writes `berryBlenderRecords` and scales pokeblock flavors with
+`maxRPM/333+100`. No chrome extract. Restart LÖVE. No cache bump.
+
+## Phase 277 — Slot Pika Power / stop-bias
+
+`playslotmachine` keeps `pikaPower` (0–16) and `luckyGame`. Each spin
+runs `DrawMachineBias` odds (`sSpecialDrawOdds` /
+`sBiasProbabilities_*`): sticky 777 biases, ReelTime spin count from
+`sReelTimeProbabilities_*` (clears the gauge; forces POWER bias while
+active), and biased reel windows for POWER / AZURILL / LOTAD / CHERRY /
+REPLAY / 777. POWER matches bump the gauge; blue 777 sets lucky. HUD
+shows PIKA N. Contest hall START abort was already Phases 241/258.
+Restart LÖVE. No cache bump.
+
+## Phase 278 — Battle Tower party pick + banlist
+
+`CheckPartyBattleTowerBanlist` counts eligible mons (no eggs / legends /
+dup species / dup held / Lv50 over-50). `ChooseBattleTowerPlayerParty`
+waitstates a 3-pick UI (A toggle, START OK, B cancel → RESULT 1/0).
+Confirm runs `ReducePlayerPartyToThree`; property case 5 stores
+`selectedPartyMons`; `SetBattleTowerParty` (239) re-applies the order.
+Lobby can pass the desk and save; elevator battles / prize / ribbons
+stay parked. Restart LÖVE. No cache bump.
+
 ## Later engines
 
-- Dex chrome tiles / footprints / habitat AREA map
-- Cave of Origin orb tiles; field weather tiles
-- TV `tvShows`; lottery laptop wait; roulette drop bias
-- Berry-bag 44 waitstate
-- Link-double / multi party layouts (tables only)
+- Real GBA-cable / Wireless networking
+- Battle Tower elevator battles / prizes / ribbons
+- Secret-base PC specials (16–25 / 331)
+- Slot ReelTime cinema chrome (logic is live; no RT minigame art)

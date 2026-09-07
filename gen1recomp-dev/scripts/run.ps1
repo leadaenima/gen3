@@ -1,9 +1,9 @@
-ï»¿# Run the LÃ–VE2D PokÃ©mon Red port (Windows).
+# Run the LÖVE2D Pokémon Red port (Windows).
 #
 # Assumes scripts\setup.ps1 has been run once (generated data present and
-# LÃ–VE installed).  Extra arguments are passed through to LÃ–VE.
+# LÖVE installed).  Extra arguments are passed through to LÖVE.
 #
-# Link play is peer-to-peer over lua-enet (bundled with LÃ–VE): one player
+# Link play is peer-to-peer over lua-enet (bundled with LÖVE): one player
 # uses START > LINK > HOST A GAME, the other joins the shown address.
 # UDP port defaults to 7777; override with $env:POKEPORT_LINK_PORT.
 
@@ -40,12 +40,19 @@ function Find-Love {
 
 $LoveBin = Find-Love
 if (-not $LoveBin) {
-    Fail 'LÃ–VE not found,  run scripts\setup.ps1 (or install from https://love2d.org)'
+    Fail 'LÖVE not found,  run scripts\setup.ps1 (or install from https://love2d.org)'
 }
 
-# LÃ–VE inherits this process CWD. Relative io.open dumps (and some harness
+# LÖVE inherits this process CWD. Relative io.open dumps (and some harness
 # encodes) otherwise land on Desktop when the launcher was started there.
 Set-Location $Root
 
-& $LoveBin $Root @args
-exit $LASTEXITCODE
+# Native LOVE needs an explicitly quoted game path when it contains spaces
+# (e.g. Desktop\pkmn gen1recomp\...). Unquoted, LOVE only sees ...\Desktop\pkmn.
+$argLine = '"' + $Root + '"'
+foreach ($a in $args) {
+    $argLine += ' "' + ($a -replace '"', '\"') + '"'
+}
+$proc = Start-Process -FilePath $LoveBin -ArgumentList $argLine -Wait -PassThru -NoNewWindow
+if (-not $proc) { exit 1 }
+exit $proc.ExitCode

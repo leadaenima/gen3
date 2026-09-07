@@ -4,6 +4,7 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 if not _G.love then _G.love = require("tests.love_stub") end
 
+
 local S = require("tests.harness").suite("ruby map extract")
 local check = S.check
 local eq = S.eq
@@ -141,6 +142,62 @@ check(type(prim) == "number" and type(sec) == "number",
 
 eq(RomExtractorGen3.decodeTownMap("no maps here"), nil,
   "a blob without MUS_LITTLEROOT is not a town")
+
+-- A DECORPERM_SOLID_MAT decoration's tiles[0] is an OBJ_EVENT_GFX id that
+-- sub_80BBDD0 writes into VAR_OBJ_GFX_ID_n at runtime, so those sheets are
+-- never any map object's graphicsId. Scanning the maps alone left ids
+-- 143..188 unextracted and every placed doll invisible.
+do
+  local fakeMaps = { g1 = { objects = { { graphicsId = 35 } } } }
+  local plain = RomExtractorGen3.collectGraphicsIds(fakeMaps)
+  local hasDoll = false
+  for _, id in ipairs(plain) do if id == 154 then hasDoll = true end end
+  eq(hasDoll, false, "a doll sheet is not reachable from the maps")
+
+  local catalog = { byId = {
+    -- SOLID_MAT is permission 4; its gfx is an OBJ_EVENT_GFX id.
+    [88] = { permission = 4, gfx = 154, tiles = { 154 } },
+    [77] = { permission = 4, gfx = 143, tiles = { 143 } },
+    -- A grid-baked one, whose tiles are metatiles and must NOT be pulled
+    -- in as a sprite.
+    [1] = { permission = 0, gfx = 0x28, tiles = { 0x28 } },
+  } }
+  local withDecor = RomExtractorGen3.collectGraphicsIds(fakeMaps, catalog)
+  local seen = {}
+  for _, id in ipairs(withDecor) do seen[id] = true end
+  eq(seen[154], true, "the catalog pulls in the TREECKO DOLL sheet")
+  eq(seen[143], true, "and the PIKACHU DOLL sheet")
+  eq(seen[0x28], nil, "but not a SOLID_FLOOR decoration's metatile")
+  eq(seen[35], true, "map objects are still collected")
+end
+
+-- An object placed as OBJ_EVENT_GFX_VAR_0..F resolves through
+-- VAR_OBJ_GFX_ID_n at runtime, so the sheet it ends up wanting is never
+-- any object's graphicsId. Common_EventScript_SetupLegendaryGfxIds puts
+-- Groudon (198/206) in VAR_OBJ_GFX_ID_8/9 and nothing else in the game
+-- names them, so they came out unextracted and Groudon was a blank square.
+do
+  local mapsWithVarGfx = {
+    g1 = {
+      objects = { { graphicsId = 248 }, { graphicsId = 249 } },
+      mapScripts = { onTransition = {
+        { op = "setvar", var = 0x4018, val = 198 },
+        { op = "setvar", var = 0x4019, val = 206 },
+        -- setorcopyvar from another var must NOT be read as a sprite id.
+        { op = "setorcopyvar", var = 0x4010, val = 0x4001 },
+      } },
+    },
+  }
+  local ids = RomExtractorGen3.collectGraphicsIds(mapsWithVarGfx)
+  local seen = {}
+  for _, id in ipairs(ids) do seen[id] = true end
+  eq(seen[198], true, "the legendary sheet is collected from the script")
+  eq(seen[206], true, "and its second form")
+  eq(seen[248], true, "the GFX_VAR placeholder is still collected as before")
+  local over = 0
+  for _, id in ipairs(ids) do if id > 255 then over = over + 1 end end
+  eq(over, 0, "a var reference is never mistaken for a graphics id")
+end
 
 eq(RomExtractorGen3.attrBehavior(0x1080), 0x80, "behavior is the low byte")
 eq(RomExtractorGen3.attrLayerType(0x1080), 1, "layer type is bits 12-15")
@@ -657,6 +714,7 @@ eq(host.flags[0x807], true, "RoxanneDefeated sets FLAG_BADGE01_GET")
 eq(host.flags[0xA5], nil, "talk-again TM flag is not the beaten path")
 
 host.scriptTrainerBattle = function() return false end
+host.trainerDefeated = function(_, id) return id == 265 end
 host.flags = {}
 Gen3Script.run(host, ops)
 eq(host.flags[0xA5], true, "a defeated gym leader runs the next opcode")
@@ -1139,9 +1197,228 @@ eq(RomExtractorGen3.DIR_NAME[5], "dive", "extractor names CONNECTION_DIVE")
 eq(RomExtractorGen3.DIR_NAME[6], "emerge", "extractor names CONNECTION_EMERGE")
 eq(#hoenn.maps.g1_0.warps, 1, "indoor has a return warp")
 
+-- gMapLayouts holds alternate layouts that no map header points at --
+-- Route 130 Mirage 46, Cave of Origin 313, Route 131 Sky Pillar 320,
+-- Seafloor Cavern 327.  Layout 243 (LAYOUT_UNKNOWN_MAP_082EDF30) has a
+-- NULL secondaryTileset, which is legal (fieldmap.c and tileset_anim.c
+-- both guard on it).  Treating that slot as the end of the array cut the
+-- walk short and lost every alternate layout above it.
+local LAYOUTS, L_NULLSEC, L_ALT, GRID_ALT = 0x3200, 0x3300, 0x3320, 0x3340
+local function layoutAt(gridOff, secOff)
+  return GbaBin.packU32(2) .. GbaBin.packU32(2)
+    .. GbaBin.packPtr(DUMMY)
+    .. GbaBin.packPtr(gridOff)
+    .. GbaBin.packPtr(TS0)
+    .. (secOff and GbaBin.packPtr(secOff) or GbaBin.packU32(0))
+end
+-- The town header stores layoutId 10, so slot 10 must hold its layout for
+-- findMapLayouts to lock on to the base.
+local slots = {}
+for i = 1, 9 do slots[i] = GbaBin.packPtr(L_ROUTE) end
+slots[10] = GbaBin.packPtr(L)
+slots[11] = GbaBin.packPtr(L_NULLSEC)
+slots[12] = GbaBin.packPtr(L_ALT)
+local world2 = overlay(world, LAYOUTS, table.concat(slots))
+world2 = overlay(world2, L_NULLSEC, layoutAt(GRID_ROUTE, nil))
+world2 = overlay(world2, L_ALT, layoutAt(GRID_ALT, TS1))
+world2 = overlay(world2, GRID_ALT,
+  GbaBin.packU16(5) .. GbaBin.packU16(6)
+  .. GbaBin.packU16(7) .. GbaBin.packU16(8))
+
+local base, count = RomExtractorGen3.findMapLayouts(world2,
+  RomExtractorGen3.findMapGroups(world2))
+-- The tileset animation frames are only reachable through code: struct Tileset
+-- carries a callback at +0x14, that installs an inner driver, and the driver
+-- calls QueueTilesetAnimDma(frames[n % N], dest, size). Everything needed is in
+-- THUMB literal pools, so the extractor decodes them directly.
+;(function()
+local hw = GbaBin.packU16
+-- 0x00 ldr r0,[pc,#12]  -> literal at 0x10
+-- 0x02 mov r2,#0xF0
+-- 0x04 lsl r2,r2,#2     -> 0x3C0, the size no single MOV can hold
+-- 0x06 bl 0x08000010
+-- 0x0A bx lr
+local fn = hw(0x4803) .. hw(0x22F0) .. hw(0x0092)
+  .. hw(0xF000) .. hw(0xF803) .. hw(0x4770)
+  .. string.rep(" ", 4) .. GbaBin.packU32(0x12345678)
+eq(#fn, 0x14, "the fixture function is 20 bytes")
+local lits, movs, calls, lens = RomExtractorGen3.decodeThumb(fn, 0)
+eq(#lits, 1, "one pc-relative load")
+eq(lits[1].reg, 0, "into r0")
+eq(lits[1].value, 0x12345678, "resolved through ((pc+4)&~3)+imm*4")
+eq(movs[2], 0xF0, "the MOV immediate alone is only 0xF0")
+eq(lens[1], 0x3C0, "but r2 at the call is the shifted value")
+eq(#calls, 1, "one BL")
+eq(calls[1], 0x8000010, "BL target from the two-halfword encoding")
+
+-- bx lr ends the walk, so anything past it is pool, not instructions
+local trailing = fn .. hw(0x4804) .. GbaBin.packU32(0xDEADBEEF)
+eq(#(select(1, RomExtractorGen3.decodeThumb(trailing, 0))), 1,
+  "decoding stops at the return")
+
+eq(RomExtractorGen3.decodeThumb(nil, 0) and true, true, "nil data is not an error")
+eq(#(select(1, RomExtractorGen3.decodeThumb("", 0))), 0, "nor is an empty rom")
+end)()
+
+-- Playing a tileset animation is picking which baked atlas to sample.
+-- sub_8072EDC ticks once per field frame and the wrapper gates the DMA with
+-- `if (a1 % period == 0)`, so the frame advances every `period` frames.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+g.phase = "play"
+local imgs = {}
+local function img(name)
+  imgs[name] = imgs[name] or { name = name,
+    getDimensions = function() return 512, 512 end }
+  return imgs[name]
+end
+g.grabImage = function(_, path) return path and img(path) end
+g.data.tilesets = { byId = { sea = {
+  bottom = "b0", top = "t0",
+  anim = { frames = 4, period = 16, layers = {
+    [1] = { bottom = "b1", top = "t1" },
+    [2] = { bottom = "b2", top = "t2" },
+    [3] = { bottom = "b3", top = "t3" },
+  } },
+}, still = { bottom = "s0", top = "s1" } } }
+local sea = { id = "g_anim", tileset = "sea", width = 2, height = 2,
+  grid = { 1, 1, 1, 1 } }
+g.data.maps = { maps = { g_anim = sea } }
+
+eq(g:tilesetAnimFrame("still"), 0, "an un-animated tileset is always frame 0")
+eq(select(2, g:tilesetAnimSpec("sea")), 4, "four frames")
+eq(select(3, g:tilesetAnimSpec("sea")), 16, "advancing every 16 ticks")
+
+g.playSeconds = 0
+eq(g:tilesetAnimFrame("sea"), 0, "tick 0 is frame 0")
+g.playSeconds = 15 / 60
+eq(g:tilesetAnimFrame("sea"), 0, "still frame 0 at tick 15")
+g.playSeconds = 16 / 60
+eq(g:tilesetAnimFrame("sea"), 1, "frame 1 at tick 16")
+g.playSeconds = 48 / 60
+eq(g:tilesetAnimFrame("sea"), 3, "frame 3 at tick 48")
+g.playSeconds = 64 / 60
+eq(g:tilesetAnimFrame("sea"), 0, "and it wraps")
+
+g.playSeconds = 0
+g:enterMap(sea, 0, 0, true)
+eq(g.layerBottom.name, "b0", "frame 0 loads the plain atlas")
+g.playSeconds = 16 / 60
+g:stepTilesetAnim()
+eq(g.layerBottom.name, "b1", "the swap follows the tick")
+eq(g.layerTop.name, "t1", "both layers move together")
+eq(g._tilesetFrame, 1, "and the frame is recorded for the tile window key")
+g.playSeconds = 20 / 60
+g:stepTilesetAnim()
+eq(g.layerBottom.name, "b1", "no reload inside the same frame")
+
+-- A missing frame atlas must not blank the ground.
+g.data.tilesets.byId.sea.anim.layers[2] = { bottom = "gone", top = "gone2" }
+g.grabImage = function(_, path)
+  if path == "gone" or path == "gone2" then return nil end
+  return path and img(path)
+end
+g.playSeconds = 32 / 60
+g:stepTilesetAnim()
+eq(g.layerBottom.name, "b1", "a frame that will not load keeps the last one")
+end)()
+
+eq(base, LAYOUTS, "findMapLayouts locks on to gMapLayouts")
+eq(count, 12, "a NULL secondaryTileset does not end the array")
+
+local alt = RomExtractorGen3.decodeHoenn(world2)
+check(alt ~= nil, "decodeHoenn still decodes with a null-secondary layout")
+eq(alt.layouts[11], nil, "the null-secondary layout is skipped")
+check(alt.layouts[12] ~= nil, "the alternate layout above it is kept")
+eq(alt.layouts[12].width, 2, "alternate layout keeps its size")
+eq(alt.layouts[12].grid[1], 5, "alternate layout keeps its own grid")
+eq(alt.layouts[12].tileset, "pair_0", "and shares the fixture tileset pair")
+eq(alt.layouts[10], nil, "layouts a map header owns are not duplicated")
+eq(#alt.pairs, 1, "skipping the null slot adds no tileset pair")
+
+-- VOID FILL wrap-tiles scenery past a map's edges. It ranked candidates by
+-- how often they appear without checking BG1, so Route 110's Seaside Cycling
+-- Road railings -- which sit on water behaviour -- were picked as "open
+-- water" and tiled a railing/water grid across the view. fieldmap.c
+-- GetBorderBlockAt is the cart's own answer for what is out there, so a
+-- metatile in map.border is always a legal candidate.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+g.phase = "play"
+g.data.tilesets = { byId = { ocean = {
+  layerType = { [368] = Game3.LAYER_COVERED, [84] = Game3.LAYER_NORMAL,
+    [754] = Game3.LAYER_NORMAL },
+  tiles = { [754] = {}, [84] = {}, [368] = {} },
+} } }
+local sea = {
+  id = "g_sea", tileset = "ocean", mapType = Game3.MAP_TYPE_ROUTE,
+  width = 2, height = 2,
+  grid = { 368, 368, 754, 84 },
+  border = { 368, 368, 368, 368 },
+  behavior = { 0x15, 0x15, 0x15, 0x15 },
+}
+g.data.maps = { maps = { g_sea = sea } }
+g.metatileTopEmpty = function(_, _, mid) return mid ~= 754 end
+check(not g:voidFillMetatileOk(sea, 754, "water"),
+  "a railing over water is not open water")
+check(g:voidFillMetatileOk(sea, 84, "water"), "a plain water tile is")
+check(g:voidFillMetatileOk(sea, 368, "water"),
+  "and the border block is always allowed, LAYER_COVERED or not")
+local cells = g:voidFillCells(sea, "water")
+eq(cells[1], 368, "VOID FILL WATER leads with the border's own water")
+for i = 1, #cells do
+  check(cells[i] ~= 754, "and the railing never reaches the fill")
+end
+end)()
+
+-- The ground layer is the only part of the world draw that uses a
+-- SpriteBatch; VOID FILL and the border fill bake with immediate G.draw. On a
+-- driver where batch draws land nowhere the map silently vanishes and the
+-- fill keeps painting. spriteBatchUsable() probes once and drops the whole
+-- layer to immediate drawing rather than rendering an empty world.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+g.phase = "play"
+check(g:spriteBatchUsable(), "a working batch stays on the batch path")
+local map = {
+  id = "g_probe", tileset = "t", width = 4, height = 4,
+  grid = { 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1 },
+}
+g.data.maps = { maps = { g_probe = map } }
+g._spriteBatchOk = false
+local painted, batched = 0, 0
+g.blitMetatile = function(_, _, _, _, _, _, batch)
+  painted = painted + 1
+  if batch then batched = batched + 1 end
+end
+eq(g:tileWindow("img", map, 0, 0, 3, 3, nil), nil,
+  "a dead batch path returns no batch to draw")
+eq(painted, 16, "every visible tile is painted directly instead")
+eq(batched, 0, "and none of it goes through a batch")
+end)()
+
 local Game3 = require("src.core.Game3")
 local field = Game3.new()
 field.data.maps = { start = hoenn.start, maps = hoenn.maps }
+-- field_control_avatar.c IsWarpMetatileBehavior: a warp event only warps when
+-- its tile is also a warp tile. The fixture ROM carries no metatile
+-- attributes, so its doors decode as MB_NORMAL; stamp a warp behaviour on
+-- them so these checks take the same path a real door does. MB_LADDER
+-- rather than either door kind: field_fadetransition.c sub_8080AE4 routes
+-- BOTH door behaviours to an arrival task that walks the player one step
+-- off the tile (sub_8080B9C / task_map_chg_seq_0807E20C), while everything
+-- else gets task_map_chg_seq_0807E2CC, which just unlocks control. These
+-- checks are about warp-tile gating, not about the arrival step, so they
+-- want a warp tile that does not walk.
+for _, m in pairs(hoenn.maps) do
+  m.behavior = m.behavior or {}
+  for _, w in ipairs(m.warps or {}) do
+    m.behavior[(w.y or 0) * (m.width or 0) + (w.x or 0) + 1] = Game3.MB_LADDER
+  end
+end
 field:enterMap(hoenn.maps.g0_0, 1, 1, false)
 eq(field.map.id, "g0_0", "play starts in town")
 check(not Game3.walkable(hoenn.maps.g0_0, 1, 0), "the door tile is solid")
@@ -1212,6 +1489,43 @@ eq(wy0, -hoenn.maps.g0_1.height * Game3.TILE,
 eq(wy1, hoenn.maps.g0_0.height * Game3.TILE, "south edge stays the town")
 eq(wx0, 0, "no west neighbor")
 eq(wx1, hoenn.maps.g0_0.width * Game3.TILE, "no east neighbor")
+
+eq(Game3.CONNECTION_DRAW_HOPS, 1, "survey draws only touching maps")
+local chainA = {
+  id = "g0_0", width = 4, height = 4,
+  connections = { { dir = "east", offset = 0, mapGroup = 0, mapNum = 1 } },
+}
+local chainB = {
+  id = "g0_1", width = 4, height = 4,
+  connections = {
+    { dir = "west", offset = 0, mapGroup = 0, mapNum = 0 },
+    { dir = "east", offset = 0, mapGroup = 0, mapNum = 2 },
+  },
+}
+local chainC = {
+  id = "g0_2", width = 6, height = 4,
+  connections = { { dir = "west", offset = 0, mapGroup = 0, mapNum = 1 } },
+}
+local chain = Game3.new()
+chain.data.maps = { maps = { g0_0 = chainA, g0_1 = chainB, g0_2 = chainC } }
+chain.map = chainA
+local hop1, hop2, hop1x = 0, 0, nil
+chain:eachNeighbor(chainA, function(dest, ox)
+  hop1 = hop1 + 1
+  hop1x = ox
+end)
+eq(hop1, 1, "eachNeighbor stays one hop")
+eq(hop1x, 4, "the east neighbor origin is this map's width")
+chain:eachConnectedMap(chainA, function(dest, ox)
+  if dest.id == "g0_1" then hop1x = ox end
+  if dest.id == "g0_2" then hop2 = hop2 + 1 end
+end)
+eq(hop2, 0, "the map past the neighbor is not drawn")
+chain.map = chainA
+local _, _, farX = chain:worldBounds()
+eq(farX, 8 * Game3.TILE, "world bounds stop at the touching map")
+local covers = chain:mapCoverRects()
+eq(#covers, 2, "border fill punches this map and its neighbor")
 
 -- Phase 56: map scripts + coord events (ROM hooks, not per-map placeholders)
 
@@ -1378,6 +1692,15 @@ local town = {
   id = "g0_9", width = 4, height = 4, grid = cells,
   objects = {}, warps = {}, connections = {}, coordEvents = {},
 }
+-- Every building's exit mat on the cart is MB_SOUTH_ARROW_WARP -- g1_0's two
+-- mat tiles at (9,8) and (8,8) both read 0x65 -- so walking south off the mat
+-- leaves by the arrow path. Without it the mat is MB_NORMAL and, since
+-- IsWarpMetatileBehavior rejects that, nothing would warp.
+house.behavior = house.behavior or {}
+for _, w in ipairs(house.warps or {}) do
+  house.behavior[(w.y or 0) * (house.width or 0) + (w.x or 0) + 1] =
+    Game3.MB_SOUTH_ARROW_WARP
+end
 local g = Game3.new()
 g.phase = "play"
 g.data.maps = { start = "g0_9", maps = { g0_9 = town, house1f = house } }
@@ -1427,6 +1750,66 @@ check(g:tryWalk(0, 1), "DOWN hops the south ledge")
 eq(g.playerX, 1, "same column")
 eq(g.playerY, 2, "landed two tiles south")
 check(g.hopping, "the hop is in the air")
+end)()
+
+-- field_player_avatar.c ShouldJumpLedge / DoForcedMovement: a ledge jump
+-- is unconditional once the facing tile matches the walked direction --
+-- there is no landing-tile collision or elevation check in the real
+-- game (a ledge dropping to a different elevation is the point of a
+-- ledge, e.g. Lilycove's beach). tryLedgeHop must not gate the landing
+-- tile the way canStep gates a normal step.
+;(function()
+local Game3 = require("src.core.Game3")
+local ELEV3, ELEV2, COLL1 = 3 * 4096, 2 * 4096, 1 * 1024
+local beach = {
+  id = "g_beach", width = 3, height = 3,
+  tileset = "pair_x",
+  grid = {
+    ELEV3 + 0, ELEV3 + 0, ELEV3 + 0,
+    ELEV3 + COLL1 + 1, ELEV3 + COLL1 + 1, ELEV3 + COLL1 + 1,
+    ELEV2 + 2, ELEV2 + 2, ELEV2 + 2,
+  },
+  mapType = Game3.MAP_TYPE_ROUTE,
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.tilesets = { byId = {
+  pair_x = { behavior = { [0] = 0, [1] = Game3.MB_JUMP_SOUTH, [2] = 0 } },
+} }
+g.data.maps = { maps = { g_beach = beach } }
+g:enterMap(beach, 1, 0, true)
+eq(g.currentElevation, 3, "standing on the elevation-3 plateau")
+check(g:tryWalk(0, 1),
+  "the ledge hop clears even though the landing is a different elevation")
+eq(g.playerX, 1, "same column")
+eq(g.playerY, 2, "landed on the elevation-2 beach two tiles south")
+end)()
+
+-- Lilycove beach lips: jump metatiles can be collision-0 at the same
+-- elevation as the plateau. pokeruby's ShouldJumpLedge still fires.
+;(function()
+local Game3 = require("src.core.Game3")
+local ELEV3, ELEV2 = 3 * 4096, 2 * 4096
+local lip = {
+  id = "g_lily_lip", width = 3, height = 3,
+  tileset = "pair_y",
+  grid = {
+    ELEV3 + 0, ELEV3 + 0, ELEV3 + 0,
+    ELEV3 + 1, ELEV3 + 1, ELEV3 + 1,
+    ELEV2 + 0, ELEV2 + 0, ELEV2 + 0,
+  },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.tilesets = { byId = {
+  pair_y = { behavior = { [0] = 0, [1] = Game3.MB_JUMP_SOUTH } },
+} }
+g.data.maps = { maps = { g_lily_lip = lip } }
+g:enterMap(lip, 1, 0, true)
+check(g:tryWalk(0, 1),
+  "a walkable same-elevation jump lip still hops to the beach")
+eq(g.playerX, 1, "same column")
+eq(g.playerY, 2, "landed two tiles south, not on the lip")
 end)()
 
 ;(function()
@@ -1479,13 +1862,11 @@ check(npc, "wanderer is west of the player")
 local ox, oy = npc.x, npc.y
 check(g:tryTalk(), "A talks")
 eq(npc.facing, "east", "NPC faces the player")
-check(npc.talkLock, "and is locked")
-npc.wait = 0
-npc.cooldown = 0
-g:stepNpcs(2)
-eq(npc.x, ox, "locked NPC does not wander x")
-eq(npc.y, oy, "or y")
-eq(npc.facing, "east", "or turn away")
+-- No script on this NPC means no `lock` op ever runs (field_control_avatar.c
+-- TryStartInteractionScript: a NULL script pointer never reaches
+-- ScriptContext_SetupScript at all), so it stays free to wander --
+-- unlike a real scripted NPC, which locks via its own script's `lock`.
+check(not npc.talkLock, "no script means nothing ran, so it is not locked")
 g:closeField()
 check(not npc.talkLock, "closing dialogue unlocks")
 
@@ -1598,6 +1979,17 @@ check(Game3.shouldAnimCorner(127, 0, { 127, 128, 129, 130 }, 1, 0),
   "walkable flowers still sway")
 check(Game3.shouldAnimCorner(120, Game3.MB_OCEAN_WATER, nil, nil, 1),
   "surfable ocean still sways through collision")
+check(Game3.shouldAnimCorner(120, Game3.MB_POND_WATER, { 120, 121, 122, 123 }, 1),
+  "open pond water still sways")
+check(not Game3.shouldAnimCorner(108, Game3.MB_POND_WATER,
+    { 270, 270, 270, 286, 108, 109, 124, 0 }, 5),
+  "Route 104 pond-bank water does not flip")
+check(not Game3.shouldAnimCorner(110, Game3.MB_POND_WATER,
+    { 270, 270, 286, 286, 110, 109, 0, 0 }, 5),
+  "and the L-pond's other bank stays still")
+check(not Game3.shouldAnimCorner(127, Game3.MB_POND_WATER,
+    { 270, 270, 286, 270, 110, 111, 0, 127 }, 5),
+  "pond-bank flower foam does not borrow the water flip")
 end)()
 
 ;(function()
@@ -1917,6 +2309,17 @@ local elev = {
       mapNum = Game3.MAP_DYNAMIC_NUM, warpId = Game3.WARP_ID_DYNAMIC },
   },
 }
+-- The real LILYCOVE DEPT. STORE 1F puts MB_NON_ANIMATED_DOOR on its elevator
+-- door: g13_17's warp at (16,1) reads 0x60. This fixture is a 3x3 stand-in for
+-- dynamic-warp bookkeeping and is entered and left walking north, where the
+-- real 3x6 lift is left walking south onto MB_SOUTH_ARROW_WARP, so the plain
+-- door goes on both sides -- it is the behaviour that bumps from any
+-- direction, which is what this fixture's geometry needs.
+floor1.behavior = { [0 * 3 + 1 + 1] = Game3.MB_NON_ANIMATED_DOOR }
+elev.behavior = {
+  [1 * 3 + 1 + 1] = Game3.MB_NON_ANIMATED_DOOR,
+  [1 * 3 + 2 + 1] = Game3.MB_NON_ANIMATED_DOOR,
+}
 local g = Game3.new()
 g.phase = "play"
 g.data.maps = { maps = { g13_17 = floor1, g13_23 = elev } }
@@ -1931,9 +2334,15 @@ eq(g.dynamicWarp.mapNum, 17, "saved 1F")
 eq(g.dynamicWarp.warpId, 0, "saved source warp 0")
 eq(g.dynamicWarp.x, 1, "saved x")
 eq(g.dynamicWarp.y, 1, "saved y")
-check(g:tryWalk(0, 1), "step off the pad")
+-- sub_8080AE4: the lift door is MB_NON_ANIMATED_DOOR, so arriving runs
+-- task_map_chg_seq_0807E20C, which walks the player one step off the pad
+-- before returning control -- you step INTO the lift, exactly as the real
+-- one does. Finish that held movement the way a frame would.
+g:finishScriptMoves()
+g.field = nil
+eq(g.playerY, 0, "the arrival task walked the player off the pad")
 eq(g.map.id, "g13_23", "still inside")
-check(g:tryWalk(0, -1), "step onto MAP_DYNAMIC")
+check(g:tryWalk(0, 1), "step back onto MAP_DYNAMIC")
 eq(g.map.id, "g13_17", "returns to 1F")
 
 g:setDynamicWarp(13, 17, 0, 1, 1)
@@ -2082,6 +2491,56 @@ eq(g.playerX, 1, "slide pad")
 eq(g.facing, "north", "facingDirectionLocked")
 eq(g.walkDuration, Game3.RUN_PERIOD, "PlayerGoSpeed2")
 Input.isDown = oldDown
+
+-- Mossdeep Gym: elevated walkways must not inherit floor-belt forced
+-- movement when currentElevation drifts to 0 on a raised tile.
+local ELEV3, ELEV0 = 3 * 4096, 0
+local deck = {
+  id = "mg_deck", width = 3, height = 2,
+  grid = {
+    ELEV3 + 0, ELEV3 + 0, ELEV3 + 0,
+    ELEV0 + 0, ELEV0 + 0, ELEV0 + 0,
+  },
+  behavior = {
+    Game3.MB_WALK_EAST, 0, 0,
+    Game3.MB_WALK_NORTH, Game3.MB_WALK_NORTH, Game3.MB_WALK_NORTH,
+  },
+}
+g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { mg_deck = deck } }
+g:enterMap(deck, 1, 0, true)
+eq(g.currentElevation, 3, "platform tile sets elevation 3")
+g.currentElevation = 0
+check(not g:tryForcedMovement(),
+  "a floor belt does not drag you while standing on a raised tile")
+g.currentElevation = 3
+g.playerY = 1
+g.currentElevation = 0
+g:updatePlayerZCoord()
+eq(g.currentElevation, 0, "back on the floor")
+g.walkCooldown = 0
+oldDown = Input.isDown
+Input.isDown = function() return false end
+check(g:tryForcedMovement(), "floor belts still push at elevation 0")
+eq(g.playerY, 0, "belt rides north onto the deck")
+Input.isDown = oldDown
+
+eq(g:behaviorAtElevation(deck, 0, 0, 3), Game3.MB_WALK_EAST,
+  "walk pads still apply on the matching walkway layer")
+eq(g:behaviorAtElevation(deck, 0, 0, 0), 0,
+  "walk pads ignore a stale floor layer on a walkway tile")
+eq(g:behaviorAtElevation(deck, 1, 1, 3), 0,
+  "floor belts ignore a raised layer")
+g.playerX, g.playerY = 1, 0
+g.walkFromX, g.walkFromY = 1, 0
+g:updatePlayerZCoord()
+eq(g.previousElevation, 3, "walkways keep their draw layer")
+g.playerY = 1
+g.walkFromX, g.walkFromY = 1, 0
+g:updatePlayerZCoord()
+eq(g.previousElevation, 0,
+  "stepping onto the floor clears the walkway draw layer")
 end)()
 
 ;(function()
@@ -2197,6 +2656,8 @@ end)()
 local Game3 = require("src.core.Game3")
 eq(Game3.MB_MT_PYRE_HOLE, 0x0F, "MB_MT_PYRE_HOLE")
 eq(Game3.MB_AQUA_HIDEOUT_WARP, 0x67, "MB_AQUA_HIDEOUT_WARP")
+eq(Game3.GFX_SUBMARINE_SHADOW, 141, "submarine shadow gfx")
+eq(Game3.SE_WARP_IN, 45, "SE_WARP_IN")
 eq(Game3.MB_WEST_ARROW_WARP, 0x63, "west arrow")
 eq(Game3.MB_SOUTH_ARROW_WARP, 0x65, "south arrow")
 eq(Game3.SPECIAL_WARP_TO_LAST_WARP, 318, "sp13E")
@@ -2278,11 +2739,72 @@ eq(g.field and g.field.text, Game3.TEXT_FELL_THROUGH, "special also falls")
 g.field = nil
 g:enterMap(hideout, 1, 1, true)
 g.ignoreWarp = false
+local heardSe
+g.playSe = function(_, songId) heardSe = songId end
 check(g:tryWalk(0, -1), "step onto the hideout pad")
 eq(g.map.id, "g24_75", "0x67 warps via the pad event")
+eq(heardSe, Game3.SE_WARP_IN, "sub_8080F68 plays SE_WARP_IN")
 eq(g.playerX, 1, "dest warp x")
 eq(g.playerY, 1, "dest warp y")
 check(g.ignoreWarp, "land on the dest pad")
+
+-- Magma Hideout maps omit Aqua's ON_TRANSITION SetupEvilTeamGfxIds.
+-- enterMap must still paint GFX_VAR_* and keep the B2F submarine visible.
+local b2f = {
+  id = "g24_76", group = 24, index = 76,
+  width = 4, height = 4, grid = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  },
+  objects = {
+    { localId = 1, x = 1, y = 1, graphicsId = Game3.GFX_VAR_1,
+      trainerType = 1, trainerId = 596, flagId = 0x39C },
+    { localId = 3, x = 2, y = 2, graphicsId = Game3.GFX_SUBMARINE_SHADOW,
+      elevation = 1, flagId = Game3.FLAG_HIDE_SUBMARINE_SHADOW_HIDEOUT },
+  },
+}
+check(g:mapNeedsEvilTeamGfx(b2f), "Magma Hideout B2F needs evil-team gfx")
+g:enterMap(b2f, 0, 0, true)
+eq(g:resolveGraphicsId(Game3.GFX_VAR_1), Game3.GFX_MAGMA_MEMBER_M,
+  "B2F enterMap sets Magma M")
+local npcs = g:npcsFor(b2f)
+eq(#npcs, 2, "Tabitha and the submarine both spawn")
+eq(npcs[1].graphicsId, Game3.GFX_MAGMA_MEMBER_M, "grunt sprite resolves")
+eq(npcs[2].graphicsId, Game3.GFX_SUBMARINE_SHADOW, "submarine is gfx 141")
+check(not npcs[2].hidden, "submarine is visible before escape")
+g:setScriptVar(0x8009, 3)
+g:removeObject(g:varGet(0x8009))
+check(g:npcByLocalId(3).hidden, "escape removeobject hides the sub")
+check(g.flags[Game3.FLAG_HIDE_SUBMARINE_SHADOW_HIDEOUT],
+  "and sets FLAG_HIDE_SUBMARINE_SHADOW_HIDEOUT")
+
+-- Failed trainerbattle must not fall into post-battle text unless the
+-- trainer flag is already set (Magma "already beaten" without a fight).
+local Gen3Script = require("src.import.Gen3Script")
+local host = {
+  flags = {},
+  scriptVars = {},
+  trainerDefeated = function() return false end,
+  scriptTrainerBattle = function() return false end,
+  sayScript = function(_, t) host.said = t end,
+}
+local said = Gen3Script.run(host, {
+  { op = "trainerbattle", kind = 0, trainerId = 596 },
+  { op = "loadword", text = "fake after" },
+  { op = "callstd", id = 4 },
+  { op = "end" },
+}, 1)
+eq(host.said, nil, "failed Magma fight does not print post-battle text")
+host.trainerDefeated = function(_, id) return id == 596 end
+host.said = nil
+said = Gen3Script.run(host, {
+  { op = "trainerbattle", kind = 0, trainerId = 596 },
+  { op = "loadword", text = "real after" },
+  { op = "callstd", id = 4 },
+  { op = "end" },
+}, 1)
+-- callstd 4 goes through sayScript on some hosts; loadword alone may not.
+-- At least the VM must advance past trainerbattle when beaten.
+check(said ~= "wait", "beaten Magma fight does not wait for a battle")
 
 g:enterMap(arrows, 1, 0, true)
 g.ignoreWarp = false
@@ -2295,6 +2817,47 @@ check(g:tryWalk(1, 0), "walk east onto a south arrow")
 eq(g.map.id, "arrows", "wrong dir does not warp")
 eq(g.playerX, 1, "and occupies the arrow")
 eq(g.playerY, 1, "same row")
+check(g:tryWalk(0, 1), "then press south while on the mat")
+eq(g.map.id, "g24_75", "side approach still exits")
+
+-- House / Center doorways are two adjacent south-arrow mats. Landing
+-- ignoreWarp used to stick when shuffling onto the other tile, so
+-- south into the wall/OOB did nothing.
+local doorway = {
+  id = "doorway", width = 3, height = 3, grid = floor,
+  behavior = {
+    0, 0, 0,
+    0, 0, 0,
+    Game3.MB_SOUTH_ARROW_WARP, Game3.MB_SOUTH_ARROW_WARP, 0,
+  },
+  warps = {
+    { x = 0, y = 2, mapGroup = 24, mapNum = 75, warpId = 0 },
+    { x = 1, y = 2, mapGroup = 24, mapNum = 75, warpId = 0 },
+  },
+}
+g.data.maps.maps.doorway = doorway
+g:enterMap(doorway, 0, 2, true)
+check(g.ignoreWarp, "land on the left mat")
+check(g:tryWalk(1, 0), "shuffle onto the other mat")
+eq(g.map.id, "doorway", "side step does not warp")
+eq(g.playerX, 1, "now on the right mat")
+check(not g.ignoreWarp, "a real step drops the landing ignore")
+check(g:tryWalk(0, 1), "south from the side mat")
+eq(g.map.id, "g24_75", "two-tile doorway exits from the side")
+
+-- mapheader_run_first_tag2: facing the arrow dir while ON the mat
+-- leaves even if this frame only turned (dest is OOB).
+local Input = require("src.core.Input")
+g:enterMap(arrows, 1, 1, true)
+g.ignoreWarp = false
+g.facing = "east"
+g.warpSettle = nil
+g.walkCooldown = 0
+local oldDown = Input.isDown
+Input.isDown = function(_, key) return key == "down" end
+g:walkHeld(0.016)
+eq(g.map.id, "g24_75", "turning to the arrow dir leaves")
+Input.isDown = oldDown
 
 g:enterMap(hideout, 1, 1, true)
 local grunt = g:npcByLocalId(1)
@@ -3164,15 +3727,33 @@ end)()
     string.char(0x88) .. GbaBin.packPtr(listOff) .. string.char(0x02))
   ops = Gen3Script.parse(rom, 0)
   eq(ops[1].op, "pokemartdecoration", "type 2 is the same shop")
+  eq(ops[1].martType, 2, "but shop.c still knows it as MART_TYPE_2")
   local g = Game3.new()
+  -- AddDecoration needs the row's DECORCAT_*; SMALL DESK is DECORCAT_DESK.
+  g.data.decorations = { count = 121, byId = {
+    [1] = { permission = 0, shape = 0, width = 1, height = 1,
+            category = 0, price = 3000, tiles = { 0x28 }, gfx = 0x28 } } }
   g.money = 5000
-  g:openMartList({ 1 }, "decor")
+  g:openMartList({ 1 }, "decor", 2)
   eq(g.field.martKind, "decor", "kind is decor")
   local ok, msg = g:buyMartItem(1, "decor")
   check(ok, "bought a desk")
   eq(g.money, 2000, "SMALL DESK is 3000")
-  eq(g.decorations[1], 1, "AddDecoration")
-  check(msg:find("SMALL DESK", 1, true) ~= nil, "desk name")
+  eq(g:inventoryContainsDecoration(1), true, "AddDecoration")
+  eq(g:numDecorationsInCategory(0), 1, "one slot of DECORCAT_DESK used")
+  -- gOtherText_HereYouGo3, the MART_TYPE_2 line. It does not name the item.
+  eq(msg, "Thanks!\nI'll send it to your PC at home.", "type 2 confirmation")
+  g:openMartList({ 1 }, "decor", 1)
+  g.money = 5000
+  local _, msg1 = g:buyMartItem(1, "decor")
+  eq(msg1, "Thank you!\nI'll send it to your home PC.", "type 1 confirmation")
+  -- DECORCAT_DESK holds 10; the 11th purchase is gOtherText_SpaceForIsFull.
+  g.money = 100000
+  for _ = 1, 8 do check(g:buyMartItem(1, "decor"), "fill the desk slots") end
+  local full, fullMsg = g:buyMartItem(1, "decor")
+  eq(full, false, "an 11th desk does not fit")
+  eq(fullMsg, "The space for SMALL DESK is full.", "and says so")
+  eq(g.money, 100000 - 3000 * 8, "the failed buy costs nothing")
   eq(g:decorationPrice(13), 2000, "PRETTY CHAIR")
 end)()
 
@@ -3211,6 +3792,14 @@ g:clearTransientOverlay()
 eq(g.field, nil, "overlay clear drops talk")
 eq(g.screenFade, nil, "and the fade veil")
 eq(g:playHudActive(), false, "so the HUD plate is gone")
+
+-- map_name_popup.c: free-roam ShowMapNamePopup must keep playHudActive true
+-- or drawHudLetterbox returns before drawMapNamePopup (invisible routes).
+g.mapNamePopup = { name = "ROUTE 101", phase = 0, offset = 32, hold = 0 }
+check(g:playHudActive(), "map name popup uses the HUD letterbox in free roam")
+g.mapNamePopup = nil
+eq(g:playHudActive(), false, "clearing popup drops the HUD plate again")
+
 g.field = { kind = "party" }
   check(not g:fieldShowsWorld(), "party covers the map")
   g.field = nil
@@ -3220,13 +3809,34 @@ g.field = { kind = "party" }
   local x0, y0, x1, y1 = g:visibleRange()
   eq(x1, math.floor(480 / Game3.TILE), "survey view reaches tile 30, not 14")
   eq(y1, math.floor(320 / Game3.TILE), "survey view reaches tile 20, not 9")
-  -- Player stays at view centre even on a map bigger than the window, so
-  -- connected maps and the 2x2 border stay visible at the edge.
+  -- The player stays at view centre in the middle of a map, but not past the
+  -- edge of what is drawn. The GBA can always centre because at 240x160 the
+  -- border pad covers the screen (fieldmap.c GetBorderBlockAt fills anything
+  -- off-map); a survey-wide view outruns that pad and would show void, so the
+  -- follow camera stops at the drawn area -- map plus connections plus each
+  -- one's pad. This is a deliberate divergence the hardware never had to make.
   g.map = { width = 10, height = 10 }
   g.playerX, g.playerY = 0, 0
+  -- The clamp is off by default now (see cameraClampEnabled); these checks
+  -- are about what it does when it IS on, so ask for it.
+  g.cameraClamp = true
   g:clampCamera()
-  eq(g.camX, Game3.snapPixel(8 - 240), "wide view keeps the player centred")
-  eq(g.camY, Game3.snapPixel(8 - 160), "tall view keeps the player centred")
+  local x0, y0, x1, y1 = g:drawnExtent(g.map)
+  -- The pad is the hardware's MAP_OFFSET ring and nothing more. It used to
+  -- grow to swallow the whole view, which on a tall screen reached 900px and
+  -- painted the border straight over the connected maps drawn beside this
+  -- one -- a route would change and its neighbours became flat fill. Showing
+  -- the real neighbours matters more than hiding fill at the far edge.
+  eq(g:borderPad(g.map), Game3.BORDER_PAD_TILES * Game3.TILE,
+    "the pad stays the GBA ring however tall the view is")
+  g.viewW, g.viewH = 1080, 2400
+  eq(g:borderPad(g.map), Game3.BORDER_PAD_TILES * Game3.TILE,
+    "even on a portrait phone, so neighbours are never blanketed")
+  g.viewW, g.viewH = 480, 320
+  -- A drawn area smaller than the view gets centred rather than panned past.
+  check(x1 - x0 < 480, "this map plus its ring is narrower than the view")
+  eq(g.camX, Game3.snapPixel((x0 + x1 - 480) / 2),
+    "so the camera centres what is drawn instead of running off it")
   g.viewW, g.viewH = Game3.SCREEN_W, Game3.SCREEN_H
   g.map = { width = 40, height = 40 }
   g.playerX, g.playerY = 0, 20
@@ -3284,7 +3894,7 @@ end)()
   -- Ocean layouts still store the general tree wall as the 2x2 border.
   -- Survey zoom must not wrap that across the water void.
   g.map = { width = 10, height = 8, mapType = Game3.MAP_TYPE_TOWN }
-  eq(g:borderPad(), Game3.MAP_OFFSET * Game3.TILE, "towns keep the GBA ring")
+  eq(g:borderPad(), Game3.BORDER_PAD_TILES * Game3.TILE, "towns keep the GBA ring")
   g.map.mapType = Game3.MAP_TYPE_OCEAN_ROUTE
   eq(g:borderPad(), 0, "ocean routes do not wallpaper trees into the void")
   g.map.mapType = Game3.MAP_TYPE_UNDERWATER
@@ -3304,15 +3914,202 @@ end)()
     "the overlay pass draws the roof over the player")
 end)()
 
+-- VOID FILL (Gen 1/2's TileRenderer.voidFill / world/gen2/BorderFill, same
+-- idea ported here): a single wrap-tiled block per connected map rather
+-- than a per-tile nearest-neighbor biome search, so a fill of any size is
+-- a handful of quads, not a Lua loop over the visible area.
+;(function()
+  local Game3 = require("src.core.Game3")
+  eq(Game3.voidFillKind(Game3.MB_JUMP_SOUTH, 1), "reject",
+    "ledge lips are never picked as a representative tile")
+  eq(Game3.voidFillKind(Game3.MB_WARP_OR_BRIDGE, 1), "reject",
+    "cycling road neither")
+  eq(Game3.voidFillKind(0x15, 0), "water", "ocean water is a fill")
+  eq(Game3.voidFillKind(0x21, 0), "sand", "beach sand is a fill")
+  eq(Game3.voidFillKind(0x22, 0), "reject", "seaweed is not open water")
+  eq(Game3.voidFillKind(0, 0), "grass", "plain ground is grass")
+
+  eq(#Game3.VOID_FILLS, 4, "sea / grass / black / map")
+  eq(Game3.voidFillLabel("sea"), "SEA")
+  eq(Game3.voidFillLabel("grass"), "GRASS")
+  eq(Game3.voidFillLabel("black"), "BLACK")
+  eq(Game3.voidFillLabel("map"), "PER-MAP")
+  eq(Game3.voidFillLabel(nil), "SEA", "unset mode reads as SEA")
+  -- saves written before the void went global
+  eq(Game3.voidFillLabel("fade"), "SEA", "an old FADE save reads as SEA")
+  eq(Game3.voidFillLabel("water"), "SEA", "so does an old WATER save")
+  eq(Game3.voidFillLabel("trees"), "GRASS",
+    "and old TREES, which only ever painted grass, reads as GRASS")
+
+  local townBehavior = { [10] = 0, [77] = 0x15 }
+  local oceanBehavior = { [5] = 0x15 }
+  local g = Game3.new()
+  g.data.tilesets = { byId = {
+    pair_town = { behavior = townBehavior },
+    pair_ocean = { behavior = oceanBehavior },
+  } }
+  local town = {
+    id = "g0_0", width = 4, height = 4, tileset = "pair_town",
+    mapType = Game3.MAP_TYPE_TOWN, border = { 99, 99, 99, 99 },
+    connections = { { dir = "east", offset = 1, mapGroup = 0, mapNum = 1 } },
+  }
+  local ocean = {
+    id = "g0_1", width = 8, height = 2, tileset = "pair_ocean",
+    mapType = Game3.MAP_TYPE_OCEAN_ROUTE, border = { 200, 200, 200, 200 },
+    connections = { { dir = "west", offset = -1, mapGroup = 0, mapNum = 0 } },
+  }
+  g.data.maps = { maps = { g0_0 = town, g0_1 = ocean } }
+  g.map = town
+  local place = g:mapPlacements()
+  eq(#place, 2, "current map plus the east water")
+
+  local route = {
+    id = "g0_2", width = 4, height = 4, tileset = "pair_ocean",
+    mapType = Game3.MAP_TYPE_OCEAN_ROUTE,
+    connections = {
+      { dir = "west", offset = 0, mapGroup = 0, mapNum = 1 },
+      { dir = "dive", mapGroup = 24, mapNum = 3 },
+    },
+  }
+  local under = {
+    id = "g24_3", width = 4, height = 4, tileset = "pair_ocean",
+    mapType = Game3.MAP_TYPE_UNDERWATER,
+    connections = {
+      { dir = "emerge", mapGroup = 0, mapNum = 2 },
+    },
+  }
+  g.data.maps.g0_2 = route
+  g.data.maps.g24_3 = under
+  g.map = route
+  place = g:mapPlacements()
+  eq(#place, 2, "dive/emerge links do not stack on the ocean surface")
+  local sawUnder
+  for i = 1, #place do
+    if place[i].map.id == "g24_3" then sawUnder = true end
+  end
+  check(not sawUnder, "underwater dive partner is not painted on the surface")
+
+  eq(g:voidFillMode(), "sea", "default mode is sea")
+  eq(g:tilesetRepresentativeTile("pair_town", "water"), 77,
+    "the town tileset's own water tile")
+  eq(g:tilesetRepresentativeTile("pair_town", "grass"), 10,
+    "and its own grass tile")
+  eq(g:tilesetRepresentativeTile("pair_ocean", "grass"), nil,
+    "an all-water tileset has no grass tile")
+
+  local function cellsAre(cells, a, b, c, d, msg)
+    check(cells and cells[1] == a and cells[2] == b and cells[3] == c
+      and cells[4] == d, msg)
+  end
+  cellsAre(g:voidFillCells(town, "fade"), 10, 10, 10, 10,
+    "PER-MAP never hands back the map's own border block -- that is edge"
+    .. " art, and wrap-tiling it is what put tree rectangles in the sea")
+  cellsAre(g:voidFillCells(ocean, "fade"), 5, 5, 5, 5,
+    "ocean fade drops the generic border block for a real water tile"
+    .. " from its own tileset")
+  cellsAre(g:voidFillCells(town, "water"), 77, 77, 77, 77,
+    "water mode forces the town's own water tile")
+  cellsAre(g:voidFillCells(town, "trees"), 10, 10, 10, 10,
+    "trees mode forces the town's own land tile")
+  cellsAre(g:voidFillCells(ocean, "trees"), 5, 5, 5, 5,
+    "trees mode on an all-water tileset falls back to water, not a"
+    .. " random block")
+
+  local beachBehavior = { [10] = 0, [20] = 0x21, [77] = 0x15 }
+  g.data.tilesets.byId.pair_beach = { behavior = beachBehavior }
+  local beach = {
+    id = "g_beach", width = 4, height = 2, tileset = "pair_beach",
+    mapType = Game3.MAP_TYPE_ROUTE,
+    grid = { 10, 10, 20, 20, 77, 77, 77, 77 },
+    behavior = {
+      0, 0, 0x21, 0x21,
+      0x15, 0x15, 0x15, 0x15,
+    },
+  }
+  g.data.maps.maps.g_beach = beach
+  local shore = g:voidFillCells(beach, "fade")
+  cellsAre(shore, 77, 77, 77, 77,
+    "a map that touches water fills with that water, flat -- no sand halo")
+  for i = 1, 4 do
+    check(shore[i] == shore[1], "and all four cells match: no checkerboard")
+  end
+
+  local treetop = {
+    id = "g_tree", width = 1, height = 1, tileset = "pair_tree",
+    grid = { 1 },
+    behavior = { 0 },
+  }
+  g.data.tilesets.byId.pair_tree = {
+    behavior = { [1] = 0, [2] = 0 },
+    layerType = { [1] = Game3.LAYER_NORMAL },
+    tiles = {
+      [1] = { 1, 1, 1, 1, 9, 9, 9, 9 },
+      [2] = { 2, 2, 2, 2, 0, 0, 0, 0 },
+    },
+  }
+  g.data.maps.maps.g_tree = treetop
+  eq(g:mapRepresentativeTiles(treetop, "grass")[1], 2,
+    "canopy metatiles are skipped for grass fill")
+
+  -- A single wrap-tiled water tile reads as an obviously synthetic grid
+  -- once stretched across a wide survey-zoom view (real GBA water
+  -- alternates two tile variants for a "waves" look), so the fill checks
+  -- the map's own grid for a second common water tile and checkerboards
+  -- the two across the diagonals instead of repeating just one.
+  local wave = { [8] = 0x15, [9] = 0x15 }
+  local waveOcean = {
+    id = "g_wave", width = 4, height = 2, tileset = "pair_wave",
+    mapType = Game3.MAP_TYPE_OCEAN_ROUTE,
+    grid = { 8, 9, 8, 9, 9, 8, 9, 8 },
+  }
+  g.data.tilesets.byId.pair_wave = { behavior = wave }
+  g.data.maps.maps.g_wave = waveOcean
+  local pair = g:mapRepresentativeTiles(waveOcean, "water")
+  check(pair and pair[1] and pair[2] and pair[1] ~= pair[2],
+    "two distinct water tiles come back from the map's own grid")
+  cellsAre(g:voidFillCells(waveOcean, "fade"), pair[1], pair[1], pair[1], pair[1],
+    "but the fill takes only the commonest one -- alternating two variants"
+    .. " reads as a chequered grid stamped over the world at survey zoom")
+
+  local indoor = { width = 8, height = 8, mapType = Game3.MAP_TYPE_INDOOR }
+  check(Game3.isIndoorFillMap(indoor), "houses skip the outdoor void fill")
+  eq(g:borderPad(town), Game3.BORDER_PAD_TILES * Game3.TILE,
+    "towns keep their own GBA border ring")
+  eq(g:borderPad(ocean), 0, "water maps still have no wallpaper ring")
+  local ring = g:borderFillRects(ocean, -80, -16, -16, 48, false)
+  check(#ring >= 1, "standing on water still fills the town ring")
+end)()
+
 -- Land wanderers stay off water (collision 0 + surfable). Reflections
--- follow IsReflective, including the tile a 32px sprite covers north of
--- the feet, so the pond-bank sign shows a face.
+-- follow ObjectEventCheckForReflectiveSurface: tiles south of the feet,
+-- not the pond a 32px sprite covers to the north.
 ;(function()
   local Game3 = require("src.core.Game3")
   eq(Game3.elevationOf(4 * 4096), 4, "elevation is bits 12-15")
   check(Game3.zMismatch(4, 3), "cycling road is above the dirt")
   check(not Game3.zMismatch(4, 0), "map z 0 is any height")
   check(not Game3.zMismatch(0, 3), "object z 0 skips the check")
+  -- sObjectEventPriorities_08376060: field BG1 is OAM-pri 1, so pri 2 sits
+  -- under roofs. Elevation 4 (Meteor Falls 1F_1R warp at 27,18 / cycling
+  -- road) is pri 1 and must draw in the post-overlay pass. Forgetting to
+  -- forward that flag from drawWorldStanding skips those sprites entirely.
+  eq(Game3.oamPriorityForZ(0), 2, "ground is OAM pri 2")
+  eq(Game3.oamPriorityForZ(3), 2, "elev 3 is still under BG1")
+  eq(Game3.oamPriorityForZ(4), 1, "elev 4 is in front of BG1")
+  check(not Game3.spriteDrawsOverOverlay(3), "elev 3 draws before overlay")
+  check(Game3.spriteDrawsOverOverlay(4), "elev 4 draws after overlay")
+  local seen
+  local stand = setmetatable({}, { __index = Game3 })
+  function stand:drawActors(over) seen = over and true or false end
+  function stand:drawDoorAnim() end
+  function stand:drawFieldEffects() end
+  function stand:drawPokecenterHealOverlay() end
+  function stand:drawHofRecordOverlay() end
+  function stand:drawRotatingGates() end
+  stand:drawWorldStanding(false)
+  eq(seen, false, "the under-overlay pass reaches drawActors")
+  stand:drawWorldStanding(true)
+  eq(seen, true, "so does the over-overlay pass")
   check(Game3.isReflective(Game3.MB_POND_WATER), "pond is a mirror")
   check(Game3.isReflective(Game3.MB_ICE), "ice too")
   check(not Game3.isReflective(Game3.MB_OCEAN_WATER), "ocean is not")
@@ -3417,15 +4214,16 @@ end)()
       0, 0, 0,
     },
   }
-  check(g:actorReflects(0, 2, false, 32), "bank south of the pond reflects")
+  check(g:actorReflects(0, 0, false, 32), "north of the pond reflects")
+  check(not g:actorReflects(0, 2, false, 32), "south of the pond does not")
   check(not g:actorReflects(2, 2, false, 32), "dry ground does not")
-  check(not g:actorReflects(0, 2, true, 32), "hideReflection skips it")
+  check(not g:actorReflects(0, 0, true, 32), "hideReflection skips it")
   g.map.behavior = {
     0, 0, 0,
     Game3.MB_OCEAN_WATER, 0, 0,
     Game3.MB_OCEAN_WATER, 0, 0,
   }
-  check(not g:actorReflects(0, 2, false, 32), "standing by ocean does not mirror")
+  check(not g:actorReflects(0, 0, false, 32), "standing by ocean does not mirror")
 
   local wet = Game3.new()
   wet.map = {
@@ -3443,6 +4241,2170 @@ end)()
   wet.surfing = true
   check(wet:canStep(wet.map, 0, 0), "Surf walks collision-1 ocean")
   check(wet:canStep(wet.map, 1, 0), "and the shallows")
+end)()
+
+-- Regression: canStep only ever special-cased elevation-1 water, so a
+-- player on a bridge (elevation 3) could step straight onto ground at any
+-- OTHER non-matching elevation (e.g. the elevation-2 dip under a Fortree /
+-- Pacifidlog bridge) instead of only via the bridge's own ramp tiles
+-- (elevation 0, "any height"). event_object_movement.c's real
+-- GetCollisionAtCoords blocks that with IsZCoordMismatchAt.
+;(function()
+local bridge = Game3.new()
+bridge.map = {
+  width = 5, height = 1,
+  -- ramp(e0), bridge(e3), under-bridge ground(e2), bridge(e3), ramp(e0)
+  grid = { 0, 3 * 4096, 2 * 4096, 3 * 4096, 0 },
+}
+bridge.playerX, bridge.playerY = 1, 0
+bridge.currentElevation = 3
+check(not bridge:canStep(bridge.map, 2, 0),
+  "standing on the bridge cannot step onto the elevation-2 ground below it")
+check(bridge:canStep(bridge.map, 0, 0),
+  "but can still step onto the elevation-0 ramp")
+bridge.playerX = 3
+bridge.currentElevation = 3
+check(bridge:canStep(bridge.map, 4, 0),
+  "and cross bridge segments that share elevation 3")
+bridge.playerX, bridge.playerY = 2, 0
+bridge.currentElevation = 2
+check(not bridge:canStep(bridge.map, 1, 0),
+  "standing under the bridge cannot climb onto it either")
+end)()
+
+-- Regression: field_player_avatar.c sub_8058EF0 lets a surfing player hop
+-- onto elevation-3 beach grass even when IsZCoordMismatchAt would block
+-- the step (collision type 3 → 5). Without this, ocean routes trap you.
+;(function()
+local beach = Game3.new()
+beach.map = {
+  width = 3, height = 1,
+  -- shallow ocean(e1), beach grass(e3), inland(e2)
+  grid = { 1 * 4096, 3 * 4096, 2 * 4096 },
+  behavior = { Game3.MB_OCEAN_WATER, 0, 0 },
+}
+beach.playerX, beach.playerY = 0, 0
+beach.currentElevation = 1
+beach.surfing = true
+check(not beach:canStep(beach.map, 2, 0),
+  "surfing cannot skip inland when elevation mismatches")
+check(beach:canStep(beach.map, 1, 0),
+  "surfing can step onto elevation-3 beach despite Z mismatch")
+check(beach:tryWalk(1, 0), "tryWalk hops onto the beach")
+eq(beach.surfing, nil, "dismounts on dry land")
+end)()
+
+-- Regression: event_object_movement.c's IsMetatileDirectionallyImpassable
+-- (MB_IMPASSABLE_EAST/WEST/NORTH/SOUTH/...) was never implemented at all
+-- -- canStep only ever checked collision and elevation, so a cliff face
+-- (a plain walkable, same-elevation metatile that ROM data marks
+-- impassable from one specific facing) could be walked straight through
+-- from the "wrong" side, i.e. "walking under cliffs".
+;(function()
+local cliff = Game3.new()
+cliff.map = {
+  width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  -- MB_IMPASSABLE_SOUTH at (1,1): refuses entry from the south (blocks
+  -- moving north into it) and refuses to be left heading south.
+  behavior = {
+    0, 0, 0,
+    0, Game3.MB_IMPASSABLE_SOUTH, 0,
+    0, 0, 0,
+  },
+}
+cliff.playerX, cliff.playerY = 1, 2
+cliff.facing = "north"
+check(not cliff:canStep(cliff.map, 1, 1),
+  "cannot walk north into a cliff face that is impassable from the south")
+cliff.facing = "west"
+check(cliff:canStep(cliff.map, 0, 2),
+  "unrelated directions on the approaching tile are unaffected")
+
+-- Standing ON the impassable-south tile: it must also refuse to be LEFT
+-- heading south (the "tile being left" half of the C check), matching
+-- MetatileBehavior_IsSouthBlocked(objectEvent->currentMetatileBehavior).
+cliff.playerX, cliff.playerY = 1, 1
+cliff.facing = "south"
+check(not cliff:canStep(cliff.map, 1, 2),
+  "cannot walk south OFF a cliff-face tile either")
+cliff.facing = "north"
+check(cliff:canStep(cliff.map, 1, 0),
+  "but can still walk on north, away from the ledge")
+cliff.facing = "east"
+check(cliff:canStep(cliff.map, 2, 1),
+  "east/west off the same tile are unaffected")
+end)()
+
+-- Every metatile behaviour a Ruby map actually places, worked out by walking
+-- all 394 maps, mapping each grid and border metatile through its tileset's
+-- attribute table, and collecting the distinct results. 115 of the 256
+-- possible values reach a map; the rest are only ever attribute-table filler.
+local PLACED_BEHAVIOURS = {
+  0x00, 0x01, 0x02, 0x03, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0F,
+  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x19, 0x1B, 0x1C, 0x20,
+  0x21, 0x22, 0x24, 0x26, 0x28, 0x29, 0x2A, 0x2B, 0x30, 0x31, 0x32, 0x33,
+  0x38, 0x39, 0x3B, 0x3E, 0x3F, 0x40, 0x41, 0x43, 0x44, 0x45, 0x46, 0x47,
+  0x48, 0x50, 0x51, 0x52, 0x53, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
+  0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x70, 0x72, 0x73, 0x74,
+  0x75, 0x76, 0x77, 0x78, 0x80, 0x83, 0x84, 0x85, 0x86, 0x87, 0x89, 0x8A,
+  0x8C, 0x90, 0x92, 0x94, 0x96, 0x98, 0x9A, 0x9C, 0xA0, 0xB0, 0xB2, 0xB3,
+  0xB5, 0xB7, 0xC0, 0xC2, 0xC3, 0xD0, 0xD1, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6,
+  0xE0, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6,
+}
+
+;(function()
+eq(#PLACED_BEHAVIOURS, 115, "115 behaviours reach a Ruby map")
+
+-- Every declared MB_ constant, read back off the source so a value can only
+-- appear once and a duplicate name is caught.
+local src = (function()
+  local f = assert(io.open("src/core/Game3.lua", "r"))
+  local text = f:read("*a")
+  f:close()
+  return text
+end)()
+
+local byValue, byName = {}, {}
+local dupes = 0
+for name, value in src:gmatch("Game3%.(MB_[A-Z0-9_]+)%s*=%s*(0x%x+)") do
+  local v = tonumber(value)
+  if byName[name] then dupes = dupes + 1 end
+  byName[name] = v
+  byValue[v] = byValue[v] or name
+end
+eq(dupes, 0, "no behaviour name is declared twice")
+
+-- The point of the pass: nothing a map can place is left to a hex literal.
+local unnamed = {}
+for _, b in ipairs(PLACED_BEHAVIOURS) do
+  if not byValue[b] then unnamed[#unnamed + 1] = ("0x%02X"):format(b) end
+end
+eq(table.concat(unnamed, " "), "",
+  "every placed behaviour has a name")
+
+-- The three the engine used to spell its own way now carry the cart's too.
+eq(Game3.MB_SEMI_DEEP_WATER, 0x11, "MB_SEMI_DEEP_WATER is 0x11")
+eq(Game3.MB_INTERIOR_DEEP_WATER, Game3.MB_SEMI_DEEP_WATER,
+  "and the old name still points at it")
+eq(Game3.MB_UNUSED_DEEP_WATER, 0x12, "MB_UNUSED_DEEP_WATER is 0x12")
+eq(Game3.MB_DEEP_WATER, Game3.MB_UNUSED_DEEP_WATER, "old name kept")
+eq(Game3.MB_SECRET_BASE_SPOT_TREE_2_OPEN, 0x9D, "the last spot is 0x9D")
+eq(Game3.MB_SECRET_BASE_SPOT_MAX, Game3.MB_SECRET_BASE_SPOT_TREE_2_OPEN,
+  "and the range end still points at it")
+
+-- Each secret base spot has a closed value and the open one above it.
+for _, pair in ipairs({
+  { Game3.MB_SECRET_BASE_SPOT_RED_CAVE, Game3.MB_SECRET_BASE_SPOT_RED_CAVE_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_BROWN_CAVE, Game3.MB_SECRET_BASE_SPOT_BROWN_CAVE_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_YELLOW_CAVE, Game3.MB_SECRET_BASE_SPOT_YELLOW_CAVE_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_TREE_1, Game3.MB_SECRET_BASE_SPOT_TREE_1_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_SHRUB, Game3.MB_SECRET_BASE_SPOT_SHRUB_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_BLUE_CAVE, Game3.MB_SECRET_BASE_SPOT_BLUE_CAVE_OPEN },
+  { Game3.MB_SECRET_BASE_SPOT_TREE_2, Game3.MB_SECRET_BASE_SPOT_TREE_2_OPEN },
+}) do
+  eq(pair[2], pair[1] + 1, "the open spot follows the closed one")
+end
+
+-- And no behaviour test in the source falls back to a bare hex value. The
+-- pattern deliberately only looks at `b`, which is what every behaviour test
+-- in Game3 binds its value to -- the byte comparisons in the text decoders
+-- use their own names and are not behaviours.
+local leftovers = {}
+for line in src:gmatch("[^\\n]+") do
+  if line:match("^%s*[%w:%s]*if%s+b%s*==%s*0x%x%x")
+      or line:match("or%s+b%s*==%s*0x%x%x") then
+    -- the text decoders read raw UTF-8 bytes, not behaviours
+    if not line:match("text:byte") and not line:match("0xC3")
+        and not line:match("0xE2") then
+      leftovers[#leftovers + 1] = line:gsub("^%s+", "")
+    end
+  end
+end
+eq(table.concat(leftovers, " / "), "",
+  "no behaviour is still compared as a hex literal")
+end)()
+
+
+-- Pokedex chrome. pokedex.c loads one tile set for the whole Pokedex and swaps
+-- only the tilemap, so each screen has its own background over the same tiles.
+-- Each layout offset below was found by decompressing candidates and matching
+-- the decomp's own .bin byte for byte; the detail layout the extractor already
+-- used falls out of the same search, which is what validates the method.
+;(function()
+local Dex = require("src.import.RomExtractorGen3Dex")
+local u = Dex.RUBY_US
+eq(u.detailLayout, 0xE96BD4, "the entry layout is where it always was")
+eq(u.sizeLayout, 0x39F988, "the size layout")
+eq(u.cryLayout, 0x39F8A0, "the cry layout")
+eq(u.selectBarMain, 0xE96ACC, "and the PAGE/AREA/CRY/SIZE/CANCEL strip")
+check(u.sizeLayout ~= u.detailLayout, "the size screen is not the entry screen")
+check(u.cryLayout ~= u.detailLayout, "nor is the cry screen")
+eq(Dex.SELECT_BAR_H, 24, "the strip is three tiles tall, not a whole screen")
+
+-- The chrome renderer takes a height so the same code draws a background or
+-- the short strip.
+check(type(Dex.renderChrome) == "function", "there is one renderer for both")
+check(type(Dex.tilemapSize) == "function", "and a way to size a tilemap")
+
+-- The engine picks its background per screen rather than borrowing the entry's.
+local g = Game3.new()
+check(type(g.drawDexChrome) == "function", "the chrome picker exists")
+local src = (function()
+  local f = assert(io.open("src/core/Game3.lua", "r"))
+  local t = f:read("*a"); f:close(); return t
+end)()
+check(src:find('self:drawDexChrome("size")', 1, true) ~= nil,
+  "the size screen asks for its own")
+check(src:find('self:drawDexChrome("cry")', 1, true) ~= nil,
+  "and so does the cry screen")
+end)()
+
+
+-- The list screen's furniture: gPokedexMenu2_Gfx, the one interface sheet the
+-- Pokedex loads as sprites rather than as a background.
+;(function()
+local Dex = require("src.import.RomExtractorGen3Dex")
+eq(Dex.RUBY_US.interfaceGfx, 0xE874C8,
+  "the interface sheet is the cart's only 0x1F00 LZ77 block")
+eq(Dex.RUBY_US.interfaceBytes, 0x1F00, "and that is its size")
+eq(Dex.INTERFACE_COLS, 8,
+  "a sprite sheet runs eight tiles across; wider scrambles it")
+eq(Dex.INTERFACE_W, Dex.INTERFACE_COLS * 8, "so it is 64 pixels wide")
+
+-- The bands were measured off the sheet rather than guessed: each is where
+-- one label sits, and none of them overlap.
+local bands = Dex.INTERFACE_BANDS
+for _, name in ipairs({ "arrows", "start", "search", "select", "menu",
+  "seen", "own", "digits" }) do
+  check(type(bands[name]) == "table", name .. " has a band")
+  check(bands[name][2] > 0, name .. " has a height")
+end
+eq(bands.seen[1], 160, "SEEN sits at y 160")
+eq(bands.own[1], 192, "OWN at y 192")
+eq(bands.digits[1], 224, "and the counter digits below them")
+local prev = -1
+for _, name in ipairs({ "arrows", "start", "search", "select", "menu",
+  "seen", "own", "digits" }) do
+  local b = bands[name]
+  check(b[1] >= prev, name .. " comes after the band before it")
+  prev = b[1] + b[2]
+end
+
+-- The list draws rows two tiles tall, the way CreateMonListEntry lays them out.
+eq(Game3.DEX_ROW_H, 16, "a list row is two tiles tall")
+local g = Game3.new()
+check(type(g.drawDexBand) == "function", "the engine can draw one band")
+check(type(g.dexInterfaceBand) == "function", "and address it by name")
+end)()
+
+
+;(function()
+-- field_control_avatar.c IsWarpMetatileBehavior. Stepping onto a warp event is
+-- not enough on the cart: the tile has to be a warp tile too. The Trick House
+-- entrance is the case that proves it -- ROUTE 110's g29_0 has a warp at (5,2)
+-- sitting on plain floor, reachable only through the scroll's own script after
+-- the switch on VAR_TRICK_HOUSE_ROOMS_COMPLETED picks which puzzle to open.
+-- Bump-warping it walked straight into Puzzle 1 every single time.
+local allowed = {
+  Game3.MB_ANIMATED_DOOR, Game3.MB_LADDER,
+  Game3.MB_UP_ESCALATOR, Game3.MB_DOWN_ESCALATOR,
+  Game3.MB_NON_ANIMATED_DOOR, Game3.MB_WATER_DOOR,
+  Game3.MB_UNUSED_DEEP_SOUTH_WARP,
+  Game3.MB_LAVARIDGE_GYM_B1F_WARP, Game3.MB_LAVARIDGE_GYM_1F_WARP,
+  Game3.MB_AQUA_HIDEOUT_WARP, Game3.MB_MT_PYRE_HOLE,
+}
+for _, b in ipairs(allowed) do
+  check(Game3.isWarpBehavior(b), ("0x%02X is a warp metatile"):format(b))
+end
+-- The negative half is the half that matters: these all used to warp.
+local rejected = {
+  Game3.MB_NORMAL, Game3.MB_TRICK_HOUSE_PUZZLE_DOOR,
+  Game3.MB_PETALBURG_GYM_DOOR, Game3.MB_SOUTH_ARROW_WARP,
+  Game3.MB_NORTH_ARROW_WARP, Game3.MB_TALL_GRASS,
+}
+for _, b in ipairs(rejected) do
+  check(not Game3.isWarpBehavior(b),
+    ("0x%02X is not a warp metatile"):format(b))
+end
+check(not Game3.isWarpBehavior(nil), "no behaviour is not a warp metatile")
+
+-- And behaviourally: same map, same warp, only the tile behaviour differs.
+local function room(beh)
+  local m = {
+    id = "tr", width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    warps = { { x = 1, y = 0, mapGroup = 0, mapNum = 1, warpId = 0 } },
+    behavior = { [0 * 3 + 1 + 1] = beh },
+  }
+  local dest = {
+    id = "g0_1", width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    warps = { { x = 1, y = 2, mapGroup = 0, mapNum = 0, warpId = 0 } },
+  }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { tr = m, g0_1 = dest } }
+  g:enterMap(m, 1, 1, true)
+  g.ignoreWarp = false
+  return g
+end
+local plain = room(Game3.MB_NORMAL)
+plain:tryWalk(0, -1)
+eq(plain.map.id, "tr",
+  "a warp on plain floor does not fire -- the Trick House scroll owns it")
+local ladder = room(Game3.MB_LADDER)
+ladder:tryWalk(0, -1)
+eq(ladder.map.id, "g0_1", "the same warp on a ladder still fires")
+end)()
+
+
+;(function()
+-- The Elite Four and Petalburg Gym both ship their doors CLOSED in the map
+-- data and open them with setmetatile once you have earned it:
+-- PokemonLeague_EliteFour_SetAdvanceToNextRoomMetatiles swaps (6,2) to
+-- METATILE_EliteFour_OpenDoor_Opening (0x345, MB_NON_ANIMATED_DOOR), and
+-- PetalburgCity_Gym_OnLoad swaps each cleared room's doorway to
+-- METATILE_PetalburgGym_RoomEntrance (MB_SOUTH_ARROW_WARP). The warp event
+-- sits there the whole time, so what gates it is purely the tile behaviour --
+-- which is why walking through a closed Elite Four door used to work.
+local CLOSED, OPEN = 0x20A, 0x345
+local function room()
+  local m = {
+    id = "e4", width = 3, height = 4,
+    grid = { 0, CLOSED, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    warps = { { x = 1, y = 0, mapGroup = 0, mapNum = 1, warpId = 0 } },
+    behavior = {},
+  }
+  local next_ = {
+    id = "g0_1", width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    warps = { { x = 1, y = 2, mapGroup = 0, mapNum = 0, warpId = 0 } },
+  }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { e4 = m, g0_1 = next_ } }
+  -- one tileset where the closed tile is plain and the open one is a door
+  g.data.tilesets = { byId = { [m.tileset or "pair_e4"] = { behavior = {
+    [CLOSED] = Game3.MB_NORMAL,
+    [OPEN] = Game3.MB_NON_ANIMATED_DOOR,
+  } } } }
+  m.tileset = m.tileset or "pair_e4"
+  g:enterMap(m, 1, 1, true)
+  g.ignoreWarp = false
+  return g
+end
+
+local shut = room()
+eq(shut:behaviorAt(shut.map, 1, 0), Game3.MB_NORMAL, "the door starts closed")
+shut:tryWalk(0, -1)
+eq(shut.map.id, "e4", "a closed Elite Four door does not let you through")
+
+local opened = room()
+-- what SetAdvanceToNextRoomMetatiles does after the member is beaten
+opened:setMetatile(1, 0, OPEN, 0)
+eq(opened:behaviorAt(opened.map, 1, 0), Game3.MB_NON_ANIMATED_DOOR,
+  "setmetatile opens it, and behaviorAt reads the live grid")
+check(Game3.isWarpBehavior(opened:behaviorAt(opened.map, 1, 0)),
+  "an opened door is a warp metatile")
+opened:tryWalk(0, -1)
+eq(opened.map.id, "g0_1", "and then the same warp carries you through")
+end)()
+
+
+;(function()
+-- field_control_avatar.c GetInteractedMetatileScript. None of these tiles did
+-- anything before: the behaviours were extracted and most handlers existed,
+-- but nothing dispatched on them, so A on a bookshelf or a TV was dead.
+local function room(beh, w, h, bx, by)
+  w, h = w or 3, h or 3
+  bx, by = bx or 1, by or 0
+  local grid = {}
+  for _ = 1, w * h do grid[#grid + 1] = 0 end
+  local m = { id = "m", width = w, height = h, grid = grid,
+    behavior = { [by * w + bx + 1] = beh } }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { m = m } }
+  g:enterMap(m, bx, by + 1, true)
+  g.facing = "north"
+  g.party = { { name = "X", hp = 20, maxHp = 20, species = 1, level = 5,
+    moves = {} } }
+  return g
+end
+local function say(beh)
+  local g = room(beh)
+  g:tryTalk()
+  return g.field and g.field.text or nil
+end
+
+-- check_furniture.inc, one msgbox each.
+eq(say(Game3.MB_PICTURE_BOOK_SHELF),
+  "There's a set of POKeMON picture books.", "Text_PictureBookshelf")
+eq(say(Game3.MB_BOOKSHELF), "It's filled with all sorts of books.",
+  "Text_Bookshelf")
+eq(say(Game3.MB_TRASH_CAN), "It's empty.", "Text_EmptyTrashCan")
+check((say(Game3.MB_POKEMON_CENTER_BOOKSHELF) or ""):find("POKeMON magazines",
+  1, true) ~= nil, "Text_PokemonCenterBookshelf")
+check((say(Game3.MB_VASE) or ""):find("But, it was empty", 1, true) ~= nil,
+  "Text_Vase")
+check((say(Game3.MB_SHOP_SHELF) or ""):find("merchandise", 1, true) ~= nil,
+  "Text_ShopShelf")
+check((say(Game3.MB_BLUEPRINT) or ""):find("too complicated", 1, true) ~= nil,
+  "Text_Blueprint")
+eq(say(Game3.MB_CLOSED_SOOTOPOLIS_DOOR), "The door is closed.",
+  "ClosedSootopolisDoorText")
+check((say(Game3.MB_RUNNING_SHOES_MANUAL) or ""):find("RUNNING SHOES", 1, true)
+  ~= nil, "S_RunningShoesManual")
+
+-- A tile with no handler still does nothing, which is also the ROM's answer.
+eq(say(Game3.MB_NORMAL), nil, "plain floor stays dead")
+
+-- ShowLinkBattleRecords opens the board rather than a textbox.
+local recs = room(Game3.MB_LINK_BATTLE_RECORDS)
+recs:tryTalk()
+eq(recs.field and recs.field.kind, "link_records", "gUnknown_081A4363")
+
+-- MetatileBehavior_IsPlayerFacingTVScreen is north-only.
+local tvN = room(Game3.MB_TELEVISION)
+tvN:tryTalk()
+check(tvN.field ~= nil, "a TV answers when you face it from the south")
+local tvS = room(Game3.MB_TELEVISION)
+tvS.playerX, tvS.playerY = 1, 0
+tvS.facing = "south"
+tvS:tryTalk()
+eq(tvS.field, nil, "but not from any other direction")
+
+-- Event_TV's emergency branch: the bulletin starts Latios roaming. Only in
+-- the player's own house, which is all CheckForBigMovieOrEmergencyNewsOnTV
+-- ever answers for.
+local lati = room(Game3.MB_TELEVISION)
+lati.map.group = Game3.MAP_LITTLEROOT_INDOOR_GROUP
+lati.map.index = Game3.MAP_BRENDANS_HOUSE_1F_NUM
+lati.flags = { [Game3.FLAG_SYS_TV_LATI] = true }
+lati:tryTalk()
+check((lati.field and lati.field.text or ""):find("news bulletin", 1, true)
+  ~= nil, "the special news bulletin plays")
+eq(lati.flags[Game3.FLAG_SYS_TV_LATI], nil, "FLAG_SYS_TV_LATI is cleared")
+eq(lati.flags[Game3.FLAG_LATIOS_OR_LATIAS_ROAMING], true,
+  "and FLAG_LATIOS_OR_LATIAS_ROAMING goes up")
+eq(lati.roamer and lati.roamer.species, 408, "InitRoamer picks Latios in RUBY")
+
+-- Route110_TrickHousePuzzle_EventScript_Door, both branches. The door is at
+-- (13,1) in every puzzle room.
+local shut = room(Game3.MB_TRICK_HOUSE_PUZZLE_DOOR, 15, 4, 13, 1)
+shut.scriptVars = { [Game3.VAR_TRICK_HOUSE_ROOMS_COMPLETED] = 0, [0x40AB] = 0 }
+shut.playerX, shut.playerY = 13, 2
+shut:tryTalk()
+check((shut.field and shut.field.text or ""):find("door is locked", 1, true)
+  ~= nil, "an unread scroll leaves the door locked")
+
+local open = room(Game3.MB_TRICK_HOUSE_PUZZLE_DOOR, 15, 4, 13, 1)
+open.scriptVars = { [Game3.VAR_TRICK_HOUSE_ROOMS_COMPLETED] = 0, [0x40AB] = 1 }
+open.playerX, open.playerY = 13, 2
+open:tryTalk()
+check((open.field and open.field.text or ""):find("lock clicked open", 1, true)
+  ~= nil, "reading the scroll writes the code and opens it")
+eq(open.scriptVars[0x40AB], 2, "VAR_TRICK_HOUSE_PUZZLE_1_STATE becomes 2")
+eq(Game3.metatileOf(open.map.grid[1 * 15 + 13 + 1]) % 1024, 0x20B,
+  "and the door becomes METATILE_TrickHousePuzzle_Stairs_Down")
+end)()
+
+
+;(function()
+-- The follow camera stops at the edge of what is drawn. On hardware this
+-- question never comes up: the GBA is 240x160 and MAP_OFFSET of border pad
+-- always covers the screen, so fieldmap.c can centre the player and let
+-- GetBorderBlockAt fill the rest. A wider view outruns that pad, and without
+-- a clamp the camera panned past the border into void fill.
+local function room(w, h)
+  local grid = {}
+  for _ = 1, w * h do grid[#grid + 1] = 0 end
+  local m = { id = "cam", width = w, height = h, grid = grid }
+  local g = Game3.new()
+  g.phase = "play"
+  -- opt in: the clamp is a deviation and defaults off
+  g.cameraClamp = true
+  g.data.maps = { maps = { cam = m } }
+  g:enterMap(m, 0, 0, true)
+  return g, m
+end
+
+-- At the GBA's own view size the clamp must change nothing, or every existing
+-- camera behaviour shifts under it.
+local g = room(20, 20)
+g.viewW, g.viewH = Game3.SCREEN_W, Game3.SCREEN_H
+g.playerX, g.playerY = 0, 0
+g:clampCamera()
+local clamped = g.camX
+g.noCameraClamp = true
+g:clampCamera()
+eq(clamped, g.camX, "at 240x160 the clamp is a no-op, as on hardware")
+g.noCameraClamp = nil
+
+-- Widen the view and it has to pull in rather than show void past the border.
+g.viewW, g.viewH = 480, 320
+g.playerX, g.playerY = 0, 0
+g:clampCamera()
+local wide = g.camX
+g.noCameraClamp = true
+g:clampCamera()
+local free = g.camX
+g.noCameraClamp = nil
+check(wide > free, "a wider view stops the camera short of the drawn edge")
+local x0, y0, x1, y1 = g:drawnExtent(g.map)
+check(wide >= math.min(x0, (x0 + x1 - 480) / 2) - 1,
+  "and never further out than the drawn area allows")
+
+-- clampAxis itself: pan when there is room, centre when there is not.
+eq(Game3.clampAxis(-500, -100, 900, 240), -100, "pinned at the low edge")
+eq(Game3.clampAxis(5000, -100, 900, 240), 900 - 240, "pinned at the high edge")
+eq(Game3.clampAxis(300, -100, 900, 240), 300, "left alone in the middle")
+eq(Game3.clampAxis(50, 0, 200, 400), (0 + 200 - 400) / 2,
+  "a drawn area narrower than the view is centred instead")
+
+-- The clamp must not fight a scripted camera pan: the pan is added after it.
+local p = room(20, 20)
+p.viewW, p.viewH = 480, 320
+p.playerX, p.playerY = 0, 0
+p:clampCamera()
+local base = p.camX
+p.cameraPanX = 64
+p:clampCamera()
+eq(p.camX, Game3.snapPixel(base + 64), "cameraPan still moves the camera freely")
+end)()
+
+
+;(function()
+-- braille_puzzles.c. The regi chambers were unreachable: braillemessage (0x78)
+-- was sized but never decoded, so the hint never appeared, and the three
+-- field-code openers did not exist at all. Island Cave's Regice door already
+-- worked because that one comes from a map script.
+local Script = require("src.import.Gen3Script")
+
+-- The braille codes are their own encoding, not the text charmap.
+local function braille(bytes)
+  local s = {}
+  for i = 1, #bytes do s[#s + 1] = string.char(bytes[i]) end
+  return table.concat(s) .. "\255"
+end
+eq(Script.decodeBraille(braille({ 0x1D, 0x06, 0x0F, 0x0D, 0x1E }), 0), "RIGHT",
+  "braille decodes back to letters")
+eq(Script.decodeBraille(braille({ 0x01, 0xFE, 0x05 }), 0), "A\nB",
+  "0xFE is a line break")
+-- BRAILLE_CHAR_NUMBER makes the A..J that follow read as digits.
+eq(Script.decodeBraille(braille({ 0x3A, 0x01, 0x05, 0x03 }), 0), "123",
+  "a number run reads A..J as 1..0")
+eq(Script.decodeBraille(braille({ 0x3A, 0x01, 0x00, 0x01 }), 0), "1 A",
+  "and the run ends at the first non-digit")
+eq(Script.decodeBraille(braille({}), 0), nil, "an empty string decodes to nil")
+
+-- The puzzles themselves: each names one map and the tiles you must stand on.
+local function chamber(kind, group, num, x, y)
+  local w, h = 24, 32
+  local grid = {}
+  for _ = 1, w * h do grid[#grid + 1] = 0 end
+  local m = { id = "ch", group = group, index = num,
+    width = w, height = h, grid = grid }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { ch = m } }
+  g:enterMap(m, x, y, true)
+  g.playerX, g.playerY = x, y
+  g.flags = {}
+  return g, m
+end
+
+for _, c in ipairs({
+  { "strength", 24, 6, 10, 23 },
+  { "fly", 24, 68, 8, 25 },
+  { "dig", 24, 71, 10, 3 },
+}) do
+  local kind, group, num, x, y = c[1], c[2], c[3], c[4], c[5]
+  local p = Game3.BRAILLE_PUZZLES[kind]
+  check(p ~= nil, kind .. " is a known braille puzzle")
+  local g, m = chamber(kind, group, num, x, y)
+  check(g:shouldDoBraillePuzzle(kind), kind .. " fires on its own tile")
+  g.playerX = x + 3
+  check(not g:shouldDoBraillePuzzle(kind), kind .. " does not fire off it")
+  g.playerX = x
+  -- wrong map, right tile
+  m.index = num + 1
+  check(not g:shouldDoBraillePuzzle(kind), kind .. " does not fire on another map")
+  m.index = num
+  g:doBraillePuzzle(kind)
+  local dx, dy = p.door[1], p.door[2]
+  eq(Game3.metatileOf(m.grid[dy * m.width + dx + 1]) % 1024,
+    Game3.MT_CAVE_SEALED_TOP_LEFT, kind .. " opens the doorway")
+  eq(Game3.metatileOf(m.grid[(dy + 1) * m.width + dx + 2 + 1]) % 1024,
+    Game3.MT_CAVE_SEALED_BOTTOM_RIGHT, "including its bottom-right corner")
+  eq(g.flags[p.flag], true, kind .. " sets its flag")
+  check(not g:shouldDoBraillePuzzle(kind), kind .. " cannot fire twice")
+end
+
+-- DIG in the SEALED CHAMBER opens the wall instead of warping you outside,
+-- and FLY works in the ANCIENT TOMB even though a cave normally refuses it.
+local d = chamber("dig", 24, 71, 10, 3)
+d.party = { { name = "X", hp = 20, maxHp = 20, species = 1, level = 40,
+  moves = { { id = Game3.MOVE_DIG } } } }
+local okDig = d:useDig()
+check(okDig, "DIG is allowed on the sealed chamber tile")
+eq(d.map.id, "ch", "and it did not warp the player out")
+eq(d.flags[Game3.FLAG_SYS_BRAILLE_DIG], true, "it opened the chamber instead")
+end)()
+
+
+;(function()
+-- The braille character code is itself the dot pattern: bit 0 is dot 1, then
+-- 4, 2, 5, 3, 6 -- the two columns interleaved down the cell. That is why the
+-- cells can be drawn from the codes instead of blitted from the cart's font.
+local Script = require("src.import.Gen3Script")
+
+local function dots(code)
+  local set = Script.brailleDots(code)
+  local out = {}
+  for d = 1, 6 do if set[d] then out[#out + 1] = d end end
+  return table.concat(out, ",")
+end
+
+-- Every letter, against the standard braille chart.
+local CHART = {
+  { 0x01, "A", "1" }, { 0x05, "B", "1,2" }, { 0x03, "C", "1,4" },
+  { 0x0B, "D", "1,4,5" }, { 0x09, "E", "1,5" }, { 0x07, "F", "1,2,4" },
+  { 0x0F, "G", "1,2,4,5" }, { 0x0D, "H", "1,2,5" }, { 0x06, "I", "2,4" },
+  { 0x0E, "J", "2,4,5" }, { 0x11, "K", "1,3" }, { 0x15, "L", "1,2,3" },
+  { 0x13, "M", "1,3,4" }, { 0x1B, "N", "1,3,4,5" }, { 0x19, "O", "1,3,5" },
+  { 0x17, "P", "1,2,3,4" }, { 0x1F, "Q", "1,2,3,4,5" },
+  { 0x1D, "R", "1,2,3,5" }, { 0x16, "S", "2,3,4" }, { 0x1E, "T", "2,3,4,5" },
+  { 0x31, "U", "1,3,6" }, { 0x35, "V", "1,2,3,6" }, { 0x2E, "W", "2,4,5,6" },
+  { 0x33, "X", "1,3,4,6" }, { 0x3B, "Y", "1,3,4,5,6" },
+  { 0x39, "Z", "1,3,5,6" },
+}
+for _, row in ipairs(CHART) do
+  eq(dots(row[1]), row[3], row[2] .. " is dots " .. row[3])
+end
+eq(dots(0x00), "", "a space raises no dots")
+
+-- decodeBraille returns both the letters and the cells, split by line.
+local function blob(bytes)
+  local t = {}
+  for i = 1, #bytes do t[#t + 1] = string.char(bytes[i]) end
+  return table.concat(t) .. string.char(0xFF)
+end
+local text, cells = Script.decodeBraille(
+  blob({ 0x1D, 0x06, 0xFE, 0x01 }), 0)
+eq(text, "RI" .. string.char(10) .. "A", "letters come back for reading")
+eq(#cells, 2, "and the cells are split into lines")
+eq(#cells[1], 2, "two cells on the first line")
+eq(cells[1][1], 0x1D, "carrying the raw codes, not the letters")
+eq(#cells[2], 1, "one on the second")
+
+-- The engine puts the cells on a full-screen braille window, because every
+-- brailleformat in the game is 0, 0, 29, 19.
+local g = Game3.new()
+check(g:showBrailleMessage("RI", cells), "a braille message opens")
+eq(g.field.kind, "braille", "as its own full-screen window")
+eq(g.field.cells, cells, "carrying the cells to draw")
+g:eraseBrailleMessage()
+eq(g.field, nil, "and erasebox clears it")
+
+-- With no cells at all (a cache from before the op was decoded) it still shows
+-- something readable rather than nothing.
+local old = Game3.new()
+check(old:showBrailleMessage("RIGHT", nil), "no cells still shows the hint")
+eq(old.field.kind, "talk", "as plain text")
+eq(old:showBrailleMessage(nil, nil), false, "but an empty message shows nothing")
+
+-- Geometry: six dots, two columns of three.
+eq(#Game3.BRAILLE_DOT_X, 6, "six dot positions across")
+eq(#Game3.BRAILLE_DOT_Y, 6, "and down")
+eq(Game3.BRAILLE_DOT_X[1], Game3.BRAILLE_DOT_X[3], "dots 1 and 3 share a column")
+check(Game3.BRAILLE_DOT_X[4] > Game3.BRAILLE_DOT_X[1], "4 is the right column")
+check(Game3.BRAILLE_DOT_Y[3] > Game3.BRAILLE_DOT_Y[2], "3 sits below 2")
+end)()
+
+
+;(function()
+-- pokedex.c draws the list screen on gUnknown_08E96738, its own background,
+-- and CreateMonListEntry places each row by tile column. The engine used to
+-- paint a flat rectangle and invent the columns, which is what made the list
+-- look nothing like the cart.
+local Dex = require("src.import.RomExtractorGen3Dex")
+eq(Dex.RUBY_US.mainScreen, 0xE96738, "the list background is extracted")
+check(Dex.MAIN_PATH ~= nil and Dex.MAIN_PATH ~= "", "and has a path")
+
+-- CreateMonListEntry: ball at tile 0x11, number at 0x12, name at 0x17.
+eq(Game3.DEX_BALL_X, 0x11 * 8, "the caught ball is at tile column 0x11")
+eq(Game3.DEX_NUM_X, 0x12 * 8, "the number at 0x12")
+eq(Game3.DEX_NAME_X, 0x17 * 8, "the name at 0x17")
+eq(Game3.DEX_ROW_H, 16, "rows are two tiles apart")
+
+-- The panel on that background runs y 14..145, so eight rows fit inside it.
+-- Every drawn row has to land within it or the list sits on the artwork.
+eq(Game3.DEX_LIST_ROWS, 8, "eight rows are on screen")
+check(Game3.DEX_LIST_TOP >= 14, "the first row starts inside the panel")
+local lastRow = Game3.DEX_LIST_TOP + (Game3.DEX_LIST_ROWS - 1) * Game3.DEX_ROW_H
+check(lastRow + Game3.DEX_ROW_H <= 146,
+  "and the last row ends inside it too")
+check(Game3.DEX_NAME_X < Game3.SCREEN_W, "names start on screen")
+check(Game3.DEX_BALL_X < Game3.DEX_NUM_X and Game3.DEX_NUM_X < Game3.DEX_NAME_X,
+  "ball, number then name, left to right")
+
+-- CreateInterfaceSprites: SEEN/OWN on the LEFT panel, START/SELECT prompts
+-- bottom left, scroll arrows top/bottom of the list. Corners here.
+check(Game3.DEX_SEEN_Y < Game3.DEX_OWN_Y, "SEEN sits above OWN")
+check(Game3.DEX_OWN_Y + 16 <= Game3.SCREEN_H, "OWN stays on screen")
+check(Game3.DEX_DIGIT_Y_SEEN > Game3.DEX_SEEN_Y, "seen digits sit under SEEN")
+check(Game3.DEX_ARROW_TOP_Y < Game3.DEX_ARROW_BOTTOM_Y, "arrows top and bottom")
+check(Game3.DEX_ARROW_BOTTOM_Y + 8 <= Game3.SCREEN_H,
+  "and the bottom one is on screen")
+check(Game3.DEX_START_Y > Game3.DEX_OWN_Y, "START/MENU sit below OWN")
+
+-- The list screen draws the highlighted mon big in the left panel; it does not
+-- put an icon on every row the way this engine used to.
+local g = Game3.new()
+check(type(g.drawDexPortrait) == "function", "there is a portrait for the panel")
+check(Game3.DEX_PORTRAIT_X < Game3.DEX_BALL_X,
+  "and it sits left of the list, in its own panel")
+check(type(g.drawDexDigit) == "function", "interface digits are drawn from the sheet")
+check(type(g.drawDexScrollArrow) == "function", "scroll arrows come from the sheet")
+end)()
+
+
+;(function()
+-- Every Pokedex screen the cart has, and where it lives.
+local Dex = require("src.import.RomExtractorGen3Dex")
+local R = Dex.RUBY_US
+eq(R.listOverlay, 0xE9C6DC, "list overlay")
+eq(R.startMenuMain, 0xE96888, "START menu")
+eq(R.startMenuSearch, 0xE96994, "START menu, search results")
+eq(R.searchGfx, 0xE87DB0, "search screen tiles")
+eq(R.searchLayout, 0xE96D2C, "search screen tilemap")
+eq(R.searchPal, 0x39F67C, "search palette")
+eq(R.nationalPal, 0x39F73C, "National palette")
+check(Dex.SEARCH_PATH and Dex.START_MENU_PATH and Dex.MAIN_NATIONAL_PATH,
+  "each has somewhere to render to")
+
+-- Entry screen. Task_InitPageScreenMultistep prints at tile positions, and
+-- "No", "HT" and "WT" are chrome tiles -- drawing them again as text is what
+-- doubled the labels.
+eq(Game3.DEX_ENTRY_NUM_X, 13 * 8, "the number prints at tile 13")
+eq(Game3.DEX_ENTRY_NUM_Y, 3 * 8, "on row 3")
+eq(Game3.DEX_ENTRY_NAME_X, 16 * 8, "the name at tile 16")
+eq(Game3.DEX_ENTRY_CATEGORY_X, 11 * 8, "the category at CATEGORY_LEFT")
+eq(Game3.DEX_ENTRY_CATEGORY_Y, 5 * 8, "on row 5")
+eq(Game3.DEX_ENTRY_VALUE_X, 16 * 8, "height and weight at tile 16")
+eq(Game3.DEX_ENTRY_HT_Y, 7 * 8, "height on row 7")
+eq(Game3.DEX_ENTRY_WT_Y, 9 * 8, "weight on row 9")
+eq(Game3.DEX_ENTRY_TEXT_Y, 13 * 8, "the description on row 13")
+check(Game3.DEX_ENTRY_HT_Y < Game3.DEX_ENTRY_WT_Y, "HT sits above WT")
+check(Game3.DEX_ENTRY_WT_Y < Game3.DEX_ENTRY_TEXT_Y,
+  "and both above the description")
+
+-- START on the list opens the cart's popup; it does not leave the Pokedex.
+eq(#Game3.DEX_START_ITEMS, 4, "four entries on the main START menu")
+eq(Game3.DEX_START_ITEMS[1], "BACK TO LIST", "BACK TO LIST first")
+eq(Game3.DEX_START_ITEMS[4], "CLOSE POKeDEX", "CLOSE POKeDEX last")
+eq(Game3.DEX_START_TEXT_X, 18 * 8, "the text starts at tile column 18")
+eq(Game3.DEX_START_ROW_H, 16, "one item every two tile rows")
+
+local Input = require("src.core.Input")
+local function press(g, key)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, k) return k == key end
+  g:stepField()
+  Input.wasPressed = old
+end
+
+local g = Game3.new()
+g.phase = "play"
+for i = 1, 12 do g:markSeen(i) end
+g:openDex()
+eq(#(g.field.list or {}), 12, "twelve seen entries")
+press(g, "down"); press(g, "down")
+eq(g.field.cursor, 2, "cursor moved")
+press(g, "start")
+eq(g.field.kind, "dex_start", "START opens the popup, not the main menu")
+eq(g.field.listCursor, 2, "and remembers where the list was")
+press(g, "a")
+eq(g.field.kind, "dex", "BACK TO LIST returns")
+eq(g.field.cursor, 2, "on the same entry")
+press(g, "start"); press(g, "down"); press(g, "down"); press(g, "a")
+eq(g.field.cursor, 11, "LIST BOTTOM goes to the last entry")
+press(g, "start"); press(g, "down"); press(g, "a")
+eq(g.field.cursor, 0, "LIST TOP goes to the first")
+press(g, "start")
+press(g, "down"); press(g, "down"); press(g, "down"); press(g, "a")
+eq(g.field.kind, "menu", "CLOSE POKeDEX leaves the Pokedex")
+end)()
+
+
+;(function()
+-- pokedex.c LoadSearchMenu. sSearchMenuItems gives every field position in
+-- tiles and sSearchOptions the option lists; both are transcribed into the
+-- engine, and the labels / SEARCH-SHIFT-CANCEL bar are tiles in the tilemap
+-- so only values, cursor and description are drawn.
+local rows = Game3.DEX_SEARCH_ROWS
+eq(#rows, 7, "seven rows, as sSearchMenuItems has")
+eq(rows[1].key, "name", "NAME first")
+eq(rows[1].y, 2, "on tile row 2")
+eq(rows[2].y, 4, "COLOR on 4")
+eq(rows[3].y, 6, "TYPE on 6")
+eq(rows[4].y, 6, "and the second TYPE shares that row")
+eq(rows[3].x, 5, "first TYPE at tile column 5")
+eq(rows[4].x, 11, "second at column 11")
+eq(rows[5].y, 8, "ORDER on 8")
+eq(rows[6].y, 10, "MODE on 10")
+eq(rows[7].key, "ok", "OK last")
+eq(rows[7].y, 12, "on row 12")
+
+local g = Game3.new()
+g.phase = "play"
+eq(#Game3.DEX_SEARCH_NAME_OPTIONS, 10, "ten NAME options")
+eq(Game3.DEX_SEARCH_NAME_OPTIONS[1], "DON'T SPECIFY", "the first is DON'T SPECIFY")
+eq(#Game3.DEX_SEARCH_COLOR_OPTIONS, 11, "eleven COLOR options")
+eq(#Game3.DEX_SEARCH_ORDER_OPTIONS, 6, "six ORDER options")
+eq(#Game3.DEX_SEARCH_MODE_OPTIONS, 2, "two MODE options")
+local types = g:dexSearchTypeOptions()
+eq(#types, 18, "eighteen TYPE options, as sDexSearchTypeOptions has")
+eq(types[1], "NONE", "NONE first")
+eq(types[2], "NORMAL", "then NORMAL")
+eq(types[18], "DARK", "and DARK last")
+-- sDexSearchTypeIds skips the unused type 9.
+for i = 1, #types do
+  check(types[i] ~= "???", "no unused type appears in the list: " .. types[i])
+end
+
+-- SELECT on the list opens it; B goes back.
+local Input = require("src.core.Input")
+local function press(gg, key)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, k) return k == key end
+  gg:stepField()
+  Input.wasPressed = old
+end
+for i = 1, 20 do g:markSeen(i) end
+g:openDex()
+press(g, "select")
+eq(g.field.kind, "dex_search", "SELECT opens the search screen")
+press(g, "b")
+eq(g.field.kind, "dex", "B returns to the list")
+
+-- A on a field opens its dropdown, A again commits the choice.
+press(g, "select")
+local f = g.field
+eq(f.row, 0, "starts on NAME")
+press(g, "a")
+check(f.open ~= nil, "A opens the option list")
+eq(#f.open.options, 10, "with the NAME options in it")
+press(g, "down")
+press(g, "a")
+eq(f.open, nil, "A commits and closes it")
+eq(f.sel.name, 2, "and the field took the new value")
+press(g, "a")
+press(g, "b")
+eq(f.sel.name, 2, "B cancels the list without changing the field")
+
+-- The two TYPE fields sit on one row, so left/right moves between them.
+f.row = 2
+press(g, "right")
+eq(f.row, 3, "right moves to the second TYPE")
+press(g, "left")
+eq(f.row, 2, "and left comes back")
+
+-- Ordering follows sDexOrderOptions.
+local list = {
+  { id = 1, name = "CCC" }, { id = 2, name = "AAA" }, { id = 3, name = "BBB" },
+}
+g:sortDexList(list, 2)
+eq(list[1].name, "AAA", "A TO Z sorts by name")
+eq(list[3].name, "CCC", "all the way down")
+end)()
+
+
+;(function()
+-- pokedex.c: the info page loads LoadScreenSelectBarMain, but AREA, CRY and
+-- SIZE each load LoadScreenSelectBarSubmenu. Only the main bar was rendered,
+-- so the three sub-screens fell back to a hand-written "B back".
+local Dex = require("src.import.RomExtractorGen3Dex")
+eq(Dex.RUBY_US.selectBarSubmenu, 0xE96B58, "the submenu bar is extracted")
+check(Dex.SELECT_BAR_SUB_PATH and Dex.SELECT_BAR_SUB_PATH ~= "",
+  "and rendered to its own asset")
+check(Dex.SELECT_BAR_SUB_PATH ~= Dex.SELECT_BAR_PATH,
+  "separate from the main bar")
+
+local g = Game3.new()
+local picked
+local realPic = g.menuPic
+g.menuPic = function(_, path) picked = path; return nil end
+g.dexArt = function()
+  return { selectBar = "MAIN", selectBarSub = "SUB" }
+end
+g:drawDexSelectBar({ screen = Game3.DEX_SCREEN_INFO })
+eq(picked, "MAIN", "the info page uses the main bar")
+g:drawDexSelectBar({ screen = Game3.DEX_SCREEN_AREA })
+eq(picked, "SUB", "AREA uses the submenu bar")
+g:drawDexSelectBar({ screen = Game3.DEX_SCREEN_CRY })
+eq(picked, "SUB", "so does CRY")
+g:drawDexSelectBar({ screen = Game3.DEX_SCREEN_SIZE })
+eq(picked, "SUB", "and SIZE")
+g.menuPic = realPic
+end)()
+
+
+;(function()
+-- field_weather_effects.c CreateFog1Sprites / CreateAshSprites /
+-- CreateSandstormSprites_1: twenty 64x64 sprites, 5 across and 4 down, at
+-- x = (i % 5) * 64 + 32 and y = (i / 5) * 64 + 32. Edge to edge, nothing
+-- overlapping. The engine used to scatter them -- fog 48px apart for a 64px
+-- sprite, sand rows 32px apart -- so they stacked and the alpha piled up.
+local W = require("src.core.Game3WeatherFx")
+eq(W.GRID_COLS, 5, "five columns, as the cart creates")
+eq(W.GRID_ROWS, 4, "four rows")
+eq(W.GRID_CELL, 64, "of 64px cells")
+local cells = W.gridCells()
+eq(#cells, 20, "twenty cells, matching the cart's sprite count")
+
+-- The grid has to cover the whole screen at any scroll offset, and no two
+-- cells may land on the same pixel.
+local function coverage(scroll)
+  local seen, overlap = {}, 0
+  for i = 1, #cells do
+    local x, y = W.cellXY({ scrollX = scroll, scrollY = scroll }, cells[i])
+    for px = math.floor(x), math.floor(x) + W.GRID_CELL - 1 do
+      for py = math.floor(y), math.floor(y) + W.GRID_CELL - 1 do
+        if px >= 0 and px < Game3.SCREEN_W and py >= 0 and py < Game3.SCREEN_H then
+          local k = py * Game3.SCREEN_W + px
+          if seen[k] then overlap = overlap + 1 end
+          seen[k] = true
+        end
+      end
+    end
+  end
+  local n = 0
+  for _ in pairs(seen) do n = n + 1 end
+  return n, overlap
+end
+for _, scroll in ipairs({ 0, 7, 31, 63 }) do
+  local covered, overlap = coverage(scroll)
+  eq(covered, Game3.SCREEN_W * Game3.SCREEN_H,
+    "the grid covers the whole screen at scroll " .. scroll)
+  eq(overlap, 0, "with nothing overlapping at scroll " .. scroll)
+end
+
+-- Cells are a plain grid, so every column and row is used exactly once.
+local cols, rows = {}, {}
+for i = 1, #cells do
+  cols[cells[i].col] = (cols[cells[i].col] or 0) + 1
+  rows[cells[i].row] = (rows[cells[i].row] or 0) + 1
+end
+for c = 0, W.GRID_COLS - 1 do
+  eq(cols[c], W.GRID_ROWS, "column " .. c .. " has one cell per row")
+end
+for r = 0, W.GRID_ROWS - 1 do
+  eq(rows[r], W.GRID_COLS, "row " .. r .. " has one cell per column")
+end
+
+-- An object placed as OBJ_EVENT_GFX_VAR_0..F takes its sheet from
+-- VAR_OBJ_GFX_ID_n at runtime, so scanning map objects alone never sees it.
+-- dynamic_npc_graphics.inc is where GROUDON's two sheets are set.
+local R = require("src.import.RomExtractorGen3")
+local maps = { m = {
+  objects = {},
+  coordEvents = { { script = {
+    { op = "setvar", var = 0x4018, val = 198 },
+    { op = "call", body = { { op = "setvar", var = 0x4019, val = 206 } } },
+  } } },
+  mapScripts = {},
+} }
+local ids = R.collectGraphicsIds(maps, nil)
+local set = {}
+for i = 1, #ids do set[ids[i]] = true end
+check(set[198], "GROUDON_1 is collected from the script that sets it")
+check(set[206], "GROUDON_2 too, from inside a call body")
+-- and a setvar to some other var must not be mistaken for a graphics id
+local other = { m = { objects = {}, coordEvents = { { script = {
+  { op = "setvar", var = 0x4044, val = 199 },
+} } }, mapScripts = {} } }
+local ids2 = R.collectGraphicsIds(other, nil)
+local set2 = {}
+for i = 1, #ids2 do set2[ids2[i]] = true end
+check(not set2[199], "a setvar outside VAR_OBJ_GFX_ID is not a graphics id")
+end)()
+
+
+;(function()
+-- metatile_behavior.c MetatileBehavior_IsDiveable takes three behaviours.
+-- MB_SEMI_DEEP_WATER (0x11) was missing, and it is the one every ocean dive
+-- spot uses -- ROUTE 134's patch around (60,31) is 0x11 -- so DIVE answered
+-- "You can't use that here!" on 264 tiles across 8 maps, including the route
+-- that leads to the SEALED CHAMBER and the chamber's own way back down.
+eq(Game3.MB_INTERIOR_DEEP_WATER, 0x11, "MB_SEMI_DEEP_WATER is 0x11")
+eq(Game3.MB_DEEP_WATER, 0x12, "MB_UNUSED_DEEP_WATER is 0x12")
+eq(Game3.MB_SOOTOPOLIS_DEEP_WATER, 0x14, "and Sootopolis deep water is 0x14")
+check(Game3.isDiveable(0x11), "0x11 is diveable")
+check(Game3.isDiveable(0x12), "0x12 is diveable")
+check(Game3.isDiveable(0x14), "0x14 is diveable")
+-- and nothing else is
+for _, b in ipairs({ 0x00, 0x10, 0x13, 0x15, 0x1A, 0x69 }) do
+  check(not Game3.isDiveable(b),
+    ("0x%02X is not diveable"):format(b))
+end
+
+-- The gate itself: MIND BADGE plus a party member that knows DIVE.
+local function diver(badge)
+  local g = Game3.new()
+  g.phase = "play"
+  local grid = {}
+  for _ = 1, 16 * 16 do grid[#grid + 1] = 0 end
+  local m = { id = "sea", width = 16, height = 16, grid = grid,
+    behavior = { [4 * 16 + 4 + 1] = Game3.MB_INTERIOR_DEEP_WATER } }
+  g.data.maps = { maps = { sea = m } }
+  g.party = { { name = "X", hp = 20, maxHp = 20, species = 72, level = 20,
+    moves = { { id = Game3.MOVE_DIVE, pp = 10 } } } }
+  g.flags = {}
+  if badge then
+    for b = 1, 7 do g.flags[0x800 + 0x06 + b] = true end
+  end
+  g:enterMap(m, 4, 4, true)
+  g.surfing = true
+  return g
+end
+
+local noBadge = diver(false)
+local ok, msg = noBadge:useDive()
+eq(ok, false, "no MIND BADGE means no DIVE")
+check((msg or ""):find("MIND BADGE", 1, true) ~= nil, "and it says which badge")
+
+local g = diver(true)
+check(Game3.isDiveable(g:behaviorAt(g.map, 4, 4)),
+  "the tile under the player is a dive tile")
+-- no dive connection and no setdivewarp: the cart refuses too
+local ok2 = g:useDive()
+eq(ok2, false, "a dive tile with nowhere to go still refuses")
+-- give it a destination the way ON_RESUME's setdivewarp does
+g:setDiveWarp(0, 0, Game3.WARP_ID_NONE, 4, 4)
+check(g.diveWarp ~= nil, "setdivewarp stores the destination")
+eq(g.diveWarp.x, 4, "with its own landing spot")
+end)()
+
+
+;(function()
+-- field_control_avatar.c: A on a diveable tile runs UseDiveScript, B while
+-- underwater runs S_UseDiveUnderwater. Neither existed here, so DIVE was only
+-- reachable from the party menu and nothing ever told you that you could
+-- surface. B, not A, is what surfaces you.
+local function sea(opts)
+  opts = opts or {}
+  local g = Game3.new()
+  g.phase = "play"
+  local grid = {}
+  for _ = 1, 16 * 16 do grid[#grid + 1] = 0 end
+  local m = { id = "sea", width = 16, height = 16, grid = grid,
+    mapType = opts.underwater and Game3.MAP_TYPE_UNDERWATER or nil,
+    behavior = { [4 * 16 + 4 + 1] = opts.plain and Game3.MB_NORMAL
+      or Game3.MB_INTERIOR_DEEP_WATER } }
+  g.data.maps = { maps = { sea = m } }
+  g.party = { { name = "TENTACOOL", hp = 20, maxHp = 20, species = 72,
+    level = 20, moves = opts.noDive and {} or { { id = Game3.MOVE_DIVE, pp = 10 } } } }
+  g.flags = {}
+  if not opts.noBadge then
+    for b = 1, 7 do g.flags[0x800 + 0x06 + b] = true end
+  end
+  g:enterMap(m, 4, 4, true)
+  g.surfing = true
+  if opts.underwater then g.diving = true end
+  return g
+end
+
+-- Going down.
+local g = sea()
+check(g:canDiveDownHere(), "a dive tile offers to take you down")
+check(g:tryDiveDown(), "A prompts")
+eq(g.field.kind, "decor_yesno", "as a yes/no")
+check(g.field.text:find("sea is deep", 1, true) ~= nil, "UseDivePromptText")
+
+-- Coming up. This is B in the cart, and the wording differs.
+local u = sea({ underwater = true })
+check(u:canDiveEmergeHere(), "underwater offers to surface")
+check(u:tryDiveEmerge(), "B prompts")
+check(u.field.text:find("filtering down", 1, true) ~= nil,
+  "UnderwaterUseDivePromptText")
+-- and going down is not offered while already under
+eq(u:canDiveDownHere(), false, "you cannot dive down from underwater")
+
+-- No DIVE in the party: it still speaks, with the other wording.
+local n = sea({ noDive = true })
+check(n:tryDiveDown(), "it still answers without the move")
+eq(n.field.kind, "talk", "as a plain line, not a prompt")
+check(n.field.text:find("may be", 1, true) ~= nil, "CannotUseDiveText")
+local nu = sea({ underwater = true, noDive = true })
+nu:tryDiveEmerge()
+check(nu.field.text:find("surface here", 1, true) ~= nil,
+  "UnderwaterCannotUseDiveText")
+
+-- The MIND BADGE gates both, and plain water offers nothing.
+eq(sea({ noBadge = true }):canDiveDownHere(), false,
+  "no MIND BADGE, no prompt")
+eq(sea({ noBadge = true, underwater = true }):canDiveEmergeHere(), false,
+  "and none underwater either")
+eq(sea({ plain = true }):canDiveDownHere(), false,
+  "ordinary water says nothing at all")
+end)()
+
+-- ------- braillemessage carries its own window
+
+-- ScrCmd_braillemessage reads a 6-byte brailleformat header off the front of
+-- the string -- winLeft/Top/Right/Bottom then textLeft/textTop -- and does
+-- Menu_DrawStdWindowFrame(win) + Menu_PrintText(str, textLeft, textTop). The
+-- header differs per message: data/text/braille.inc has ABC at 9,6,19,13 and
+-- GO UP HERE. at 3,6,27,13. Skipping those six bytes and drawing every
+-- message full-screen at one fixed origin, which is what this did, put the
+-- dots in the top-left corner of a white wash for all 22 of them.
+;(function()
+local function brailleRom(hdr, bytes)
+  local body = ""
+  for i = 1, #hdr do body = body .. string.char(hdr[i]) end
+  for i = 1, #bytes do body = body .. string.char(bytes[i]) end
+  body = body .. string.char(0xFF)
+  local rom = string.char(0x78, 0x00, 0x01, 0x00, 0x08, 0x02)
+  local z = string.char(0)
+  rom = rom .. z:rep(0x100 - #rom) .. body
+  return rom .. z:rep(0x200 - #rom - #body)
+end
+
+-- "AB" under the ABC header, which is deliberately not the fallback one:
+-- ignoring op.win has to show up here, not quietly agree with it.
+local ops = RomExtractorGen3.parseOps(brailleRom(
+  { 9, 6, 19, 13, 12, 9 }, { 0x01, 0x05 }), 0)
+local op = ops and ops[1]
+eq(op and op.op, "braillemessage", "the op parses")
+eq(op and op.text, "AB", "and still decodes its letters")
+check(op and op.win ~= nil, "the brailleformat header comes with it")
+eq(op.win.left, 9, "winLeft")
+eq(op.win.top, 6, "winTop")
+eq(op.win.right, 19, "winRight")
+eq(op.win.bottom, 13, "winBottom")
+eq(op.win.textX, 12, "textLeft")
+eq(op.win.textY, 9, "textTop")
+
+-- Draw it and look at where the rectangles actually land.
+local G = love.graphics
+local oldRect, oldColor, oldDraw = G.rectangle, G.setColor, G.draw
+local calls = {}
+G.rectangle = function(mode, x, y, w, h) calls[#calls + 1] = { x, y, w, h } end
+G.setColor = function() end
+G.draw = function() end
+local g = Game3.new()
+g.uiPic = function() return nil end
+g:showBrailleMessage(op.text, op.cells, op.win)
+g:drawBrailleMessage(g.field)
+G.rectangle, G.setColor, G.draw = oldRect, oldColor, oldDraw
+
+local box = calls[1]
+eq(box[1], 72, "the window sits at winLeft * 8")
+eq(box[2], 48, "and winTop * 8")
+eq(box[3], 88, "spanning left..right inclusive")
+eq(box[4], 64, "and top..bottom inclusive")
+check(box[3] < Game3.SCREEN_W, "it is a box on the map, not a full-screen wash")
+
+local minX, minY, maxX, maxY = 1e9, 1e9, -1e9, -1e9
+local dots = 0
+for i = 1, #calls do
+  local c = calls[i]
+  if c[3] <= Game3.BRAILLE_DOT and c[4] <= Game3.BRAILLE_DOT then
+    dots = dots + 1
+    if c[1] < minX then minX = c[1] end
+    if c[2] < minY then minY = c[2] end
+    if c[1] + c[3] > maxX then maxX = c[1] + c[3] end
+    if c[2] + c[4] > maxY then maxY = c[2] + c[4] end
+  end
+end
+eq(dots, 12, "six dots drawn per cell, raised or not")
+eq(minX, 96, "the text starts at textLeft * 8")
+eq(minY, 72, "and textTop * 8")
+check(minX >= box[1] and minY >= box[2]
+  and maxX <= box[1] + box[3] and maxY <= box[2] + box[4],
+  "and every dot lands inside the window")
+
+-- A newline is AddToCursorY(win, 16) -- no extra gap between lines.
+local two = RomExtractorGen3.parseOps(brailleRom(
+  { 3, 0, 27, 19, 5, 3 }, { 0x01, 0xFE, 0x05 }), 0)[1]
+eq(two.text, "A" .. string.char(10) .. "B", "two lines decode")
+calls = {}
+G.rectangle = function(mode, x, y, w, h) calls[#calls + 1] = { x, y, w, h } end
+G.setColor = function() end
+G.draw = function() end
+g:showBrailleMessage(two.text, two.cells, two.win)
+g:drawBrailleMessage(g.field)
+G.rectangle, G.setColor, G.draw = oldRect, oldColor, oldDraw
+local ys = {}
+for i = 1, #calls do
+  local c = calls[i]
+  if c[3] <= Game3.BRAILLE_DOT and c[4] <= Game3.BRAILLE_DOT then
+    ys[c[2]] = true
+  end
+end
+local pitch = Game3.BRAILLE_CELL_H + Game3.BRAILLE_LINE_GAP
+check(ys[24] and ys[24 + pitch],
+  "the second line sits one line pitch below the first")
+-- Braille is read by the ratio of the gaps: between cells and between lines
+-- has to beat the spacing inside a cell, or the characters run together.
+check(Game3.BRAILLE_CELL_W - Game3.BRAILLE_DOT_X[4] > Game3.BRAILLE_DOT_X[4],
+  "cells are further apart than the two dot columns inside one")
+check(pitch - Game3.BRAILLE_DOT_Y[3] > Game3.BRAILLE_DOT_Y[2],
+  "lines are further apart than the rows inside one cell")
+end)()
+
+-- ------- a script whose only output is its own window
+
+-- presentScript's tail assumed a script that queued no dialogue produced
+-- nothing, so it called closeField and returned false. braillemessage is the
+-- one op that puts a window up on its own, so a braille script that reached
+-- the end without pausing had its window destroyed in the same frame and was
+-- reported as a no-op: activateBg -> tryBgEvent -> tryTalk all returned false
+-- and A on the panel did nothing at all -- you could walk straight off it.
+;(function()
+local win = { left = 9, top = 6, right = 19, bottom = 13, textX = 12, textY = 9 }
+local function brailleScript(ops)
+  local g = Game3.new()
+  g.phase = "play"
+  return g, g:runNpcScript(ops)
+end
+
+-- No waitbuttonpress: the script runs to the end with nothing queued.
+local g, ran = brailleScript({
+  { op = "lockall" },
+  { op = "braillemessage", text = "ABC", cells = { { 1, 5, 3 } }, win = win },
+  { op = "releaseall" },
+  { op = "end" },
+})
+check(ran, "the script counts as having done something")
+eq(g.field and g.field.kind, "braille", "and its window is still up")
+eq(g.field and g.field.text, "ABC", "with the message it raised")
+
+-- The cart's own shape still pauses on the button wait, as before.
+local w, wran = brailleScript({
+  { op = "lockall" },
+  { op = "braillemessage", text = "GHI", cells = { { 11, 6, 15 } }, win = win },
+  { op = "waitbuttonpress" },
+  { op = "releaseall" },
+  { op = "end" },
+})
+check(wran, "the waitbuttonpress form still runs")
+eq(w.field and w.field.kind, "braille", "and keeps its window too")
+
+-- A script that queues nothing and raises nothing is still a no-op: the
+-- scene-ending closeField must not be smothered by the branch above.
+local q, qran = brailleScript({ { op = "lockall" }, { op = "releaseall" },
+  { op = "end" } })
+eq(qran, false, "a script with no output is still nothing")
+eq(q.field, nil, "and it leaves no field behind")
+end)()
+
+-- ------- the braille chamber doorways
+
+-- Two bugs kept all four chambers sealed after you solved them.
+-- 1. BRAILLE_PUZZLES.door held the cart's MapGridSetMetatileIdAt x/y, which
+--    include MAP_OFFSET 7, but setMetatile takes map coords. The door opened
+--    7 right and 7 down -- the dig one landed on the "," braille panel.
+-- 2. tryWalk refused to follow a warp whose tile carried a bg sign, and the
+--    braille panel shares its tile with the doorway warp, so even a correctly
+--    opened wall could not be walked through. TryStartWarpEventScript is only
+--    `warpEventId != -1 && IsWarpMetatileBehavior(behaviour)` -- no sign check.
+;(function()
+-- Each door's bottom-middle is the map's own warp tile. That is the
+-- cross-check that pins these down: (10,2) on the Sealed Chamber outer room
+-- and (8,20) on all three regi chambers.
+for _, c in ipairs({
+  { "dig", 10, 2 }, { "strength", 8, 20 }, { "fly", 8, 20 },
+}) do
+  local p = Game3.BRAILLE_PUZZLES[c[1]]
+  check(p ~= nil, c[1] .. " is a known puzzle")
+  eq(p.door[1] + 1, c[2], c[1] .. " door bottom-middle sits on the warp x")
+  eq(p.door[2] + 1, c[3], c[1] .. " door bottom-middle sits on the warp y")
+end
+
+-- A warp tile that also carries a sign still warps.
+local w, h = 8, 8
+local grid, behavior = {}, {}
+for i = 1, w * h do grid[i] = 0; behavior[i] = 0 end
+behavior[2 * w + 3 + 1] = Game3.MB_NON_ANIMATED_DOOR
+local dest = { id = "g9_2", group = 9, index = 2, width = w, height = h,
+  grid = {}, behavior = {},
+  warps = { { x = 4, y = 4, mapGroup = 9, mapNum = 1, warpId = 0 } } }
+for i = 1, w * h do dest.grid[i] = 0; dest.behavior[i] = 0 end
+local m = {
+  id = "g9_1", group = 9, index = 1, width = w, height = h,
+  grid = grid, behavior = behavior,
+  warps = { { x = 3, y = 2, mapGroup = 9, mapNum = 2, warpId = 0 } },
+  bgEvents = { { x = 3, y = 2, kind = 0, elevation = 0,
+    text = "There is a big hole in the wall." } },
+}
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = { g9_1 = m, g9_2 = dest } }
+check(Game3.signBgAt(m, 3, 2) ~= nil, "the doorway does carry a sign")
+g:enterMap(m, 3, 3, true)
+g.playerX, g.playerY = 3, 3
+g.facing = "north"
+g.ignoreWarp = nil
+g:tryWalk(0, -1)
+eq(g.map and g.map.id, "g9_2", "walking into it still follows the warp")
+
+-- and the sign is still readable with A, which is the other input entirely
+local a = Game3.new()
+a.phase = "play"
+a.data.maps = { maps = { g9_1 = m, g9_2 = dest } }
+a:enterMap(m, 3, 3, true)
+a.playerX, a.playerY = 3, 3
+a.facing = "north"
+a:tryTalk()
+eq(a.field and a.field.kind, "talk", "A on the same tile reads the sign")
+end)()
+
+-- ------- saying NO must not open the decoration menu
+
+-- answerDecorYesNo's NO branch reopens the secret base DECORATE menu, which
+-- is right for the PC's own refusals (decoration.c sends every one of them
+-- back to sub_80FE428) but wrong for the two callers that only borrowed the
+-- yes/no box. Declining DIVE, or the POKeBLOCK FEEDER, popped DECORATE /
+-- PUT AWAY / TOSS / EXIT over the map.
+;(function()
+local function decline(text, onYes, plain)
+  local g = Game3.new()
+  g.phase = "play"
+  g:openDecorYesNo(text, onYes, plain)
+  eq(g.field.kind, "decor_yesno", "the prompt opens")
+  g:answerDecorYesNo(false)
+  return g
+end
+
+local d = decline("Would you like to use DIVE?", "confirmDivePrompt", true)
+eq(d.field, nil, "declining DIVE just closes the box")
+
+local p = decline("POKeBLOCK?", "openPokeblockCaseOnFeeder", true)
+eq(p.field, nil, "so does declining the POKeBLOCK FEEDER")
+
+-- The PC's own refusals still go back to its menu.
+local pc = decline("Return this decoration to the PC?", "confirmDecorPutAway")
+check(pc.field ~= nil, "a decoration refusal still lands somewhere")
+eq(pc.field.kind, "decor_menu", "and that somewhere is the PC menu")
+
+-- YES is unaffected either way.
+local y = Game3.new()
+y.phase = "play"
+y._ranIt = false
+y.markIt = function(self) self._ranIt = true end
+y:openDecorYesNo("go?", "markIt", true)
+y:answerDecorYesNo(true)
+check(y._ranIt, "a plain prompt still runs its yes handler")
+end)()
+
+-- ------- the Regice wait survives stray taps
+
+-- Task_BrailleWait case 2 destroys the task on ANY press once the message is
+-- erased, so the very tap that dismisses the braille arms an instant, silent
+-- cancel -- and the screen looks the same whether the timer is running or
+-- dead. Deliberate deviation: only B backs out now, so the countdown keeps
+-- running through A and d-pad taps. See brailleWaitCancelPressed.
+;(function()
+local Input = require("src.core.Input")
+local function waitOut(taps)
+  Input:reset()
+  local g = Game3.new()
+  g.phase = "play"
+  g.flags = {}
+  g:doBrailleWait()
+  for i = 1, 9000 do
+    local t = taps[i]
+    if t then Input:overlayPressed(t) end
+    Input:step()
+    g:stepBrailleWait(1)
+    if t then Input:overlayReleased(t) end
+    if not g.brailleWait then
+      return i, g.flags[Game3.FLAG_SYS_BRAILLE_WAIT] == true
+    end
+  end
+  return nil, false
+end
+
+local n, opened = waitOut({})
+check(opened, "left alone, the chamber opens")
+eq(n, Game3.BRAILLE_WAIT_FRAMES + Game3.BRAILLE_WAIT_CLEAR_FRAMES,
+  "after the full wait plus the erase delay")
+
+n, opened = waitOut({ [50] = "a" })
+check(opened, "dismissing the braille still opens it")
+eq(n, Game3.BRAILLE_WAIT_FRAMES, "the timer is not restarted by the dismiss")
+
+-- The reported bug: a second tap killed it silently.
+n, opened = waitOut({ [50] = "a", [300] = "a" })
+check(opened, "and a second tap no longer cancels")
+n, opened = waitOut({ [50] = "a", [300] = "a", [600] = "a", [900] = "a" })
+check(opened, "nor do several")
+n, opened = waitOut({ [50] = "a", [300] = "up", [600] = "left" })
+check(opened, "nor a nudge on the d-pad")
+
+-- B is still the way out of a two-minute wait.
+n, opened = waitOut({ [50] = "a", [300] = "b" })
+check(not opened, "B still backs out")
+eq(n, 300, "at the moment it is pressed")
+end)()
+
+-- ------- scripts must be baked before the collectors run
+
+-- run() used to bake map scripts in the Cache stage, below both collectors
+-- that read them: collectGraphicsIds (via extractSprites) and
+-- collectScriptSpecies (via extractBattle). Every entry.script was still a
+-- raw offset when they ran, so both collected nothing script-driven --
+-- Groudon's overworld sheets (198/206) and every script-only battle pic
+-- rendered as a blank square. The bake now happens straight after
+-- extractMaps, keeping scriptOff for the trainer / item / mart reads that
+-- follow, and stripScriptOffsets clears them afterwards.
+;(function()
+local VAR_OBJ_GFX_ID_8 = 0x4018
+local function mapWithGfxVar(off)
+  return { id = "m", group = 1, index = 1, width = 2, height = 2,
+    grid = { 0, 0, 0, 0 },
+    objects = { { x = 0, y = 0, graphicsId = 7, scriptOff = off } },
+    bgEvents = {}, coordEvents = {} }
+end
+
+-- setvar VAR_OBJ_GFX_ID_8, 198  then end
+local rom = string.rep(string.char(0), 0x20)
+  .. string.char(0x16, 0x18, 0x40, 198, 0, 0x02)
+local OFF = 0x20
+
+local m = mapWithGfxVar(OFF)
+local ids = RomExtractorGen3.collectGraphicsIds({ m }, nil)
+local set = {}
+for _, g in ipairs(ids) do set[g] = true end
+eq(set[198], nil, "an unbaked script hides the gfx var write")
+
+RomExtractorGen3.bakeMapScripts(rom, m, true)
+ids = RomExtractorGen3.collectGraphicsIds({ m }, nil)
+set = {}
+for _, g in ipairs(ids) do set[g] = true end
+check(set[198], "once baked, the sheet the script names is collected")
+check(set[7], "and the object's own graphicsId still is")
+
+-- keepOffsets leaves scriptOff for the trainer / item / mart reads below
+check(m.objects[1].scriptOff ~= nil, "keepOffsets leaves the raw offset")
+check(type(m.objects[1].script) == "table", "and bakes the script")
+RomExtractorGen3.stripScriptOffsets(m)
+eq(m.objects[1].scriptOff, nil, "stripScriptOffsets clears it")
+check(type(m.objects[1].script) == "table", "without losing the script")
+
+-- the default is still to clear as it bakes
+local m2 = mapWithGfxVar(OFF)
+RomExtractorGen3.bakeMapScripts(rom, m2)
+eq(m2.objects[1].scriptOff, nil, "without keepOffsets it clears as before")
+check(type(m2.objects[1].script) == "table", "and still bakes")
+end)()
+
+-- ------- gMultichoiceLists comes off the ROM
+
+-- Game3.MULTICHOICE held ten lists somebody typed in by hand as each empty
+-- menu was noticed. Anything else had no options at all -- the Battle Tower
+-- ferry asks for list 53 (SLATEPORT / LILYCOVE / CANCEL) and got nothing, so
+-- there was no way to sail back. script_menu.c gMultichoiceLists is
+-- { const struct MenuAction *list; u8 count; } entries, each list being
+-- `count` { const u8 *text; MenuFunc func } pairs with func always NULL.
+;(function()
+local GbaText = require("src.import.GbaText")
+-- Build a ROM holding a table of `n` lists so the run-length check is met.
+local function fakeRom(labelsById, n)
+  local BASE = 0x1000
+  local TEXT = 0x4000
+  local rom = {}
+  local function put(off, str)
+    for i = 1, #str do rom[off + i] = str:sub(i, i) end
+  end
+  local function u32le(v)
+    return string.char(v % 256, math.floor(v / 256) % 256,
+      math.floor(v / 65536) % 256, math.floor(v / 16777216) % 256)
+  end
+  local textAt = TEXT
+  local listAt = BASE + n * 8
+  for id = 0, n - 1 do
+    local labels = labelsById[id] or { "CANCEL" }
+    put(BASE + id * 8, u32le(0x08000000 + listAt))
+    put(BASE + id * 8 + 4, string.char(#labels, 0, 0, 0))
+    for j = 1, #labels do
+      put(TEXT + (textAt - TEXT), "")
+      local enc = GbaText.encodeLatin(labels[j]) .. string.char(0xFF)
+      put(textAt, enc)
+      put(listAt + (j - 1) * 8, u32le(0x08000000 + textAt))
+      put(listAt + (j - 1) * 8 + 4, u32le(0))
+      textAt = textAt + #enc + 1
+    end
+    listAt = listAt + #labels * 8
+  end
+  local out = {}
+  for i = 1, 0x8000 do out[i] = rom[i] or string.char(0) end
+  return table.concat(out), BASE
+end
+
+local want = { [0] = { "PETALBURG", "SLATEPORT", "CANCEL" },
+  [53] = { "SLATEPORT", "LILYCOVE", "CANCEL" } }
+local rom, base = fakeRom(want, 60)
+local off, run = RomExtractorGen3.findMultichoiceLists(rom, 0)
+eq(off, base, "the table is found by signature, not a fixed address")
+eq(run, 60, "and every entry in the run is counted")
+
+local lists = RomExtractorGen3.parseMultichoiceLists(rom, 0)
+check(type(lists) == "table", "the lists parse")
+eq(table.concat(lists[53] or {}, "|"), "SLATEPORT|LILYCOVE|CANCEL",
+  "list 53 is the Battle Tower ferry's destinations")
+eq(table.concat(lists[0] or {}, "|"), "PETALBURG|SLATEPORT|CANCEL",
+  "and list 0 still decodes")
+
+-- A ROM with no such table must say so rather than invent one.
+eq(RomExtractorGen3.findMultichoiceLists(string.rep(string.char(0), 0x8000), 0),
+  nil, "an empty ROM yields no table")
+
+-- Runtime: the extracted table wins, the hand-typed one is the fallback.
+local g = Game3.new()
+eq(g:multichoiceLabels(53), nil,
+  "with no cache, list 53 has no options -- the original bug")
+check(g:multichoiceLabels(5) ~= nil, "while a hand-typed list still answers")
+g.data.menus = { multichoice = lists }
+eq(table.concat(g:multichoiceLabels(53) or {}, "|"), "SLATEPORT|LILYCOVE|CANCEL",
+  "with the cache, the ferry has its destinations")
+end)()
+
+-- ------- the flash hole follows the player, not the screen
+
+-- WriteFlashScanlineEffectBuffer puts the hole at 120,80 because the cart
+-- never clamps the camera: the player IS at 120,80 always, and the border
+-- block is tiled over anything off-map. This engine clamps the camera to the
+-- drawn area (a deliberate deviation), so near a map edge -- or on a portrait
+-- drawable whose span is taller than a small cave -- the player walks away
+-- from the screen centre while the hole stayed nailed to it, leaving the
+-- player at the rim or outside it. Caves became unnavigable.
+;(function()
+local function cave(w, h)
+  local grid, behavior = {}, {}
+  for i = 1, w * h do grid[i] = 1; behavior[i] = 0 end
+  return { id = "cave", group = 24, index = 0, width = w, height = h,
+    grid = grid, behavior = behavior, tileset = "pair_0", cave = true }
+end
+local function at(m, x, y, gw, gh, zoom)
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { cave = m } }
+  g.flashLevel = 1
+  g:enterMap(m, x, y, true)
+  g.playerX, g.playerY = x, y
+  g.walkFromX, g.walkFromY = x, y
+  if gw then g._zoomS = zoom; g._tiltGw = gw; g._tiltGh = gh end
+  -- the clamp is what pushes the player off centre, so turn it on for the
+  -- case that exercises it
+  g.cameraClamp = true
+  g:clampCamera()
+  return g
+end
+
+-- Wide open ground: the clamp does not bite and the player is dead centre,
+-- exactly where the cart puts them.
+local big = cave(40, 30)
+local g = at(big, 20, 15)
+local px, py = g:playerViewXY()
+local vw, vh = g:viewSize()
+eq(px, vw / 2, "unclamped, the player is at the view centre")
+eq(py, vh / 2, "on both axes")
+
+-- A small room under a tall portrait drawable: the vertical span is larger
+-- than the room, so the clamp centres the room and the player drifts.
+local small = cave(14, 10)
+local edge = at(small, 7, 1, 480, 800, 2)
+local _, ey = edge:playerViewXY()
+check(math.abs(ey - 800 / (2 * 2)) > 24,
+  "clamped, the player ends up further off centre than the flash radius")
+
+-- The hole has to be on the player either way.
+local function holeCentreOnPlayerRow(gm, winW, winH, zoom)
+  local G = love.graphics
+  local realRect, realColor = G.rectangle, G.setColor
+  local rects = {}
+  G.rectangle = function(_, x, y, w2, h2) rects[#rects + 1] = { x, y, w2, h2 } end
+  G.setColor = function() end
+  gm:drawFlashOverlay(winW, winH, zoom)
+  G.rectangle, G.setColor = realRect, realColor
+  local vx, vy = gm:playerViewXY()
+  local row = math.floor(vy * (zoom or 1))
+  local left, right = 0, winW
+  for i = 1, #rects do
+    local r = rects[i]
+    if math.floor(r[2]) == row and r[4] <= 1 then
+      if r[1] <= 0 then
+        if r[3] > left then left = r[3] end
+      elseif r[1] < right then
+        right = r[1]
+      end
+    end
+  end
+  if right <= left then return nil end
+  return (left + right) / 2, vx * (zoom or 1)
+end
+
+local hc, want = holeCentreOnPlayerRow(edge, 480, 800, 2)
+check(hc, "there is a hole on the player's own scanline")
+eq(hc, want, "and it is centred on the player, not the window")
+
+local hc2, want2 = holeCentreOnPlayerRow(at(small, 7, 8, 480, 800, 2), 480, 800, 2)
+eq(hc2, want2, "the same at the other edge of the room")
+end)()
+
+-- ------- the camera clamp is off by default
+
+-- Turned off at the player's request. The cart never clamps: fieldmap.c
+-- centres the player and GetBorderBlockAt tiles the 2x2 border block over
+-- anything off-map. Clamping was a deviation and it kept breaking things
+-- that reasonably assume the player is at the screen centre -- the flash
+-- hole most visibly, which is pinned at 120,80 straight out of
+-- WriteFlashScanlineEffectBuffer. The code stays, so it can be switched
+-- back on per game object.
+;(function()
+local function room(w, h)
+  local grid, behavior = {}, {}
+  for i = 1, w * h do grid[i] = 0; behavior[i] = 0 end
+  local m = { id = "cam", width = w, height = h, grid = grid,
+    behavior = behavior }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { cam = m } }
+  g:enterMap(m, 0, 0, true)
+  g.viewW, g.viewH = 480, 320
+  g.playerX, g.playerY = 0, 0
+  return g, m
+end
+
+eq(Game3.CAMERA_CLAMP_DEFAULT, false, "the default is off")
+eq(Game3.new():cameraClampEnabled(), false, "so a fresh game does not clamp")
+
+-- With it off the player is centred exactly as on hardware, even in a room
+-- far smaller than the view.
+local g = room(10, 10)
+g:clampCamera()
+local px, py = g:playerViewXY()
+local vw, vh = g:viewSize()
+eq(px, vw / 2, "player stays at the view centre horizontally")
+eq(py, vh / 2, "and vertically")
+
+-- Switching it on brings the old behaviour back, so the code is still live.
+local c = room(10, 10)
+c.cameraClamp = true
+c:clampCamera()
+local free = room(10, 10)
+free:clampCamera()
+check(c.camX ~= free.camX,
+  "turning the clamp on still changes the camera, so it is not dead code")
+local cx = select(1, c:playerViewXY())
+check(math.abs(cx - vw / 2) > 1,
+  "and with it on the player leaves the centre, which is why it is off")
+
+-- noCameraClamp still wins, for anything that sets it explicitly.
+local n = room(10, 10)
+n.cameraClamp = true
+n.noCameraClamp = true
+eq(n:cameraClampEnabled(), false, "an explicit noCameraClamp still overrides")
+end)()
+
+-- ------- the border block is tiled at the right parity
+
+-- GetBorderBlockAt takes MapGrid coords, which include MAP_OFFSET 7:
+--   i = ((x + 1) & 1) + ((y + 1) & 1) * 2
+-- drawWrapTileFill bakes the 2x2 into a 32x32 texture and wrap-tiles it with
+-- the viewport origin at world pixels, so the texture's own 0/1 cells stand
+-- for world tile parity, not grid parity. Passing them to borderIndex raw
+-- transposed the block diagonally and every border tree came out with its
+-- quadrants swapped -- whole trees on hardware, sliced ones here.
+;(function()
+-- world tile (x,y) sits at grid (x + 7, y + 7), and the two +1s cancel, so
+-- the border array is simply read in order.
+for y = 0, 1 do
+  for x = 0, 1 do
+    eq(Game3.borderIndex(x + Game3.MAP_OFFSET, y + Game3.MAP_OFFSET),
+      x + y * 2 + 1,
+      ("world tile (%d,%d) reads border[%d]"):format(x, y, x + y * 2 + 1))
+  end
+end
+
+-- and raw texture coords are NOT the same thing -- this is the bug
+check(Game3.borderIndex(0, 0) ~= Game3.borderIndex(Game3.MAP_OFFSET, Game3.MAP_OFFSET),
+  "raw 0,0 and grid 7,7 disagree, which is what went wrong")
+
+-- Littleroot's ring is one tree: 468,469 over 476,477. Reading it in order
+-- has to give the tree back the right way up.
+-- through borderBakeCell, which is what the bake itself calls
+local tree = { 468, 469, 476, 477 }
+local got = {}
+for y = 0, 1 do
+  for x = 0, 1 do
+    got[#got + 1] = Game3.borderBakeCell(tree, x, y)
+  end
+end
+eq(Game3.borderBakeCell(tree, 0, 0), 468, "texture cell 0,0 bakes the treetop")
+eq(Game3.borderBakeCell(tree, 1, 1), 477, "and 1,1 the bottom-right")
+eq(Game3.borderBakeCell(nil, 0, 0), 0, "a map with no border bakes nothing")
+eq(table.concat(got, ","), "468,469,476,477",
+  "the tree tiles come out in reading order, not transposed")
+-- the top row of the metatile pair is 8 lower than the bottom in the tileset,
+-- so a transposed block puts a treetop under a trunk
+eq(got[3] - got[1], 8, "bottom-left really is one tileset row under top-left")
+end)()
+
+-- ------- maps already on screen survive crossing a connection
+
+-- connectedLayout only gathers CONNECTION_DRAW_HOPS from the CURRENT map, so
+-- stepping east threw away everything reachable only through the map you just
+-- left: at survey zoom a screen of towns and routes collapsed to flat water.
+-- Raising the hop count is what ran the phone out of memory before, so the
+-- previous frame's maps are carried forward instead -- both layouts put the
+-- current map at (0,0), so the shift is just where the old current map landed.
+;(function()
+-- a west-to-east chain: a - b - c - d, each 20x20
+-- keyed the way lookupMap resolves them: gGROUP_INDEX
+local function chainId(i) return "g9_" .. i end
+local function chain(n)
+  local maps = {}
+  for i = 1, n do
+    local id = chainId(i)
+    maps[id] = { id = id, group = 9, index = i, width = 20, height = 20,
+      grid = {}, connections = {} }
+    for j = 1, 400 do maps[id].grid[j] = 0 end
+  end
+  for i = 1, n - 1 do
+    local a, b = maps[chainId(i)], maps[chainId(i + 1)]
+    a.connections[#a.connections + 1] =
+      { dir = "east", offset = 0, mapGroup = 9, mapNum = i + 1 }
+    b.connections[#b.connections + 1] =
+      { dir = "west", offset = 0, mapGroup = 9, mapNum = i }
+  end
+  return maps
+end
+local function walker(maps, viewW, viewH)
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = maps }
+  g.viewW, g.viewH = viewW or 720, viewH or 1600
+  return g
+end
+local function goTo(g, maps, id)
+  g.connectedLayoutCache = nil
+  g:enterMap(maps[id], 1, 1, true)
+  g:clampCamera()
+  return g:mapPlacements(maps[id])
+end
+local function ids(list)
+  local out = {}
+  for i = 1, #list do out[#out + 1] = list[i].map.id end
+  table.sort(out)
+  return table.concat(out, " ")
+end
+
+local maps = chain(4)
+local g = walker(maps)
+eq(ids(goTo(g, maps, chainId(1))), "g9_1 g9_2", "one hop from 1 is just 1 and 2")
+eq(ids(goTo(g, maps, chainId(2))), "g9_1 g9_2 g9_3", "and from 2, three maps")
+eq(ids(goTo(g, maps, chainId(3))), "g9_1 g9_2 g9_3 g9_4",
+  "arriving at 3, map 1 is carried forward")
+eq(ids(goTo(g, maps, chainId(4))), "g9_1 g9_2 g9_3 g9_4", "and still there at 4")
+
+-- the carried maps have to land where a real walk would put them
+local truth = walker(maps)
+truth.noStickyLayout = true
+truth.connectedLayoutCache = nil
+truth:enterMap(maps[chainId(4)], 1, 1, true)
+local want = {}
+for _, p in ipairs(truth:connectedLayout(maps[chainId(4)], 4)) do
+  want[p.map.id] = p.ox .. "," .. p.oy
+end
+for _, p in ipairs(g:mapPlacements(maps[chainId(4)])) do
+  eq(p.ox .. "," .. p.oy, want[p.map.id],
+    "carried map " .. p.map.id .. " sits where a real walk puts it")
+end
+
+-- Off by default? No -- but it must be switchable, and off must behave as
+-- before: only the current map and its direct neighbours.
+local off = walker(maps)
+off.noStickyLayout = true
+goTo(off, maps, chainId(1)); goTo(off, maps, chainId(2))
+eq(ids(goTo(off, maps, chainId(3))), "g9_2 g9_3 g9_4",
+  "with it off, map 1 is dropped as before")
+
+-- Bounded by the view: a narrow view drops what has scrolled away.
+local tiny = walker(chain(4), Game3.SCREEN_W, Game3.SCREEN_H)
+local tmaps = tiny.data.maps.maps
+goTo(tiny, tmaps, chainId(1)); goTo(tiny, tmaps, chainId(2))
+local far = goTo(tiny, tmaps, chainId(3))
+check(#far <= 4, "a small view does not accumulate the whole chain")
+
+-- and hard-capped however far you walk
+eq(Game3.STICKY_LAYOUT_MAX, 8, "there is a ceiling on carried maps")
+local long = chain(12)
+local lg = walker(long, 2000, 2000)
+for i = 1, 12 do goTo(lg, long, chainId(i)) end
+local list = lg:mapPlacements(long[chainId(12)])
+check(#list <= Game3.STICKY_LAYOUT_MAX + 4,
+  "the carried set stays bounded across a long walk")
+end)()
+
+-- One void for the whole world. Each map used to answer for the space past
+-- its own edges, which produced 43 different fills across 136 outdoor maps:
+-- walking between two maps changed the texture of the same patch of sea, and
+-- a map's border block -- authored EDGE art, a tree canopy or a beach run --
+-- wrap-tiled into rectangular grids of treetops sitting in open water.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+g.phase = "play"
+local town = {
+  id = "g_town", tileset = "pair_a", mapType = Game3.MAP_TYPE_TOWN,
+  width = 2, height = 2, grid = { 1, 1, 1, 1 },
+  border = { 468, 469, 476, 477 }, behavior = { 0, 0, 0, 0 },
+}
+local shore = {
+  id = "g_shore", tileset = "pair_b", mapType = Game3.MAP_TYPE_ROUTE,
+  width = 2, height = 2, grid = { 368, 368, 20, 20 },
+  border = { 113, 113, 113, 113 }, behavior = { 0x15, 0x15, 0x21, 0x21 },
+}
+g.data.maps = { maps = { g_town = town, g_shore = shore } }
+g.data.tilesets = { byId = { pair_a = { tiles = {} }, pair_b = { tiles = {} } } }
+g.options = {}
+eq(g:voidFillMode(), "sea", "the default void is the sea")
+
+local fills = {}
+g.drawWrapTileFill = function(_, _, _, cells, key)
+  fills[#fills + 1] = { cells = table.concat(cells, ","), key = key }
+end
+g.layersFor = function() return "img" end
+g.viewSize = function() return 240, 160 end
+g.borderFillRects = function() return { { 0, 0, 240, 160 } } end
+g.mapPlacements = function(self) return { { map = self.map, ox = 0, oy = 0 } } end
+
+g.map = town; g:drawVoidFill("bottom")
+g.map = shore; g:drawVoidFill("bottom")
+eq(#fills, 2, "each map paints the void in one quad")
+eq(fills[1].cells, fills[2].cells,
+  "and paints the same thing on both -- the void does not change when the"
+  .. " player walks from one map into the next")
+eq(fills[1].cells, "368,368,368,368",
+  "which is gTileset_General's open sea, not either map's own border")
+
+-- Two maps whose borders differ wildly still agree on the void, so nothing
+-- from a map's edge art can end up tiled across a neighbour's water.
+check(town.border[1] ~= shore.border[1], "the fixture borders really do differ")
+for i = 1, #fills do
+  check(fills[i].cells ~= table.concat(town.border, ","),
+    "the tree ring never becomes the fill")
+end
+
+-- The border block is what frames a town: Littleroot's own grid has no
+-- trees down either side. This port draws a whole connected layout at once,
+-- so EVERY placement paints its own ring -- a neighbour left bare reads as
+-- unfinished next to a map that has one.
+g.mapPlacements = function()
+  return { { map = town, ox = 0, oy = 0 }, { map = shore, ox = 0, oy = 2 } }
+end
+local before = #fills
+g.map = town
+g:drawBorderFill("img", town)
+eq(#fills, before + 2, "every map in the layout paints its own ring")
+local sawTown, sawShore
+for i = before + 1, #fills do
+  if fills[i].key:find("g_town") then
+    sawTown = true
+    eq(fills[i].cells, table.concat(town.border, ","),
+      "each ring is that map's OWN authored border block")
+  elseif fills[i].key:find("g_shore") then
+    sawShore = true
+    eq(fills[i].cells, table.concat(shore.border, ","),
+      "including the neighbour's, which is its own block and not the"
+      .. " current map's")
+  end
+end
+check(sawTown, "the map underfoot is ringed")
+check(sawShore, "and so is the connected one")
+
+-- The ring does not depend on the fill mode.
+local permap = #fills
+g.options = { voidFill = "map" }
+g:drawBorderFill("img", town)
+eq(#fills, permap + 2, "PER-MAP paints the same rings, no more")
+
+-- The pad has to be EVEN. The border block is a 2x2 whose trees are two
+-- metatiles tall, so an odd pad (the cart's MAP_OFFSET of 7) slices the
+-- outermost row of trees in half.
+eq(Game3.BORDER_PAD_TILES, 8, "eight tiles: four whole rows of trees")
+eq(Game3.BORDER_PAD_TILES % 2, 0, "an odd pad would halve the last row")
+check(Game3.BORDER_PAD_TILES > Game3.MAP_OFFSET,
+  "and it is a draw distance, not the cart's backup-buffer size")
+
+-- GRASS is the same deal on land; BLACK and PER-MAP have no global cell.
+eq(table.concat(Game3.globalVoidCells("sea"), ","), "368,368,368,368")
+eq(table.concat(Game3.globalVoidCells("grass"), ","), "1,1,1,1")
+eq(Game3.globalVoidCells("black"), nil, "BLACK paints nothing at all")
+eq(Game3.globalVoidCells("map"), nil, "PER-MAP goes back through voidFillCells")
+end)()
+
+-- field_fadetransition.c sub_8080AE4 picks the arrival task from the
+-- behaviour of the tile you land on. Both door kinds walk the player one
+-- step off it before returning control (sub_8080B9C for animated,
+-- task_map_chg_seq_0807E20C for non-animated); everything else runs
+-- task_map_chg_seq_0807E2CC, which only unlocks. Indoor stairs are
+-- MB_NON_ANIMATED_DOOR and we were treating them as the third case, so the
+-- player stood ON the stairs -- one tile north of the cart for the rest of
+-- the scene. Littleroot's PETALBURG GYM report then walked them onto the TV
+-- instead of stopping south of it.
+;(function()
+local Game3 = require("src.core.Game3")
+local function pair(destBehavior)
+  local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  local from = {
+    id = "g9_0", group = 9, index = 0, width = 3, height = 3, grid = cells,
+    warps = { { x = 1, y = 0, mapGroup = 9, mapNum = 1, warpId = 0 } },
+  }
+  local to = {
+    id = "g9_1", group = 9, index = 1, width = 3, height = 3, grid = cells,
+    warps = { { x = 1, y = 1, mapGroup = 9, mapNum = 0, warpId = 0 } },
+    behavior = { [1 * 3 + 1 + 1] = destBehavior },
+  }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { g9_0 = from, g9_1 = to } }
+  g:enterMap(from, 1, 1, true)
+  g.ignoreWarp = false
+  g.facing = "north"
+  g:followWarp(from.warps[1])
+  return g
+end
+
+local g = pair(Game3.MB_NON_ANIMATED_DOOR)
+eq(g.map.id, "g9_1", "the warp still lands on the destination map")
+eq(g.field and g.field.kind, "door_arrival",
+  "a non-animated door holds control while the player steps off it")
+eq(g.ignoreWarp, false,
+  "and releases the re-warp latch, or you are stuck inside a lift")
+g:finishScriptMoves()
+eq(g.playerX, 1, "the step keeps the player's column")
+eq(g.playerY, 0, "and moves one tile in the direction they were facing")
+
+-- A warp tile that is not a door leaves the player standing on it.
+local h = pair(Game3.MB_LADDER)
+eq(h.map.id, "g9_1", "a ladder warps too")
+eq(h.field, nil, "but runs no arrival step")
+eq(h.playerY, 1, "so the player stays on the tile they arrived on")
+
+-- The map's ON_FRAME table must not fire from the doorway: the cart locks
+-- control for the whole arrival task, so the script sees the tile the
+-- player actually ends up on.
+local k = pair(Game3.MB_NON_ANIMATED_DOOR)
+check(k._pendingMapFrame,
+  "the frame script is deferred until the arrival step finishes")
+end)()
+
+-- trainer_see.c: the ! and ? icons come from gSpriteTemplate_839B510, whose
+-- palette tag is 0xffff (SPRITE_INVALID_TAG). They load no palette of their
+-- own and render against whatever OBJ palette sits in slot 0 -- an
+-- object-event palette in the overworld. That is safe because those frames
+-- use only indices 14 and 15, and every object-event palette reserves 14 =
+-- white, 15 = black. Reading them out of gFieldEffectObjectPalette0 (which
+-- the heart legitimately uses, tag 0x1004) painted the speech bubble tan:
+-- that palette holds (205,156,82) at index 14.
+;(function()
+local R = require("src.import.RomExtractorGen3")
+check(R.EMOTE_TAGLESS.exclaim, "! has no palette tag of its own")
+check(R.EMOTE_TAGLESS.question, "nor does ?")
+check(not R.EMOTE_TAGLESS.heart, "the heart does: tag 0x1004")
+check(R.EMOTE_PAL_TAGLESS ~= R.EMOTE_PAL,
+  "so the two cannot come from the same palette")
+
+local seen = {}
+local real = R.renderOwFrame
+R.renderOwFrame = function(_, info, palOff, frameOff)
+  seen[#seen + 1] = { pal = palOff, frame = frameOff }
+  return true
+end
+for _, name in ipairs({ "exclaim", "question", "heart" }) do
+  R.renderEmote("", name)
+end
+R.renderOwFrame = real
+eq(seen[1].pal, R.EMOTE_PAL_TAGLESS, "! reads the object-event palette")
+eq(seen[2].pal, R.EMOTE_PAL_TAGLESS, "? too")
+eq(seen[3].pal, R.EMOTE_PAL, "the heart keeps the field-effect palette")
+-- the three frames are consecutive 0x80 blocks from gSpriteImage_839B308
+eq(seen[1].frame, R.EMOTE_GFX, "! is the first frame")
+eq(seen[2].frame, R.EMOTE_GFX + R.EMOTE_BYTES, "? the second")
+eq(seen[3].frame, R.EMOTE_GFX + 2 * R.EMOTE_BYTES, "heart the third")
+end)()
+
+-- The same arrival rule applies to a SCRIPT warp, which the cart routes
+-- through the same machinery. PetalburgCity_Gym leaves with
+-- `warp MAP_PETALBURG_CITY, 255, 15, 8`, and (15,8) is the gym's own
+-- animated door: the player is stepped south to (15,9) before
+-- PetalburgCity_OnFrame runs, so the tutorial's 8-down / 20-right walk
+-- follows y=17, below the POKeMON CENTER door at (20,16). Landing on the
+-- doorway instead ran it along y=16 -- one tile north, through the CENTER.
+-- MetatileBehavior_IsDoor covers MB_ANIMATED_DOOR too, and those doors get
+-- the step even when we have no door graphic to animate for them.
+;(function()
+local Game3 = require("src.core.Game3")
+local function warped(behavior)
+  local cells = { 0, 0, 0, 0, 0, 0, 0, 0, 0 }
+  local from = {
+    id = "g7_0", group = 7, index = 0, width = 3, height = 3, grid = cells,
+  }
+  local to = {
+    id = "g7_1", group = 7, index = 1, width = 3, height = 3, grid = cells,
+    behavior = { [1 * 3 + 1 + 1] = behavior },
+  }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { g7_0 = from, g7_1 = to } }
+  g:enterMap(from, 1, 1, true)
+  g.facing = "south"
+  g:scriptWarp(7, 1, Game3.WARP_ID_NONE, 1, 1)
+  return g
+end
+
+local g = warped(Game3.MB_ANIMATED_DOOR)
+eq(g.map.id, "g7_1", "the script warp still lands")
+eq(g.field and g.field.kind, "door_arrival",
+  "an animated door steps the player off it, graphic or not")
+check(g._pendingMapFrame,
+  "and the ON_FRAME table waits for that step")
+g:finishScriptMoves()
+eq(g.playerY, 2, "one tile in the direction the player faced")
+
+local h = warped(Game3.MB_NON_ANIMATED_DOOR)
+eq(h.field and h.field.kind, "door_arrival", "so does a non-animated one")
+
+-- Anything that is not a door leaves the player where the script put them.
+local k = warped(0)
+eq(k.field, nil, "a plain tile runs no arrival step")
+eq(k.playerY, 1, "and the player stays on it")
+end)()
+
+-- field_tasks.c PerStepCallback_806A07C: stepping onto a cracked floor arms
+-- one of two slots with a 3 countdown, and sub_806A040 then swaps the tile
+-- for a hole (0x22F -> 0x206, anything else -> 0x237). The countdown lives
+-- in Task_RunPerStepCallback, an ordinary task, so it ticks EVERY FRAME --
+-- not once per step. Ticking it from the step callback instead meant the
+-- floor only crumbled while the player kept walking: stand still on one and
+-- it never collapsed at all, so SKY PILLAR had no timer.
+;(function()
+local Game3 = require("src.core.Game3")
+local function pillar()
+  local g = Game3.new()
+  g.phase = "play"
+  local map = {
+    id = "g24_80", group = 24, index = 80, width = 3, height = 1,
+    grid = { 0x236, 0x236, 0x22F },
+    behavior = { Game3.MB_CRACKED_FLOOR, Game3.MB_CRACKED_FLOOR,
+      Game3.MB_CRACKED_FLOOR },
+  }
+  g.data.maps = { maps = { g24_80 = map } }
+  g:enterMap(map, 0, 0, true)
+  g.stepCallback = Game3.STEP_CB_CRACKED_FLOOR
+  return g, map
+end
+local function midAt(map, x)
+  return Game3.metatileOf(map.grid[x + 1])
+end
+
+local g, map = pillar()
+g:armCrackedFloor(0, 0)
+eq(#g.crackedFloorPending, 1, "stepping onto a cracked floor arms a slot")
+g:tickCrackedFloors(1)
+eq(midAt(map, 0), 0x236, "still intact after one frame")
+g:tickCrackedFloors(1)
+eq(midAt(map, 0), 0x236, "and after two")
+g:tickCrackedFloors(1)
+eq(midAt(map, 0), 0x237, "the third frame drops it -- the player need not move")
+eq(#g.crackedFloorPending, 0, "and the slot is freed")
+
+-- sub_806A040's other branch
+local h, hmap = pillar()
+h:armCrackedFloor(2, 0)
+h:tickCrackedFloors(3)
+eq(midAt(hmap, 2), 0x206, "0x22F collapses to 0x206, not 0x237")
+
+-- A slow frame must not lose time: the cart decrements once per frame.
+local k, kmap = pillar()
+k:armCrackedFloor(0, 0)
+k:tickCrackedFloors(3)
+eq(midAt(kmap, 0), 0x237, "three frames at once still collapses it")
+
+-- Two pending at a time, and no double-arming the same tile.
+local m2 = pillar()
+m2:armCrackedFloor(0, 0)
+check(not m2:armCrackedFloor(0, 0), "the same tile is not armed twice")
+m2:armCrackedFloor(1, 0)
+eq(#m2.crackedFloorPending, 2, "two slots, as the cart has")
+check(not m2:armCrackedFloor(2, 0), "and no more than two")
+
+-- Nothing ticks on a map that never asked for the callback.
+local n = pillar()
+n:armCrackedFloor(0, 0)
+n.stepCallback = nil
+n:tickCrackedFloors(9)
+eq(#n.crackedFloorPending, 1, "no countdown without setstepcallback 7")
+end)()
+
+-- pokeruby ShowMapNamePopup on enterMap (warp + connection).
+;(function()
+  local Game3 = require("src.core.Game3")
+  local g = Game3.new()
+  g.phase = "play"
+  g.flags = {}
+  local littleroot = {
+    id = "g0_9", width = 20, height = 20, flags = 1,
+    regionMapSectionId = 0, mapType = 1,
+    grid = {}, objects = {}, warps = {}, connections = {},
+  }
+  local route101 = {
+    id = "g0_16", width = 20, height = 20, flags = 1,
+    regionMapSectionId = 16, mapType = 3,
+    grid = {}, objects = {}, warps = {}, connections = {},
+  }
+  local indoor = {
+    id = "g1_0", width = 11, height = 9, flags = 0,
+    regionMapSectionId = 0, mapType = 8,
+    grid = {}, objects = {}, warps = {}, connections = {},
+  }
+  g.data.maps = {
+    start = "g0_9",
+    maps = { g0_9 = littleroot, g0_16 = route101, g1_0 = indoor },
+  }
+  g:enterMap(littleroot, 10, 10, true)
+  check(g.mapNamePopup, "Littleroot enterMap arms map name popup")
+  eq(g.mapNamePopup.name, "LITTLEROOT TOWN", "MAPSEC 0 label")
+  check(g:playHudActive(), "Littleroot popup keeps HUD letterbox")
+  eq(g.mapNamePopup.offset, 32, "starts at REG_BG0VOFS=32 off-screen")
+  for _ = 1, 16 do g:stepMapNamePopup(1 / 60) end
+  eq(g.mapNamePopup.offset, 0, "slides fully on-screen in 16 frames")
+  eq(g.mapNamePopup.phase, 1, "then holds like Task_MapNamePopup case 1")
+
+  g:enterMap(indoor, 5, 5, true)
+  eq(g.mapNamePopup, nil, "indoor show_map_name=0 does not arm popup")
+  eq(g:playHudActive(), false, "no popup in free roam indoors")
+
+  -- Connection walk: enterMap(..., connected=true) like tryWalk edge.
+  g:enterMap(route101, 10, 19, false, true)
+  check(g.mapNamePopup, "Littleroot->Route101 connection arms popup")
+  eq(g.mapNamePopup.name, "ROUTE 101", "MAPSEC 16 label")
+  check(g:playHudActive(), "Route 101 popup keeps HUD letterbox")
+
+  g:hideMapNamePopup()
+  g.flags[Game3.FLAG_HIDE_MAP_NAME_POPUP] = true
+  eq(g:showMapNamePopup(), false, "FLAG_HIDE_MAP_NAME_POPUP blocks")
+  eq(g.mapNamePopup, nil, "blocked call leaves no popup state")
+  g.flags[Game3.FLAG_HIDE_MAP_NAME_POPUP] = nil
+  check(g:showMapNamePopup(), "clearflag re-arms ShowMapNamePopup")
+  eq(g.mapNamePopup.name, "ROUTE 101", "still Route 101")
 end)()
 
 S.finish()

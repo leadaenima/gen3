@@ -1,5 +1,5 @@
 -- pokeruby src/contest.c + contest_2.c + contest_effect.c + contest_ai.c
--- Mechanics only. Link contests and painting CG stay parked.
+-- Mechanics + painting CG. Link contests stay parked (no GBA cable).
 local DATA = require("src.data.contest_rom")
 
 local Contest3 = {}

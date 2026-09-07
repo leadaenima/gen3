@@ -60,6 +60,9 @@ Script.REMOVEITEM = 0x45
 Script.CHECKITEMSPACE = 0x46
 Script.CHECKITEM = 0x47
 Script.ADDDECORATION = 0x4B
+Script.REMOVEDECORATION = 0x4C
+Script.CHECKDECOR = 0x4D
+Script.CHECKDECORSPACE = 0x4E
 Script.APPLYMOVEMENT = 0x4F
 Script.WAITMOVEMENT = 0x51
 Script.REMOVEOBJECT = 0x53
@@ -181,6 +184,7 @@ Script.POKEMART = 0x86
 Script.POKEMART_DECORATION = 0x87
 Script.POKEMART_DECORATION2 = 0x88
 Script.SHOWCONTESTRESULTS = 0x8D
+Script.CONTESTLINKTRANSFER = 0x8E
 Script.SHOWCONTESTWINNER = 0x77
 Script.STD_OBTAIN_ITEM = 0
 Script.STD_FIND_ITEM = 1
@@ -319,6 +323,84 @@ local function readText(data, off)
   local text = GbaText.decodeText(blob, Script.TEXT_LEN)
   if text == "" then return nil end
   return text
+end
+
+-- braillemessage (0x78). The pointer starts with a six-byte brailleformat
+-- header (window box, then the text origin inside it) and the string after it
+-- is in braille codes, which are their own encoding rather than the normal
+-- text charmap -- include/characters.h BRAILLE_CHAR_*. The regi chambers and
+-- the Sealed Chamber are the only users, and the puzzle is unreadable without
+-- it, so decode it back to the letters the braille spells.
+Script.BRAILLE_MESSAGE = 0x78
+Script.BRAILLE_FORMAT_BYTES = 6
+Script.BRAILLE_NUMBER = 0x3A
+Script.BRAILLE_CHARS = {
+  [0x00] = " ", [0x01] = "A", [0x03] = "C", [0x04] = ",", [0x05] = "B",
+  [0x06] = "I", [0x07] = "F", [0x09] = "E", [0x0B] = "D", [0x0C] = ":",
+  [0x0D] = "H", [0x0E] = "J", [0x0F] = "G", [0x10] = "'", [0x11] = "K",
+  [0x12] = "/", [0x13] = "M", [0x14] = ";", [0x15] = "L", [0x16] = "S",
+  [0x17] = "P", [0x19] = "O", [0x1B] = "N", [0x1C] = "!", [0x1D] = "R",
+  [0x1E] = "T", [0x1F] = "Q", [0x2C] = ".", [0x2E] = "W", [0x30] = "-",
+  [0x31] = "U", [0x33] = "X", [0x34] = "?", [0x35] = "V", [0x38] = "\"",
+  [0x39] = "Z", [0x3B] = "Y", [0x3C] = ")",
+}
+-- "Digits must be preceded by BRAILLE_CHAR_NUMBER", and they reuse A..J.
+Script.BRAILLE_DIGITS = {
+  A = "1", B = "2", C = "3", D = "4", E = "5",
+  F = "6", G = "7", H = "8", I = "9", J = "0",
+}
+
+-- The braille code IS the dot pattern: bit 0 is dot 1, then 4, 2, 5, 3, 6 --
+-- the two columns interleaved down the cell. Checked against all 26 letters
+-- of the standard chart, so cells can be drawn straight from these bytes
+-- rather than from the cart's font blob.
+Script.BRAILLE_BIT_TO_DOT = { [0] = 1, 4, 2, 5, 3, 6 }
+
+function Script.brailleDots(code)
+  local dots = {}
+  for bit = 0, 5 do
+    if math.floor((code or 0) / 2 ^ bit) % 2 == 1 then
+      dots[Script.BRAILLE_BIT_TO_DOT[bit]] = true
+    end
+  end
+  return dots
+end
+
+-- Returns the letters it spells and the raw cells, one row per line, so the
+-- renderer can draw real braille and everything else can still read it.
+function Script.decodeBraille(data, off)
+  if not off then return nil end
+  local out = {}
+  local cells = { {} }
+  local number = false
+  for i = 0, Script.TEXT_LEN - 1 do
+    local b = GbaBin.u8(data, off + i)
+    if b == nil or b == 0xFF then break end
+    if b == 0xFE then
+      out[#out + 1] = string.char(10)
+      cells[#cells + 1] = {}
+      number = false
+    else
+      local row = cells[#cells]
+      row[#row + 1] = b
+      if b == Script.BRAILLE_NUMBER then
+        number = true
+      else
+        local c = Script.BRAILLE_CHARS[b]
+        if c then
+          if number then
+            -- a digit run ends at the first character that is not one
+            local d = Script.BRAILLE_DIGITS[c]
+            if d then c = d else number = false end
+          end
+          out[#out + 1] = c
+        end
+      end
+    end
+  end
+  local s = table.concat(out)
+  if s == "" then return nil end
+  return s, cells
 end
 
 -- pokeruby gTrainerBattleSpecs_1 / _4: CONTINUE_SCRIPT kinds load
@@ -586,6 +668,28 @@ local function decode(data, off, depth)
   if cmd == Script.CALLSTD then
     return { op = "callstd", id = GbaBin.u8(data, off + 1) }, size, nextOff
   end
+  if cmd == Script.BRAILLE_MESSAGE then
+    local ptr = romPtr(data, off + 1)
+    local text, cells, win
+    if ptr then
+      -- brailleformat: winLeft, winTop, winRight, winBottom, textLeft,
+      -- textTop, in tiles, then the string. The box is sized per message
+      -- (ABC is 9,6..19,13 while GO UP HERE. is 3,6..27,13), so ignoring
+      -- this header and picking one position is wrong for every one.
+      win = {
+        left = GbaBin.u8(data, ptr),
+        top = GbaBin.u8(data, ptr + 1),
+        right = GbaBin.u8(data, ptr + 2),
+        bottom = GbaBin.u8(data, ptr + 3),
+        textX = GbaBin.u8(data, ptr + 4),
+        textY = GbaBin.u8(data, ptr + 5),
+      }
+      text, cells = Script.decodeBraille(data,
+        ptr + Script.BRAILLE_FORMAT_BYTES)
+    end
+    return { op = "braillemessage", text = text, cells = cells, win = win },
+      size, nextOff
+  end
   if cmd == Script.LOADWORD then
     return { op = "loadword", text = readText(data, romPtr(data, off + 2)) },
       size, nextOff
@@ -670,9 +774,16 @@ local function decode(data, off, depth)
   if cmd == Script.GETPARTYSIZE then
     return { op = "getpartysize" }, size, nextOff
   end
-  if cmd == Script.ADDDECORATION then
+  if cmd == Script.ADDDECORATION or cmd == Script.REMOVEDECORATION
+      or cmd == Script.CHECKDECOR or cmd == Script.CHECKDECORSPACE then
+    local names = {
+      [Script.ADDDECORATION] = "adddecoration",
+      [Script.REMOVEDECORATION] = "removedecoration",
+      [Script.CHECKDECOR] = "checkdecor",
+      [Script.CHECKDECORSPACE] = "checkdecorspace",
+    }
     return {
-      op = "adddecoration",
+      op = names[cmd],
       id = GbaBin.u16(data, off + 1),
     }, size, nextOff
   end
@@ -894,6 +1005,9 @@ local function decode(data, off, depth)
   end
   if cmd == Script.SHOWCONTESTRESULTS then
     return { op = "showcontestresults" }, size, nextOff
+  end
+  if cmd == Script.CONTESTLINKTRANSFER then
+    return { op = "contestlinktransfer" }, size, nextOff
   end
   if cmd == Script.SHOWCONTESTWINNER then
     return {
@@ -1185,9 +1299,17 @@ local function decode(data, off, depth)
       or cmd == Script.POKEMART_DECORATION2 then
     local dest = romPtr(data, off + 1)
     local op = "pokemart"
-    if cmd ~= Script.POKEMART then op = "pokemartdecoration" end
+    -- shop.c MART_TYPE_0/1/2. The two decoration opcodes differ only in the
+    -- purchase confirmation line, so keep which one it was.
+    local martType = 0
+    if cmd == Script.POKEMART_DECORATION then
+      op, martType = "pokemartdecoration", 1
+    elseif cmd == Script.POKEMART_DECORATION2 then
+      op, martType = "pokemartdecoration", 2
+    end
     return {
       op = op,
+      martType = martType,
       items = dest and Script.parseMartList(data, dest) or {},
     }, size, nextOff
   end
@@ -1428,7 +1550,16 @@ function Script.run(host, ops, from)
       if host.checkPartyMove then
         slot = tonumber(host:checkPartyMove(op.move or 0)) or 6
       end
+      -- ScrCmd_checkpartymove writes gSpecialVar_Result, and the field
+      -- move scripts read it straight back with
+      -- `bufferpartymonnick 0, VAR_RESULT`. That opcode resolves through
+      -- host:varGet, so writing only the executor's local table left the
+      -- buffer naming whatever mon a previous script had parked in
+      -- VAR_RESULT -- "ZIGZAGOON used FLASH" for a SCEPTILE.
       vars[Script.VAR_RESULT] = slot
+      if host.setScriptVar then
+        host:setScriptVar(Script.VAR_RESULT, slot)
+      end
       i = i + 1
     elseif op.op == "bufferpartymonnick" then
       local idx = host.varGet and host:varGet(op.partyIndex or 0)
@@ -1642,10 +1773,19 @@ function Script.run(host, ops, from)
       if item > 0 and n > 0 and host.addItem then ok = host:addItem(item, n) end
       vars[Script.VAR_RESULT] = ok and 1 or 0
       i = i + 1
-    elseif op.op == "adddecoration" then
+    elseif op.op == "adddecoration" or op.op == "removedecoration"
+        or op.op == "checkdecor" or op.op == "checkdecorspace" then
+      -- scrcmd.c ScrCmd_adddecoration / removedecoration / checkdecor /
+      -- checkdecorspace: each puts its bool8 straight into VAR_RESULT.
       local id = host.varGet and host:varGet(op.id) or getVar(vars, op.id)
+      local fn = ({
+        adddecoration = "addDecoration",
+        removedecoration = "removeDecorationFromInventory",
+        checkdecor = "inventoryContainsDecoration",
+        checkdecorspace = "decorationInventoryHasSpace",
+      })[op.op]
       local ok = false
-      if id > 0 and host.addDecoration then ok = host:addDecoration(id) end
+      if id > 0 and host[fn] then ok = host[fn](host, id) end
       vars[Script.VAR_RESULT] = ok and 1 or 0
       if host.setScriptVar then
         host:setScriptVar(Script.VAR_RESULT, ok and 1 or 0)
@@ -1692,6 +1832,17 @@ function Script.run(host, ops, from)
           host:sayScript(refuse)
           said = true
         end
+        break
+      end
+      -- Already beaten: ROM falls into the post-battle msgbox. A failed
+      -- start for any other reason (missing party, etc.) must not.
+      local tid = tonumber(op.trainerId) or 0
+      local npc = host._scriptNpc
+      local beaten = (tid > 0 and host.trainerDefeated
+          and host:trainerDefeated(tid))
+        or (npc and (npc.defeated
+          or (host.isNpcDefeated and host:isNpcDefeated(npc))))
+      if not beaten then
         break
       end
       i = i + 1
@@ -1929,6 +2080,14 @@ function Script.run(host, ops, from)
         return said, "wait"
       end
       i = i + 1
+    elseif op.op == "contestlinktransfer" then
+      -- No GBA cable: mark transfer failure (0x8004 = 2) so Lilycove
+      -- CancelLinkTransmissionError runs if this opcode is reached.
+      if host.setScriptVar then
+        host:setScriptVar(0x8004, 2)
+      end
+      if host.isLinkContest ~= nil then host.isLinkContest = false end
+      i = i + 1
     elseif op.op == "showcontestwinner" then
       if host.showContestWinnerPainting then
         host:showContestWinnerPainting(op.contestId or 0)
@@ -1999,6 +2158,15 @@ function Script.run(host, ops, from)
       if y >= Script.VARS_START then y = getVar(vars, y) end
       if host.setDynamicWarp then
         host:setDynamicWarp(op.mapGroup or 0, op.mapNum or 0,
+          op.warpId or 0xFF, x, y)
+      end
+      i = i + 1
+    elseif op.op == "setwarp" then
+      local x, y = op.x or 0, op.y or 0
+      if x >= Script.VARS_START then x = getVar(vars, x) end
+      if y >= Script.VARS_START then y = getVar(vars, y) end
+      if host.setWarpDestination then
+        host:setWarpDestination(op.mapGroup or 0, op.mapNum or 0,
           op.warpId or 0xFF, x, y)
       end
       i = i + 1
@@ -2230,6 +2398,18 @@ function Script.run(host, ops, from)
         return said, "msg"
       end
       i = i + 1
+    elseif op.op == "braillemessage" then
+      -- The cart follows this with waitbuttonpress and erasebox, so just put
+      -- the box up and let the existing wait handle the pause.
+      if op.text and host.showBrailleMessage then
+        host:showBrailleMessage(op.text, op.cells, op.win)
+      end
+      said = true
+      i = i + 1
+    elseif op.op == "erasebox" then
+      -- erasebox 0, 0, 29, 19 after a braillemessage clears that window.
+      if host.eraseBrailleMessage then host:eraseBrailleMessage() end
+      i = i + 1
     elseif op.op == "waitbuttonpress" then
       if not (host.waitButton or host._waitButtonDone) then
         if host.waitButtonPress then host:waitButtonPress() end
@@ -2248,7 +2428,7 @@ function Script.run(host, ops, from)
       local kind
       if op.op == "pokemartdecoration" then kind = "decor" end
       if host.openMartList then
-        host:openMartList(list, kind)
+        host:openMartList(list, kind, op.martType)
       elseif host.openMart then
         host:openMart({ mart = list })
       end

@@ -121,10 +121,11 @@ function Mp2kAudio.playSong(data, songId, loop)
   return startSong(data, songId, "bgm", loop ~= false)
 end
 
--- Effects never loop: a GOTO at the end of a jingle would otherwise keep it
--- going forever instead of letting the track run out.
-function Mp2kAudio.playEffect(data, songId, name)
-  return startSong(data, songId, name or "se", false)
+-- Effects default to non-looping: a GOTO at the end of a jingle would
+-- otherwise keep it going forever. Pass loop=true for intentional loops
+-- (pokeruby SE_LOW_HEALTH / HandleLowHpMusicChange).
+function Mp2kAudio.playEffect(data, songId, name, loop)
+  return startSong(data, songId, name or "se", loop == true)
 end
 
 -- Ramp a voice out over `frames` 60 Hz frames, then stop it. Mirrors the

@@ -25,3 +25,7 @@ Features intentionally added beyond the original Pokémon Red, Blue, and Yellow 
 * **Pokémon Crystal** as an importable, launcher-selectable version alongside Gold and Silver
 * **Mod manager** with Gen 1 mod adapters, per-game targeting, and `modkit gen2check`
 * **Followers** for mods, plus Gen 2-only registries and hooks
+
+## Trainer card (Gen3)
+
+Ruby trainer card uses ROM front/back chrome baked by `tools/bake_trainer_card.py` from pokeruby. Open from Start on the player name. A flips to the back (link/BT/contest stats when present); B closes.

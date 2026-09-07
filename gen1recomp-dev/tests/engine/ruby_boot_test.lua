@@ -119,7 +119,7 @@ end)()
 local GameSpeed = require("src.core.GameSpeed")
 local g = Game3.new()
 g.persistDisplayOptions = function() end
-eq(#g:optionMenuSpec(), 10, "OPTION has cart rows plus GAME SPEED")
+eq(#g:optionMenuSpec(), 11, "OPTION has cart rows plus GAME SPEED and VOID FILL")
 eq(g:optionMenuSpec()[5][3], "speedOverworld", "OVERWORLD SPEED follows SOUND")
 eq(g:logicSpeed(), 1, "boot is menu speed at 1X")
 g.phase = "play"
@@ -183,6 +183,8 @@ eq(g:isFemale(), false, "BOY is Brendan")
 press(g, "a")
 eq(g.boot.kind, Game3.BOOT_NAMING, "NEW NAME opens the keyboard")
 eq(g.boot.name, "BRENDAN", "seeded with the default")
+check(g.boot.naming and g.boot.naming.naming, "ROM naming_screen layout")
+eq(g.boot.naming.maxChars, 7, "player names are 7")
 press(g, "b")
 press(g, "b")
 press(g, "b")
@@ -193,10 +195,8 @@ press(g, "b")
 eq(g.boot.name, "", "B deletes")
 press(g, "a")
 eq(g.boot.name, "A", "A types the cursor letter")
--- END is the last key.
-g.boot.cursor = #g.boot.keys - 1
-press(g, "a")
-eq(g.customName, "A", "END confirms the typed name")
+press(g, "start")
+eq(g.customName, "A", "START/OK confirms the typed name")
 eq(g.boot.kind, Game3.BOOT_CONFIRM, "and asks So it's A?")
 end)()
 
@@ -642,7 +642,12 @@ eq(Game3.rotatingGateSize(3), 64, "L4 is OAM size 3")
 eq(Game3.ROTATING_GATE_AFFINE[1], -64, "90° is -64")
 eq(Game3.ROTATING_GATE_AFFINE[3], 64, "270° is +64")
 eq(Game3.rotatingGateAngle(0), 0, "ori 0 is unrotated")
-eq(Game3.rotatingGateAngle(1), -64 * math.pi / 128, "ori 1 is clockwise 90")
+-- ROTATING_GATE_AFFINE[1] = -64 is the raw GBA StartSpriteAffineAnim
+-- argument; love.graphics rotation is signed the other way (positive =
+-- clockwise on screen), and rotatingGateRotate's orientation counts up
+-- clockwise per the arm-layout math, so rotatingGateAngle flips the
+-- sign -- ori 1 must render at +90°, not the GBA value's raw -90°.
+eq(Game3.rotatingGateAngle(1), 64 * math.pi / 128, "ori 1 is clockwise 90")
 local rr, rg, rb = Game3.rgb555(Game3.ORB_PAL_RED)
 eq(rr, 31 * 8 / 255, "orb pal 0 is 0x1F red")
 eq(rg, 0, "with no green")
@@ -766,6 +771,103 @@ eq(flowers[1], "FLOWER SHOP", "flag shows the shop")
 local woods = RM.landmarkNames(19, 1, {})
 eq(woods[1], "PETALBURG WOODS", "woods has no flag")
 eq(#woods, 1, "Briney cottage still hidden")
+end)()
+
+;(function()
+local Cinema = require("src.import.RomExtractorGen3Cinema")
+eq(Cinema.RUBY_US.starterBagPal, 0x3F62EC, "gBirchBagGrassPal[0]")
+eq(Cinema.RUBY_US.starterGrassPal, 0x3F630C, "gBirchBagGrassPal[1]")
+eq(Cinema.RUBY_US.starterBallPal, 0x3F632C, "gBirchBallarrow_Pal")
+eq(Cinema.RUBY_US.starterCirclePal, 0x3F634C, "gBirchCircle_Pal")
+eq(Cinema.RUBY_US.starterBagMap, 0x3F636C, "gBirchBagTilemap LZ")
+eq(Cinema.RUBY_US.starterBagMapBytes, 0x500, "32x20 u16s")
+eq(Cinema.RUBY_US.starterGrassMap, 0x3F64F8, "gBirchGrassTilemap LZ")
+eq(Cinema.RUBY_US.starterGrassMapBytes, 0x800, "32x32 u16s")
+eq(Cinema.RUBY_US.starterHelpGfx, 0x3F66F0, "gBirchHelpGfx LZ")
+eq(Cinema.RUBY_US.starterHelpGfxBytes, 0x2000, "256 4bpp tiles")
+eq(Cinema.RUBY_US.starterBallGfx, 0x3F7198, "gBirchBallarrow_Gfx LZ")
+eq(Cinema.RUBY_US.starterBallGfxBytes, 0x800, "four 32x32 OBJ frames")
+eq(Cinema.RUBY_US.starterCircleGfx, 0x3F74B8, "gBirchCircle_Gfx LZ")
+eq(Cinema.RUBY_US.starterCircleGfxBytes, 0x800, "one 64x64 OBJ")
+eq(Cinema.renderStarterChoose("short"), nil, "truncated cart has no bag")
+end)()
+
+;(function()
+local Pc = require("src.import.RomExtractorGen3Pc")
+eq(Pc.RUBY_US.headerGfxLz, 0xE8DEC0, "gPSSMenuHeader_Gfx")
+eq(Pc.RUBY_US.headerGfxBytes, 1504, "47 header tiles")
+eq(Pc.RUBY_US.miscGfxLz, 0xE8E244, "gPSSMenuMisc_Gfx")
+eq(Pc.RUBY_US.miscGfxBytes, 2912, "91 misc tiles")
+eq(Pc.RUBY_US.forestPal, 0x3B6F64, "Forest triple pal")
+eq(Pc.RUBY_US.forestTilesLz, 0x3B6FC4, "Forest tiles LZ")
+eq(Pc.RUBY_US.handGfx, 0x3BB348, "HandCursorTiles")
+eq(Pc.RUBY_US.handGfxBytes, 0x800, "four 32x32 frames")
+eq(Pc.RUBY_US.arrowGfx, 0x3BB208, "PCGfx_Arrow")
+eq(#Pc.WALLPAPERS, 16, "16 wallpapers")
+eq(Pc.extract("short").header, nil, "truncated cart has no PSS chrome")
+local g = Game3.new()
+eq(g.PC_ASSET.header, "assets/generated/pc/header.png", "header path")
+eq(g.PC_ASSET.wallpaper:format("forest"),
+  "assets/generated/pc/wallpapers/forest.png", "forest wallpaper path")
+end)()
+
+-- data/text/birch_speech.inc stores the nine intro strings back to back.
+-- Reading each one by searching for a phrase from it took the FIRST match
+-- anywhere in the ROM: "are you ready" hit the Lilycove contest MC, so
+-- BIRCH announced a SMART contest mid-cutscene, and "And you are" hit an
+-- unrelated NPC. The 400-byte read window also cut the long world speech
+-- off mid-word. One unique anchor, then walk the strings in order.
+;(function()
+local eos = string.char(GbaText.EOS)
+local para = string.char(GbaText.PARA)
+local function str(...)
+  local out = {}
+  for _, part in ipairs({ ... }) do out[#out + 1] = part end
+  return table.concat(out) .. eos
+end
+-- the contest MC sits BEFORE the speech, exactly as it does in the ROM
+local blob = eos
+  .. str(GbaText.encodeLatin("Okay, SMART POKeMON and their TRAINERS, "),
+         GbaText.encodeLatin("are you ready?!"))
+  .. str(GbaText.encodeLatin("Oh, hello. And you are?"))
+  .. str(GbaText.encodeLatin("Hi! Sorry to keep you waiting!"), para,
+         GbaText.encodeLatin("My name is BIRCH."))
+  .. str(GbaText.encodeLatin("This is what we call a POKeMON."))
+  .. str(GbaText.encodeLatin("This world is widely inhabited."), para,
+         GbaText.encodeLatin("That's what I do."))
+  .. str(GbaText.encodeLatin("And you are?"))
+  .. str(GbaText.encodeLatin("Are you a boy?"))
+  .. str(GbaText.encodeLatin("All right. What's your name?"))
+  .. str(GbaText.encodeLatin("So it's PLAYER?"))
+  .. str(GbaText.encodeLatin("Ah, okay!"))
+  .. str(GbaText.encodeLatin("All right, are you ready?"), para,
+         GbaText.encodeLatin("Come see me in my POKeMON LAB."))
+
+local speech = BootData.readBirchSpeech(blob)
+check(speech ~= nil, "the speech block is found from its opening line")
+eq(speech.welcome[1], "Hi! Sorry to keep you waiting!", "anchored on page 1")
+eq(speech.welcome[2], "My name is BIRCH.", "and reads its own pages")
+eq(speech.andYouAre[1], "And you are?",
+  "the fourth string is BIRCH's, not the NPC's 'Oh, hello. And you are?'")
+eq(speech.areYouReady[1], "All right, are you ready?",
+  "and the last is BIRCH's, not the contest MC's")
+eq(speech.world[2], "That's what I do.",
+  "the world speech runs to its end instead of being cut short")
+
+local data = BootData.extract(blob)
+-- These two must come from the walk, not the hardcoded fallbacks: the
+-- fallback world speech ends on a different line, and the fallback
+-- areYouReady has three pages rather than this blob's two.
+eq(data.birch.world[2], "That's what I do.", "extract uses the walked strings")
+eq(#data.birch.areYouReady, 2, "and its own page count")
+eq(data.birch.areYouReady[1], "All right, are you ready?",
+  "so no contest dialogue reaches the cutscene")
+
+-- Without the anchor the fallbacks still stand.
+local none = BootData.readBirchSpeech(eos .. GbaText.encodeLatin("nothing") .. eos)
+eq(none, nil, "no anchor, no speech")
+local fb = BootData.extract(eos .. GbaText.encodeLatin("nothing") .. eos)
+eq(fb.birch.andYouAre, "And you are?", "and extract falls back cleanly")
 end)()
 
 S.finish()

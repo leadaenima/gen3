@@ -11,7 +11,7 @@ local CacheContract = {}
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v10-crystal2:",
-  ruby = "rom-cache-v10-ruby41:",
+  ruby = "rom-cache-v10-ruby80:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -141,14 +141,19 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
   "data/generated/tilesets.lua",
   "assets/generated/tilesets/pair_0_bottom.png",
   "assets/generated/tilesets/pair_0_top.png",
+  "assets/generated/tilesets/pair_0_doors.png",
   "data/generated/sprites.lua",
   "assets/generated/sprites/ow_0.png",
+  "assets/generated/sprites/ow_2.png",
   "data/generated/encounters.lua",
   "data/generated/moves.lua",
   "data/generated/trainers.lua",
   "data/generated/items.lua",
   "assets/generated/battle/front/280.png",
   "assets/generated/battle/back/280.png",
+  "assets/generated/battle/front_shiny/280.png",
+  "assets/generated/battle/back_shiny/280.png",
+  "assets/generated/battle/gold_stars.png",
   "data/generated/font.lua",
   "assets/generated/fonts/font.png",
   "data/generated/title.lua",
@@ -156,9 +161,11 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
   "assets/generated/ui/window_frames.png",
   "assets/generated/ui/battle_actions.png",
   "assets/generated/ui/healthbox_player.png",
+  "assets/generated/ui/battle_status_pills.png",
   "data/generated/audio.lua",
   "assets/generated/audio/mp2k.bin",
   "data/generated/menus.lua",
+  "data/generated/decorations.lua",
   "assets/generated/icons/mon_icons.png",
   "assets/generated/party/tiles.png",
   "assets/generated/party/background.png",
@@ -172,8 +179,22 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
     "assets/generated/rotating_gates/3.png",
     "assets/generated/sprites/ow_62.png",
     "assets/generated/sprites/ow_191.png",
+    "assets/generated/sprites/ow_141.png",
     "assets/generated/field/pokeball_glow.png",
+    "assets/generated/weather/rain.png",
+    "assets/generated/weather/sand.png",
     "assets/generated/pokenav/region_map.png",
+    "assets/generated/starter/bg.png",
+    "assets/generated/title/logo_shine.png",
+    "assets/generated/title/title_logo.png",
+    "assets/generated/title/title_lava_bubbles.png",
+    "assets/generated/birch/bg.png",
+    "assets/generated/birch/portrait.png",
+    "assets/generated/intro/intro2_may.png",
+    "assets/generated/pokedex/entry.png",
+    "assets/generated/pokedex/footprints.png",
+    "assets/generated/pc/header.png",
+    "assets/generated/pc/wallpapers/forest.png",
 }
 
 function CacheContract.requiredFilesFor(version)

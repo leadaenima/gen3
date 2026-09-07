@@ -188,8 +188,8 @@ check(seen[Party.STATUS_PATH], "and the status icons")
 check(seen[Party.FONT_PATH], "and the small font the levels are printed in")
 check(seen[Party.ORDER_PATH], "and the sheet the Lv and gender tiles come from")
 check(seen[Party.HOLD_PATH], "and the held item icons")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby41:",
-  "ripe berry-tree frames bump the cache marker")
+eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
+  "hideout submarine sprite bumps the cache marker")
 
 -- ------- 10. Font 4, the party menu's small text
 --
@@ -403,7 +403,7 @@ eq(g:partyBoxShape(over, Game3.PARTY_MENU_LAYOUT_DOUBLE, 2, {}),
 eq(g:partyBoxShape(over, Game3.PARTY_MENU_LAYOUT_DOUBLE, 2, nil),
   Party.EMPTY_BOX, "an empty slim slot uses EMPTY_BOX")
 
--- Link-double tables exist for a later slice; VRAM conversion still holds.
+-- Link-double / multi tables (Phase 275): VRAM conversion + lead slots.
 for slot = 1, 6 do
   local tile = Party.vramToTile(Party.HP_BAR_VRAM_LINK_DOUBLE[slot])
   eq(tile[1], Party.HP_BAR_AT_LINK_DOUBLE[slot][1],
@@ -411,6 +411,38 @@ for slot = 1, 6 do
   eq(tile[2], Party.HP_BAR_AT_LINK_DOUBLE[slot][2],
     "link-double HP " .. slot .. " row matches VRAM")
 end
+for slot = 1, 6 do
+  local tile = Party.vramToTile(Party.HP_BAR_VRAM_MULTI[slot])
+  eq(tile[1], Party.HP_BAR_AT_MULTI[slot][1],
+    "multi HP " .. slot .. " column matches VRAM")
+  eq(tile[2], Party.HP_BAR_AT_MULTI[slot][2],
+    "multi HP " .. slot .. " row matches VRAM")
+end
+eq(Party.LAYOUT_LINK_DOUBLE, 2, "PARTY_MENU_LAYOUT_LINK_DOUBLE")
+eq(Party.LAYOUT_MULTI, 3, "PARTY_MENU_LAYOUT_MULTI_BATTLE")
+eq(Game3.PARTY_MENU_LAYOUT_MULTI, 3, "Game3 MULTI constant")
+check(Party.isLeadSlot(Party.LAYOUT_LINK_DOUBLE, 1),
+  "link-double slot 1 is a lead")
+check(not Party.isLeadSlot(Party.LAYOUT_LINK_DOUBLE, 2),
+  "link-double slot 2 is slim")
+check(Party.isLeadSlot(Party.LAYOUT_MULTI, 3),
+  "multi slot 3 is the partner lead")
+check(not Party.isLeadSlot(Party.LAYOUT_MULTI, 1),
+  "multi slot 1 is a slim right-column box")
+local linkOver = g:partyLayoutArt(art, Game3.PARTY_MENU_LAYOUT_LINK_DOUBLE)
+eq(linkOver.boxAt[3][2], 2, "link-double right column starts at row 2")
+eq(linkOver.iconAt[3][2], 10, "link-double slot 2 icon y")
+local multiOver = g:partyLayoutArt(art, Game3.PARTY_MENU_LAYOUT_MULTI)
+eq(multiOver.boxAt[2][1], 11, "multi slot 1 is on the right")
+eq(multiOver.boxAt[4][1], 0, "multi slot 3 is on the left")
+eq(g:partyBoxShape(multiOver, Game3.PARTY_MENU_LAYOUT_MULTI, 3, {}),
+  Party.LEAD_BOX, "multi slot 3 stamps the lead shape")
+eq(g:partyBoxShape(multiOver, Game3.PARTY_MENU_LAYOUT_MULTI, 1, {}),
+  Party.SLOT_BOX, "multi slot 1 is slim")
+eq(g:partyMenuLayout({ layout = Game3.PARTY_MENU_LAYOUT_LINK_DOUBLE }),
+  Game3.PARTY_MENU_LAYOUT_LINK_DOUBLE, "f.layout selects link-double")
+eq(g:partyMenuLayout({ layout = Game3.PARTY_MENU_LAYOUT_MULTI }),
+  Game3.PARTY_MENU_LAYOUT_MULTI, "f.layout selects multi")
 
 -- ------- 12. Held item icons
 --

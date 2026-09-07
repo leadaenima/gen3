@@ -134,8 +134,8 @@ local seen = {}
 for _, path in ipairs(required) do seen[path] = true end
 check(seen["data/generated/audio.lua"], "the registry is a required file")
 check(seen[Audio.BLOB_PATH], "so is the blob")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby41:",
-  "ripe berry-tree frames bump the cache marker")
+eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
+  "hideout submarine sprite bumps the cache marker")
 
 -- ------- 7. Cries
 -- Cries are not in the song table: sound.c indexes gCryTable by a cry id,

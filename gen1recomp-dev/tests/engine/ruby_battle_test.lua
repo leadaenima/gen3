@@ -60,7 +60,12 @@ eq(Game3.BOX_COUNT, 14, "Ruby has 14 boxes")
 eq(Game3.BOX_SIZE, 30, "of 30")
 check(Game3.isPc(0x83), "Pokemon Center PC is 0x83")
 check(Game3.isPc(0xC5), "bedroom PC is 0xC5")
-check(Game3.isPc(0xB0), "secret base PC is 0xB0")
+-- metatile_behavior.c MetatileBehavior_IsPC is MB_PC alone. The secret
+-- base PC (0xB0) is a separate branch of GetInteractedMetatileScript that
+-- returns SecretBase_EventScript_PC, so it must NOT open box storage.
+check(not Game3.isPc(0xB0), "the secret base PC is not the storage PC")
+check(Game3.isSecretBasePc(0xB0), "0xB0 is the secret base PC")
+check(not Game3.isSecretBasePc(0x83), "0x83 is not")
 check(not Game3.isPc(0x80), "a counter is not a PC")
 check(Game3.isPhysical(0), "Normal is physical")
 check(Game3.isPhysical(8), "Steel is physical")
@@ -289,6 +294,9 @@ field.data.moves = {
   byId = {
     [10] = { id = 10, name = "SCRATCH", effect = 0, power = 40, type = 0,
       accuracy = 100, pp = 35, priority = 0 },
+    -- moves.h MOVE_STRUGGLE: power 50, EFFECT_RECOIL (1/4 of the damage).
+    [165] = { id = 165, name = "STRUGGLE", effect = 48, power = 50, type = 0,
+      accuracy = 100, pp = 1, priority = 0 },
     [33] = { id = 33, name = "TACKLE", effect = 0, power = 35, type = 0,
       accuracy = 95, pp = 35, priority = 0 },
     [45] = { id = 45, name = "GROWL", effect = 18, power = 0, type = 0,
@@ -558,9 +566,20 @@ eq(field.field.text, "Welcome to our POKeMON CENTER!", "welcome line")
 field.npcByMap.pc[1].script = nil
 field.field = nil
 
+-- A nurse gfx off a Center map with no script must not invent a heal.
+field.map.name = "SOME HOUSE"
+field.map.music = nil
+field.party[1].hp = 1
+field.field = nil
+check(field:tryTalk(), "A on a misplaced nurse")
+eq(field.party[1].hp, 1, "non-Center nurse stub does not heal")
+field.map.name = "POKeMON CENTER"
+
 field.npcByMap.pc[1].graphicsId = 9
 field:tryTalk()
-eq(field.field.text, "...", "other NPCs have no script yet")
+-- field_control_avatar.c: a NULL script pointer makes A do nothing in
+-- vanilla, not open a textbox.
+eq(field.field, nil, "other NPCs with no script show nothing, matching vanilla's NULL script")
 
 local talker = Game3.new()
 talker.phase = "play"
@@ -708,7 +727,11 @@ local function pressPick(name)
 end
 pressPick("a")
 eq(chooser.field.kind, "starter_yesno", "A asks to confirm")
-check(chooser.field.text:find("TORCHIC", 1, true) ~= nil, "and names Torchic")
+eq(chooser.field.species, 280, "and remembers Torchic")
+-- strings.c gOtherText_DoYouChoosePoke: the confirm text itself is generic,
+-- not "so you want X?"; the species shows in the CreateStarterPokemonLabel
+-- drawn alongside it instead.
+eq(chooser.field.text, Game3.TEXT_DO_YOU_CHOOSE_POKE, "and asks the ROM's generic confirm text")
 pressPick("b")
 eq(chooser.field.kind, "starter", "B goes back to the list")
 pressPick("up")
@@ -979,11 +1002,20 @@ check(field:tryTalk(), "the nurse behind the counter can be talked to")
 eq(field.party[1].hp, field.party[1].maxHp, "the counter nurse still heals")
 
 field.npcByMap.pc[1].graphicsId = Game3.GFX_MART
+field.map.martStub = true
 field.field = nil
 field:tryTalk()
 eq(field.field.kind, "mart", "the mart clerk is also behind a counter")
 eq(field.field.items[1], Game3.ITEM_POKE_BALL,
   "a clerk without a list still sells Poke Balls")
+
+-- Cycling-road / Oldale street gfx 83 with no stock must not invent a shop.
+field.map.martStub = nil
+field.npcByMap.pc[1].mart = nil
+field.field = nil
+field:tryTalk()
+check(not (field.field and field.field.kind == "mart"),
+  "gfx 83 alone is not a mart stub")
 
 eq(Game3.topIsOverlay(Game3.LAYER_NORMAL), true, "normal tops cover sprites")
 eq(Game3.topIsOverlay(Game3.LAYER_SPLIT), true, "split tops cover sprites")
@@ -1029,6 +1061,9 @@ eq(Game3.isGeneralAnimTile(50), false, "ordinary tiles do not")
 eq(Game3.GFX_TRUCK, 94, "moving truck gfx is 94")
 check(Game3.shouldAnimCorner(120, Game3.MB_POND_WATER), true,
   "water tiles on a pond sway")
+check(not Game3.shouldAnimCorner(127, Game3.MB_POND_WATER,
+    { 120, 121, 127, 128 }, 1),
+  "surfable flower foam on a bank does not flip")
 check(not Game3.shouldAnimCorner(120, Game3.MB_JUMP_SOUTH),
   "ledge tiles do not borrow the water flip")
 check(Game3.shouldAnimCorner(127, 0), true, "flowers still flip")
@@ -1203,12 +1238,23 @@ field.battle.queue = { "ZIGZAGOON fainted!" }
 field.battle.qi = 1
 field:advanceBattleText()
 eq(field.battle.kind, "won_trainer", "the last KO opens the victory line")
-eq(field.money, Game3.START_MONEY + 96,
-  "winning pays 16 * last level * party size")
+eq(field.money, Game3.START_MONEY + 48,
+  "winning pays 4 * lastLevel * baseMoney(YOUNGSTER=4)")
 pressA()
 eq(field.phase, "play", "winning returns to the field")
 eq(calvinNpc.defeated, true, "Calvin is marked beaten")
-eq(field.flags[0x200], true, "and his object flag is set")
+-- battle_setup.c sets only the trainer's own flag. The object template's
+-- flagId is a SPAWN/hide flag and is frequently shared across a whole cast
+-- -- every grunt on all four hideout maps carries
+-- FLAG_HIDE_GRUNTS_HIDEOUTS -- so setting it on a win made beating one
+-- grunt hide all the rest, taking the submarine scene with it. Defeated
+-- trainers stay on the map; a script removes them with removeobject.
+eq(field.flags[0x200], nil, "but his object hide flag is NOT set")
+eq(field:trainerDefeated(calvinNpc.trainerId), false,
+  "he has no trainerId, so no trainer flag either")
+field:markTrainerDefeated({ trainerId = 42, flagId = 0x200 })
+eq(field:trainerDefeated(42), true, "a trainerId does set TRAINER_FLAG_START + id")
+eq(field.flags[0x200], nil, "and still never the shared hide flag")
 
 field.map = {
   id = "g0_17", name = "Route 102",
@@ -1271,10 +1317,11 @@ eq(chaser.phase, "play", "and do not open the Pokédex or party")
 field.map.objects = { {
   x = 0, y = 0, graphicsId = 9, movementType = 1,
   trainerType = 1, trainerRange = 2, trainerName = "CALVIN",
-  trainerClass = "YOUNGSTER", party = { { species = 286, level = 5 } },
+  trainerClass = "YOUNGSTER", trainerId = 6,
+  party = { { species = 286, level = 5 } },
   flagId = 0x200,
 } }
-field.flags = { [0x200] = true }
+field.flags = { [Game3.TRAINER_FLAG_START + 6] = true }
 field:resetNpcs(field.map)
 eq(field:npcsFor(field.map)[1].defeated, true,
   "re-entering the map keeps beaten trainers beaten")
@@ -1329,6 +1376,1638 @@ eq(scripted.flags[Game3.TRAINER_FLAG_START + 1], true,
   "the 0x500+id bit is set")
 eq(scripted:scriptTrainerBattle({ trainerId = 1 }), false,
   "a second trainerbattle is a nop")
+
+-- BattleSetup_ConfigureTrainerBattle routes TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT
+-- to EventScript_DoNoIntroTrainerBattle, which runs trainerbattlebegin with
+-- no GetTrainerFlag check -- unlike the normal and double paths. The scripts
+-- that use it gate the fight on a story flag of their own. Reading the
+-- trainer flag here made a lost Elite Four run unwinnable: EventScript_WhiteOut
+-- clears FLAG_DEFEATED_ELITE_4_*, nothing ever clears TRAINER_FLAG_START+SIDNEY,
+-- so Sidney skipped the battle and fell straight into EventScript_Defeated --
+-- re-setting the flag and opening the door to the next room.
+eq(Game3.TRAINER_BATTLE_NO_INTRO, 3, "TRAINER_BATTLE_SINGLE_NO_INTRO_TEXT")
+scripted._scriptNpc = {
+  trainerId = 1, trainerName = "CALVIN", trainerClass = "YOUNGSTER",
+  party = { { species = 288, level = 5 } },
+}
+scripted.party = { scripted:makeMon(280, 5) }
+check(scripted:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_NO_INTRO, trainerId = 1,
+}), "no_intro battles a trainer whose flag is already set")
+eq(scripted.phase, "battle", "and it really enters the battle")
+scripted.phase = "play"
+scripted.battle = nil
+scripted._scriptNpc.defeated = true
+check(scripted:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_NO_INTRO, trainerId = 1,
+}), "nor does a defeated object event stop it")
+scripted.phase = "play"
+scripted.battle = nil
+scripted._scriptNpc.defeated = nil
+eq(scripted:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_DOUBLE, trainerId = 1,
+}), false, "the double path still reads GetTrainerFlag")
+eq(scripted:scriptTrainerBattle({
+  kind = Game3.TRAINER_BATTLE_CONTINUE, trainerId = 1,
+}), false, "so does continue-script")
+scripted.flags[Game3.TRAINER_FLAG_START + 1] = nil
+
+-- atkF3_trygivecaughtmonnick names the mon you just caught. With a full
+-- party the catch goes to the PC, and boxFirstFree can land anywhere in the
+-- box -- reading it back as stored[#stored] named whatever mon happened to
+-- sit last in the table instead. sendToPc now reports the slot it used.
+;(function()
+local pc = Game3.new()
+pc.phase = "play"
+pc.party = {}
+for i = 1, Game3.PARTY_MAX do
+  pc.party[i] = pc:makeMon(263, 5)
+  pc.party[i].name = "FILLER" .. i
+end
+pc:ensurePc()
+-- Park a mon at the far end of box 1 so #box points at the wrong one.
+local box = pc.pc[1]
+box[Game3.BOX_SIZE] = pc:makeMon(263, 9)
+box[Game3.BOX_SIZE].name = "DECOY"
+local caught = pc:makeMon(384, 70)
+caught.name = "RAYQUAZA"
+eq(pc:addToParty(caught), false, "a full party cannot take it")
+local b, slot = pc:sendToPc(caught)
+eq(b, 1, "stored in box 1")
+check(slot ~= nil and slot < Game3.BOX_SIZE, "in the first free slot")
+eq(pc.pc[b][slot].name, "RAYQUAZA", "and sendToPc reports that slot")
+pc.battle = { enemy = caught, caught = true, askCaughtNick = true,
+  caughtMon = pc.pc[b][slot] }
+pc:openCaughtNickAsk()
+check(pc.battle.text:find("RAYQUAZA", 1, true) ~= nil,
+  "the prompt names the mon you caught, not the box's last entry")
+check(pc.battle.text:find("DECOY", 1, true) == nil, "not the decoy")
+end)()
+
+-- EFFECT_RECHARGE (Hyper Beam family) and EFFECT_RAMPAGE (Thrash, Outrage,
+-- Petal Dance). atkCanceller case 4 spends the recharge turn before any status
+-- roll; STATUS2_LOCK_CONFUSE_TURN((Random() & 1) + 2) is the TOTAL number of
+-- attacks, and atk8C_confuseifrepeatingattackends only confuses when the lock
+-- runs down on its own.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+local function mon(name)
+  local m = g:makeMon(280, 40)
+  m.name = name
+  m.hp, m.maxHp = 200, 200
+  return m
+end
+
+-- recharge: the hit lands, the NEXT turn is the one lost
+local user = mon("USER")
+user.recharge = true
+local blocked, texts = g:statusBlocks(user, { id = 1 })
+eq(blocked, true, "a recharging mon cannot act")
+check(texts[1]:find("must recharge", 1, true) ~= nil, "and says so")
+eq(user.recharge, nil, "the flag is spent, not sticky")
+eq(select(1, g:statusBlocks(user, { id = 1 })), false,
+  "so exactly one turn is lost")
+
+-- recharge outranks sleep, the way atkCanceller orders them
+local sleepy = mon("SLEEPY")
+sleepy.recharge = true
+sleepy.status = Game3.STATUS_SLP
+sleepy.sleepTurns = 3
+local _, t2 = g:statusBlocks(sleepy, { id = 1 })
+check(t2[1]:find("must recharge", 1, true) ~= nil,
+  "recharge is checked before the status roll")
+eq(sleepy.sleepTurns, 3, "and the sleep counter does not tick twice")
+
+-- a rampage locks the move choice for both sides
+local thrasher = mon("THRASHER")
+local thrash = { id = 37, pp = 10, maxPp = 10 }
+thrasher.rampage = 2
+thrasher.rampageMove = thrash
+thrasher.moves = { thrash, { id = 1, pp = 10, maxPp = 10 } }
+eq(g:pickEnemyMove(thrasher), thrash, "the enemy is locked onto the move")
+
+-- CancelMultiTurnMoves drops the lock without confusing
+thrasher.rampage = 2
+g:cancelMultiTurn(thrasher)
+eq(thrasher.rampage, nil, "cancelling clears the lock")
+eq(thrasher.confuseTurns, nil, "and a broken lock never confuses")
+eq(Game3.EFFECT_RAMPAGE, 27, "EFFECT_RAMPAGE")
+eq(Game3.EFFECT_RECHARGE, 80, "EFFECT_RECHARGE")
+end)()
+
+-- EFFECT_TRAP: Bind, Wrap, Fire Spin, Clamp, Whirlpool, Sand Tomb.
+-- MOVE_EFFECT_WRAP sets STATUS2_WRAPPED_TURN((Random() & 3) + 3), and
+-- ENDTURN_WRAP decrements *before* testing -- so a counter of n gives n-1
+-- damage ticks and then the free message.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+eq(Game3.EFFECT_TRAP, 42, "EFFECT_TRAP")
+
+local d = g:makeMon(280, 40)
+d.name = "TARGET"
+d.hp, d.maxHp = 160, 160
+d.wrapped = 3
+d.wrappedMoveName = "WRAP"
+
+local t1 = g:wrapResidual(d)
+eq(d.wrapped, 2, "the counter drops before the damage test")
+eq(d.hp, 150, "maxHP/16 a tick")
+check(t1[1]:find("hurt by WRAP", 1, true) ~= nil, "and names the move")
+check(g:isTrapped(d), "still held")
+
+g:wrapResidual(d)
+eq(d.wrapped, 1, "second tick")
+local t3 = g:wrapResidual(d)
+eq(d.wrapped, nil, "the counter runs out")
+check(t3[1]:find("was freed", 1, true) ~= nil, "BattleScript_WrapEnds")
+check(not g:isTrapped(d), "and the hold is gone")
+eq(d.hp, 140, "the freeing turn deals no damage")
+
+-- floor of one, so a tiny mon still takes something
+local small = g:makeMon(280, 5)
+small.name = "SMALL"
+small.hp, small.maxHp = 9, 9
+small.wrapped = 3
+g:wrapResidual(small)
+eq(small.hp, 8, "damage is floored at 1")
+
+-- a second application while already held is a no-op
+local held = g:makeMon(280, 40)
+held.hp, held.maxHp = 100, 100
+held.wrapped = 2
+held.wrappedMoveName = "BIND"
+eq(held.wrapped, 2, "still on the original counter")
+
+-- fainting from the tick is reported
+local frail = g:makeMon(280, 40)
+frail.name = "FRAIL"
+frail.hp, frail.maxHp = 3, 160
+frail.wrapped = 3
+frail.wrappedMoveName = "FIRE SPIN"
+local tf = g:wrapResidual(frail)
+eq(frail.hp, 0, "the tick can KO")
+check(tf[2] and tf[2]:find("fainted", 1, true) ~= nil, "and says so")
+
+-- entering the field clears it, the way status2 leaves with the mon
+local switched = g:makeMon(280, 40)
+switched.wrapped = 4
+switched.recharge = true
+switched.rampage = 2
+g:prepBattler(switched)
+eq(switched.wrapped, nil, "a battler never enters wrapped")
+eq(switched.recharge, nil, "nor recharging")
+eq(switched.rampage, nil, "nor mid-rampage")
+end)()
+
+-- Set damage: SUPER FANG, DRAGON RAGE, PSYWAVE, COUNTER, MIRROR COAT and
+-- PAIN SPLIT. All of these run after typecalc -- so an immunity still zeroes
+-- them -- but never touch the damage formula, and none of them crit.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+local function pair()
+  local a = g:makeMon(280, 50)
+  a.name = "A"
+  a.hp, a.maxHp = 200, 200
+  local d = g:makeMon(280, 50)
+  d.name = "D"
+  d.hp, d.maxHp = 320, 320
+  g.battle = { player = a, enemy = d }
+  return a, d
+end
+
+eq(Game3.EFFECT_SUPER_FANG, 40, "EFFECT_SUPER_FANG")
+eq(Game3.EFFECT_DRAGON_RAGE, 41, "EFFECT_DRAGON_RAGE")
+eq(Game3.EFFECT_PSYWAVE, 88, "EFFECT_PSYWAVE")
+eq(Game3.EFFECT_COUNTER, 89, "EFFECT_COUNTER")
+eq(Game3.EFFECT_PAIN_SPLIT, 91, "EFFECT_PAIN_SPLIT")
+eq(Game3.EFFECT_MIRROR_COAT, 144, "EFFECT_MIRROR_COAT")
+
+-- atk94: half the target's CURRENT hp
+local a, d = pair()
+eq(g:dealDamage(a, d, { effect = Game3.EFFECT_SUPER_FANG }).dmg, 160,
+  "SUPER FANG halves 320")
+d.hp = 1
+eq(g:dealDamage(a, d, { effect = Game3.EFFECT_SUPER_FANG }).dmg, 1,
+  "and is floored at 1")
+
+-- flat 40, whatever the levels
+a, d = pair()
+local r = g:dealDamage(a, d, { effect = Game3.EFFECT_DRAGON_RAGE })
+eq(r.dmg, 40, "DRAGON RAGE is always 40")
+eq(r.crit, false, "set damage never crits")
+
+-- level * (roll*10 + 50) / 100, roll 0..10
+a, d = pair()
+local lo, hi = 9999, 0
+for _ = 1, 60 do
+  d.hp = 320
+  local dmg = g:dealDamage(a, d, { effect = Game3.EFFECT_PSYWAVE }).dmg
+  if dmg < lo then lo = dmg end
+  if dmg > hi then hi = dmg end
+end
+check(lo >= 25, "PSYWAVE floors at half the level")
+check(hi <= 75, "and caps at one and a half times it")
+
+-- COUNTER answers a physical hit taken this turn, doubled
+a, d = pair()
+check(g:dealDamage(a, d, { effect = Game3.EFFECT_COUNTER }).failed,
+  "COUNTER with nothing to answer fails")
+a.counterPhysical, a.counterPhysicalFrom = 37, d
+eq(g:dealDamage(a, d, { effect = Game3.EFFECT_COUNTER }).dmg, 74,
+  "and doubles what it took")
+
+-- MIRROR COAT is the special half, and the two do not cross over
+a, d = pair()
+a.counterPhysical, a.counterPhysicalFrom = 50, d
+check(g:dealDamage(a, d, { effect = Game3.EFFECT_MIRROR_COAT }).failed,
+  "MIRROR COAT ignores a physical hit")
+a.counterSpecial, a.counterSpecialFrom = 21, d
+eq(g:dealDamage(a, d, { effect = Game3.EFFECT_MIRROR_COAT }).dmg, 42,
+  "and doubles the special one")
+
+-- a fainted source means there is nothing to counter
+a, d = pair()
+a.counterPhysical, a.counterPhysicalFrom = 40, d
+d.hp = 0
+check(g:dealDamage(a, d, { effect = Game3.EFFECT_COUNTER }).failed,
+  "a fainted attacker cannot be countered")
+
+-- PAIN SPLIT averages, and either side can gain
+a, d = pair()
+a.hp, d.hp = 40, 300
+g:usePainSplit(a, d, {})
+eq(a.hp, 170, "the user is pulled up to the average")
+eq(d.hp, 170, "and the target down to it")
+a, d = pair()
+d.substitute = true
+local t = g:usePainSplit(a, d, {})
+check(t[1]:find("failed", 1, true) ~= nil, "a substitute blocks it")
+end)()
+
+-- Held items, dispatched on gItems[].holdEffect the way battle_util.c and
+-- calculate_base_damage.c do, rather than by item id.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.data.items = { byId = {
+  [1] = { id = 1, name = "LEFTOVERS", holdEffect = 43, holdEffectParam = 10 },
+  [2] = { id = 2, name = "CHOICE BAND", holdEffect = 29, holdEffectParam = 0 },
+  [3] = { id = 3, name = "FOCUS BAND", holdEffect = 39, holdEffectParam = 100 },
+  [4] = { id = 4, name = "SHELL BELL", holdEffect = 62, holdEffectParam = 8 },
+  [5] = { id = 5, name = "KING'S ROCK", holdEffect = 30, holdEffectParam = 100 },
+  [6] = { id = 6, name = "SCOPE LENS", holdEffect = 41, holdEffectParam = 0 },
+  [7] = { id = 7, name = "THICK CLUB", holdEffect = 65, holdEffectParam = 0 },
+  [8] = { id = 8, name = "CHERI BERRY", holdEffect = 2, holdEffectParam = 0 },
+  [9] = { id = 9, name = "LEPPA BERRY", holdEffect = 7, holdEffectParam = 10 },
+  [10] = { id = 10, name = "LIECHI BERRY", holdEffect = 15, holdEffectParam = 0 },
+} }
+local function mk(species, item)
+  local m = g:makeMon(species or 280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  m.item = item
+  return m
+end
+
+-- LEFTOVERS: maxHP/16 a turn and never consumed
+local lef = mk(280, 1)
+lef.hp = 100
+local t = g:tickHeldItem(lef)
+eq(lef.hp, 112, "LEFTOVERS restores maxHP/16")
+eq(lef.item, 1, "and is not used up")
+check(t[1]:find("LEFTOVERS", 1, true) ~= nil, "and says which item")
+lef.hp = 200
+eq(#g:tickHeldItem(lef), 0, "nothing to say at full HP")
+
+-- a status berry fires on its own status only, and is consumed
+local par = mk(280, 8)
+par.status = Game3.STATUS_BRN
+eq(#g:tickHeldItem(par), 0, "CHERI ignores a burn")
+par.status = Game3.STATUS_PAR
+check(#g:tickHeldItem(par) > 0, "and cures paralysis")
+eq(par.status, nil, "status gone")
+eq(par.item, nil, "berry used up")
+
+-- LEPPA restores PP to the move that ran dry
+local leppa = mk(280, 9)
+leppa.moves = { { id = 1, pp = 5, maxPp = 10 }, { id = 2, pp = 0, maxPp = 10 } }
+check(#g:tickHeldItem(leppa) > 0, "LEPPA fires when a move is empty")
+eq(leppa.moves[2].pp, 10, "and refills that move")
+eq(leppa.moves[1].pp, 5, "leaving the others alone")
+
+-- a stat berry waits for a quarter HP
+local lie = mk(280, 10)
+lie.hp = 100
+eq(#g:tickHeldItem(lie), 0, "LIECHI holds at half HP")
+lie.hp = 50
+check(#g:tickHeldItem(lie) > 0, "and fires at a quarter")
+eq(lie.stages.atk, 1, "raising ATTACK")
+
+-- CHOICE BAND is 1.5x physical attack
+local a, d = mk(280), mk(280)
+d.hp, d.maxHp = 9999, 9999
+g.battle = { player = a, enemy = d }
+g.rand = function() return 1 end
+local mv = { power = 80, type = Game3.TYPE_NORMAL, effect = 0 }
+local plain = g:dealDamage(a, d, mv).dmg
+a.item = 2
+d.hp = 9999
+local band = g:dealDamage(a, d, mv).dmg
+check(band > plain, "CHOICE BAND raises physical damage")
+
+-- THICK CLUB only works for the species that owns it
+local wak = mk(Game3.SPECIES_MAROWAK, 7)
+d.hp = 9999
+local clubbed = g:dealDamage(wak, d, mv).dmg
+wak.item = nil
+d.hp = 9999
+local bare = g:dealDamage(wak, d, mv).dmg
+check(clubbed > bare, "THICK CLUB doubles MAROWAK's attack")
+local other = mk(280, 7)
+d.hp = 9999
+local a1 = g:dealDamage(other, d, mv).dmg
+other.item = nil
+d.hp = 9999
+eq(g:dealDamage(other, d, mv).dmg, a1, "and does nothing for anyone else")
+
+-- FOCUS BAND at 100% always leaves 1 HP
+local frail = mk(280, 3)
+frail.hp = 5
+g.gbaRandom = function() return 0 end
+g:dealDamage(a, frail, { power = 250, type = Game3.TYPE_NORMAL, effect = 0 })
+eq(frail.hp, 1, "FOCUS BAND hangs on")
+check(frail.heldOn, "and records that it did")
+
+-- SCOPE LENS moves the crit stage, it does not just reroll
+eq(g:heldCritStages(mk(280, 6)), 1, "SCOPE LENS is one stage")
+eq(g:heldCritStages(mk(280, 1)), 0, "LEFTOVERS is not")
+check(Game3.critDenom(0, false, 1) < Game3.critDenom(0, false, 0),
+  "and a stage shortens the odds")
+end)()
+
+-- EFFECT_SUBSTITUTE. atk9C_setsubstitute costs maxHP/4 (floored at 1) and
+-- fails when the user has no more than that, so it can never faint its owner.
+-- The doll soaks whole hits, blocks secondary effects, and fades when spent.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function() return 1 end
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  return m
+end
+eq(Game3.EFFECT_SUBSTITUTE, 79, "EFFECT_SUBSTITUTE")
+
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+local t = g:useSubstitute(d, {})
+eq(d.hp, 150, "the user pays maxHP/4")
+eq(d.substituteHp, 50, "and the doll starts with that much")
+check(t[1]:find("SUBSTITUTE", 1, true) ~= nil, "and says so")
+
+-- a second one is refused rather than paying again
+local before = d.hp
+g:useSubstitute(d, {})
+eq(d.hp, before, "a second SUBSTITUTE costs nothing")
+
+-- damage lands on the doll, never on the holder
+local r = g:dealDamage(a, d, { power = 40, type = Game3.TYPE_NORMAL, effect = 0 })
+check(r.substitute, "the hit is reported as absorbed")
+eq(d.hp, 150, "the holder does not lose HP")
+check((d.substituteHp or 0) < 50, "the doll does")
+
+-- an overkill breaks it without touching the holder
+r = g:dealDamage(a, d, { power = 250, type = Game3.TYPE_NORMAL, effect = 0 })
+eq(d.hp, 150, "still no HP lost")
+eq(d.substitute, nil, "the doll is gone")
+check(r.substituteFaded, "and the break is reported")
+
+-- it cannot be set up at or below a quarter HP
+local frail = mk()
+frail.hp = 50
+check(g:useSubstitute(frail, {})[1]:find("failed", 1, true) ~= nil,
+  "exactly a quarter fails")
+eq(frail.substitute, nil, "and nothing is spent")
+frail.hp = 51
+check(g:useSubstitute(frail, {})[1]:find("SUBSTITUTE", 1, true) ~= nil,
+  "one more HP is enough")
+
+-- secondary effects skip a substituted target
+local victim = mk()
+g:useSubstitute(victim, {})
+local texts = {}
+g:applyHitSecondaries(a, victim, { secondary = 100 },
+  Game3.EFFECT_PARALYZE_HIT, texts)
+eq(victim.status, nil, "no status through a SUBSTITUTE")
+eq(#texts, 0, "and nothing printed")
+victim.substitute = nil
+g:applyHitSecondaries(a, victim, { secondary = 100 },
+  Game3.EFFECT_PARALYZE_HIT, texts)
+eq(victim.status, Game3.STATUS_PAR, "but it lands once the doll is gone")
+
+-- setsubstitute frees the user from a wrap, and leaving clears the doll
+local held = mk()
+held.wrapped = 4
+held.wrappedMoveName = "WRAP"
+g:useSubstitute(held, {})
+eq(held.wrapped, nil, "setsubstitute drops STATUS2_WRAPPED")
+g:prepBattler(held)
+eq(held.substitute, nil, "and a battler never enters with a doll")
+end)()
+
+-- Lockouts and resets: DISABLE, ENCORE, HAZE, MIST, LOCK ON and DESTINY BOND.
+-- Disable and Encore both look up the target's last move among its own four
+-- and refuse when it is not there or has no PP left.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  m.moves = { { id = 33, pp = 10, maxPp = 10 }, { id = 45, pp = 10, maxPp = 10 } }
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+  return m
+end
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+
+eq(Game3.EFFECT_HAZE, 25, "EFFECT_HAZE")
+eq(Game3.EFFECT_MIST, 46, "EFFECT_MIST")
+eq(Game3.EFFECT_DISABLE, 86, "EFFECT_DISABLE")
+eq(Game3.EFFECT_ENCORE, 90, "EFFECT_ENCORE")
+eq(Game3.EFFECT_LOCK_ON, 94, "EFFECT_LOCK_ON")
+eq(Game3.EFFECT_DESTINY_BOND, 98, "EFFECT_DESTINY_BOND")
+
+-- DISABLE needs a last move that is still in the target's set
+check(g:useDisable(a, d, {})[1]:find("failed", 1, true) ~= nil,
+  "nothing to disable without a last move")
+d.lastMove = 33
+check(g:useDisable(a, d, {})[1]:find("disabled", 1, true) ~= nil, "disables it")
+eq(d.disabledMove, 33, "records which move")
+check(not g:moveUsable(d, d.moves[1]), "the disabled move is unusable")
+check(g:moveUsable(d, d.moves[2]), "the others are fine")
+check(g:useDisable(a, d, {})[1]:find("failed", 1, true) ~= nil,
+  "a second DISABLE fails while one is running")
+-- a move with no id at all is a fixture shape, not an empty slot
+check(g:moveUsable(d, { pp = 5 }), "an id-less move is still usable")
+check(not g:moveUsable(d, { id = 0, pp = 5 }), "MOVE_NONE is not")
+
+-- ENCORE forces the move and refuses the three the cart bans
+local e = mk()
+e.lastMove = 45
+check(g:useEncore(a, e, {})[1]:find("ENCORE", 1, true) ~= nil, "encores")
+eq(g:pickEnemyMove(e).id, 45, "and the target is locked onto it")
+local st = mk()
+st.lastMove = 165
+check(g:useEncore(a, st, {})[1]:find("failed", 1, true) ~= nil,
+  "STRUGGLE cannot be encored")
+
+-- HAZE clears BOTH sides, which a nil player2 must not cut short
+a.stages.atk, d.stages.def = 4, -3
+g:useHaze({})
+eq(a.stages.atk, 0, "the user's stages go")
+eq(d.stages.def, 0, "and so do the far side's")
+
+-- MIST protects the side that set it, not the other
+check(g:useMist(a, {})[1]:find("MIST", 1, true) ~= nil, "mist goes up")
+check(g:dropStat(a, "atk", "ATTACK", 1):find("protected", 1, true) ~= nil,
+  "the holder's stats are safe")
+check(g:dropStat(d, "atk", "ATTACK", 1):find("fell", 1, true) ~= nil,
+  "the far side's are not")
+
+-- LOCK ON only makes the aimer's moves unmissable
+local t = mk()
+g:useLockOn(a, t, {})
+eq(g:moveHitChance(a, t, { accuracy = 30 }), nil, "the aimer cannot miss")
+eq(g:moveHitChance(d, t, { accuracy = 30 }), 30, "anyone else still can")
+
+-- DESTINY BOND takes the killer along
+local dead, killer = mk(), mk()
+dead.destinyBond = true
+dead.hp = 0
+local dbt = g:tryDestinyBond(dead, killer, {})
+eq(killer.hp, 0, "the attacker faints too")
+check(dbt[1]:find("took", 1, true) ~= nil, "and it is announced")
+local safe = mk()
+safe.hp = 0
+eq(g:tryDestinyBond(safe, killer, {})[1], nil, "no bond, no revenge")
+end)()
+
+-- Move copying: TRANSFORM, MIMIC, SKETCH, METRONOME, SLEEP TALK, MIRROR MOVE
+-- and the two CONVERSIONs. sMovesForbiddenToCopy gates them -- the short list
+-- for Mimic, the whole list for the three that call another move.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.data.moves = { byId = {
+  [33] = { id = 33, name = "TACKLE", type = Game3.TYPE_NORMAL, pp = 35, power = 40 },
+  [53] = { id = 53, name = "FLAMETHROWER", type = Game3.TYPE_FIRE, pp = 15, power = 95 },
+  [102] = { id = 102, name = "MIMIC", type = Game3.TYPE_NORMAL, pp = 10 },
+  [166] = { id = 166, name = "SKETCH", type = Game3.TYPE_NORMAL, pp = 1 },
+} }
+local function mk(sp)
+  local m = g:makeMon(sp or 280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  m.moves = { { id = 33, pp = 10, maxPp = 10 }, { id = 102, pp = 10, maxPp = 10 } }
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+  return m
+end
+eq(Game3.EFFECT_TRANSFORM, 57, "EFFECT_TRANSFORM")
+eq(Game3.EFFECT_MIMIC, 82, "EFFECT_MIMIC")
+eq(Game3.EFFECT_SKETCH, 95, "EFFECT_SKETCH")
+eq(Game3.EFFECT_METRONOME, 83, "EFFECT_METRONOME")
+eq(Game3.EFFECT_SLEEP_TALK, 97, "EFFECT_SLEEP_TALK")
+eq(Game3.EFFECT_MIRROR_MOVE, 9, "EFFECT_MIRROR_MOVE")
+
+local a, d = mk(132), mk(6)
+d.moves = { { id = 53, pp = 15, maxPp = 15 } }
+d.lastMove = 53
+d.type1, d.type2 = Game3.TYPE_FIRE, Game3.TYPE_FLYING
+g.battle = { player = a, enemy = d }
+
+-- TRANSFORM copies and, crucially, can be undone
+local wasSpecies = a.species
+g:useTransform(a, d, {})
+eq(a.species, d.species, "species copied")
+eq(a.type1, Game3.TYPE_FIRE, "types copied")
+eq(a.moves[1].id, 53, "moves copied")
+eq(a.moves[1].pp, 5, "copied moves get five PP")
+check(a.transformed, "and it is marked")
+g:prepBattler(a)
+eq(a.species, wasSpecies, "leaving the field puts the species back")
+eq(a.moves[1].id, 33, "and the real moves")
+eq(a.transformed, nil, "with the flag cleared")
+check(g:useTransform(mk(132), d, {})[1]:find("transformed", 1, true) ~= nil,
+  "and it can be used again")
+
+-- MIMIC takes the target's last move into its own slot at five PP
+local m2 = mk()
+check(g:useMimic(m2, d, m2.moves[2], {})[1]:find("learned", 1, true) ~= nil,
+  "mimics the last move")
+eq(m2.moves[2].id, 53, "into the MIMIC slot")
+eq(m2.moves[2].pp, 5, "at five PP")
+local m3 = mk()
+m3.transformed = true
+check(g:useMimic(m3, d, m3.moves[2], {})[1]:find("failed", 1, true) ~= nil,
+  "a transformed user cannot mimic")
+local m4 = mk()
+m4.moves[1] = { id = 53, pp = 5, maxPp = 5 }
+check(g:useMimic(m4, d, m4.moves[2], {})[1]:find("failed", 1, true) ~= nil,
+  "nor can one that already knows it")
+
+-- SKETCH keeps the copied move's own PP, not five
+local sk = mk()
+sk.moves[2] = { id = 166, pp = 1, maxPp = 1 }
+check(g:useSketch(sk, d, sk.moves[2], {})[1]:find("sketched", 1, true) ~= nil,
+  "sketches it")
+eq(sk.moves[2].pp, 15, "with the move's own PP")
+
+-- the three callers
+local met = g:rollMetronomeMove()
+check(met ~= nil, "metronome finds something")
+check(not Game3.COPY_FORBIDDEN[met.id], "and never a forbidden move")
+local sl = mk()
+eq(g:rollSleepTalkMove(sl), nil, "SLEEP TALK does nothing while awake")
+sl.status = Game3.STATUS_SLP
+check(g:rollSleepTalkMove(sl) ~= nil, "but works asleep")
+eq(g:mirrorMoveOf(d).id, 53, "MIRROR MOVE replays the target's last")
+local none = mk()
+none.lastMove = 0
+eq(g:mirrorMoveOf(none), nil, "and fails with nothing to replay")
+
+-- CONVERSION takes one of the user's own move types
+local cv = mk()
+cv.type1, cv.type2 = Game3.TYPE_WATER, Game3.TYPE_WATER
+check(g:useConversion(cv, {})[1]:find("type", 1, true) ~= nil, "converts")
+eq(cv.type1, Game3.TYPE_NORMAL, "to a type it has a move for")
+end)()
+
+-- The B7 batch: friendship power, fixed and capped damage, and the side
+-- statuses that run on the screens' beat.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function() return 1 end
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 }
+  return m
+end
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+
+-- 10 * friendship / 25, capped by the arithmetic at 102
+a.friendship = 255
+eq(g:friendshipPower(a, Game3.EFFECT_RETURN), 102, "RETURN maxes at 102")
+eq(g:friendshipPower(a, Game3.EFFECT_FRUSTRATION), 1, "FRUSTRATION bottoms out")
+a.friendship = 0
+eq(g:friendshipPower(a, Game3.EFFECT_RETURN), 1, "and the other way round")
+eq(g:friendshipPower(a, Game3.EFFECT_FRUSTRATION), 102, "FRUSTRATION maxes")
+
+-- SONICBOOM is flat, FALSE SWIPE always leaves one
+d.hp, d.maxHp = 9999, 9999
+eq(g:dealDamage(a, d, { effect = Game3.EFFECT_SONICBOOM }).dmg, 20,
+  "SONICBOOM is always 20")
+d.hp = 5
+g:dealDamage(a, d, { power = 250, type = Game3.TYPE_NORMAL,
+  effect = Game3.EFFECT_FALSE_SWIPE })
+eq(d.hp, 1, "FALSE SWIPE cannot take the last HP")
+
+-- BELLY DRUM pays half for a maxed stage, and refuses when it cannot
+local bd = mk()
+g:useBellyDrum(bd, {})
+eq(bd.hp, 100, "half the max HP is spent")
+eq(bd.stages.atk, 6, "for a maxed ATTACK")
+local weak = mk()
+weak.hp = 100
+check(g:useBellyDrum(weak, {})[1]:find("failed", 1, true) ~= nil,
+  "and it fails at exactly half")
+
+-- NIGHTMARE needs a sleeping target and lifts when it wakes
+local sleeper = mk()
+check(g:useNightmare(a, sleeper, {})[1]:find("failed", 1, true) ~= nil,
+  "an awake target cannot be given nightmares")
+sleeper.status = Game3.STATUS_SLP
+check(g:useNightmare(a, sleeper, {})[1]:find("NIGHTMARE", 1, true) ~= nil,
+  "a sleeping one can")
+g:nightmareResidual(sleeper)
+eq(sleeper.hp, 150, "a quarter a turn")
+sleeper.status = nil
+eq(#g:nightmareResidual(sleeper), 0, "waking ends it")
+eq(sleeper.nightmare, nil, "and clears the flag")
+
+-- SAFEGUARD turns away new status for its side only
+local sg = mk()
+g:useSafeguard(sg, {})
+eq(g:applyStatus(sg, Game3.STATUS_PSN), nil, "no status behind SAFEGUARD")
+eq(g:safeguardTurnsFor(sg), Game3.SAFEGUARD_TURNS, "five turns of it")
+for _ = 1, Game3.SAFEGUARD_TURNS do g:tickScreens() end
+eq(g:safeguardTurnsFor(sg), 0, "then it wears off")
+
+-- the weather healers
+g.battle.weather = Game3.WEATHER_SUN
+local sun = mk()
+sun.hp = 50
+g:useWeatherHeal(sun, {})
+eq(sun.hp, 183, "two thirds in sun")
+g.battle.weather = Game3.WEATHER_RAIN
+local rain = mk()
+rain.hp = 50
+g:useWeatherHeal(rain, {})
+eq(rain.hp, 100, "a quarter in other weather")
+
+eq(g:hitCountFor(Game3.EFFECT_TWINEEDLE), 2, "TWINEEDLE hits twice")
+
+local ml = mk()
+g:useMeanLook(a, ml, {})
+check(g:canRunFromBattle(ml) ~= 0, "MEAN LOOK stops the target leaving")
+end)()
+
+-- The B8 batch: move restriction, entry hazards, the item and type swaps, and
+-- the damaging moves that carry a rider.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function() return 1 end
+g.gbaRandom = function() return 3 end
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 200, 200
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 }
+  return m
+end
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+
+-- SPITE takes 2 to 5 PP off whatever the target used last
+d.moves = { { id = 33, pp = 10, maxPp = 35 } }
+d.lastMove = 33
+g:useSpite(a, d, {})
+eq(d.moves[1].pp, 5, "SPITE takes (Random & 3) + 2 PP")
+d.moves[1].pp = 1
+g:useSpite(a, d, {})
+eq(d.moves[1].pp, 0, "and never more than is left")
+
+-- TAUNT allows only damaging moves, TORMENT only a different one
+local t = mk()
+t.moves = { { id = 33, pp = 5, power = 40 }, { id = 45, pp = 5, power = 0 } }
+g:useTaunt(a, t, {})
+eq(t.tauntTurns, Game3.TAUNT_TURNS, "TAUNT lasts two turns")
+check(g:moveUsable(t, t.moves[1]), "a damaging move still goes")
+check(not g:moveUsable(t, t.moves[2]), "a status move does not")
+check(g:useTaunt(a, t, {})[1]:find("failed", 1, true) ~= nil,
+  "and it does not stack")
+local tm = mk()
+tm.moves = { { id = 33, pp = 5, power = 40 } }
+tm.lastMove = 33
+g:useTorment(a, tm, {})
+check(not g:moveUsable(tm, tm.moves[1]), "TORMENT rules out a repeat")
+tm.lastMove = 99
+check(g:moveUsable(tm, tm.moves[1]), "but not a fresh move")
+
+-- GRUDGE empties the PP of whatever lands the killing blow
+local victim, killer = mk(), mk()
+killer.moves = { { id = 33, pp = 12, maxPp = 35 } }
+g:useGrudge(victim, {})
+victim.hp = 0
+g:tryGrudge(victim, killer, { id = 33 }, {})
+eq(killer.moves[1].pp, 0, "GRUDGE takes the whole move")
+
+-- SPIKES: three layers, an eighth up to a quarter, and Flying walks over
+local sp = Game3.new()
+sp.phase = "battle"
+sp.rand = function() return 1 end
+local host, foe = mk(), mk()
+sp.battle = { player = host, enemy = foe }
+sp.makeMon = g.makeMon
+sp:useSpikes(host, {})
+eq(sp.battle.spikesFoe, 1, "SPIKES lands on the other side")
+local walker = mk()
+walker.hp, walker.maxHp = 200, 200
+walker.type1, walker.type2 = Game3.TYPE_GRASS, Game3.TYPE_GRASS
+sp.battle.enemy = walker
+sp:applySpikes(walker)
+eq(walker.hp, 175, "one layer is an eighth")
+sp:useSpikes(host, {})
+sp:useSpikes(host, {})
+eq(sp.battle.spikesFoe, Game3.SPIKES_MAX, "three layers is the limit")
+check(sp:useSpikes(host, {})[1]:find("failed", 1, true) ~= nil,
+  "a fourth fails")
+walker.hp = 200
+sp:applySpikes(walker)
+eq(walker.hp, 150, "three layers is a quarter")
+local flier = mk()
+flier.hp, flier.maxHp = 200, 200
+flier.type1, flier.type2 = Game3.TYPE_NORMAL, Game3.TYPE_FLYING
+sp.battle.enemy = flier
+eq(#sp:applySpikes(flier), 0, "FLYING walks over them")
+eq(flier.hp, 200, "and takes nothing")
+
+-- RAPID SPIN sweeps wrap, LEECH SEED and the user's own SPIKES away
+sp.battle.spikesPlayer = 2
+host.wrapped = 3
+host.leechSeed = true
+sp:rapidSpinFree(host, {})
+eq(host.wrapped, nil, "wrap goes")
+eq(host.leechSeed, nil, "LEECH SEED goes")
+eq(sp.battle.spikesPlayer, nil, "and the SPIKES underfoot go")
+
+-- MEMENTO trades the user for two stages of each of the target's attacks
+local ghost, mark = mk(), mk()
+g.battle.player, g.battle.enemy = ghost, mark
+g:useMemento(ghost, mark, {})
+eq(ghost.hp, 0, "MEMENTO faints the user")
+eq(mark.stages.atk, -2, "ATTACK falls two")
+eq(mark.stages.spa, -2, "SP. ATK falls two")
+g.battle.player, g.battle.enemy = a, d
+
+-- REFRESH clears the three it is allowed to
+local sick = mk()
+sick.status = Game3.STATUS_PAR
+g:useRefresh(sick, {})
+eq(sick.status, nil, "REFRESH cures paralysis")
+sick.status = Game3.STATUS_SLP
+check(g:useRefresh(sick, {})[1]:find("failed", 1, true) ~= nil,
+  "but not sleep")
+
+-- BRICK BREAK takes the screens down
+g:setSideScreen(d, "reflect")
+g:setSideScreen(d, "lightScreen")
+g:breakScreens(d, {})
+eq(g.battle.screens[g:screenSide(d)].reflect, nil, "REFLECT is gone")
+eq(g.battle.screens[g:screenSide(d)].lightScreen, nil, "LIGHT SCREEN too")
+
+-- THIEF only takes when its own hands are empty, and Sticky Hold refuses
+local thief, mark2 = mk(), mk()
+thief.item, mark2.item = 0, Game3.ITEM_POKE_BALL
+g.battle.player, g.battle.enemy = thief, mark2
+g:stealItem(thief, mark2, {})
+eq(thief.item, Game3.ITEM_POKE_BALL, "THIEF takes the item")
+eq(mark2.item, 0, "and the target loses it")
+local mark3 = mk()
+mark3.item = Game3.ITEM_POKE_BALL
+g:stealItem(thief, mark3, {})
+eq(mark3.item, Game3.ITEM_POKE_BALL, "a full-handed thief takes nothing")
+local sticky = mk()
+sticky.item, sticky.ability = Game3.ITEM_POKE_BALL, Game3.ABILITY_STICKY_HOLD
+local thief2 = mk()
+thief2.item = 0
+g:stealItem(thief2, sticky, {})
+eq(sticky.item, Game3.ITEM_POKE_BALL, "STICKY HOLD keeps hold of it")
+g.battle.player, g.battle.enemy = a, d
+
+-- CAMOUFLAGE turns NORMAL on an ordinary battlefield
+local cam = mk()
+cam.type1, cam.type2 = Game3.TYPE_FIRE, Game3.TYPE_FIRE
+g:useCamouflage(cam, {})
+eq(cam.type1, Game3.TYPE_NORMAL, "CAMOUFLAGE goes NORMAL")
+check(g:useCamouflage(cam, {})[1]:find("failed", 1, true) ~= nil,
+  "and fails when it is already there")
+
+-- SWAGGER and FLATTER buy a stat rise with confusion
+local sw = mk()
+g:useSwaggerLike(a, sw, Game3.EFFECT_SWAGGER, {})
+eq(sw.stages.atk, 2, "SWAGGER gives two stages of ATTACK")
+check((sw.confuseTurns or 0) > 0, "and confusion with it")
+local fl = mk()
+g:useSwaggerLike(a, fl, Game3.EFFECT_FLATTER, {})
+eq(fl.stages.spa, 1, "FLATTER gives one of SP. ATK")
+check((fl.confuseTurns or 0) > 0, "and confusion with it")
+
+-- TICKLE drops both, MINIMIZE raises evasion and sets the flag
+local tk = mk()
+g:useTickle(a, tk, {})
+eq(tk.stages.atk, -1, "TICKLE drops ATTACK")
+eq(tk.stages.def, -1, "and DEFENSE")
+local mn = mk()
+g:useMinimize(mn, {})
+eq(mn.stages.eva, 1, "MINIMIZE raises EVASION one stage")
+check(mn.minimized, "and sets the flag Stomp reads")
+
+-- TEETER DANCE confuses everything but the user
+local dancer, other = mk(), mk()
+g.battle.player, g.battle.enemy = dancer, other
+g:useTeeterDance(dancer, {})
+check((other.confuseTurns or 0) > 0, "TEETER DANCE confuses the foe")
+eq(dancer.confuseTurns, nil, "and never the dancer")
+g.battle.player, g.battle.enemy = a, d
+
+-- SMELLING SALTS hits a paralysed target twice as hard, then wakes it
+local salt = mk()
+eq(g:smellingSaltMultiplier(salt), 1, "an unparalysed target takes the usual")
+salt.status = Game3.STATUS_PAR
+eq(g:smellingSaltMultiplier(salt), 2, "a paralysed one takes double")
+
+-- PAY DAY banks level * 5 and pays out on a win
+g.battle.payday = nil
+g.money = 100
+g:addPayday(a)
+eq(g.battle.payday, 250, "level 50 scatters 250")
+check(g:collectPayday():find("250", 1, true) ~= nil, "and it is picked up")
+eq(g.money, 350, "the money lands")
+eq(g:collectPayday(), nil, "and only once")
+
+-- FAKE OUT writes its flinch straight into cEFFECT_CHOOSER, so it must not be
+-- gated on the move's secondary chance, which is zero.
+local fo = mk()
+g:applyHitSecondaries(a, fo, { secondary = 0 }, Game3.EFFECT_FAKE_OUT, {})
+check(fo.flinch, "and it flinches anyway")
+local focus = mk()
+focus.ability = Game3.ABILITY_INNER_FOCUS
+g:applyHitSecondaries(a, focus, { secondary = 0 }, Game3.EFFECT_FAKE_OUT, {})
+eq(focus.flinch, nil, "INNER FOCUS still refuses it")
+
+-- Jump Kick's crash is half of what it would have dealt, and the dry run
+-- leaves the target alone.
+local kicker, kicked = mk(), mk()
+g.battle.player, g.battle.enemy = kicker, kicked
+local jk = { power = 70, type = Game3.TYPE_FIGHTING,
+  effect = Game3.EFFECT_RECOIL_IF_MISS }
+local dry = g:dealDamage(kicker, kicked, jk, true)
+eq(kicked.hp, 200, "a dry run does not touch the target")
+check((dry.dmg or 0) > 0, "but it still works out the damage")
+local before = kicker.hp
+g:crashDamage(kicker, kicked, jk, {})
+check(kicker.hp < before, "the crash costs the user HP")
+check(kicker.hp >= before - math.floor(kicked.maxHp / 2),
+  "and never more than half the target's max HP")
+eq(kicked.hp, 200, "the target is untouched by a miss")
+g.battle.player, g.battle.enemy = a, d
+end)()
+
+-- The B9 batch: escalating power, the ability and item swaps, and the riders
+-- that come off the terrain or the party.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function() return 1 end
+g.gbaRandom = function() return 3 end
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 400, 400
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 }
+  return m
+end
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+
+-- ROLLOUT doubles across five turns, then starts over
+local roll = { power = 30, effect = Game3.EFFECT_ROLLOUT }
+local seen = {}
+for _ = 1, 5 do seen[#seen + 1] = g:rolloutPower(a, roll) end
+eq(table.concat(seen, " "), "30 60 120 240 480", "ROLLOUT doubles five times")
+eq(a.rolloutTimer, nil, "and the lock lifts at the end")
+eq(g:rolloutPower(a, roll), 30, "the next one starts over")
+a.rolloutTimer = nil
+a.defenseCurl = true
+eq(g:rolloutPower(a, roll), 60, "DEFENSE CURL doubles it again")
+a.defenseCurl, a.rolloutTimer = nil, nil
+
+-- FURY CUTTER climbs to the counter's cap and holds
+local fc = { power = 10, effect = Game3.EFFECT_FURY_CUTTER }
+local got = {}
+for _ = 1, 6 do got[#got + 1] = g:furyCutterPower(a, fc) end
+eq(table.concat(got, " "), "10 20 40 80 160 160", "FURY CUTTER caps at five")
+a.furyCutter = nil
+
+-- TRIPLE KICK is ten more each swing, and there are three
+eq(g:hitCountFor(Game3.EFFECT_TRIPLE_KICK), 3, "TRIPLE KICK swings three times")
+eq(g:tripleKickPower({ _hit = 1 }), 10, "the first is 10")
+eq(g:tripleKickPower({ _hit = 3 }), 30, "the third is 30")
+
+-- ERUPTION scales with the user's remaining HP
+local er = { power = 150, effect = Game3.EFFECT_ERUPTION }
+eq(g:eruptionPower(a, er), 150, "full HP is full power")
+a.hp = 100
+eq(g:eruptionPower(a, er), 37, "a quarter left is a quarter of the power")
+a.hp = 1
+eq(g:eruptionPower(a, er), 1, "and it never falls below one")
+a.hp = 400
+
+-- PRESENT's byte roll: 40 under 102, 80 under 178, 120 under 204, else a heal
+local rolls = {}
+g.gbaRandom = function() return rolls.n end
+rolls.n = 0
+eq(g:presentRoll(), 40, "the bottom slice is 40 power")
+rolls.n = 150
+eq(g:presentRoll(), 80, "the middle is 80")
+rolls.n = 200
+eq(g:presentRoll(), 120, "then 120")
+rolls.n = 250
+eq(g:presentRoll(), nil, "and the top slice heals instead")
+local hurt = mk()
+hurt.hp = 100
+g:usePresentHeal(hurt, {})
+eq(hurt.hp, 200, "a quarter of the target's max HP")
+g.gbaRandom = function() return 3 end
+
+-- PSYCH UP takes every stage across
+d.stages.atk, d.stages.spe, d.stages.eva = 3, -2, 1
+g:usePsychUp(a, d, {})
+eq(a.stages.atk, 3, "ATTACK comes across")
+eq(a.stages.spe, -2, "and the drops too")
+eq(a.stages.eva, 1, "EVASION included")
+a.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 }
+d.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 }
+
+-- SKILL SWAP trades, ROLE PLAY copies, and neither touches WONDER GUARD
+a.ability, d.ability = 66, 12
+g:useSkillSwap(a, d, {})
+eq(a.ability, 12, "SKILL SWAP hands the target's over")
+eq(d.ability, 66, "and the user's back")
+d.ability = Game3.ABILITY_WONDER_GUARD
+check(g:useSkillSwap(a, d, {})[1]:find("failed", 1, true) ~= nil,
+  "WONDER GUARD is not for trading")
+check(g:useRolePlay(a, d, {})[1]:find("failed", 1, true) ~= nil,
+  "nor for copying")
+d.ability = 66
+g:useRolePlay(a, d, {})
+eq(a.ability, 66, "ROLE PLAY copies one way")
+eq(d.ability, 66, "and leaves the target alone")
+
+-- TRICK swaps items, RECYCLE brings one back
+a.item, d.item = 0, Game3.ITEM_POKE_BALL
+g:useTrick(a, d, {})
+eq(a.item, Game3.ITEM_POKE_BALL, "TRICK takes the target's")
+eq(d.item, 0, "and gives its own")
+a.item, d.item = 0, 0
+check(g:useTrick(a, d, {})[1]:find("failed", 1, true) ~= nil,
+  "two empty hands fail")
+a.usedItem = Game3.ITEM_POKE_BALL
+g:useRecycle(a, {})
+eq(a.item, Game3.ITEM_POKE_BALL, "RECYCLE gets the used item back")
+check(g:useRecycle(a, {})[1]:find("failed", 1, true) ~= nil,
+  "and only the once")
+a.item = 0
+
+-- CURSE splits on the user's type
+local fire = mk()
+g.battle.player = fire
+g:useCurse(fire, d, {})
+eq(fire.stages.spe, -1, "a non-GHOST trades SPEED")
+eq(fire.stages.atk, 1, "for ATTACK")
+eq(fire.stages.def, 1, "and DEFENSE")
+local ghost = mk()
+ghost.type1, ghost.type2 = Game3.TYPE_GHOST, Game3.TYPE_GHOST
+g.battle.player = ghost
+g:useCurse(ghost, d, {})
+eq(ghost.hp, 200, "a GHOST pays half its max HP")
+check(d.cursed, "to lay the CURSE")
+g:curseResidual(d)
+eq(d.hp, 300, "which costs a quarter a turn")
+check(g:useCurse(ghost, d, {})[1]:find("failed", 1, true) ~= nil,
+  "and it does not stack")
+d.cursed, d.hp = nil, 400
+g.battle.player = a
+
+-- YAWN takes two turns to land, and refuses anything already afflicted
+local sleepy = mk()
+g.battle.enemy = sleepy
+g:useYawn(a, sleepy, {})
+eq(sleepy.yawnTurns, Game3.YAWN_TURNS, "YAWN counts two turns down")
+eq(#g:tickYawn(sleepy), 0, "nothing happens on the first")
+check(#g:tickYawn(sleepy) > 0, "and it lands on the second")
+eq(sleepy.status, Game3.STATUS_SLP, "asleep")
+check(g:useYawn(a, sleepy, {})[1]:find("failed", 1, true) ~= nil,
+  "a sleeping target cannot be yawned at")
+local awake = mk()
+awake.ability = Game3.ABILITY_INSOMNIA
+check(g:useYawn(a, awake, {})[1]:find("ineffective", 1, true) ~= nil,
+  "INSOMNIA turns it away")
+g.battle.enemy = d
+
+-- SUPERPOWER's rider is CERTAIN, so it lands on the user either way
+local sp = mk()
+g:superpowerDrop(sp, {})
+eq(sp.stages.atk, -1, "SUPERPOWER costs ATTACK")
+eq(sp.stages.def, -1, "and DEFENSE")
+
+-- ANCIENTPOWER raises all five
+local anc = mk()
+g:allStatsUp(anc, {})
+eq(anc.stages.atk, 1, "ATTACK up")
+eq(anc.stages.spd, 1, "SP. DEF up")
+eq(anc.stages.spe, 1, "SPEED up")
+
+-- REVENGE doubles only against whoever got a hit in first
+local av, dv = mk(), mk()
+g.battle.player, g.battle.enemy = av, dv
+eq(g:revengeMultiplier(av, dv), 1, "an untouched user hits normally")
+av.counterPhysical, av.counterPhysicalFrom = 40, dv
+eq(g:revengeMultiplier(av, dv), 2, "but doubles after taking one")
+av.counterPhysicalFrom = mk()
+eq(g:revengeMultiplier(av, dv), 1, "and only from this target")
+g.battle.player, g.battle.enemy = a, d
+
+-- BEAT UP swings once per healthy party member
+g.party = { mk(), mk(), mk() }
+g.party[2].status = Game3.STATUS_SLP
+g.party[3].hp = 0
+eq(g:beatUpCount(a), 1, "a fainted or sleeping member sits it out")
+g.party[2].status, g.party[3].hp = nil, 100
+eq(g:beatUpCount(a), 3, "the rest all swing")
+g.party = nil
+
+-- SECRET POWER takes the default rider off an ordinary battlefield
+eq(g:secretPowerStatus(), Game3.STATUS_PAR, "SECRET POWER paralyses by default")
+end)()
+
+-- The B10 batch: delayed damage, the banked-up moves, and the ones that
+-- reach across the turn to take somebody else's.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function() return 1 end
+g.gbaRandom = function() return 3 end
+local function mk()
+  local m = g:makeMon(280, 50)
+  m.name = "M"
+  m.hp, m.maxHp = 400, 400
+  m.stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 }
+  m.moves = {}
+  return m
+end
+local a, d = mk(), mk()
+g.battle = { player = a, enemy = d }
+
+-- STOCKPILE banks three and no more
+for i = 1, Game3.STOCKPILE_MAX do
+  g:useStockpile(a, {})
+  eq(a.stockpile, i, "STOCKPILE counts up")
+end
+check(g:useStockpile(a, {})[1]:find("any more", 1, true) ~= nil,
+  "and stops at three")
+eq(g:spitUpMultiplier(a), 3, "SPIT UP multiplies by whatever is banked")
+
+-- SWALLOW is maxHP / (1 << (3 - counter)): a quarter, a half, or the lot
+local sw = mk()
+sw.hp, sw.stockpile = 100, 1
+g:useSwallow(sw, {})
+eq(sw.hp, 200, "one stack heals a quarter")
+sw.hp, sw.stockpile = 100, 2
+g:useSwallow(sw, {})
+eq(sw.hp, 300, "two heal a half")
+sw.hp, sw.stockpile = 100, 3
+g:useSwallow(sw, {})
+eq(sw.hp, 400, "three heal the lot")
+eq(sw.stockpile, nil, "and the bank empties")
+check(g:useSwallow(sw, {})[1]:find("failed", 1, true) ~= nil,
+  "an empty bank fails")
+a.stockpile = nil
+
+-- FUTURE SIGHT banks its damage now and lands three turns on
+local fs = mk()
+g.battle.enemy = fs
+g:useFutureSight(a, fs, { power = 80, type = Game3.TYPE_DARK,
+  effect = Game3.EFFECT_FUTURE_SIGHT, name = "FUTURE SIGHT" }, {})
+eq(fs.futureTurns, Game3.FUTURE_SIGHT_TURNS, "three turns out")
+check((fs.futureDamage or 0) > 0, "with the damage worked out now")
+eq(fs.hp, 400, "and nothing taken yet")
+local banked = fs.futureDamage
+eq(#g:tickFutureSight(fs), 0, "nothing on the first tick")
+eq(#g:tickFutureSight(fs), 0, "nor the second")
+check(#g:tickFutureSight(fs) > 0, "it lands on the third")
+eq(fs.hp, 400 - banked, "for exactly what was banked")
+g.battle.enemy = d
+
+-- WISH heals half the max HP two turns later
+local wi = mk()
+wi.hp = 100
+g:useWish(wi, {})
+eq(wi.wishTurns, Game3.WISH_TURNS, "WISH waits two turns")
+eq(#g:tickWish(wi), 0, "nothing on the first")
+check(#g:tickWish(wi) > 0, "then it comes true")
+eq(wi.hp, 300, "for half the max HP")
+
+-- CHARGE doubles one ELECTRIC move and nothing else
+local ch = mk()
+g:useCharge(ch, {})
+eq(g:chargeMultiplier(ch, Game3.TYPE_ELECTRIC), 2, "ELECTRIC doubles")
+eq(g:chargeMultiplier(ch, Game3.TYPE_NORMAL), 1, "NORMAL does not")
+
+-- IMPRISON seals only what both sides know
+local im, foe = mk(), mk()
+g.battle.player, g.battle.enemy = im, foe
+im.moves = { { id = 33, pp = 5, power = 40 } }
+foe.moves = { { id = 33, pp = 5, power = 40 }, { id = 45, pp = 5, power = 0 } }
+g:useImprison(im, {})
+check(im.imprisoning, "IMPRISON takes when a move is shared")
+check(not g:moveUsable(foe, foe.moves[1]), "the shared move is sealed")
+check(g:moveUsable(foe, foe.moves[2]), "the rest are not")
+foe.moves = { { id = 99, pp = 5, power = 40 } }
+local none = mk()
+none.moves = { { id = 1, pp = 5 } }
+g.battle.player = none
+check(g:useImprison(none, {})[1]:find("failed", 1, true) ~= nil,
+  "with nothing in common it fails")
+g.battle.player, g.battle.enemy = a, d
+
+-- The flags byte, not the effect, decides what bounces and what is stolen
+eq(Game3.moveFlag({ flags = 4 }, Game3.FLAG_MAGIC_COAT), true,
+  "bit 2 is F_AFFECTED_BY_MAGIC_COAT")
+eq(Game3.moveFlag({ flags = 8 }, Game3.FLAG_SNATCH), true,
+  "bit 3 is F_AFFECTED_BY_SNATCH")
+eq(Game3.moveFlag({ flags = 8 }, Game3.FLAG_MAGIC_COAT), false,
+  "and they do not overlap")
+eq(Game3.magicCoatable({ flags = 0 }), false, "a plain move is neither")
+
+-- MAGIC COAT sends a status move back the way it came
+local coat, sender = mk(), mk()
+g.battle.player, g.battle.enemy = sender, coat
+coat.magicCoat = true
+g:useMove(sender, coat, { id = 92, name = "TOXIC", flags = 4, power = 0,
+  accuracy = 100, pp = 10, effect = Game3.EFFECT_TOXIC })
+eq(sender.status, Game3.STATUS_TOXIC, "the sender takes toxic instead")
+eq(coat.status, nil, "and the coat is untouched")
+eq(coat.magicCoat, nil, "the coat is spent")
+
+-- SNATCH takes a self-aimed move for itself
+local thief, healer = mk(), mk()
+g.battle.player, g.battle.enemy = healer, thief
+thief.snatch = true
+thief.hp, healer.hp = 100, 100
+g:useMove(healer, thief, { id = 105, name = "RECOVER", flags = 8, power = 0,
+  accuracy = 100, pp = 10, effect = Game3.EFFECT_RESTORE_HP })
+eq(thief.hp, 300, "the snatcher heals")
+eq(healer.hp, 100, "and the caster does not")
+eq(thief.snatch, nil, "the snatch is spent")
+g.battle.player, g.battle.enemy = a, d
+
+-- PURSUIT doubles only when it is catching a switch
+local out, chaser = mk(), mk()
+g.battle.player, g.battle.enemy = out, chaser
+local pur = { power = 40, type = Game3.TYPE_DARK,
+  effect = Game3.EFFECT_PURSUIT }
+local plain = g:dealDamage(chaser, out, pur, true).dmg
+local caught = { power = 40, type = Game3.TYPE_DARK,
+  effect = Game3.EFFECT_PURSUIT, _pursuitSwitch = true }
+eq(g:dealDamage(chaser, out, caught, true).dmg, plain * 2,
+  "PURSUIT hits twice as hard on the way out")
+g.battle.player, g.battle.enemy = a, d
+
+-- HELPING HAND is half again, and only in doubles
+local hh = mk()
+eq(g:partnerOf(a), nil, "a single battle has no partner")
+check(g:useHelpingHand(a, {})[1]:find("failed", 1, true) ~= nil,
+  "so HELPING HAND fails")
+check(g:useFollowMe(a, {})[1]:find("failed", 1, true) ~= nil,
+  "and so does FOLLOW ME")
+local p1, p2 = mk(), mk()
+g.battle = { player = p1, player2 = p2, enemy = d, doubles = true }
+eq(g:partnerOf(p1), p2, "in doubles they find each other")
+g:useHelpingHand(p1, {})
+check(p2.helpingHand, "HELPING HAND lands on the partner")
+check(g:useHelpingHand(p1, {})[1]:find("failed", 1, true) ~= nil,
+  "and only one of them may offer")
+g:useFollowMe(p2, {})
+eq(g.battle.forcedTarget, p2, "FOLLOW ME pulls the targeting over")
+g.battle = { player = a, enemy = d }
+
+-- BATON PASS is the one switch that carries the stages across
+g.party = { a, mk() }
+a.stages.atk, a.stages.spe = 4, 2
+a.confuseTurns = 3
+g:useBatonPass(a, {})
+check(g.battle.batonPass, "BATON PASS banks what it is holding")
+check(g.battle.mustSwitch, "and opens the party screen")
+g:switchTo(2)
+eq(g.battle.player.stages.atk, 4, "the stages come across")
+eq(g.battle.player.stages.spe, 2, "all of them")
+eq(g.battle.player.confuseTurns, 3, "and the confusion with them")
+local plainMon = mk()
+g.party = { g.battle.player, plainMon }
+g:switchTo(2)
+eq(g.battle.player.stages.atk, 0, "an ordinary switch still wipes them")
+g.party = nil
+
+-- ASSIST draws from the rest of the party and nothing else
+local lead, mate = mk(), mk()
+g.battle = { player = lead, enemy = d }
+lead.moves = { { id = 33, pp = 5 } }
+mate.moves = { { id = 22, pp = 5 } }
+g.party = { lead, mate }
+local pool = g:assistPool(lead)
+eq(#pool, 1, "only the other members' moves are on offer")
+eq(pool[1], 22, "the partner's move")
+g.party = { lead }
+eq(#g:assistPool(lead), 0, "a lone mon has nothing to draw on")
+g.party = nil
+end)()
+
+-- A2: trainer AI move scoring. Every move opens at 100, each enabled script
+-- nudges it, and the best score wins.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function(_, n) return n or 1 end
+g.gbaRandom = function() return 0 end
+
+-- a minimal type chart: NORMAL does nothing to GHOST, PSYCHIC doubles on it
+g.data = { moves = { byId = {}, typeChart = {
+  { Game3.TYPE_NORMAL, Game3.TYPE_GHOST, 0 },
+  { Game3.TYPE_DARK, Game3.TYPE_GHOST, 20 },
+} }, trainers = { byId = {
+  [1] = { name = "FLAGGED", aiFlags = 7 },
+  [2] = { name = "PLAIN", aiFlags = 0 },
+  [3] = { name = "BADONLY", aiFlags = 1 },
+} } }
+
+local function mk(name)
+  return { name = name, hp = 100, maxHp = 100, level = 30,
+    atk = 50, def = 50, spa = 50, spd = 50, spe = 50,
+    type1 = Game3.TYPE_NORMAL, type2 = Game3.TYPE_NORMAL,
+    stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 },
+    moves = {} }
+end
+
+local ai, foe = mk("AI"), mk("FOE")
+foe.type1, foe.type2 = Game3.TYPE_GHOST, Game3.TYPE_GHOST
+g.battle = { player = foe, enemy = ai, isTrainer = true,
+  npc = { trainerId = 1 }, turns = 5 }
+
+-- the flag bits come from sBattleAIScriptTable's order
+eq(Game3.AI_CHECK_BAD_MOVE, 1, "bit 0 is check-bad-move")
+eq(Game3.AI_CHECK_VIABILITY, 2, "bit 1 is check-viability")
+eq(Game3.AI_TRY_TO_FAINT, 4, "bit 2 is try-to-faint")
+eq(Game3.AI_SETUP_FIRST_TURN, 8, "bit 3 is setup-first-turn")
+check(Game3.aiHasFlag(7, Game3.AI_TRY_TO_FAINT), "7 carries try-to-faint")
+check(not Game3.aiHasFlag(3, Game3.AI_TRY_TO_FAINT), "3 does not")
+eq(g:aiFlagsFor(ai), 7, "the flags come off the trainer row")
+
+-- if_damage_bonus is TypeCalc against a base of 40
+local normal = { id = 1, name = "N", power = 40, type = Game3.TYPE_NORMAL, pp = 10 }
+local psychic = { id = 2, name = "P", power = 40, type = Game3.TYPE_DARK, pp = 10 }
+eq(g:aiDamageBonus(ai, foe, normal), 0, "an immunity reads 0")
+eq(g:aiDamageBonus(ai, foe, psychic), 80, "double effectiveness reads 80")
+local plain = mk("PLAIN")
+eq(g:aiDamageBonus(ai, plain, normal), 40, "neutral reads 40")
+
+-- is_most_powerful_move is three-valued, and the scripts branch on all three
+ai.moves = { normal, psychic }
+local rng = { 100, 100 }
+eq(g:aiPowerRank(ai, foe, normal, rng, 1), 1, "the weaker move ranks 1")
+eq(g:aiPowerRank(ai, foe, psychic, rng, 2), 2, "the hardest hitter ranks 2")
+eq(g:aiPowerRank(ai, foe, { id = 3, power = 0, type = 0 }, rng, 3), 0,
+  "a status move ranks 0 -- never in the running")
+eq(g:aiPowerRank(ai, foe,
+  { id = 4, power = 250, type = 0, effect = Game3.EFFECT_EXPLOSION }, rng, 4), 0,
+  "and so does a discouraged one, whatever its power")
+
+-- an immune move is discouraged, and it is the score that decides the pick
+local scores = g:aiScoreMoves(ai, foe)
+check(scores[2] > scores[1], "the super-effective move outscores the immune one")
+for _ = 1, 30 do
+  eq(g:aiPickMove(ai, foe), psychic, "so the AI never reaches for the immune one")
+end
+
+-- a trainer with no flags at all keeps picking at random, as the cart does
+g.battle.npc = { trainerId = 2 }
+eq(g:aiFlagsFor(ai), 0, "an unflagged trainer scores nothing")
+eq(g:aiScoreMoves(ai, foe), nil, "and gets no scores")
+eq(g:aiPickMove(ai, foe), nil, "so pickEnemyMove falls back to the coin flip")
+g.battle.npc = { trainerId = 1 }
+
+-- a wild mon is never scored either
+g.battle.isTrainer = nil
+eq(g:aiFlagsFor(ai), 0, "a wild battle has no trainer to read flags from")
+g.battle.isTrainer = true
+
+-- try-to-faint reaches for the finisher
+local dying = mk("DYING")
+dying.type1, dying.type2 = Game3.TYPE_NORMAL, Game3.TYPE_NORMAL
+dying.hp = 1
+g.battle.player = dying
+local weak = { id = 5, name = "W", power = 10, type = Game3.TYPE_NORMAL, pp = 10 }
+local strong = { id = 6, name = "S", power = 120, type = Game3.TYPE_NORMAL, pp = 10 }
+ai.moves = { weak, strong }
+local s = g:aiScoreMoves(ai, dying)
+check(s[1] > Game3.AI_BASE_SCORE, "a move that finishes the job is encouraged")
+g.battle.player = foe
+
+-- AI_TryToFaint's Quick Attack label falls through into the +4
+local qa = { id = 98, name = "QA", power = 40, type = Game3.TYPE_NORMAL, pp = 10,
+  effect = Game3.EFFECT_QUICK_ATTACK }
+local tiny = mk("TINY")
+tiny.hp = 1
+g.battle.player = tiny
+ai.moves = { qa }
+eq(g:aiTryToFaint(ai, tiny, qa, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE + 6, "QUICK ATTACK that can finish is worth six, not two")
+local boom = { id = 99, name = "B", power = 250, type = Game3.TYPE_NORMAL,
+  pp = 10, effect = Game3.EFFECT_EXPLOSION }
+eq(g:aiTryToFaint(ai, tiny, boom, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE, "EXPLOSION gets nothing even when it would finish")
+g.battle.player = foe
+
+-- redundant status is discouraged
+local zap = { id = 86, name = "TW", power = 0, type = Game3.TYPE_ELECTRIC,
+  pp = 10, effect = Game3.EFFECT_PARALYZE }
+local target = mk("T")
+eq(g:aiCheckBadMove(ai, target, zap, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE, "a healthy target is worth paralysing")
+target.status = Game3.STATUS_PAR
+eq(g:aiCheckBadMove(ai, target, zap, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE - 10, "an already-statused one is not")
+target.status = nil
+target.ability = Game3.ABILITY_LIMBER
+eq(g:aiCheckBadMove(ai, target, zap, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE - 10, "and LIMBER turns it away")
+target.ability = nil
+
+-- a stat move that cannot move the stat further is wasted
+local swords = { id = 14, name = "SD", power = 0, type = Game3.TYPE_NORMAL,
+  pp = 10, effect = Game3.EFFECT_ATTACK_UP_2 }
+eq(g:aiCheckBadMove(ai, foe, swords, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE, "room to grow is fine")
+ai.stages.atk = 6
+eq(g:aiCheckBadMove(ai, foe, swords, Game3.AI_BASE_SCORE, { 100 }, 1),
+  Game3.AI_BASE_SCORE - 10, "a maxed stat is not")
+ai.stages.atk = 0
+
+-- weighing a move must not advance the counters that come with using it
+local roller = mk("ROLL")
+roller.moves = {
+  { id = 205, name = "R", power = 30, type = Game3.TYPE_ROCK, pp = 10,
+    effect = Game3.EFFECT_ROLLOUT },
+  { id = 210, name = "FC", power = 10, type = Game3.TYPE_BUG, pp = 10,
+    effect = Game3.EFFECT_FURY_CUTTER },
+}
+g.battle.enemy = roller
+g:aiScoreMoves(roller, foe)
+eq(roller.rolloutTimer, nil, "weighing ROLLOUT does not start it rolling")
+eq(roller.furyCutter, nil, "nor does weighing FURY CUTTER wind it up")
+g.battle.enemy = ai
+end)()
+
+-- AI_CheckViability: the third AI script, ~116 effects dispatched to the
+-- branch bodies the cart calls AI_CV_*.
+;(function()
+local g = Game3.new()
+g.phase = "battle"
+g.rand = function(_, n) return n or 1 end
+-- 255 makes every if_random_less_than fail, which is the deterministic path
+-- through each branch.
+g.gbaRandom = function() return 255 end
+g.data = { moves = { byId = {}, typeChart = {} }, trainers = { byId = {
+  [1] = { name = "VIABLE", aiFlags = 3 },
+} } }
+
+local function mk(name)
+  return { name = name, hp = 100, maxHp = 100, level = 40,
+    atk = 50, def = 50, spa = 50, spd = 50, spe = 50,
+    type1 = Game3.TYPE_NORMAL, type2 = Game3.TYPE_NORMAL,
+    stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0, acc = 0, eva = 0 },
+    moves = {} }
+end
+
+local a, d = mk("A"), mk("D")
+g.battle = { player = d, enemy = a, isTrainer = true,
+  npc = { trainerId = 1 }, turns = 5 }
+
+local BASE = Game3.AI_BASE_SCORE
+local rng = { 100, 100, 100, 100 }
+local function score(move, stat)
+  return g:aiCheckViability(a, d, move, BASE, rng, 1) - BASE
+end
+local function mv(effect, extra)
+  local m = { id = 1, power = 0, type = Game3.TYPE_NORMAL, pp = 10,
+    effect = effect }
+  for k, v in pairs(extra or {}) do m[k] = v end
+  return m
+end
+
+-- the ROM keeps stages as 0..12 with 6 neutral; Game3 keeps -6..+6
+local c = g:aiViabilityContext(a, d, mv(0), rng, 1)
+eq(c.stage(a, "atk"), 6, "a neutral stage reads 6 the ROM's way")
+a.stages.atk = 3
+eq(c.stage(a, "atk"), 9, "and a raised one reads 9")
+a.stages.atk = 0
+eq(c.hp(a), 100, "HP is read as a percentage")
+a.hp = 25
+eq(c.hp(a), 25, "at any fraction")
+a.hp = 100
+
+-- AI_CV_Heal: a full-HP heal is thrown away, a desperate one is reached for
+a.spe, d.spe = 999, 1                      -- the user would go first
+eq(score(mv(Game3.EFFECT_RESTORE_HP)), -3, "healing at full HP is discouraged")
+a.hp = 1
+eq(score(mv(Game3.EFFECT_RESTORE_HP)), 2, "healing on the brink is encouraged")
+a.spe, d.spe = 1, 999
+eq(score(mv(Game3.EFFECT_RESTORE_HP)), -8,
+  "and heavily discouraged when the user would be hit first")
+a.spe, d.spe = 999, 1
+a.hp, a.spe = 100, 999
+
+-- AI_CV_Rest carries its own thresholds
+a.hp = 100
+eq(score(mv(Game3.EFFECT_REST)), -3, "REST at full HP is discouraged")
+a.hp = 1
+eq(score(mv(Game3.EFFECT_REST)), 3, "REST on the brink is encouraged")
+a.hp = 100
+
+-- AI_CV_AttackUp: room to grow at full HP is worth two
+eq(score(mv(Game3.EFFECT_ATTACK_UP)), 2, "a boost at full HP is encouraged")
+a.stages.atk = 6
+eq(score(mv(Game3.EFFECT_ATTACK_UP)), -1, "a maxed stat is discouraged")
+a.stages.atk = 0
+a.hp = 30
+eq(score(mv(Game3.EFFECT_ATTACK_UP)), -2, "and setting up while hurt is too")
+a.hp = 100
+
+-- AI_CV_SpeedUp turns entirely on who moves first
+a.spe, d.spe = 1, 999
+eq(score(mv(Game3.EFFECT_SPEED_UP)), -3, "SPEED UP is wasted when already slower")
+a.spe, d.spe = 999, 1
+eq(score(mv(Game3.EFFECT_SPEED_UP)), 3, "and worth it when already faster")
+
+-- AI_CV_Haze only throws away what the user has built
+eq(score(mv(Game3.EFFECT_HAZE)), -1, "HAZE with nothing on the field is idle")
+d.stages.atk = 4
+eq(score(mv(Game3.EFFECT_HAZE)), 3, "HAZE against a boosted target is worth it")
+d.stages.atk = 0
+a.stages.atk = 4
+-- AI_CV_Haze2 falls through into Haze3 rather than ending, so a Haze that
+-- only clears the user's own work takes the -3 and then the -1 as well.
+eq(score(mv(Game3.EFFECT_HAZE)), -4, "and throwing away the user's own is not")
+a.stages.atk = 0
+
+-- the flat ones
+eq(score(mv(Game3.EFFECT_SNORE)), 2, "SNORE is a flat two")
+eq(score(mv(Game3.EFFECT_SLEEP_TALK)), 2, "so is SLEEP TALK")
+eq(score(mv(Game3.EFFECT_FAKE_OUT)), 2, "and FAKE OUT")
+
+-- AI_CV_SpitUp wants the bank filled first
+eq(score(mv(Game3.EFFECT_SPIT_UP)), 0, "SPIT UP on an empty bank is neutral")
+a.stockpile = 2
+eq(score(mv(Game3.EFFECT_SPIT_UP)), 2, "with two banked it is encouraged")
+a.stockpile = nil
+
+-- the status readers
+eq(score(mv(Game3.EFFECT_SMELLINGSALT)), 0, "SMELLING SALTS on a clean target")
+d.status = Game3.STATUS_PAR
+eq(score(mv(Game3.EFFECT_SMELLINGSALT)), 1, "is worth more on a paralysed one")
+d.status = Game3.STATUS_BRN
+eq(score(mv(Game3.EFFECT_FACADE)), 1, "FACADE likes a statused target")
+d.status = nil
+eq(score(mv(Game3.EFFECT_FACADE)), 0, "and is indifferent to a clean one")
+
+-- AI_CV_BellyDrum and AI_CV_Endure read HP directly
+eq(score(mv(Game3.EFFECT_BELLY_DRUM)), 0, "BELLY DRUM at full HP is fine")
+a.hp = 50
+eq(score(mv(Game3.EFFECT_BELLY_DRUM)), -2, "and discouraged below ninety percent")
+a.hp = 100
+eq(score(mv(Game3.EFFECT_ENDURE)), -1, "ENDURE at full HP is pointless")
+a.hp = 20
+eq(score(mv(Game3.EFFECT_ENDURE)), 1, "and worth it on the brink")
+a.hp = 3
+eq(score(mv(Game3.EFFECT_ENDURE)), -1, "but not once it is too late")
+a.hp = 100
+
+-- AI_CV_Trick wants a Choice Band to hand over, not one to receive
+eq(Game3.AI_CV_TRICK_PRIZE[29], true, "HOLD_EFFECT_CHOICE_BAND is the prize")
+eq(Game3.AI_CV_TRICK_JUNK[24], true, "MACHO BRACE is worth palming off")
+
+-- AI_CV_Memento shares AI_CV_SelfKO with Explosion
+eq(Game3.AI_CV[Game3.EFFECT_MEMENTO], Game3.AI_CV[Game3.EFFECT_EXPLOSION],
+  "MEMENTO and EXPLOSION share a branch")
+
+-- The dispatch matches the cart's: everything the script routes has a body,
+-- and nothing that it does not.
+eq(Game3.AI_CV[Game3.EFFECT_DEFENSE_CURL], nil,
+  "DEFENSE CURL is not in the viability dispatch")
+check(Game3.AI_CV[Game3.EFFECT_TRICK] ~= nil, "TRICK is")
+check(Game3.AI_CV[Game3.EFFECT_SNATCH] ~= nil, "and so is SNATCH")
+
+-- and it only runs for a trainer carrying the flag
+eq(g:aiFlagsFor(a), 3, "the trainer carries check-viability")
+check(Game3.aiHasFlag(3, Game3.AI_CHECK_VIABILITY), "bit 1 is set")
+check(not Game3.aiHasFlag(1, Game3.AI_CHECK_VIABILITY),
+  "a bad-move-only trainer never reaches it")
+end)()
+
+-- Battle pics are rendered only for species collectSpecies believes are
+-- reachable. Wild tables, evolutions and trainer parties never name the
+-- legendaries, so every one of them came out as a blank square until the
+-- script-borne ones were read off the maps instead of listed by hand.
+;(function()
+local B = require("src.import.RomExtractorGen3Battle")
+check(type(B.collectScriptSpecies) == "function",
+  "the script sweep exists")
+
+-- setwildbattle, givemon and giveegg all carry a species.
+local maps = { maps = { g1 = { objects = { { script = {
+  { op = "setwildbattle", species = 406, level = 70 },
+  { op = "givemon", species = 388, level = 20 },
+} } }, coordEvents = { { script = {
+  { op = "giveegg", species = 360 },
+} } } } } }
+local got = B.collectScriptSpecies(maps)
+check(got[406], "a setwildbattle legendary is collected")
+check(got[388], "a givemon fossil is collected")
+check(got[360], "and a giveegg")
+eq(got[0], nil, "species 0 is not")
+
+-- Nothing to walk is not an error.
+eq(next(B.collectScriptSpecies(nil)), nil, "no maps, nothing collected")
+eq(next(B.collectScriptSpecies({})), nil, "no scripts, nothing collected")
+
+-- collectSpecies folds them in alongside its own seeds.
+local used = B.collectSpecies(nil, nil, nil, maps)
+check(used[406], "collectSpecies picks up the script species")
+check(used[B.STARTER_SPECIES], "and still seeds the starter")
+
+-- The roamer is the one legendary no table names: roamer.c reads
+-- ROAMER_SPECIES, LATIOS in Ruby. Southern Island's setwildbattle is the
+-- other one, so the sweep finds Latias but never this.
+check(used[408], "Latios is seeded because only code names it")
+eq(Game3.ROAMER_SPECIES, 408, "and the engine agrees it is the roamer")
+eq(Game3.SPECIES_LATIAS, 407, "Latias being the other of the pair")
+end)()
+
+
+-- atk1B_cleareffectsonfaint zeroes status1 on a fainting battler and writes
+-- that zero back to the party, which is why a poisoned mon revived later is
+-- not still poisoned. The engine was leaving it on.
+;(function()
+local g = Game3.new()
+local function mk(name, hp)
+  return { name = name, hp = hp, maxHp = 100,
+    status = Game3.STATUS_PSN, sleepTurns = 3 }
+end
+local alive, down = mk("ALIVE", 50), mk("DOWN", 0)
+g.battle = { player = alive, enemy = down }
+g:clearFaintedStatus()
+eq(alive.status, Game3.STATUS_PSN, "a battler still standing keeps its status")
+eq(down.status, nil, "a fainted one loses it")
+eq(down.sleepTurns, nil, "and the sleep timer with it")
+
+-- Every slot, not just the two a single battle uses.
+local a2, e2 = mk("A2", 0), mk("E2", 0)
+g.battle = { player = mk("P", 40), player2 = a2, enemy = mk("E", 40), enemy2 = e2 }
+g:clearFaintedStatus()
+eq(a2.status, nil, "the partner slot is swept")
+eq(e2.status, nil, "and the second foe")
+
+-- It also runs when the battle is recorded as over, so nothing escapes by
+-- fainting on the last action.
+local last = mk("LAST", 0)
+g.battle = { player = last, enemy = mk("F", 10) }
+g.battleOutcome = nil
+g:recordBattleEnd(Game3.B_OUTCOME_WON)
+eq(last.status, nil, "a faint on the final action is still cleared")
+end)()
+
 
 eq(scripted:itemName(Game3.ITEM_POKE_BALL), "POKe BALL",
   "fallback POKe BALL spelling")
@@ -1580,6 +3259,15 @@ local poisoned = { name = "WURMPLE", hp = 16, maxHp = 16, status = "psn" }
 local residual = field:statusResidual(poisoned)
 eq(poisoned.hp, 14, "poison deals maxHP/8")
 check(residual[1]:find("poison", 1, true) ~= nil, "poison residual is announced")
+
+local tox = { name = "WURMPLE", hp = 160, maxHp = 160, status = Game3.STATUS_TOXIC, toxicCounter = 0 }
+local t1 = field:statusResidual(tox)
+eq(tox.toxicCounter, 1, "toxic counter starts at 1 after first tick")
+eq(tox.hp, 150, "toxic turn1 deals maxHP/16 * 1")
+local t2 = field:statusResidual(tox)
+eq(tox.toxicCounter, 2, "toxic counter increments")
+eq(tox.hp, 130, "toxic turn2 deals maxHP/16 * 2")
+check(t1[1]:find("poison", 1, true) ~= nil, "toxic residual is announced as poison")
 
 field:startWildBattle(290, 2)
 field.battle.enemy.status = "slp"
@@ -2598,6 +4286,19 @@ eq(#tate, 40, "a doubles trainer row is still 40 bytes")
 eq(BattleData.parseOneTrainer(tate, 0).doubleBattle, true,
   "u32 at +24 marks a doubles fight")
 
+-- struct Trainer keeps aiFlags in the u32 at 0x1C, right after the doubles
+-- byte. The flags pick which BattleAIs passes run for that trainer -- bit 0
+-- AI_CheckBadMove, 1 AI_CheckViability, 2 AI_TryToFaint, 3 AI_SetupFirstTurn.
+-- Without them extracted, every opponent falls back to choosing at random.
+eq(BattleData.parseOneTrainer(tate, 0).aiFlags, 0,
+  "no flags on the doubles fixture")
+local smart = tate:sub(1, 28) .. GbaBin.packU32(0x0B) .. tate:sub(33)
+eq(#smart, 40, "the flagged row is still 40 bytes")
+eq(BattleData.parseOneTrainer(smart, 0).aiFlags, 0x0B,
+  "aiFlags is read from +0x1C, not folded into the doubles word")
+eq(BattleData.parseOneTrainer(smart, 0).doubleBattle, true,
+  "and reading it leaves the doubles flag alone")
+
 local duo = Game3.new()
 duo.data.pokemon = field.data.pokemon
 duo.data.moves = field.data.moves
@@ -2878,10 +4579,19 @@ eq(dexer.field.cursor, 1, "on Torchic")
 dexer.field = nil
 dexer.scriptWait = nil
 
+-- birch_pc.c ScriptGetPokedexInfo: 0x8004 is the INPUT (0 = Hoenn dex),
+-- 0x8005 takes the seen count, 0x8006 the caught count, and the return
+-- value goes to VAR_RESULT via `specialvar`. prof_birch.inc then does
+-- copyvar VAR_0x8008, VAR_0x8005 (seen) / VAR_0x8009, VAR_0x8006 (caught).
+-- Writing them a slot low made BIRCH read the caught total as "seen" and
+-- the national flag as "caught", so he always reported 0 caught.
+dexer:setScriptVar(0x8004, 0)
 dexer:runSpecial(212)
-eq(dexer.scriptVars[0x8004], 1, "VAR_0x8004 is seen")
-eq(dexer.scriptVars[0x8005], 1, "VAR_0x8005 is caught")
-eq(dexer.scriptVars[0x8006], 0, "VAR_0x8006 is national (off)")
+eq(dexer.scriptVars[0x8004], 0, "the input var is left alone")
+eq(dexer.scriptVars[0x8005], 1, "VAR_0x8005 is the seen count")
+eq(dexer.scriptVars[0x8006], 1, "VAR_0x8006 is the caught count")
+eq(dexer:varGet(require("src.import.Gen3Script").VAR_RESULT), 0,
+  "and VAR_RESULT reports the National dex is not unlocked")
 
 dexer:markSeen(290)
 check(dexer:hasSeen(290), "seen-only species count")
@@ -2889,9 +4599,10 @@ check(not dexer:hasCaught(290), "but are not caught")
 local seenN, caughtN = dexer:dexCounts()
 eq(seenN, 2, "two seen")
 eq(caughtN, 1, "one caught")
+dexer:setScriptVar(0x8004, 0)
 dexer:runSpecial(212)
-eq(dexer.scriptVars[0x8004], 2, "seen count updates")
-eq(dexer.scriptVars[0x8005], 1, "caught stays one")
+eq(dexer.scriptVars[0x8005], 2, "seen count updates")
+eq(dexer.scriptVars[0x8006], 1, "caught stays one")
 local rate = dexer:pokedexRating(caughtN)
 check(rate:find("grassy", 1, true) ~= nil, "a thin dex gets the grassy hint")
 
@@ -2907,8 +4618,7 @@ bagger.npcByMap = { g_bag = { { x = 1, y = 0, graphicsId = Game3.GFX_BIRCHS_BAG 
 bagger.party = { bagger:makeMon(280, 5) }
 bagger.flags[Game3.FLAG_SYS_POKEMON_GET] = true
 check(bagger:tryTalk(), "the bag is still talkable after a starter")
-eq(bagger.field.kind, "talk", "but it is not the dex giver")
-eq(bagger.field.text, "...", "gfx 97 has no dex line")
+eq(bagger.field, nil, "gfx 97 has no dex line and no script, so nothing shows")
 check(not bagger:hasPokedex(), "and does not set FLAG_SYS_POKEDEX_GET")
 end)()
 
@@ -3042,9 +4752,10 @@ r.facing = "east"
 r.playerX, r.playerY = 0, 0
 r.map = { id = "g_other", width = 3, height = 1, grid = { 0, 0, 0 } }
 r.npcByMap = { g_other = { other } }
+-- Real ROM data: Route119's OBJ_EVENT_GFX_VAR_0 rival cameo (flag
+-- FLAG_HIDE_RIVAL_ROUTE119) has script = 0x0 -- vanilla shows nothing.
 check(r:tryTalk(), "a random VAR_0 is still talkable")
-eq(r.field.kind, "talk", "it is not the lab take")
-eq(r.field.text, "...", "and falls through")
+eq(r.field, nil, "no script and no handler falls through to nothing, matching vanilla")
 check(not r.rivalTookStarter, "it does not take a starter")
 
 local route = Game3.new()
@@ -5087,10 +6798,11 @@ press(namer, "a")
 press(namer, "a")
 eq(namer.field.kind, "nickname", "YES opens ChangePokemonNickname")
 eq(namer.field.scripted, true, "waitstate holds")
+eq(namer.field.naming, true, "ROM naming keyboard")
+eq(namer.field.maxChars, 10, "mon nicknames are 10")
 namer.field.name = "SPARK"
-namer.field.cursor = #namer.field.keys - 1
-press(namer, "a")
-eq(namer.party[1].name, "SPARK", "END writes the nickname")
+press(namer, "start")
+eq(namer.party[1].name, "SPARK", "START/OK writes the nickname")
 eq(namer.field.kind, "script_yesno", "then GoSeeRival")
 press(namer, "a")
 press(namer, "a")
@@ -5735,12 +7447,35 @@ local healer = Game3.new()
 healer.phase = "play"
 healer.playerX, healer.playerY = 0, 1
 healer.facing = "north"
-healer.map = { id = "g_in", width = 3, height = 3, grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 } }
-healer.npcByMap = { g_in = { {
+healer.map = {
+  id = "g1_0", width = 3, height = 3, grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  group = Game3.MAP_LITTLEROOT_INDOOR_GROUP,
+  index = Game3.MAP_BRENDANS_HOUSE_1F_NUM,
+}
+healer.npcByMap = { g1_0 = { {
   x = 0, y = 0, graphicsId = Game3.GFX_MOM,
 } } }
 check(healer:tryTalk(), "indoor Mom without a script still heals")
 check(healer.field.text:find("rest", 1, true) ~= nil, "You should rest a bit")
+
+-- Bedroom Mom is a NULL-script cinema stand-in; A must not heal.
+local upstairs = Game3.new()
+upstairs.phase = "play"
+upstairs.playerX, upstairs.playerY = 0, 1
+upstairs.facing = "north"
+upstairs.map = {
+  id = "g1_1", width = 3, height = 3, grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  group = Game3.MAP_LITTLEROOT_INDOOR_GROUP, index = 1,
+  bgEvents = { { x = 5, y = 1, kind = 0, text = "The clock is stopped." } },
+}
+upstairs.npcByMap = { g1_1 = { {
+  x = 0, y = 0, graphicsId = Game3.GFX_MOM,
+} } }
+upstairs.field = nil
+check(upstairs:tryTalk(), "A on upstairs Mom")
+check(not (upstairs.field and upstairs.field.text
+  and upstairs.field.text:find("rest", 1, true)),
+  "bedroom Mom is not the heal stub")
 end)()
 
 ;(function()
@@ -5763,7 +7498,7 @@ shopOnly.npcByMap = { g_m = { {
   script = { { op = "end" } },
 } } }
 check(shopOnly:tryTalk(), "gfx 83 with a script is talkable")
-eq(shopOnly.field.kind, "talk", "not the shop stand-in")
+eq(shopOnly.field, nil, "the dummy script wins over the shop stand-in, and shows nothing")
 
 local indoor = Game3.new()
 indoor.phase = "play"
@@ -5776,7 +7511,7 @@ indoor.npcByMap = { g_in = { {
   script = { { op = "end" } },
 } } }
 check(indoor:tryTalk(), "an indoor clerk with a dummy script is talkable")
-eq(indoor.field.kind, "talk", "ROM script runs before the stock stand-in")
+eq(indoor.field, nil, "ROM script runs before the stock stand-in, and shows nothing")
 
 local workText = "Hi! I work at a POKeMON MART. Can I get you to come with me?"
 local shopText = "This is a POKeMON MART. Just look for our blue roof."
@@ -6979,8 +8714,14 @@ eq(nat.field.kind, "talk", "upgrade is a talk box")
 check(nat.field.text:find("National", 1, true) ~= nil, "and names National mode")
 eq(nat.flags[Game3.FLAG_SYS_NATIONAL_DEX], true, "FLAG_SYS_NATIONAL_DEX")
 eq(nat.scriptVars[Game3.VAR_NATIONAL_DEX], 0x302, "VAR_NATIONAL_DEX is 0x302")
+-- Once National is unlocked the flag is the special's RETURN value, which
+-- prof_birch.inc reads out of VAR_RESULT to decide whether to print the
+-- nationwide totals; 0x8006 stays the caught count either way.
+nat:setScriptVar(0x8004, 0)
 nat:runSpecial(212)
-eq(nat.scriptVars[0x8006], 1, "special 212 sets VAR_0x8006 once enabled")
+eq(nat:varGet(require("src.import.Gen3Script").VAR_RESULT), 1,
+  "special 212 reports National enabled through VAR_RESULT")
+eq(nat.scriptVars[0x8006], 200, "and 0x8006 is still the caught count")
 check(not nat:giveNationalDex(), "a second upgrade is refused")
 
 local snap = nat:snapshotSave()
@@ -7029,8 +8770,12 @@ eq(Gen3Script.dirOfAction(8), "south", "walk down is south")
 local cells = {}
 for i = 1, 25 do cells[i] = 0 end
 cells[3] = 5 + 1024
+local behavior = {}
+for i = 1, 25 do behavior[i] = 0 end
+behavior[3] = Game3.MB_ANIMATED_DOOR
 local house = {
   id = "g_house", width = 5, height = 5, grid = cells,
+  behavior = behavior,
   connections = {},
   warps = { { x = 2, y = 0, mapGroup = 0, mapNum = 0, warpId = 0 } },
   objects = { { x = 1, y = 1, localId = 3, graphicsId = 64 } },
@@ -7188,6 +8933,111 @@ eq(g.field.text, "GRASS", "with the line after waitmovement")
 eq(g.playerY, 1, "player walked south")
 end)()
 
+-- Regression: Route111_OldLadysRestStop (and Common_EventScript_
+-- OutOfCenterPartyHeal, used by every "rest here" NPC) chains
+-- fadescreen/playfanfare/waitfanfare/heal inside a "call" body, then asks
+-- "rest again?" right after the call returns. field.kind=="wait" used to
+-- call resumeMoveScript() twice on the same frame: once inside
+-- stepFanfareWait() when the fanfare finishes (which can run the script
+-- all the way to the fresh yes/no pause), and once more from the
+-- unconditional check after it. The second call consumed that fresh
+-- pause using the previous answer's stale VAR_RESULT, auto-selecting YES
+-- before the prompt was ever drawn -- the player saw the heal loop
+-- forever with no visible prompt.
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+local g = Game3.new()
+g.phase = "play"
+g:enterMap({
+  id = "g_reststop", width = 4, height = 4,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}, 0, 0, true)
+
+local VR = Gen3Script.VAR_RESULT
+local ops = {
+  [1] = { op = "loadword", text = "ASK1" },
+  [2] = { op = "callstd", id = Gen3Script.STD_MSGBOX_YESNO },
+  [3] = { op = "compare", var = VR, val = 1 },
+  [4] = { op = "goto_if", cond = 1, to = 8 },
+  [5] = { op = "compare", var = VR, val = 0 },
+  [6] = { op = "goto_if", cond = 1, to = 19 },
+  [7] = { op = "end" },
+  [8] = { op = "loadword", text = "REST" },
+  [9] = { op = "callstd", id = Gen3Script.STD_MSGBOX_DEFAULT },
+  [10] = { op = "closemessage" },
+  [11] = { op = "call", body = {
+    [1] = { op = "fadescreen", mode = 1 },
+    [2] = { op = "playfanfare", id = 1 },
+    [3] = { op = "waitfanfare" },
+    [4] = { op = "special", id = 0 },
+    [5] = { op = "end" },
+    entry = 1,
+  } },
+  [12] = { op = "loadword", text = "ASK2" },
+  [13] = { op = "callstd", id = Gen3Script.STD_MSGBOX_YESNO },
+  [14] = { op = "compare", var = VR, val = 1 },
+  [15] = { op = "goto_if", cond = 1, to = 8 },
+  [16] = { op = "compare", var = VR, val = 0 },
+  [17] = { op = "goto_if", cond = 1, to = 19 },
+  [18] = { op = "end" },
+  [19] = { op = "loadword", text = "BYE" },
+  [20] = { op = "callstd", id = Gen3Script.STD_MSGBOX_DEFAULT },
+  [21] = { op = "release" },
+  [22] = { op = "end" },
+  entry = 1,
+}
+
+-- Fake a real fanfare: "playing" for a few frames after playFanfare, like
+-- Mp2kAudio actually reports (the headless stub reports not-playing
+-- immediately, which used to hide this bug in tests).
+local fanfareFramesLeft = 0
+g.playFanfare = function(self, id) fanfareFramesLeft = 3; return nil end
+g.fanfarePlaying = function(self) return fanfareFramesLeft > 0 end
+local realUpdate = g.update
+g.update = function(self, dt)
+  if fanfareFramesLeft > 0 then fanfareFramesLeft = fanfareFramesLeft - 1 end
+  return realUpdate(self, dt)
+end
+
+g:runNpcScript(ops)
+eq(g.field.kind, "script_yesno", "first prompt shows")
+eq(g.field.text, "ASK1", "first prompt text")
+g:answerScriptYesNo(true)
+eq(g.field.kind, "talk", "REST message shows")
+eq(g.field.thenContinue, true, "waits for A")
+g:advanceDialogue(g.field)
+g:resumeMoveScript() -- closemessage -> call -> fadescreen delay
+
+-- The actual root cause: logicStep() already resolves waitingFanfare
+-- unconditionally at the top of the frame, before phase/field dispatch
+-- runs. walkHeld()'s own "wait" branch used to call stepFanfareWait()
+-- AGAIN for the same frame, double-ticking fanfareWaitAcc and racing to
+-- resolve (and mis-resume) the wait a second time. It must now be
+-- called at most once per logic frame.
+local fanfareWaitCalls = 0
+local realStepFanfareWait = g.stepFanfareWait
+g.stepFanfareWait = function(self, dt)
+  fanfareWaitCalls = fanfareWaitCalls + 1
+  return realStepFanfareWait(self, dt)
+end
+
+local guard = 0
+while g.field and g.field.kind ~= "script_yesno" and guard < 600 do
+  fanfareWaitCalls = 0
+  g:update(1 / 60)
+  check(fanfareWaitCalls <= 1,
+    ("stepFanfareWait called %d times in one frame, not 1"):format(fanfareWaitCalls))
+  guard = guard + 1
+end
+eq(g.field.kind, "script_yesno", "second prompt actually opens")
+eq(g.field.text, "ASK2", "second prompt text, not an auto-repeat of REST")
+eq(g.scriptVars[VR], 1, "VAR_RESULT is still the stale 1 from the first YES")
+
+g:answerScriptYesNo(false)
+eq(g.field.kind, "talk", "NO is honored")
+eq(g.field.text, "BYE", "the goodbye line, not another loop")
+end)()
+
 ;(function()
 eq(Game3.STEP_CB_CRACKED_FLOOR, 7, "cracked-floor callback is 7")
 eq(Game3.MB_CRACKED_FLOOR, 0xD2, "MB_CRACKED_FLOOR")
@@ -7218,12 +9068,46 @@ local floor = {
 }
 crack:enterMap(floor, 0, 0, true)
 crack:setStepCallback(Game3.STEP_CB_CRACKED_FLOOR)
+-- PerStepCallback_806A07C: a cracked floor does not drop you where you stand.
+-- Stepping on a fresh one arms a three-tick countdown for that tile; when it
+-- runs out the metatile is swapped for a hole, and you fall later by
+-- completing a step on one that has already collapsed.
+--
+-- The countdown is ticked by Task_RunPerStepCallback, which despite the name
+-- is an ordinary task and so runs every FRAME -- the decrement at the top of
+-- the callback is unconditional. Counting it per step instead meant standing
+-- still on a cracked floor left it intact forever, so SKY PILLAR had no timer.
 check(crack:tryWalk(1, 0), "step onto cracked floor")
-eq(Game3.metatileOf(floor.grid[2]), 11, "the tile becomes the hole")
-eq(crack.playerX, 0, "walking falls through")
-eq(crack.playerY, 0, "back to spawn without a dest")
-eq(crack.field.kind, "talk", "and opens a line")
-eq(crack.field.text, "You fell through!", "You fell through!")
+eq(crack.playerX, 1, "you stay on your feet")
+eq(#crack.crackedFloorPending, 1, "and the tile starts counting")
+eq(crack.crackedFloorPending[1].left, Game3.CRACKED_FLOOR_STEPS,
+  "three ticks of it")
+
+-- Stepping around does not arm the same tile twice...
+crack:tryWalk(-1, 0)
+crack:tryWalk(1, 0)
+eq(#crack.crackedFloorPending, 1, "stepping on it again does not re-arm")
+
+-- ...and the countdown runs on frames, with the player standing still.
+crack:walkHeld(1 / 60)
+crack:walkHeld(1 / 60)
+check(#crack.crackedFloorPending > 0, "two frames is not enough")
+crack:walkHeld(1 / 60)
+eq(#crack.crackedFloorPending, 0, "the third frame runs the count out")
+check(Game3.metatileOf(floor.grid[2]) ~= 10, "and the tile is no longer floor")
+
+-- Only two tiles can be counting at once.
+local many = Game3.new()
+many.phase = "play"
+many.data.tilesets = tiles
+many:enterMap({ id = "g_crack2", width = 5, height = 1, tileset = "pair_0",
+  grid = { 10, 10, 10, 10, 10 }, spawn = { x = 0, y = 0 } }, 0, 0, true)
+many:setStepCallback(Game3.STEP_CB_CRACKED_FLOOR)
+check(many:armCrackedFloor(0, 0), "the first tile arms")
+check(many:armCrackedFloor(1, 0), "the second does")
+eq(many:armCrackedFloor(2, 0), false, "a third does not -- there are two slots")
+eq(many:armCrackedFloor(0, 0), false, "and one already counting is not re-armed")
+eq(Game3.CRACKED_FLOOR_SLOTS, 2, "which is what the cart keeps")
 
 local hole = Game3.new()
 hole.phase = "play"
@@ -7254,8 +9138,8 @@ bike:enterMap(lane, 0, 0, true)
 bike:setStepCallback(Game3.STEP_CB_CRACKED_FLOOR)
 bike.bike = "mach"
 check(bike:tryWalk(1, 0), "Mach Bike onto cracked floor")
-eq(Game3.metatileOf(lane.grid[2]), 11, "the tile still cracks")
-eq(bike.playerX, 1, "but speed 4 does not fall")
+eq(#bike.crackedFloorPending, 1, "the tile counts down for the bike too")
+eq(bike.playerX, 1, "and speed 4 does not fall")
 eq(bike.field, nil, "no fall line")
 
 local dest = {
@@ -7264,7 +9148,9 @@ local dest = {
 }
 local src = {
   id = "g0_0", group = 0, index = 0, width = 3, height = 1,
-  tileset = "pair_0", grid = { 0, 10, 0 }, spawn = { x = 0, y = 0 },
+  -- a tile that has already collapsed: falling happens on the hole, not on
+  -- the crack you just armed
+  tileset = "pair_0", grid = { 0, 11, 0 }, spawn = { x = 0, y = 0 },
 }
 local drop = Game3.new()
 drop.phase = "play"
@@ -7273,7 +9159,7 @@ drop.data.maps = { maps = { g0_0 = src, g0_1 = dest } }
 drop:enterMap(src, 0, 0, true)
 drop:setStepCallback(Game3.STEP_CB_CRACKED_FLOOR)
 drop:setHoleWarp(0, 1, Game3.WARP_ID_NONE, 0, 0)
-check(drop:tryWalk(1, 0), "step with setholewarp")
+check(drop:tryWalk(1, 0), "step onto a collapsed tile with setholewarp")
 eq(drop.map, dest, "lands on the dest map")
 eq(drop.playerX, 1, "at the same x")
 eq(drop.playerY, 0, "and y")
@@ -7313,8 +9199,10 @@ scripted:enterMap(path, 0, 0, true)
 scripted:setStepCallback(Game3.STEP_CB_CRACKED_FLOOR)
 scripted:applyMovement(0xFF, { { kind = "walk", dir = "east" } })
 scripted:finishScriptMoves()
-eq(Game3.metatileOf(path.grid[2]), 11, "scripted walk also cracks the floor")
-eq(scripted.playerX, 0, "and falls")
+-- A scripted walk runs the same per-step callback, so it arms the tile too --
+-- it just does not drop you where you stand any more than a free walk does.
+eq(#scripted.crackedFloorPending, 1, "a scripted walk arms the tile as well")
+eq(scripted.playerX, 1, "and stays on its feet")
 end)()
 
 ;(function()
@@ -7971,16 +9859,90 @@ g.flags[Game3.FLAG_BADGE05_GET] = true
 g.facing = "east"
 g:enterMap({
   id = "g_surf", width = 3, height = 3, tileset = "wat",
-  grid = { 0, 0, 0, 0, 0, 1025, 0, 0, 0 },
+  -- shore tile (1,1) is elevation 3: sub_8058EF0 only ever dismounts Surf
+  -- landing on elevation 3 (see Game3.lua's tryWalk fix), so the fixture
+  -- has to use a real beach elevation, not the default 0.
+  grid = { 0, 0, 0, 0, 3 * 4096, 1025, 0, 0, 0 },
 }, 1, 1, true)
 local okSurf, surfMsg = g:useSurf()
 check(okSurf, "SURF hops on")
-eq(surfMsg, "Used SURF!", "announces SURF")
+eq(surfMsg, "MACHOP used SURF!", "announces SURF with the mon's nickname")
 eq(g.playerX, 2, "onto the water")
 eq(g.surfing, true, "surfing")
 check(g:tryWalk(-1, 0), "walk back to land")
 eq(g.playerX, 1, "back on land")
 eq(g.surfing, nil, "dismounts")
+
+-- field_control_avatar.c GetInteractedWaterScript: pressing A facing
+-- surfable water (with the badge and a mon that knows SURF) offers the
+-- ROM's yes/no prompt instead of silently doing nothing.
+g.facing = "east"
+check(g:canOfferSurf(), "facing surfable water with the badge and the move")
+check(g:tryTalk(), "A opens the surf prompt")
+eq(g.field and g.field.kind, "surf_yesno", "the prompt is up")
+g:answerSurfYesNo(false)
+eq(g.field, nil, "NO just closes the prompt")
+eq(g.surfing, nil, "and does not mount")
+eq(g.playerX, 1, "player did not move")
+
+check(g:tryTalk(), "A opens the surf prompt again")
+g:answerSurfYesNo(true)
+eq(g.surfing, true, "YES mounts SURF")
+eq(g.playerX, 2, "and steps onto the water")
+eq(g.field and g.field.kind, "talk", "then shows the used-SURF message")
+eq(g.field and g.field.text, "MACHOP used SURF!", "with the mon's nickname")
+check(g:tryWalk(-1, 0), "walk back to land again")
+eq(g.surfing, nil, "dismounts again")
+
+g.facing = "east"
+g.flags[Game3.FLAG_BADGE05_GET] = nil
+check(not g:canOfferSurf(), "no BALANCE BADGE means no prompt")
+g.flags[Game3.FLAG_BADGE05_GET] = true
+g.party[1].moves = { { id = Game3.MOVE_STRENGTH } }
+check(not g:canOfferSurf(), "no party mon knowing SURF means no prompt")
+g.party[1].moves = { { id = Game3.MOVE_SURF } }
+check(g:canOfferSurf(), "the gate opens up again once both are true")
+
+-- bug: surfing across a bridge deck (elevation 4, e.g. Route 110's Cycling
+-- Road -- MB_WARP_OR_BRIDGE) used to force a dismount at the near edge on
+-- every step, because tryWalk cleared Surf on ANY non-surfable landing
+-- tile. field_player_avatar.c only ever ends Surf via sub_8058EF0, gated
+-- on landing at elevation 3; a bridge deck is elevation 4 and must let the
+-- player glide straight across/under without dismounting.
+g.data.tilesets.byId.bridge = {
+  behavior = { [1] = 0x15, [2] = Game3.MB_WARP_OR_BRIDGE, [3] = 0x15 },
+}
+g.facing = "east"
+g:enterMap({
+  id = "g_bridge", width = 5, height = 1, tileset = "bridge",
+  grid = { 0 * 4096 + 1, 0 * 4096 + 1, 4 * 4096 + 2, 0 * 4096 + 3, 0 * 4096 + 3 },
+}, 0, 0, true)
+g.surfing = true
+check(g:tryWalk(1, 0), "surf onto open water")
+check(g:tryWalk(1, 0), "surf up to the bridge deck")
+check(g:tryWalk(1, 0), "step onto the bridge deck")
+eq(g.surfing, true, "still surfing under the bridge, no forced dismount")
+check(g:tryWalk(1, 0), "surf out the far side")
+eq(g.surfing, true, "surfing continues past the bridge")
+eq(g.playerX, 4, "crossed the whole bridge in one push")
+
+-- bug: standing on a bridge deck (elevation 4) and facing the water
+-- below/beside it also offered the SURF prompt, letting the player
+-- surf straight off the side of the bridge. field_player_avatar.c
+-- IsPlayerFacingSurfableFishableWater requires PlayerGetZCoord() == 3
+-- (a shore tile) -- a bridge deck is elevation 4, so vanilla never
+-- offers SURF there.
+g.surfing = nil
+g:enterMap({
+  id = "g_bridge_side", width = 3, height = 3, tileset = "bridge",
+  grid = {
+    0 * 4096 + 1, 0 * 4096 + 1, 0 * 4096 + 1,
+    0 * 4096 + 3, 4 * 4096 + 2, 0 * 4096 + 3,
+    0 * 4096 + 3, 0 * 4096 + 3, 0 * 4096 + 3,
+  },
+}, 1, 1, true)
+g.facing = "north"
+check(not g:canOfferSurf(), "standing on the bridge deck refuses the side-water surf prompt")
 
 g.party[1].moves = { { id = Game3.MOVE_FLASH } }
 g.flags[Game3.FLAG_BADGE02_GET] = true
@@ -8468,6 +10430,26 @@ g:enterMap(south, 1, 1, true)
 local mounted = g:useBike(Game3.ITEM_MACH_BIKE)
 check(mounted, "can mount inside the cycling gate")
 eq(g.bike, "mach", "riding Mach in the gate")
+
+g:enterMap(town, 1, 1, true)
+g.bike = "mach"
+g.flags[Game3.FLAG_SYS_CYCLING_ROAD] = true
+local blocked, blockedMsg = g:useBike(Game3.ITEM_MACH_BIKE)
+check(not blocked, "can't get off on cycling road")
+eq(blockedMsg, Game3.TEXT_CANT_DISMOUNT_BIKE, "ROM can't-dismount line")
+eq(g.bike, "mach", "still on the Mach Bike")
+g.flags[Game3.FLAG_SYS_CYCLING_ROAD] = nil
+local railTown = {
+  id = "g_rail", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  behavior = { 0, 0, 0, 0, Game3.MB_VERTICAL_RAIL, 0, 0, 0, 0 },
+}
+g:enterMap(railTown, 1, 1, true)
+g.bike = "mach"
+local railOff, railMsg = g:useBike(Game3.ITEM_MACH_BIKE)
+check(not railOff, "can't get off on a cycling-road rail")
+eq(railMsg, Game3.TEXT_CANT_DISMOUNT_BIKE, "rail uses the same line")
+eq(g.bike, "mach", "rail keeps the bike")
 end)()
 
 ;(function()
@@ -8502,6 +10484,7 @@ local cave = {
 local pc = {
   id = "g_pc", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
   spawn = { x = 1, y = 1 },
+  music = Game3.MUS_POKE_CENTER,
   grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 }
 local g = Game3.new()
@@ -9117,6 +11100,27 @@ Input.wasPressed = old
 eq(g.field.kind, "talk", "YES takes the egg")
 eq(g.party[#g.party].isEgg, true, "egg is in the party")
 
+-- OLD_MAN_2 is also Route 109's beach grandpa (and many indoors use
+-- OLD_WOMAN_2). A real script must win over the Day Care stub.
+g.daycarePending = nil
+g.npcByMap = { g_man = { {
+  x = 1, y = 0, graphicsId = Game3.GFX_DAYCARE_MAN,
+  script = { { op = "end" } },
+} } }
+g.field = nil
+g._ranScript = nil
+function g:runNpcScript(script)
+  self._ranScript = script
+  return true
+end
+check(g:tryTalk(), "A on a scripted OLD_MAN_2")
+check(g._ranScript ~= nil, "runs the map script instead of Day Care")
+check(not (g.field and g.field.kind == "daycare_egg"),
+  "does not open the egg offer")
+check(not (g.field and type(g.field.text) == "string"
+  and g.field.text:find("DAY CARE Man", 1, true)),
+  "does not claim to be the Day Care Man")
+
 g.party = { g:makeMon(290, 2) }
 g.party[1].isEgg = true
 g.party[1].name = "EGG"
@@ -9244,6 +11248,8 @@ eq(g.scriptVars[0x800D], 0, "Cool 0 is not high")
 
 g:enterMap({
   id = "g_hall", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  -- Slateport Contest Lobby (CONTEST_LOBBY_WARPS[3]).
+  group = 9, index = 2,
   grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
 }, 1, 1, true)
 g.npcByMap = { g_hall = { { x = 1, y = 0, graphicsId = Game3.GFX_TEALA } } }
@@ -9252,10 +11258,26 @@ g.playerX, g.playerY = 1, 1
 g.field = nil
 check(g:tryTalk(), "A on Teala")
 eq(g.field.kind, "contest_cat", "Teala opens the category list")
+
+-- Battle Tower Teala is the same gfx with a NULL script; A must not open
+-- contests (vanilla: do nothing).
+g:enterMap({
+  id = "g_btower", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+  group = 14, index = 1,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+}, 1, 1, true)
+g.npcByMap = { g_btower = { { x = 1, y = 0, graphicsId = Game3.GFX_TEALA } } }
+g.facing = "north"
+g.playerX, g.playerY = 1, 1
+g.field = nil
+check(g:tryTalk(), "A on Battle Tower Teala")
+check(not (g.field and g.field.kind == "contest_cat"),
+  "Battle Tower Teala is not a contest stub")
 end)()
 
 ;(function()
 local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
 local Input = require("src.core.Input")
 Input:init()
 local g = Game3.new()
@@ -9285,8 +11307,15 @@ eq(g:runSpecial(Game3.SPECIAL_SUB_808347C), 5, "colosseum connect is 5")
 eq(g:runSpecial(Game3.SPECIAL_SUB_808350C), 5, "record corner is 5")
 eq(g:runSpecial(Game3.SPECIAL_SUB_8083614), 5, "link blender is 5")
 eq(g:runSpecial(Game3.SPECIAL_SUB_80835D8), 5, "sub_80835D8 is 5")
+eq(Game3.SPECIAL_SUB_808363C, 92, "Lilycove link-contest connect")
+eq(g:runSpecial(Game3.SPECIAL_SUB_808363C), 5, "link contest connect is 5")
+check(not g:scriptWaiting(), "link contest connect does not wait")
+g.phase = "play"
+g.isLinkContest = true
 g:runSpecial(Game3.SPECIAL_CLOSE_LINK)
 check(not g:scriptWaiting(), "CloseLink does not wait")
+eq(g.phase, "play", "CloseLink does not soft-reset")
+eq(g.isLinkContest, false, "CloseLink clears link contest")
 eq(g:runSpecial(Game3.SPECIAL_SET_CABLE_CLUB_WARP), 0, "SetCableClubWarp is 0")
 check(not g:scriptWaiting(), "SetCableClubWarp does not wait")
 g:runSpecial(Game3.SPECIAL_SUB_80839A4)
@@ -9352,12 +11381,58 @@ eq(g:varGet(Game3.VAR_TEMP_0), 5, "VAR_TEMP_0 idle is 5")
 check(not g:scriptWaiting(), "tower ON_FRAME does not wait")
 g:setScriptVar(0x8004, 0)
 eq(g:runSpecial(Game3.SPECIAL_BATTLE_TOWER_UTIL), 0, "util case 0 is 0")
+-- Empty party fails the banlist (< 3 eligible).
+g:setScriptVar(Gen3Script.VAR_RESULT, 0)
+eq(g:runSpecial(Game3.SPECIAL_CHECK_PARTY_BATTLE_TOWER_BANLIST), 1,
+  "empty party refuses")
+eq(g:varGet(0x8004), 1, "0x8004 refuse")
+g.party = {
+  g:makeMon(Game3.SPECIES_ZIGZAGOON, 20),
+  g:makeMon(Game3.SPECIES_POOCHYENA, 20),
+  g:makeMon(Game3.SPECIES_RALTS, 20),
+}
+g:setScriptVar(Gen3Script.VAR_RESULT, 0)
 eq(g:runSpecial(Game3.SPECIAL_CHECK_PARTY_BATTLE_TOWER_BANLIST), 0,
-  "banlist allows")
+  "banlist allows three")
 eq(g:varGet(0x8004), 0, "0x8004 stay-allow")
-eq(g:runSpecial(Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY), 0,
-  "party pick cancels")
-check(not g:scriptWaiting(), "party pick does not wait")
+eq(g:ensureBattleTower().levelType, 0, "Lv50 stored")
+g:runSpecial(Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY)
+check(g:scriptWaiting(), "party pick waits")
+eq(g.field.kind, "tower_party", "tower party field")
+g:toggleTowerPartySlot(1)
+g:toggleTowerPartySlot(2)
+g:toggleTowerPartySlot(3)
+eq(g:towerPartySelectedCount(g.field.order), 3, "three selected")
+check(g:confirmTowerParty(), "START OK")
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "confirm is RESULT 1")
+eq(#g.party, 3, "ReducePlayerPartyToThree")
+eq(g:scriptWaiting(), false, "confirm ends wait")
+g:savePlayerParty()
+g.party = {
+  g:makeMon(Game3.SPECIES_ZIGZAGOON, 20),
+  g:makeMon(Game3.SPECIES_POOCHYENA, 20),
+  g:makeMon(Game3.SPECIES_RALTS, 20),
+  g:makeMon(Game3.SPECIES_TREECKO, 20),
+}
+g:setScriptVar(0x8004, 5)
+g:runSpecial(Game3.SPECIAL_SET_BATTLE_TOWER_PROPERTY)
+eq(g:ensureBattleTower().selectedPartyMons[1], 1, "case 5 stores order")
+g:loadPlayerParty()
+eq(#g.party, 3, "LoadPlayerParty restores the save copy")
+g.party = {
+  g:makeMon(Game3.SPECIES_ZIGZAGOON, 20),
+  g:makeMon(Game3.SPECIES_POOCHYENA, 20),
+  g:makeMon(Game3.SPECIES_RALTS, 20),
+  g:makeMon(Game3.SPECIES_TREECKO, 20),
+}
+g:ensureBattleTower().selectedPartyMons = { 1, 3, 4 }
+g:runSpecial(Game3.SPECIAL_SET_BATTLE_TOWER_PARTY)
+eq(#g.party, 3, "SetBattleTowerParty shrinks")
+eq(g.party[2].species, Game3.SPECIES_RALTS, "order 1,3,4")
+-- Cancel path.
+g:runSpecial(Game3.SPECIAL_CHOOSE_BATTLE_TOWER_PLAYER_PARTY)
+g:cancelTowerParty()
+eq(g:varGet(Gen3Script.VAR_RESULT), 0, "B cancels")
 eq(g:runSpecial(Game3.SPECIAL_VALIDATE_E_READER_TRAINER), 1,
   "empty e-reader is invalid")
 eq(g:runSpecial(Game3.SPECIAL_GET_CUR_SECRET_BASE_REGISTRATION_VALIDITY), 0,
@@ -9410,6 +11485,8 @@ eq(interior.spawn.y, 4, "spawn y")
 eq(interior.warps[1].x, 3, "exit warp x")
 eq(interior.warps[1].y, 5, "exit warp y")
 eq(interior.behavior[1 * 7 + 3 + 1], Game3.MB_SECRET_BASE_PC, "PC behavior")
+eq(interior.behavior[5 * 7 + 3 + 1], Game3.MB_SOUTH_ARROW_WARP,
+  "the exit is a south arrow warp, as every cart SecretBase_ layout is")
 check(not Game3.walkable(interior, 3, 1), "PC tile is solid")
 check(Game3.walkable(interior, 3, 4), "spawn is walkable")
 check(Game3.canBikeOn(interior) == false, "no bikes inside")
@@ -9422,33 +11499,135 @@ g.party = { {
 } }
 local route = {
   id = "g_sb", mapType = Game3.MAP_TYPE_ROUTE, width = 5, height = 4,
+  -- MAPSEC_ROUTE_111: sub_80BB8CC stamps VAR_SECRET_BASE_MAP with the
+  -- host map's regionMapSectionId, and GetSecretBaseNearbyMapName reads it
+  -- back to name where your base is.
+  regionMapSectionId = 26,
   grid = {
     1024, 1024, 1024, 1024, 1024,
     1024, 0, 1024, 1024, 1024,
     0, 0, 0, 0, 0,
     0, 0, 0, 0, 0,
   },
+  -- A BG_EVENT_SECRET_BASE always sits on one of the 0x90..0x9D entrance
+  -- behaviours on real map data, and gUnknown_081A2C51's first act is
+  -- sub_80BB70C reading that behaviour into VAR_0x8007. MB_SECRET_BASE_
+  -- SPOT_RED_CAVE here, so both spots take the cave branch.
+  behavior = {},
   bgEvents = {
     { x = 2, y = 1, kind = Game3.BG_SECRET_BASE, secretBaseId = 42 },
     { x = 3, y = 1, kind = Game3.BG_SECRET_BASE, secretBaseId = 7 },
   },
 }
+route.behavior[1 * 5 + 2 + 1] = Game3.MB_SECRET_BASE_SPOT_RED_CAVE
+route.behavior[1 * 5 + 3 + 1] = Game3.MB_SECRET_BASE_SPOT_RED_CAVE
 g.data.maps = { maps = { g_sb = route } }
+
+-- gUnknown_081A2C51 is a script, not one call: the prompt, then the used-
+-- move line and the entrance field effect, and only once that effect's
+-- waitstate releases does EventScript_1A2DB8 dig the base.
+-- A pages any wrapped lines first (Std_MsgboxYesNo is message + waitmessage
+-- before the yesnobox), then picks YES.
+local function answerYes(game)
+  local Input = require("src.core.Input")
+  Input:init()
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == "a" end
+  -- Answer exactly this one box: the next gate in the chain is the same
+  -- kind, so stop as soon as the field table is replaced.
+  local box = game.field
+  local guard = 0
+  while game.field == box and guard < 12 do
+    box.cursor = 0
+    game:stepField()
+    guard = guard + 1
+  end
+  Input.wasPressed = old
+end
+-- Dismiss a plain talk box the way A does.
+local function dismissTalk(game)
+  local Input = require("src.core.Input")
+  Input:init()
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == "a" end
+  local box = game.field
+  local guard = 0
+  while game.field == box and guard < 12 do
+    game:stepField()
+    guard = guard + 1
+  end
+  Input.wasPressed = old
+end
+-- SetUpFieldMove_SecretPower goes straight to DoSecretBase*FieldEffectScript,
+-- so from the party menu there is no gate: effect, discovery line outside,
+-- then EventScript_1A2DB8 digs and warps in.
+local function runSecretPowerTail(game)
+  for _ = 1, Game3.FLDEFF_FIELD_MOVE_POSE_FRAMES
+      + Game3.FLDEFF_SECRET_POWER_ENTRANCE_FRAMES + 2 do
+    game:stepCinemaWaits(1 / 60)
+  end
+  if game.field and game.field.kind == "talk" then dismissTalk(game) end
+end
+local function runSecretPower(game)
+  local ok, msg = game:useSecretPower()
+  if not ok then return ok, msg end
+  for _ = 1, Game3.FLDEFF_FIELD_MOVE_POSE_FRAMES
+      + Game3.FLDEFF_SECRET_POWER_ENTRANCE_FRAMES + 2 do
+    game:stepCinemaWaits(1 / 60)
+  end
+  if game.field and game.field.kind == "talk" then dismissTalk(game) end
+  return ok, msg
+end
+
 g:enterMap(route, 2, 2, true)
 g.facing = "north"
-local ok, msg = g:useSecretPower()
-check(ok, "Secret Power makes a base")
-eq(msg, "Used SECRET POWER!", "use line")
+eq(Game3.secretBaseEntranceType(Game3.MB_SECRET_BASE_SPOT_RED_CAVE), 1,
+  "0x90 is entrance type 1")
+eq(Game3.secretBaseEntranceType(0x96), 5, "0x96 is the tree")
+eq(Game3.secretBaseEntranceType(0x98), 6, "0x98 is the shrub")
+eq(Game3.secretBaseEntranceType(0x00), 0, "a plain tile is not an entrance")
+local ok = g:useSecretPower()
+check(ok, "Secret Power runs straight off the party menu")
+eq(g:varGet(0x8007), 1, "special 21 put the entrance type in VAR_0x8007")
+-- FieldCallback_SecretBaseCave runs DoSecretBaseCaveFieldEffectScript:
+-- lockall / dofieldeffect / waitstate. No "Use the SECRET POWER?" gate and
+-- no UsedCutRockSmashText -- the move was already chosen off the menu.
+-- Only EventScript_1A2CB0, the A-press on the tile, asks first.
+eq(g.field, nil, "no yes/no gate on the menu path")
+eq(g.map.id, "g_sb", "still outside while the effect runs")
+check(g:fieldEffectActive(Game3.FLDEFF_USE_SECRET_POWER_CAVE),
+  "the cave entrance effect is running")
+for _ = 1, Game3.FLDEFF_FIELD_MOVE_POSE_FRAMES
+    + Game3.FLDEFF_SECRET_POWER_ENTRANCE_FRAMES + 2 do
+  g:stepCinemaWaits(1 / 60)
+end
+-- EventScript_1A2CFA prints the discovery line before EventScript_1A2DB8
+-- warps you in, so it is read outside with the opened entrance on screen.
+eq(g.map.id, "g_sb", "the discovery line is read outside")
+check(g.field and g.field.text:find("small cavern", 1, true) ~= nil,
+  "SecretBase_Text_DiscoveredSmallCavern")
+dismissTalk(g)
 eq(g.map.id, "secret_base", "warps into the interior")
 eq(g.playerX, 3, "interior x")
 eq(g.playerY, 4, "interior y")
+eq(g:varGet(Game3.VAR_SECRET_BASE_INITIALIZED), 1,
+  "EventScript_1A2DB8 sets VAR_SECRET_BASE_INITIALIZED")
 eq(g.secretBase.id, 42, "stores the BG id")
 eq(g.secretBase.mapId, "g_sb", "stores the overworld map")
 eq(g.secretBase.x, 2, "stores the spot x")
 eq(g.secretBase.y, 1, "stores the spot y")
 eq(g.secretBase.outX, 2, "exit lands on the use tile")
 eq(g.secretBase.outY, 2, "exit y")
-eq(g.scriptVars[Game3.VAR_CURRENT_SECRET_BASE], 42, "var 0x4054")
+-- Slot index into the ROM's secretBases[20], not the layout id (which stays
+-- on secretBase.id, asserted above). Own base is always slot 0 --
+-- secret_base.c indexes secretBases[VarGet(..)].secretBaseId for the layout.
+eq(g.scriptVars[Game3.VAR_CURRENT_SECRET_BASE], 0, "var 0x4054 is the own-base slot")
+-- secret_base.c EventScript_1A2DB8 zeroes VAR_INIT_SECRET_BASE on every
+-- Secret Power use, which is what arms the interior's own FirstEntrance
+-- onFrame script ("Want to make your SECRET BASE here?"). That script sets
+-- it back to 1 itself. This fixture has no g25_* maps, so the synthesised
+-- fallback interior has no scripts and the prompt never runs here.
+eq(g:varGet(Game3.VAR_INIT_SECRET_BASE), 0, "creation arms the ROM confirm")
 g:runSpecial(7)
 eq(g.scriptVars[0x800D], 1, "special 7 sees the base")
 
@@ -9457,8 +11636,27 @@ check(g:tryWalk(0, -1), "up to the PC")
 eq(g.playerX, 3, "still under the PC")
 eq(g.playerY, 2, "one tile south of the PC")
 g.facing = "north"
+-- shared_secret_base.inc SecretBase_EventScript_PC, not the box system:
+-- "{PLAYER} booted up the PC.", then DECORATION / PACK UP / CANCEL.
 check(g:tryTalk(), "A on the secret-base PC")
-eq(g.field.kind, "pc", "opens storage")
+eq(g.field.kind, "talk", "boots the PC first")
+check(g.field.text:find("booted up the PC", 1, true) ~= nil,
+  "SecretBase_Text_BootUpPC")
+g:openSecretBasePCMenu()
+-- SecretBase_EventScript_PCShowMainMenu is message + waitmessage +
+-- multichoice, so the prompt gets a real dialogue box with the menu
+-- window over it -- not a bare line drawn on the map.
+eq(g.field.kind, "decor_menu", "then the main menu")
+eq(g.field.labels[1], "DECORATION", "MultichoiceList_05")
+eq(g.field.labels[2], "PACK UP", "PACK UP")
+eq(g.field.labels[3], "CANCEL", "and CANCEL, with no REGISTRY yet")
+eq(g.field.note, "What would you like to do?",
+  "SecretBase_Text_WhatWouldYouLikeToDo")
+g.flags[Game3.FLAG_SECRET_BASE_REGISTRY_ENABLED] = true
+g:openSecretBasePCMenu()
+eq(g.field.labels[3], "REGISTRY", "MultichoiceList_06 once the flag is up")
+eq(g.field.labels[4], "CANCEL", "then CANCEL")
+g.flags[Game3.FLAG_SECRET_BASE_REGISTRY_ENABLED] = nil
 g.field = nil
 
 g.playerX, g.playerY = 3, 4
@@ -9473,30 +11671,74 @@ eq(g.scriptVars[0x800D], 1, "the base is still owned")
 check(g:tryWalk(0, -1), "walking into the owned cave enters")
 eq(g.map.id, "secret_base", "owned entrance warps in")
 
+-- secret_base.c MoveOutOfSecretBase is the base PC's PACK UP option:
+-- IncrementGameStat then sub_80BC440, i.e. ClearSecretBase wipes the record
+-- and sub_80BC0F8 fades before restoring the outdoor warp. So the exit is
+-- deferred behind the fade, and the base does not survive it.
 g:runSpecial(10)
-eq(g.map.id, "g_sb", "special 10 moves you out")
+eq(g.map.id, "secret_base", "still inside while sub_80BC0F8's fade runs")
+for _ = 1, Game3.FADE_FRAMES + 2 do g:stepCinemaWaits(1 / 60) end
+eq(g.map.id, "g_sb", "special 10 moves you out once the fade ends")
+g:runSpecial(7)
+eq(g.scriptVars[0x800D], 0, "PACK UP wiped the base")
 
-local used, usedMsg = g:useSecretPower()
-check(used, "same spot enters again")
-eq(usedMsg, "Used SECRET POWER!", "enter line")
-eq(g.map.id, "secret_base", "Secret Power on the owned spot enters")
+local used = runSecretPower(g)
+check(used, "same spot can be dug again")
+eq(g.map.id, "secret_base", "Secret Power re-digs the packed-up spot")
 g:exitSecretBase()
 
+-- DELIBERATE DEVIATION FROM THE CART. gUnknown_081A2C51 runs
+-- CheckPlayerHasSecretBase second and jumps to AskToMoveSecretBase before the
+-- SECRET POWER prompt exists, so on hardware you answer "move your base?"
+-- while still standing outside. Here the dig always runs first and the move
+-- questions wait until you are inside the new base looking at it.
 g.playerX, g.playerY = 3, 2
 g.facing = "north"
-local moveOk, moveMsg = g:useSecretPower()
-check(moveOk, "a second spot asks to move")
-eq(g.field.kind, "secret_base_move", "move prompt")
-eq(g.map.id, "g_sb", "stays outside until YES")
-local Input = require("src.core.Input")
-Input:init()
-local old = Input.wasPressed
-Input.wasPressed = function(_, key) return key == "a" end
-g:stepField()
-Input.wasPressed = old
-eq(g.map.id, "secret_base", "YES moves and enters")
+local moveOk = g:useSecretPower()
+check(moveOk, "a second spot digs without asking anything")
+eq(g.field, nil, "nothing asks about moving while you are outside")
+eq(g.map.id, "g_sb", "still outside while the effect runs")
+runSecretPowerTail(g)
+eq(g.map.id, "secret_base", "the dig walks you in on its own")
 eq(g.secretBase.id, 7, "new spot id")
 eq(g.secretBase.x, 3, "new spot x")
+check(g._secretBaseMoveFrom ~= nil, "the old record is held aside, not lost")
+eq(g._secretBaseMoveFrom.id, 42, "and it is the base you already owned")
+
+-- SecretBase_EventScript_FirstEntrance's yes branch (special sub_80BBC78) is
+-- the first moment the base is on screen, so the two AskToMoveSecretBase
+-- questions run from there.
+g:secretBaseCreationWarp()
+eq(g.field.kind, "secret_base_yesno", "now it asks")
+check(g.field.text:find("only make one SECRET BASE", 1, true) ~= nil,
+  "UnknownString_81A3C71, inside the new base")
+eq(g:varGet(Game3.VAR_SECRET_BASE_MAP), 26, "sub_80BB8CC stamped the section")
+check(g.field.text:find("ROUTE 111", 1, true) ~= nil,
+  "and GetSecretBaseNearbyMapName names where the old one is")
+-- Slot 0 already holds the new dig by now, so the line has to read the
+-- section off the record held aside, not off VAR_SECRET_BASE_MAP.
+eq(g._secretBaseMoveFrom.mapId, "g_sb", "named from the old record")
+
+-- Backing out has to cost nothing: the dig is undone and the base you
+-- already owned comes back, the way sub_80BC440 undoes a first-entrance no.
+g:answerSecretBaseYesNo(false)
+for _ = 1, Game3.FADE_FRAMES + 2 do g:stepCinemaWaits(1 / 60) end
+eq(g.map.id, "g_sb", "no puts you back outside")
+eq(g.secretBase.id, 42, "and hands the old base straight back")
+eq(g._secretBaseMoveFrom, nil, "with nothing left pending")
+
+-- Now go through with it.
+g.playerX, g.playerY = 3, 2
+g.facing = "north"
+g:useSecretPower()
+runSecretPowerTail(g)
+g:secretBaseCreationWarp()
+answerYes(g)
+check(g.field.text:find("returned", 1, true) ~= nil,
+  "then SecretBase_Text_AllDecorationsWillBeReturned")
+answerYes(g)
+eq(g.secretBase.id, 7, "the move keeps the new base")
+eq(g._secretBaseMoveFrom, nil, "and lets go of the old one")
 g:exitSecretBase()
 eq(g.secretBase.outX, 3, "exit from the new use tile")
 eq(g.secretBase.outY, 2, "new out y")
@@ -9509,9 +11751,8 @@ g.party[1].moves = { { id = Game3.MOVE_SECRET_POWER } }
 g:addItem(Game3.ITEM_TM43, 1)
 g.playerX, g.playerY = 2, 2
 g.facing = "north"
-local tmOk, tmMsg = g:useSecretPower()
+local tmOk = runSecretPower(g)
 check(tmOk, "knowing Secret Power plants a tree")
-eq(tmMsg, "Used SECRET POWER!", "use line again")
 eq(g:itemCount(Game3.ITEM_TM43), 1, "bag TM43 is not a field use")
 eq(g.map.id, "secret_base", "the move makes the base")
 g:exitSecretBase()
@@ -9523,11 +11764,18 @@ local bad, badMsg = g:useSecretPower()
 check(not bad, "needs a cave or tree")
 eq(badMsg, "You can't use that here!", "wrong-tile line")
 
+-- EventScript_1A2EF7: with nobody who knows SECRET POWER the spot is only
+-- a sign, and it is the entrance type's own sign line.
 g.party[1].moves = {}
 g.bag = {}
+g.secretBase = nil
+g:enterMap(route, 2, 2, true)
+g.facing = "north"
 local none, noneMsg = g:useSecretPower()
-check(not none, "needs the party to know Secret Power")
-eq(noneMsg, "No one in your party knows SECRET POWER.", "no-move line")
+check(none, "a spot you cannot dig still reads as a sign")
+eq(noneMsg, "There's a small indent in the wall.",
+  "SecretBase_Text_SmallIndentInWall")
+eq(g.map.id, "g_sb", "and nothing is dug")
 
 local bush = {
   id = "g_bush", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
@@ -9542,25 +11790,829 @@ g:enterMap(bush, 1, 1, true)
 g.facing = "north"
 local bushOk = g:useSecretPower()
 check(bushOk, "behavior 0x96 is a tree spot")
+eq(g:varGet(0x8007), 5, "and takes the tree branch")
+eq(Game3.secretPowerFieldEffectFor(5), Game3.FLDEFF_USE_SECRET_POWER_TREE,
+  "FLDEFF_USE_SECRET_POWER_TREE")
+check(g:fieldEffectActive(Game3.FLDEFF_USE_SECRET_POWER_TREE),
+  "the tree effect, not the cave one")
+for _ = 1, Game3.FLDEFF_FIELD_MOVE_POSE_FRAMES
+    + Game3.FLDEFF_SECRET_POWER_ENTRANCE_FRAMES + 2 do
+  g:stepCinemaWaits(1 / 60)
+end
+check(g.field and g.field.text:find("vine dropped down", 1, true) ~= nil,
+  "UnknownString_81A19C4, the tree's own discovery line")
+dismissTalk(g)
 eq(g.secretBase.x, 1, "behavior spot x")
 eq(g.secretBase.y, 0, "behavior spot y")
 
+g.secretBase = nil
 g:enterMap(route, 2, 2, true)
 g.facing = "north"
 g.field = { kind = "party", cursor = 0 }
+local Input = require("src.core.Input")
 Input:init()
-old = Input.wasPressed
+local old = Input.wasPressed
 Input.wasPressed = function(_, key) return key == "a" end
 g:stepField()
 eq(g.field.kind, "party_action", "A opens party commands")
 g.field.cursor = 3
 g:stepField()
 Input.wasPressed = old
-eq(g.field.kind, "secret_base_move", "SECRET POWER keeps the move prompt")
+-- SetUpFieldMove_SecretPower closes the menu and hands straight to
+-- FieldCallback_SecretBaseCave -- the effect starts with nothing to answer.
+check(not (g.field and g.field.kind == "secret_base_yesno"),
+  "picking SECRET POWER off the menu asks nothing")
+check(g:fieldEffectActive(Game3.FLDEFF_USE_SECRET_POWER_CAVE),
+  "it goes straight to DoSecretBaseCaveFieldEffectScript")
+runSecretPowerTail(g)
+eq(g.map.id, "secret_base", "and digs you in")
+g:exitSecretBase()
+
+
+-- field_control_avatar.c: pressing A at these tiles runs a script, and both
+-- scripts ask first. GetInteractedWaterScript sends a waterfall to
+-- S_UseWaterfall (BADGE08 + IsPlayerSurfingNorth) or S_CannotUseWaterfall,
+-- and GetInteractedBackgroundEventScript sends a BG_EVENT_SECRET_BASE faced
+-- from the south to gUnknown_081A2C51 -> EventScript_1A2CB0's prompt. Only
+-- the party-menu route skips the question.
+g.secretBase = nil
+g.party[1].moves = {
+  { id = Game3.MOVE_SECRET_POWER }, { id = Game3.MOVE_WATERFALL },
+}
+g:enterMap(route, 2, 2, true)
+g.facing = "north"
+g.field = nil
+check(g:trySecretPowerInteract(), "A on a secret base spot runs the script")
+eq(g.field.kind, "secret_base_yesno", "msgbox MSGBOX_YESNO")
+check(g.field.text:find("SECRET POWER", 1, true) ~= nil,
+  "SecretBase_Text_IndentUseSecretPower")
+g.facing = "south"
+g.field = nil
+check(not g:trySecretPowerInteract(),
+  "and only from the south -- the cart wants DIR_NORTH")
+
+local fall = {
+  id = "g_fall", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  behavior = {},
+}
+fall.behavior[0 * 3 + 1 + 1] = Game3.MB_WATERFALL
+g.data.maps.maps.g_fall = fall
+g:enterMap(fall, 1, 1, true)
+g.facing = "north"
+g.surfing = true
+g.flags[Game3.FLAG_BADGE01_GET + 7] = true
+g.field = nil
+check(g:tryWaterfallInteract(), "A at a waterfall runs S_UseWaterfall")
+eq(g.field.kind, "secret_base_yesno", "msgbox MSGBOX_YESNO")
+check(g.field.text:find("large waterfall", 1, true) ~= nil,
+  "UseWaterfallPromptText")
+g.surfing = nil
+g.field = nil
+check(g:tryWaterfallInteract(), "on foot it still runs a script")
+eq(g.field.kind, "talk", "S_CannotUseWaterfall is not a question")
+check(g.field.text:find("mighty roar", 1, true) ~= nil,
+  "CannotUseWaterfallText")
+g.field = nil
+g.surfing = nil
 
 g.secretBase = nil
 g:runSpecial(7)
 eq(g.scriptVars[0x800D], 0, "special 7 is 0 with no base")
+end)()
+
+-- The rest of the secret base system: the two ROM tables the entrance and
+-- the stamping need, the specials that were stubs, and the decoration PC.
+;(function()
+local Gen3Script = require("src.import.Gen3Script")
+
+-- secret_base.c gUnknown_083D1358, read off the cart and matched against
+-- the decomp. Closed / open metatile pairs for the seven entrance arts.
+eq(#Game3.SECRET_BASE_ENTRANCE_TILES, 7, "gUnknown_083D1358 has 7 pairs")
+eq(Game3.SECRET_BASE_ENTRANCE_TILES[1][1], 0x26, "first closed tile")
+eq(Game3.SECRET_BASE_ENTRANCE_TILES[1][2], 0x36, "first open tile")
+eq(Game3.SECRET_BASE_ENTRANCE_TILES[7][1], 0x271, "last closed tile")
+eq(Game3.SECRET_BASE_ENTRANCE_TILES[7][2], 0x278, "last open tile")
+
+-- decoration.c gUnknown_083EC97C / gUnknown_083EC984, the only two
+-- decorations with per-cell elevation overrides.
+eq(Game3.DECOR_STAND, 38, "DECOR_STAND")
+eq(Game3.DECOR_SLIDE, 34, "DECOR_SLIDE")
+eq(table.concat(Game3.DECOR_CELL_ELEVATION[38], " "), "4 4 4 4 0 3 3 0",
+  "gUnknown_083EC97C")
+eq(table.concat(Game3.DECOR_CELL_ELEVATION[34], " "), "4 4 4 4 0 4 3 0",
+  "gUnknown_083EC984")
+eq(Game3.decorCellElevation(38, 0), 4, "STAND cell 0")
+eq(Game3.decorCellElevation(38, 7), 0, "STAND cell 7")
+eq(Game3.decorCellElevation(1, 0), nil, "everything else has no override")
+
+-- sub_80BB66C across the whole 0x90..0x9D range.
+local wantType = {
+  [0x90] = 1, [0x91] = 1, [0x92] = 2, [0x93] = 2,
+  [0x94] = 4, [0x95] = 4, [0x96] = 5, [0x97] = 5,
+  [0x98] = 6, [0x99] = 6, [0x9A] = 3, [0x9B] = 3,
+  [0x9C] = 5, [0x9D] = 5,
+}
+for b = 0x90, 0x9D do
+  eq(Game3.secretBaseEntranceType(b), wantType[b],
+    ("behaviour 0x%X"):format(b))
+end
+eq(Game3.secretBaseEntranceType(0x8F), 0, "0x8F is not an entrance")
+eq(Game3.secretBaseEntranceType(0x9E), 0, "nor is 0x9E")
+
+eq(Game3.SPECIAL_SUB_80BB70C, 21, "sub_80BB70C")
+eq(Game3.SPECIAL_SUB_80BCE1C, 16, "sub_80BCE1C")
+eq(Game3.SPECIAL_SUB_80BCE90, 17, "sub_80BCE90")
+eq(Game3.SPECIAL_SUB_80BCE4C, 25, "sub_80BCE4C")
+eq(Game3.SPECIAL_GET_SHIELD_TOY_TV_DECORATION_INFO, 307,
+  "GetShieldToyTVDecorationInfo")
+eq(Game3.VAR_SECRET_BASE_INITIALIZED, 0x4089, "VAR_SECRET_BASE_INITIALIZED")
+eq(Game3.FLAG_SECRET_BASE_REGISTRY_ENABLED, 0x10C, "registry flag")
+eq(Game3.FLAG_DAILY_SECRET_BASE_BATTLE, 0x8C2, "FLAG_DAILY_UNKNOWN_8C2")
+
+-- decoration.c gDecorations rows for the ids used below. SMALL DESK is
+-- DECORCAT_DESK / DECORPERM_SOLID_FLOOR / 1x1; POKeMON DESK is the same
+-- shape, so it stands in as a second desk.
+local decorFixture = { count = 121, byId = {
+  [1] = { name = "SMALL DESK", description = "A small desk built for one.",
+          permission = 0, shape = 0, width = 1, height = 1,
+          category = 0, price = 3000, tiles = { 0x28 }, gfx = 0x28 },
+  [2] = { name = "POKeMON DESK",
+          description = "A small desk built in the shape of a POKe BALL.",
+          permission = 0, shape = 0, width = 1, height = 1,
+          category = 0, price = 3000, tiles = { 0x29 }, gfx = 0x29 },
+} }
+local function newG()
+  local game = Game3.new()
+  game.data.decorations = decorFixture
+  game:clearDecorationInventories()
+  return game
+end
+
+-- GetSecretBaseOwnerType and sSecretBaseOwnerGfxIds. Five looks per
+-- gender, picked off the length of the owner's name.
+local og = newG()
+og.secretBase = { id = 0, playerName = "MAY", gender = 1, registryStatus = 0 }
+og:setScriptVar(Game3.VAR_CURRENT_SECRET_BASE, 0)
+eq(og:secretBaseOwnerType(0), 8, "MAY, female -> owner type 8")
+og:runSpecial(Game3.SPECIAL_SET_SECRET_BASE_OWNER_GFX_ID)
+eq(og:varGet(Game3.VAR_OBJ_GFX_ID_F), 32, "OBJ_EVENT_GFX_PICNICKER")
+og.secretBase.playerName, og.secretBase.gender = "BRENDAN", 0
+eq(og:secretBaseOwnerType(0), 2, "BRENDAN, male -> owner type 2")
+og:runSpecial(Game3.SPECIAL_SET_SECRET_BASE_OWNER_GFX_ID)
+eq(og:varGet(Game3.VAR_OBJ_GFX_ID_F), 15, "OBJ_EVENT_GFX_BOY_4")
+
+-- sub_80BCE90 then sub_80BCE4C: the once-a-day clear, then the write-back.
+og.flags = {}
+og.secretBase.battledOwnerToday = 1
+eq(og:runSpecial(17), 0, "special 17 clears battledOwnerToday for the day")
+eq(og.flags[Game3.FLAG_DAILY_SECRET_BASE_BATTLE], true, "and sets FLAG_DAILY")
+eq(og:varGet(0x8004), 2, "0x8004 is the owner type")
+og:setScriptVar(Gen3Script.VAR_RESULT, 1)
+og:runSpecial(25)
+eq(og.secretBase.battledOwnerToday, 1, "special 25 stores RESULT")
+eq(og:runSpecial(17), 1, "a second visit the same day reports it")
+
+-- ToggleCurSecretBaseRegistry.
+eq(og.secretBase.registryStatus, 0, "registryStatus starts clear")
+og:runSpecial(13)
+eq(og.secretBase.registryStatus, 1, "special 13 flips it")
+eq(og.flags[Game3.FLAG_SECRET_BASE_REGISTRY_ENABLED], true, "and enables it")
+og:runSpecial(13)
+eq(og.secretBase.registryStatus, 0, "and flips back")
+og.field = nil
+og:runSpecial(15)
+eq(og.field and og.field.text, "There is no REGISTRY.",
+  "gSecretBaseText_NoRegistry -- nothing to register without record mixing")
+
+-- GetShieldToyTVDecorationInfo, off the metatile in front of the player.
+local room = { id = "g25_0", group = 25, index = 0, width = 4, height = 4,
+               grid = {}, behavior = {} }
+for i = 1, 16 do room.grid[i] = 0 end
+og.map = room
+og.playerX, og.playerY, og.facing = 1, 2, "north"
+local shieldCell = 1 * 4 + 1 + 1
+room.grid[shieldCell] = 822
+eq(og:runSpecial(307), 0, "gold shield -> RESULT 0")
+eq(og.stringVars[1], "100", "100 wins")
+eq(og.stringVars[2], "GOLD", "gSecretBaseText_GoldRank")
+room.grid[shieldCell] = 734
+eq(og:runSpecial(307), 0, "silver shield -> RESULT 0")
+eq(og.stringVars[1], "50", "50 wins")
+eq(og.stringVars[2], "SILVER", "gSecretBaseText_SilverRank")
+room.grid[shieldCell] = 756
+eq(og:runSpecial(307), 1, "TOY TV -> 1")
+room.grid[shieldCell] = 757
+eq(og:runSpecial(307), 2, "SEEDOT TV -> 2")
+room.grid[shieldCell] = 758
+eq(og:runSpecial(307), 3, "SKITTY TV -> 3")
+-- The switch has no default, so RESULT keeps whatever it held.
+og:setScriptVar(Gen3Script.VAR_RESULT, 3)
+room.grid[shieldCell] = 0
+eq(og:runSpecial(307), 3, "any other tile leaves RESULT alone")
+
+-- GetInteractedMetatileScript's elevation-gated block. Until this existed
+-- special 307 was unreachable: nothing dispatched MB_SECRET_BASE_SHIELD_
+-- OR_TOY_TV, and MB_SECRET_BASE_PC was being read as box storage.
+eq(Game3.MB_SECRET_BASE_PC, 0xB0, "MB_SECRET_BASE_PC")
+eq(Game3.MB_RECORD_MIXING_SECRET_BASE_PC, 0xB1, "MB_RECORD_MIXING_SECRET_BASE_PC")
+eq(Game3.MB_SECRET_BASE_SAND_ORNAMENT, 0xBF, "MB_SECRET_BASE_SAND_ORNAMENT")
+eq(Game3.MB_SECRET_BASE_SHIELD_OR_TOY_TV, 0xC4, "MB_SECRET_BASE_SHIELD_OR_TOY_TV")
+eq(Game3.FLDEFF_SAND_PILLAR, 52, "FLDEFF_SAND_PILLAR")
+
+local tv = newG()
+tv.phase = "play"
+local tvMap = { id = "g25_0", group = 25, index = 0, width = 4, height = 4,
+                grid = {}, behavior = {} }
+for i = 1, 16 do tvMap.grid[i] = 0 end
+tv.map = tvMap
+tv.playerX, tv.playerY, tv.facing = 1, 2, "north"
+local face = 1 * 4 + 1 + 1
+
+tvMap.behavior[face] = Game3.MB_SECRET_BASE_SHIELD_OR_TOY_TV
+tvMap.grid[face] = 822
+check(tv:tryTalk(), "A on a trophy shield")
+check(tv.field.text:find("BATTLE TOWER", 1, true) ~= nil,
+  "SecretBase_Text_BattleTowerShield")
+check(tv.field.text:find("GOLD", 1, true) ~= nil, "with the GOLD rank")
+tv.field = nil
+tvMap.grid[face] = 756
+check(tv:tryTalk(), "A on the toy TV")
+check(tv.field.text:find("realistic toy TV", 1, true) ~= nil,
+  "SecretBase_Text_ToyTV")
+tv.field = nil
+tvMap.grid[face] = 757
+tv:tryTalk()
+check(tv.field.text:find("SEEDOT", 1, true) ~= nil, "SecretBase_Text_SeedotTV")
+tv.field = nil
+tvMap.grid[face] = 758
+tv:tryTalk()
+check(tv.field.text:find("SKITTY", 1, true) ~= nil, "SecretBase_Text_SkittyTV")
+
+-- The sand ornament is just its field effect behind a waitstate.
+tv.field = nil
+tvMap.behavior[face] = Game3.MB_SECRET_BASE_SAND_ORNAMENT
+check(tv:tryTalk(), "A on the sand ornament")
+eq(tv:fieldEffectActive(Game3.FLDEFF_SAND_PILLAR), true,
+  "SecretBase_EventScript_SandOrnament")
+
+-- A forced move that is BLOCKED must not change the player's facing.
+-- DoForcedMovement calls ForcedMovement_None() and returns 0 on a
+-- collision, never reaching PlayerRideWaterCurrent, so nothing turns the
+-- player and MovePlayerAvatarUsingKeypadInput then works normally. tryWalk
+-- sets facing before it checks collision, so a current pushing into a wall
+-- re-faced the player every frame; the keypad's turn-then-move rule saw a
+-- fresh direction each frame and only ever turned -- a hard deadlock on
+-- 30 tiles across Routes 132/133/134.
+do
+  local cur = Game3.new()
+  cur.phase = "play"
+  local sea = {
+    id = "g0_cur", width = 4, height = 3,
+    grid = {}, behavior = {}, spawn = { x = 1, y = 1 },
+  }
+  -- Open water everywhere except a wall due west of (1,1).
+  for i = 1, 12 do sea.grid[i] = 0 end
+  sea.grid[1 * 4 + 0 + 1] = 1024          -- (0,1) solid
+  for i = 1, 12 do sea.behavior[i] = 0x15 end   -- MB_OCEAN_WATER
+  sea.behavior[1 * 4 + 0 + 1] = 0x00
+  sea.behavior[1 * 4 + 1 + 1] = 0x51      -- MB_WESTWARD_CURRENT, pushing into it
+  cur.data.maps = { maps = { g0_cur = sea } }
+  cur:enterMap(sea, 1, 1, true)
+  cur.surfing = true
+  cur.facing = "east"
+  cur.walkCooldown = 0
+
+  eq(cur:tryForcedMovement(), false, "the current is blocked by the wall")
+  eq(cur.facing, "east", "and a blocked push leaves the facing alone")
+  eq(cur.playerX, 1, "the player has not moved")
+
+  -- With facing preserved, the very next keypad step can actually walk.
+  eq(cur:canStep(sea, 2, 1), true, "east is open")
+  cur.walkCooldown = 0
+  check(cur:tryWalk(1, 0), "so the player can swim out of the current")
+  eq(cur.playerX, 2, "and does move")
+end
+
+-- battle_util.c AreAllMovesUnusable + battle_main.c: with no usable move
+-- the ROM prints BattleText_NoMovesLeft and forces MOVE_STRUGGLE with
+-- HITMARKER_NO_PPDEDUCT. Struggle is typeless -- TypeCalc and AI_TypeCalc
+-- both `return 0` for it -- so no STAB and no effectiveness, and its
+-- EFFECT_RECOIL costs the user 1/4 of the damage dealt.
+do
+  local sg = Game3.new()
+  sg.data.moves = { byId = {
+    [33]  = { id = 33,  name = "TACKLE",   power = 35, type = 0, accuracy = 100,
+              pp = 35, effect = 0 },
+    [165] = { id = 165, name = "STRUGGLE", power = 50, type = 0, accuracy = 100,
+              pp = 1,  effect = Game3.EFFECT_RECOIL },
+  } }
+  -- gTypeEffectiveness rows are { attacking, defending, multiplier*10 };
+  -- Normal cannot touch Ghost.
+  sg.data.moves.typeChart = { { 0, Game3.TYPE_GHOST, 0 } }
+  eq(Game3.MOVE_STRUGGLE, 165, "Struggle is move 165")
+  local st = sg:struggleMove()
+  eq(st.id, 165, "struggleMove builds Struggle")
+  eq(st.power, 50, "power 50")
+  eq(Game3.recoilDenom(st.effect), 4, "EFFECT_RECOIL is 1/4 of damage dealt")
+
+  eq(sg:allMovesUnusable({ moves = { { id = 33, pp = 5 } } }), false,
+    "a move with PP is usable")
+  eq(sg:allMovesUnusable({ moves = { { id = 33, pp = 0 }, { id = 10, pp = 0 } } }),
+    true, "every slot at 0 PP is not")
+  eq(sg:allMovesUnusable({ moves = {} }), false,
+    "a mon with no moves at all is not the Struggle case")
+
+  -- The AI used to fall back to an arbitrary Tackle.
+  local pick = sg:pickEnemyMove({ moves = { { id = 33, pp = 0, power = 35 } } })
+  eq(pick.id, 165, "an enemy out of PP Struggles")
+
+  -- Typeless: a Normal move cannot touch a GHOST, but Struggle can.
+  sg.rand = function() return 1 end
+  local function mon(t1, t2)
+    return { name = "M", level = 50, hp = 200, maxHp = 200, atk = 60, def = 60,
+             spa = 60, spd = 60, spe = 60, type1 = t1, type2 = t2,
+             moves = {}, stages = {} }
+  end
+  eq(sg:dealDamage(mon(0, 0), mon(7, 7), sg:copyMove(33)).dmg, 0,
+    "TACKLE does nothing to a GHOST")
+  local vsGhost = sg:dealDamage(mon(0, 0), mon(7, 7), st)
+  check(vsGhost.dmg > 0, "STRUGGLE still connects with a GHOST")
+  eq(vsGhost.mul, 10, "and reports neutral effectiveness")
+  -- And no STAB for a Normal-type user.
+  eq(sg:dealDamage(mon(0, 0), mon(1, 1), st).dmg,
+     sg:dealDamage(mon(3, 3), mon(1, 1), st).dmg,
+     "Struggle gets no STAB")
+end
+
+-- ...and the whole thing has to actually reach the player through the
+-- battle menu. The first cut of this checked a `battler` local that is not
+-- in scope at the command menu, so it read nil, allMovesUnusable returned
+-- false, and the move list opened as if nothing were wrong -- the unit
+-- checks above all passed regardless.
+do
+  local Input = require("src.core.Input")
+  Input:init()
+  -- `field` above already carries the pokemon/moves fixtures.
+  local pb = field
+  pb.phase = "play"
+  pb.party = { pb:makeMon(280, 20) }
+  for _, m in ipairs(pb.party[1].moves or {}) do m.pp = 0 end
+  pb:startWildBattle(290, 5)
+  local real = Input.wasPressed
+  local pressing = false
+  Input.wasPressed = function(self, k)
+    if pressing then return k == "a" end
+    return real(self, k)
+  end
+  local function press() pressing = true; pb:stepBattle(1 / 60); pressing = false end
+  for _ = 1, 60 do
+    if pb.battle and pb.battle.kind == "menu" then break end
+    press()
+  end
+  eq(pb.battle.kind, "menu", "the command menu is up")
+  pb.battle.cursor = 0
+  press()
+  eq(pb.battle.kind, "menu_msg", "FIGHT with no PP does not open the move list")
+  check(tostring(pb.battle.text):find("no", 1, true) ~= nil,
+    "it prints BattleText_NoMovesLeft instead")
+  eq(pb.battle.thenStruggle, true, "and queues Struggle for the turn")
+  local hp0 = pb.party[1].hp
+  local saw = false
+  for _ = 1, 600 do
+    if not pb.battle then break end
+    local t = pb.battle.text
+    if type(t) == "string" and t:upper():find("STRUGGLE", 1, true) then saw = true end
+    press()
+  end
+  eq(saw, true, "STRUGGLE is what actually gets used")
+  check(pb.party[1].hp < hp0, "and its recoil costs the user HP")
+  Input.wasPressed = real
+end
+
+-- Underwater the ROM has PLAYER_AVATAR_FLAG_UNDERWATER, which REPLACES
+-- PLAYER_AVATAR_FLAG_SURFING, so none of the Surf rules apply down there:
+-- movement is the same GetCollisionAtCoords as anywhere else, and there is
+-- no Surf to dismount from. 2799 walkable tiles across the underwater maps
+-- are plain MB_NORMAL, and stepping on one used to end the dive -- after
+-- which seaweed became impassable and the game offered SURF on it.
+do
+  local uw = Game3.new()
+  uw.phase = "play"
+  local sea = {
+    id = "g0_uw", mapType = Game3.MAP_TYPE_UNDERWATER,
+    width = 4, height = 3,
+    -- all open; behaviour makes the middle row plain floor, the last seaweed
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    behavior = {},
+    spawn = { x = 0, y = 0 },
+  }
+  sea.behavior[1 * 4 + 1 + 1] = 0x00   -- MB_NORMAL floor
+  sea.behavior[1 * 4 + 2 + 1] = 0x22   -- MB_SEAWEED
+  sea.behavior[1 * 4 + 3 + 1] = 0x2A   -- MB_SEAWEED_NO_SURFACING
+  uw.data.maps = { maps = { g0_uw = sea } }
+  uw:enterMap(sea, 1, 1, true)
+  uw.surfing, uw.diving = true, true
+
+  eq(uw:isUnderwater(sea), true, "the map is underwater")
+  uw.playerX, uw.playerY = 1, 1
+  eq(uw:canStep(sea, 2, 1), true, "seaweed is passable while diving")
+  eq(uw:canStep(sea, 3, 1), true, "so is no-surfacing seaweed")
+
+  -- Stepping across plain underwater floor must not end the dive.
+  uw.playerX, uw.playerY, uw.walkCooldown = 1, 1, 0
+  uw.facing = "east"
+  check(uw:tryWalk(1, 0), "step onto the seaweed")
+  eq(uw.diving, true, "still diving")
+  eq(uw.surfing, true, "and still in the water")
+
+  -- And SURF is never offered on it. IsSurfableFishableWater excludes
+  -- seaweed, MB_NO_SURFACING, waterfalls and water doors.
+  eq(Game3.isSurfStart(0x22), false, "no SURF prompt on seaweed")
+  eq(Game3.isSurfStart(0x2A), false, "nor no-surfacing seaweed")
+  eq(Game3.isSurfStart(0x19), false, "nor MB_NO_SURFACING")
+  eq(Game3.isSurfStart(0x13), false, "nor a waterfall")
+  eq(Game3.isSurfStart(0x6C), false, "nor a water door")
+  eq(Game3.isSurfStart(0x10), true, "pond water does offer SURF")
+  eq(Game3.isSurfStart(0x15), true, "so does ocean")
+  eq(Game3.isSurfStart(0x53), true, "and a current")
+end
+
+-- Decorations that DO something. sub_80BCF1C is the base's own per-step
+-- callback (SecretBase_OnResume's setstepcallback 6) and fires only when
+-- the player's tile changes; the jump and spin mats are forced movement,
+-- out of field_player_avatar.c's sForcedMovementTestFuncs.
+eq(Game3.STEP_CB_SECRET_BASE, 6, "gUnknown_08376364[6] is sub_80BCF1C")
+eq(Game3.MB_SECRET_BASE_BALLOON, 0xB8, "MB_SECRET_BASE_BALLOON")
+eq(Game3.MB_SECRET_BASE_GLITTER_MAT, 0xBA, "MB_SECRET_BASE_GLITTER_MAT")
+eq(Game3.MB_SECRET_BASE_JUMP_MAT, 0xBB, "MB_SECRET_BASE_JUMP_MAT")
+eq(Game3.MB_SECRET_BASE_SPIN_MAT, 0xBC, "MB_SECRET_BASE_SPIN_MAT")
+eq(Game3.MB_SECRET_BASE_MUSIC_NOTE_MAT, 0xBD, "MB_SECRET_BASE_MUSIC_NOTE_MAT")
+eq(Game3.MB_SECRET_BASE_BREAKABLE_DOOR, 0xBE, "MB_SECRET_BASE_BREAKABLE_DOOR")
+eq(Game3.SE_LEDGE, 10, "SE_LEDGE")
+eq(Game3.SE_WARP_IN, 45, "SE_WARP_IN")
+eq(Game3.SE_BREAKABLE_DOOR, 77, "SE_BREAKABLE_DOOR")
+eq(Game3.SE_M_HEAL_BELL, 195, "SE_M_HEAL_BELL")
+eq(Game3.MUSIC_NOTE_MAT_SE[632], 62, "metatile 632 is SE_NOTE_C")
+eq(Game3.MUSIC_NOTE_MAT_SE[691], 69, "metatile 691 is SE_NOTE_C_HIGH")
+eq(Game3.BALLOON_SE[824], 74, "824 is SE_BALLOON_RED")
+eq(Game3.BALLOON_SE[828], 75, "828 is SE_BALLOON_BLUE")
+eq(Game3.BALLOON_SE[832], 76, "832 is SE_BALLOON_YELLOW")
+
+do
+  local fx = newG()
+  fx.phase = "play"
+  local room = { id = "g25_0", group = 25, index = 0, width = 6, height = 6,
+                 grid = {}, behavior = {}, objects = {}, warps = {} }
+  for i = 1, 36 do room.grid[i] = 0 end
+  fx.data.maps = { maps = { g25_0 = room } }
+  fx.secretBase = {
+    id = 0, mapId = "g_out", x = 1, y = 1,
+    decorations = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+    decorationPos = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+  }
+  fx:enterMap(room, 3, 4, true)
+  eq(fx.stepCallback, Game3.STEP_CB_SECRET_BASE,
+    "entering a base installs setstepcallback 6")
+
+  local heard = {}
+  local realSe = Game3.playSe
+  Game3.playSe = function(self, id) heard[#heard + 1] = id; return realSe(self, id) end
+  local function last() return heard[#heard] end
+  local function cell(x, y, behavior, metatile)
+    local i = fx:gridIndex(room, x, y)
+    room.behavior[i] = behavior
+    if metatile then room.grid[i] = metatile end
+    return i
+  end
+
+  -- The jump mat bounces you where you stand, twice
+  -- (PlayerAvatar_DoSecretBaseMatJump stops once data[1] > 1) and then
+  -- sets PLAYER_AVATAR_FLAG_5 so it cannot re-trigger while you stand
+  -- there. Without that latch it fires every frame and you cannot leave.
+  heard = {}
+  fx.matEffect, fx.forcedMoveLatch = nil, nil
+  cell(3, 4, Game3.MB_SECRET_BASE_JUMP_MAT)
+  fx.playerX, fx.playerY, fx.walkCooldown = 3, 4, 0
+  check(fx:tryForcedMovement(), "the jump mat is forced movement")
+  eq(last(), Game3.SE_LEDGE, "SE_LEDGE")
+  eq(fx.playerX, 3, "and does not move you, x")
+  eq(fx.playerY, 4, "y")
+  -- It has to actually ANIMATE. drawPlayer arcs the sprite by
+  -- 8 * sin(walkProgress * pi), and walkProgress comes off walkCooldown
+  -- against walkDuration; the mat's early return in walkHeld skips the
+  -- block that normally ticks that clock, so the jump runs it itself.
+  -- Setting only `hopping` gave an arc of zero -- a jump mat that looked
+  -- like it did nothing at all.
+  eq(fx.hopping, true, "the player is hopping")
+  check((fx.walkCooldown or 0) > 0, "and the hop clock is running")
+  eq(fx:walkProgress(), 0, "the arc starts at zero")
+  for _ = 1, math.floor(Game3.MAT_JUMP_FRAMES / 2) do
+    fx:stepSecretBaseMat(1 / 60)
+  end
+  local mid = fx:walkProgress()
+  check(mid > 0.2 and mid < 0.9, "and sweeps through the middle of the arc")
+  for _ = 1, Game3.MAT_JUMP_FRAMES * 3 do
+    if fx:stepSecretBaseMat(1 / 60) == false then break end
+  end
+  eq(fx.hopping, nil, "the hop ends")
+  for _, id in ipairs(heard) do if id == Game3.SE_LEDGE then jumps = jumps end end
+  local ledges = 0
+  for _, id in ipairs(heard) do if id == Game3.SE_LEDGE then ledges = ledges + 1 end end
+  eq(ledges, 2, "PlayerAvatar_DoSecretBaseMatJump jumps twice")
+  eq(fx.matEffect, nil, "then the task is done")
+  eq(fx.forcedMoveLatch, true, "and PLAYER_AVATAR_FLAG_5 is set")
+  eq(fx:tryForcedMovement(), false, "so standing there does not re-trigger")
+  eq(fx.playerX, 3, "you are still on the mat")
+  eq(fx.playerY, 4, "and can walk off")
+
+  -- The spin mat turns you counter-clockwise (SOUTH->WEST->NORTH->EAST)
+  -- and PlayerAvatar_SecretBaseMatSpinStep3 then walks you one tile the
+  -- opposite way from the one you came in, so you always leave the mat.
+  heard = {}
+  fx.matEffect, fx.forcedMoveLatch = nil, nil
+  cell(3, 4, Game3.MB_SECRET_BASE_SPIN_MAT)
+  cell(3, 5, nil)
+  fx.playerX, fx.playerY = 3, 4
+  fx.facing, fx.walkCooldown = "south", 0
+  check(fx:tryForcedMovement(), "the spin mat is forced movement")
+  eq(last(), Game3.SE_WARP_IN, "SE_WARP_IN")
+  eq(fx.facing, "south", "the turn waits for the first beat")
+  eq(Game3.SPIN_MAT_NEXT.south, "west", "SOUTH turns WEST")
+  eq(Game3.SPIN_MAT_NEXT.west, "north", "WEST turns NORTH")
+  eq(Game3.SPIN_MAT_NEXT.north, "east", "NORTH turns EAST")
+  eq(Game3.SPIN_MAT_NEXT.east, "south", "EAST turns SOUTH")
+  for _ = 1, Game3.MAT_SPIN_FRAMES do fx:stepSecretBaseMat(1 / 60) end
+  eq(fx.facing, "west", "first beat turns west")
+  for _ = 1, Game3.MAT_SPIN_FRAMES * 8 do
+    if fx:stepSecretBaseMat(1 / 60) == false then break end
+  end
+  eq(fx.matEffect, nil, "the spin ends")
+  eq(fx.facing, "north", "facing the opposite of the way you came in")
+  eq(fx.playerY, 3, "and it walked you off the mat")
+
+  -- The glitter mat sparkles ON THE PLAYER'S OWN TILE, with its chime 8
+  -- frames in. drawFieldEffects renders a sparkle at fx.x / fx.y (the
+  -- field effect arguments), so those have to carry the tile -- carrying
+  -- it only in gx/gy left the sparkle wherever the previous effect's
+  -- arguments happened to point.
+  heard = {}
+  fx.fieldEffects = nil
+  cell(3, 3, Game3.MB_SECRET_BASE_GLITTER_MAT)
+  fx.playerX, fx.playerY = 3, 3
+  check(fx:runStepCallback(3, 4), "stepping onto the glitter mat")
+  eq(last(), nil, "silent on the step itself")
+  local spark = fx.fieldEffects and fx.fieldEffects[1]
+  eq(spark and spark.id, Game3.FLDEFF_SPARKLE, "it is a sparkle")
+  eq(spark and spark.x, 3, "drawn on the player's tile, x")
+  eq(spark and spark.y, 3, "and y")
+  for _ = 1, 9 do fx:stepCinemaWaits(1 / 60) end
+  eq(last(), Game3.SE_M_HEAL_BELL, "then SE_M_HEAL_BELL")
+
+  -- The balloon, door and note effects are pure timers: the ROM runs them
+  -- as tasks with no sprite, so they must not render as sparkles.
+  eq(Game3.FLDEFF_SECRET_BASE_TIMER ~= Game3.FLDEFF_SPARKLE, true,
+    "the silent timers get their own id")
+  for _, probe in ipairs({
+    { Game3.MB_SECRET_BASE_MUSIC_NOTE_MAT, 635, "a note mat" },
+    { Game3.MB_SECRET_BASE_BALLOON, 824, "a balloon" },
+    { Game3.MB_SECRET_BASE_BREAKABLE_DOOR, 620, "a breakable door" },
+  }) do
+    fx.fieldEffects = nil
+    fx.facing = "south"
+    cell(3, 3, probe[1], probe[2])
+    cell(3, 2, nil, 600)
+    fx:runStepCallback(3, 4)
+    local queued = fx.fieldEffects and fx.fieldEffects[1]
+    if queued then
+      eq(queued.id, Game3.FLDEFF_SECRET_BASE_TIMER,
+        probe[3] .. " queues no sparkle")
+    end
+  end
+
+  -- The note mats pick their note off the metatile, 7 frames later.
+  heard = {}
+  fx.fieldEffects = nil
+  cell(3, 3, Game3.MB_SECRET_BASE_MUSIC_NOTE_MAT, 635)
+  fx:runStepCallback(3, 4)
+  eq(last(), nil, "the note waits")
+  for _ = 1, 8 do fx:stepCinemaWaits(1 / 60) end
+  eq(last(), 65, "metatile 635 is SE_NOTE_F")
+
+  -- The balloon walks its metatile up by three, popping on the second.
+  heard = {}
+  fx.fieldEffects = nil
+  local bi = cell(3, 3, Game3.MB_SECRET_BASE_BALLOON, 824)
+  fx:runStepCallback(3, 4)
+  for _ = 1, 7 do fx:stepCinemaWaits(1 / 60) end
+  eq(Game3.metatileOf(room.grid[bi]), 825, "balloon frame 1")
+  for _ = 1, 7 do fx:stepCinemaWaits(1 / 60) end
+  eq(Game3.metatileOf(room.grid[bi]), 826, "balloon frame 2")
+  eq(last(), 74, "and pops")
+  for _ = 1, 7 do fx:stepCinemaWaits(1 / 60) end
+  eq(Game3.metatileOf(room.grid[bi]), 827, "balloon frame 3")
+
+  -- The breakable door shatters at once from the south, after 7 frames
+  -- from the north; both leave metatiles 630 / 622.
+  heard = {}
+  fx.fieldEffects = nil
+  cell(3, 3, Game3.MB_SECRET_BASE_BREAKABLE_DOOR, 620)
+  cell(3, 2, nil, 600)
+  fx.facing = "south"
+  fx:runStepCallback(3, 4)
+  eq(last(), Game3.SE_BREAKABLE_DOOR, "shatters at once facing south")
+  eq(Game3.metatileOf(room.grid[bi]), 630, "the lower half")
+  eq(Game3.metatileOf(room.grid[fx:gridIndex(room, 3, 2)]), 622, "and the upper")
+
+  heard = {}
+  fx.fieldEffects = nil
+  cell(3, 3, Game3.MB_SECRET_BASE_BREAKABLE_DOOR, 620)
+  cell(3, 2, nil, 600)
+  fx.facing = "north"
+  fx:runStepCallback(3, 4)
+  eq(last(), nil, "walking north waits first")
+  for _ = 1, 8 do fx:stepCinemaWaits(1 / 60) end
+  eq(last(), Game3.SE_BREAKABLE_DOOR, "then shatters")
+
+  Game3.playSe = realSe
+
+  -- Both the placing-decoration avatar mode and the mat tasks make
+  -- walkHeld return before it reads the keypad -- the preventStep
+  -- equivalents. Neither may survive a map change: the ROM destroys those
+  -- tasks with the field, and a leftover one here freezes the player on
+  -- every map afterwards with no way to clear it. That is how a stale
+  -- placing mode from a secret base left the player unable to move
+  -- underwater, a whole region away.
+  fx._decorPlacing = { id = 1, cat = 0, slot = 1, x = 3, y = 3 }
+  fx.matEffect = { kind = "jump", left = 99, jumps = 0 }
+  fx.forcedMoveLatch = true
+  fx:enterMap(room, 3, 4, true)
+  eq(fx._decorPlacing, nil, "a map change clears the placing mode")
+  eq(fx.matEffect, nil, "and any running mat task")
+  eq(fx.forcedMoveLatch, nil, "and the forced movement latch")
+  eq(fx:decorPlacingActive(), false, "so walkHeld is not frozen")
+  eq(fx:stepSecretBaseMat(1 / 60), false, "by either one")
+end
+
+-- The decoration PC: special 14, its three branches, and sub_80FF1EC.
+local pc = newG()
+pc.phase = "play"
+local base = { id = "g25_0", group = 25, index = 0, width = 8, height = 8,
+               grid = {}, behavior = {}, objects = {}, warps = {} }
+for i = 1, 64 do base.grid[i] = 0 end
+pc.data.maps = { maps = { g25_0 = base } }
+pc.map = base
+pc.playerX, pc.playerY = 3, 5
+pc.secretBase = {
+  id = 0, mapId = "g_out", x = 1, y = 1, outX = 1, outY = 2,
+  decorations = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+  decorationPos = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+}
+pc:setScriptVar(Game3.VAR_CURRENT_SECRET_BASE, 0)
+
+pc:runSpecial(14)
+eq(pc.field.kind, "decor_menu", "special 14 opens the PC menu")
+eq(pc.field.labels[1], "DECORATE", "gUnknown_083EC604")
+eq(pc.field.labels[2], "PUT AWAY", "PUT AWAY")
+eq(pc.field.labels[3], "TOSS", "TOSS")
+eq(pc.field.labels[4], "EXIT", "EXIT")
+eq(pc.field.notes[1], "Put out the selected decoration item.",
+  "SecretBaseText_PutOutDecor")
+pc:pickMauvilleMenu(0)
+eq(pc.field.text, "There are no decorations.", "gSecretBaseText_NoDecors")
+
+check(pc:addDecoration(1), "own one SMALL DESK")
+pc:runSpecial(14)
+pc:pickMauvilleMenu(0)
+eq(pc.field.labels[1], "DESK", "DECORATE opens the category list")
+eq(pc.field.labels[8], "CUSHION", "eighth category")
+eq(pc.field.labels[9], "CANCEL", "then CANCEL")
+pc:pickMauvilleMenu(0)
+-- gDecorations[].name is an inline u8[16] and is extracted for all 121
+-- rows, so the PC lists names rather than "DECOR 1".
+eq(pc.field.labels[1], "SMALL DESK", "the desk you own")
+eq(pc.field.notes[1], "A small desk built for one.",
+  "and sub_80FE7A8's description under it")
+eq(pc:decorationName(2), "POKeMON DESK", "the extracted name wins")
+eq(pc:decorationDescription(2),
+  "A small desk built in the shape of a POKe BALL.", "and its description")
+-- Every id the catalog does not cover still has to read as something.
+eq(pc:decorationName(999):find("DECOR", 1, true), 1,
+  "an unknown id falls back rather than erroring")
+pc:pickMauvilleMenu(0)
+eq(pc.field, nil, "picking it drops into the placing avatar mode")
+eq(pc:decorPlacingActive(), true, "placing mode is live")
+eq(pc._decorPlacing.x, 3, "cursor starts on the player")
+eq(pc._decorPlacing.y, 5, "cursor y")
+
+-- SetUpPlacingDecorationPlayerAvatar takes the keypad: the arrows move the
+-- cursor and the player stays put. walkHeld has to be gated too, not just
+-- the A/B handler -- movement lives there, so without it you walk away and
+-- leave the cursor behind.
+do
+  local Input = require("src.core.Input")
+  Input:init()
+  local oldPressed, oldDown = Input.wasPressed, Input.isDown
+  local held
+  Input.wasPressed = function(_, key) return key == held end
+  Input.isDown = function(_, key) return key == held end
+  held = "up"
+  pc:stepDecorPlacing()
+  eq(pc._decorPlacing.y, 4, "up moves the cursor")
+  eq(pc._decorPlacing.x, 3, "and keeps x")
+  held = "left"
+  pc:stepDecorPlacing()
+  eq(pc._decorPlacing.x, 2, "left moves the cursor")
+  eq(pc.playerX, 3, "the player has not moved")
+  eq(pc.playerY, 5, "nor its y")
+  held = "left"
+  for _ = 1, 30 do pc:walkHeld(1 / 60) end
+  eq(pc.playerX, 3, "walkHeld does not walk while placing")
+  eq(pc.playerY, 5, "still standing where the menu opened")
+  Input.wasPressed, Input.isDown = oldPressed, oldDown
+end
+
+pc._decorPlacing.x, pc._decorPlacing.y = 2, 4
+check(pc:commitDecorationPlacement(), "commit the placement")
+eq(pc.secretBase.decorations[1], 1, "sub_8100174 filled room slot 1")
+eq(pc.secretBase.decorationPos[1], Game3.decorPosPack(2, 4), "and its packed pos")
+local gi = 4 * 8 + 2 + 1
+eq(Game3.metatileOf(base.grid[gi]), Game3.DECOR_TILE_BASE + 0x28,
+  "sub_80FF1EC baked 0x200 + tiles[0] into the grid")
+
+-- sub_80FEFA4: an inventory entry that is already out cannot go out again,
+-- and sub_8101848's guard will not throw it away either.
+pc:runSpecial(14)
+pc:pickMauvilleMenu(0)
+pc:pickMauvilleMenu(0)
+pc:pickMauvilleMenu(0)
+eq(pc.field.text, "This is in use already.", "gSecretBaseText_InUseAlready")
+pc.field = nil
+pc:runSpecial(14)
+pc:pickMauvilleMenu(2)
+pc:pickMauvilleMenu(0)
+pc:pickMauvilleMenu(0)
+eq(pc.field.text, "This decoration is in use.\nIt can't be thrown away.",
+  "gSecretBaseText_DecorInUse")
+
+-- PUT AWAY clears the room slot; the ROM reloads the map to un-bake it,
+-- which here is the pristine grid coming back.
+pc.field = nil
+pc:runSpecial(14)
+pc:pickMauvilleMenu(1)
+eq(pc.field.labels[1], "SMALL DESK", "PUT AWAY lists what is out")
+pc:pickMauvilleMenu(0)
+eq(pc.field.kind, "decor_yesno", "gSecretBaseText_ReturnDecor")
+pc:answerDecorYesNo(true)
+eq(pc.secretBase.decorations[1], 0, "the room slot is cleared")
+eq(Game3.metatileOf(base.grid[gi]), 0, "and the grid is pristine again")
+eq(pc:inventoryContainsDecoration(1), true, "the desk is still owned")
+
+-- Now it will toss.
+pc.field = nil
+pc:runSpecial(14)
+pc:pickMauvilleMenu(2)
+pc:pickMauvilleMenu(0)
+pc:pickMauvilleMenu(0)
+eq(pc.field.kind, "decor_yesno", "gSecretBaseText_WillBeDiscarded")
+pc:answerDecorYesNo(true)
+eq(pc:inventoryContainsDecoration(1), false, "TOSS cleared the inventory slot")
+eq(pc:numDecorationsInInventory(), 0, "inventory is empty again")
+
+-- sub_80FF5BC's own-room gate: only DOLLs and CUSHIONs indoors.
+local pr = newG()
+pr.phase = "play"
+pr.playerRoomDecor = Game3.decorSlots(Game3.DECOR_MAX_PLAYERS_HOUSE)
+pr.playerRoomDecorPos = Game3.decorSlots(Game3.DECOR_MAX_PLAYERS_HOUSE)
+pr.map = { id = "g1_1", group = 1, index = 1, width = 8, height = 8,
+           grid = {}, behavior = {} }
+for i = 1, 64 do pr.map.grid[i] = 0 end
+pr:addDecoration(1)
+pr:playerRoomPCDecoration()
+pr:pickMauvilleMenu(0)
+pr:pickMauvilleMenu(0)
+pr:pickMauvilleMenu(0)
+eq(pr.field.text, "This decoration can't be placed in\nyour own room.",
+  "gSecretBaseText_DecorCantPlace")
+
+-- sub_80FF58C: the ROOM's 16 slots, not the inventory's.
+local full = newG()
+full.phase = "play"
+full.map = base
+full.secretBase = {
+  id = 0, mapId = "g_out", x = 1, y = 1,
+  decorations = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+  decorationPos = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+}
+for i = 1, Game3.DECOR_MAX_SECRET_BASE do full.secretBase.decorations[i] = 1 end
+full:addDecoration(2)
+full:secretBasePCDecoration()
+full:pickMauvilleMenu(0)
+full:pickMauvilleMenu(0)
+full:pickMauvilleMenu(0)
+eq(full.field.text,
+  "No more decorations can be placed.\nThe most that can be placed is 16.",
+  "gSecretBaseText_NoMoreDecor")
 end)()
 
 ;(function()
@@ -10052,15 +13104,28 @@ g.flags[Game3.FLAG_SYS_POKENAV_GET] = true
 eq(#g:startMenuItems(), 7, "Mr. Stone grows the row")
 eq(g:startMenuItems()[3], "POKeNAV", "after BAG")
 g.phase = "play"
+-- The PokeNav opens on its own menu, the way Ruby's does; MAP is one entry
+-- on it rather than the whole feature.
 g:openPokeNav()
-eq(g.field.kind, "pokenav", "A on POKeNAV opens it")
+eq(g.field.kind, "pokenav_menu", "A on POKeNAV opens its menu")
+-- the cart's own order, which its menu blurbs spell out: the map, POKeMON in
+-- detail, TRAINER information, then obtained RIBBONS
+eq(g.field.items[1], "MAP", "MAP leads")
+eq(g.field.items[2], "CONDITION", "then CONDITION")
+eq(g.field.items[3], "TRAINER'S EYE", "then TRAINER'S EYE")
+eq(g.field.items[4], "RIBBONS", "then RIBBONS")
 local Input = require("src.core.Input")
 Input:init()
 local old = Input.wasPressed
+Input.wasPressed = function(_, key) return key == "a" end
+g:stepField()
+eq(g.field.kind, "pokenav", "A on MAP opens the region map")
 Input.wasPressed = function(_, key) return key == "b" end
 g:stepField()
+eq(g.field.kind, "pokenav_menu", "B from the map returns to the menu")
+g:stepField()
 Input.wasPressed = old
-eq(g.field.kind, "menu", "B returns to START")
+eq(g.field.kind, "menu", "B from the menu returns to START")
 
 g.facing = "east"
 g.playerX, g.playerY = 0, 0
@@ -13265,6 +16330,21 @@ eq(g.playerX, 12, "and the step goes through")
 eq(g.playerY, 4, "onto the old arm tile")
 eq(g:rotatingGateOrient(1), 3, "ACW from 0 is 270")
 
+local x, y, angle, ox, oy = Game3.rotatingGateDrawArgs(12, 5, 64, 64, 0)
+eq(x, 12 * Game3.TILE, "64px gate pivot is the config tile corner")
+eq(y, 5 * Game3.TILE, "matching GBA centerToCornerVec anchoring")
+eq(ox, 32, "rotation origin is the sprite center")
+eq(angle, 0, "orientation 0 is upright")
+x, y, angle = Game3.rotatingGateDrawArgs(8, 20, 32, 32, 1)
+eq(x, 8 * Game3.TILE, "32px gate uses the same tile-corner pivot")
+eq(y, 20 * Game3.TILE, "not the graphic's top-left corner")
+-- rotatingGateRotate's orientation counts up clockwise (the arm-layout
+-- face math walks N,E,S,W as orientation increases), and love.graphics
+-- rotation is positive-clockwise, so orientation 1 must render as +90°
+-- -- not the GBA affine anim's raw -64 sign, which would spin the
+-- sprite opposite the collision state.
+check(math.abs(angle - math.pi / 2) < 0.001, "orientation 1 is +90° (clockwise), matching the arm-layout math")
+
 g:enterMap({
   id = Game3.mapId(Game3.MAP_FORTREE_GYM_GROUP, Game3.MAP_FORTREE_GYM_NUM),
   width = w, height = h, grid = grid, mapType = Game3.MAP_TYPE_INDOOR,
@@ -13392,9 +16472,27 @@ g.rng = function() return 1 end
 g:playSlotMachine(0)
 eq(g.field.kind, "slots", "playslotmachine opens the cabinet")
 eq(g.field.bet, 1, "default bet 1")
+eq(g.field.pikaPower, 0, "Pika Power starts at 0")
 check(g:scriptWaiting(), "ScriptContext_Stop until B")
 check(g:spinSlots(), "a spin with coins runs")
 eq(g:getCoins() >= 9, true, "spent the bet (payout may refund)")
+-- Forced POWER bias lands three POWER tags and bumps the gauge.
+g.coins = 50
+g.field.bias = Game3.SLOT_BIAS_POWER
+g.field.luckyGame = false
+g.field.reelTimeLeft = 0
+g.field.pikaPower = 0
+-- Skip redraw: inject after draw by forcing find.
+local wins = g:slotFindBiasedWindows(Game3.SLOT_BIAS_POWER, 1)
+check(wins ~= nil, "POWER bias finds a window")
+eq(Game3.slotMatch(wins[1][2], wins[2][2], wins[3][2]),
+  Game3.SLOT_MATCH_POWER, "center is POWER")
+eq(Game3.slotBiasSymbol(Game3.SLOT_BIAS_CHERRY), Game3.SLOT_TAG_CHERRY,
+  "cherry bias symbol")
+eq(Game3.slotBiasSymbol(Game3.SLOT_BIAS_STRAIGHT_7), Game3.SLOT_TAG_7_RED,
+  "777 bias symbol")
+eq(Game3.SLOT_SPECIAL_DRAW_ODDS[6][3], 16, "luckiest machine bet-3 odds")
+eq(Game3.SLOT_BIAS_REGULAR_PROBS[1][1], 20, "POWER bias unluckiest")
 g:closeSlots()
 
 local ops = Gen3Script.parse(
@@ -14431,6 +17529,43 @@ g:safariThrowPokeblock(0)
 eq(g.battle.safariFleeRate, 0, "first curious pokeblock 3-3")
 eq(g.battle.safariPkblThrowCounter, 1, "pkbl counter")
 
+-- Safari POKeBLOCK with owned case: open case, pick by nature gain, consume.
+g:addItem(Game3.ITEM_POKEBLOCK_CASE, 1)
+eq(g:itemCount(Game3.ITEM_POKEBLOCK_CASE), 1, "case already owned")
+g:givePokeblock({ color = 1, spicy = 10, dry = 0, sweet = 0, bitter = 0, sour = 0, feel = 20 })
+g:givePokeblock({ color = 2, spicy = 0, dry = 10, sweet = 0, bitter = 0, sour = 0, feel = 20 })
+g:startWildBattle(290, 2)
+g.battle.enemy.personality = 1 -- Lonely: +spicy -sour
+g.battle.safariFleeRate = 10
+g.battle.safariPkblThrowCounter = 0
+check(g:openSafariPokeblockCase(), "SafariHandleOpenBag")
+eq(g.battle.kind, "pokeblock_case", "case mode 2")
+eq(#g.battle.pokeblockIds, 2, "two blocks listed")
+eq(g.battle.pokeblockLabels[#g.battle.pokeblockLabels], "CANCEL", "CANCEL")
+eq(g:pokeblockGetGain(1, g.pokeblocks[1]), 10, "Lonely likes spicy")
+eq(g:pokeblockGetGain(1, g.pokeblocks[2]), 0, "dry is neutral for Lonely")
+g:pickSafariPokeblock(0)
+eq(g.battle.kind, "text", "threw after USE")
+check(g.battle.text:find("enthralled", 1, true) ~= nil, "gain > 0")
+eq(g.battle.safariFleeRate, 5, "first enthralled cut 5")
+eq((g.pokeblocks[1] and g.pokeblocks[1].color) or 0, 0, "PokeblockClearIfExists")
+eq((g.pokeblocks[2] and g.pokeblocks[2].color) or 0, 2, "other block kept")
+
+g:startWildBattle(290, 2)
+g.battle.enemy.personality = 1
+g.battle.safariFleeRate = 8
+g.battle.safariPkblThrowCounter = 0
+g:openSafariPokeblockCase()
+g:pickSafariPokeblock(0)
+check(g.battle.text:find("curious", 1, true) ~= nil, "gain 0 curious")
+eq(g.battle.safariFleeRate, 5, "curious cut 3")
+
+g:startWildBattle(290, 2)
+g:openSafariPokeblockCase()
+eq(#g.battle.pokeblockIds, 0, "case empty after throws")
+g:pickSafariPokeblock(0)
+eq(g.battle.kind, "menu", "CANCEL returns to safari menu")
+
 g.safariBalls = 1
 g:startWildBattle(290, 2)
 g.rng = function(n)
@@ -14469,6 +17604,78 @@ eq(g.field.text, Game3.TEXT_SAFARI_OUT_OF_BALLS, "out of balls after a catch")
 check(g:inSafariMode(), "catch path waits for the message")
 g:leaveSafari()
 check(not g:inSafariMode(), "then warps")
+end)()
+
+;(function()
+  -- Player PC item storage + mailbox (phase 270).
+  local Gen3Script = require("src.import.Gen3Script")
+  local g = Game3.new()
+  g:wipeNewGameState()
+  eq(g:countUsedPcItemSlots(), 1, "NewGameInitPCItems")
+  eq(g.pcItems[1].id, Game3.ITEM_POTION, "starter Potion in PC")
+  eq(g.pcItems[1].count, 1, "qty 1")
+  g:addItem(Game3.ITEM_ANTIDOTE, 3)
+  check(g:addPcItem(Game3.ITEM_ANTIDOTE, 2), "AddPCItem")
+  eq(g:countUsedPcItemSlots(), 2, "second stack")
+  g:openPlayerPc(true)
+  g:pickPlayerPc(0)
+  eq(g.field.kind, "item_storage", "ITEM STORAGE")
+  g:pickItemStorage(0)
+  eq(g.field.kind, "pc_item_list", "WITHDRAW list")
+  eq(g.field.mode, "withdraw", "withdraw mode")
+  g:pickPcItemList(0)
+  eq(g:itemCount(Game3.ITEM_POTION), 1, "withdrew Potion")
+  eq(g:countUsedPcItemSlots(), 1, "Potion slot gone")
+  check(g.field.note:find("Withdrew", 1, true) ~= nil, "withdrew note")
+
+  g:pickItemStorage(1)
+  eq(g.field.kind, "pc_deposit_list", "DEPOSIT list")
+  -- Antidote is first remaining bag stack after potion withdraw may reorder;
+  -- deposit the antidote by finding it.
+  local slotI = 0
+  for i = 1, #(g.field.slots or {}) do
+    if g.field.slots[i].id == Game3.ITEM_ANTIDOTE then slotI = i - 1 break end
+  end
+  g:pickPcDepositList(slotI)
+  -- qty 3 → qty screen
+  if g.field.kind == "pc_qty" then
+    g.field.qty = 2
+    g:confirmPcQty()
+  end
+  eq(g:itemCount(Game3.ITEM_ANTIDOTE), 1, "left 1 in bag")
+  check(g:countUsedPcItemSlots() >= 1, "deposited into PC")
+
+  g.flags = { [Game3.FLAG_SYS_PC_LANETTE] = true }
+  g:openPc()
+  eq(g.field.owner, "LANETTE'S PC", "Lanette chrome title")
+  g.flags[Game3.FLAG_SYS_PC_LANETTE] = nil
+  g:openPc()
+  eq(g.field.owner, "SOMEONE'S PC", "Someone's before Lanette")
+
+  g:addPcMail({
+    itemId = Game3.ITEM_ORANGE_MAIL, otName = "BRENDAN", nick = "TORCHIC",
+  })
+  eq(g:pcMailCount(), 1, "mailbox has mail")
+  g:openPlayerPc(false)
+  g:pickPlayerPc(1)
+  eq(g.field.kind, "pc_mailbox", "MAILBOX list")
+  g:pickMailbox(0)
+  eq(g.field.kind, "pc_mail_actions", "READ/MOVE/GIVE")
+  g:pickMailboxAction(1)
+  eq(g:pcMailCount(), 0, "moved to bag")
+  eq(g:itemCount(Game3.ITEM_ORANGE_MAIL), 1, "blank mail in bag")
+end)()
+
+;(function()
+  -- Feeder USE copies then clears the case slot (sub_810C854).
+  local Gen3Script = require("src.import.Gen3Script")
+  local g = Game3.new()
+  g:givePokeblock({ color = 3, spicy = 0, dry = 0, sweet = 8, bitter = 0, sour = 0, feel = 10 })
+  g:pickPokeblockFeeder(0, { feederIds = { 1 } })
+  eq(g:varGet(Gen3Script.VAR_RESULT), 1, "feeder picked")
+  eq(g.safariFeeder and g.safariFeeder.color, 3, "feeder copy")
+  eq((g.pokeblocks[1] and g.pokeblocks[1].color) or 0, 0, "slot cleared")
+  eq(g:safariZoneGetPokeblockNameInFeeder(), 3, "special 207 color")
 end)()
 
 ;(function()
@@ -14535,6 +17742,30 @@ g:endBattle()
 end)()
 
 ;(function()
+local g = Game3.new()
+g.phase = "play"
+g.currWeather = Game3.OW_WEATHER_RAIN_MED
+g:syncWeatherFx()
+eq(#g.weatherFx.drops, 24, "rain sprite slots")
+check(g.weatherFx and g.weatherFx.kind == "rain_med", "rain med fx")
+local y0 = g.weatherFx.drops[1].y
+g:stepWeatherFx()
+check(g.weatherFx.drops[1].y ~= y0, "rain drop moves")
+g.currWeather = Game3.OW_WEATHER_SANDSTORM
+g:syncWeatherFx()
+eq(g.weatherFx.kind, "sand", "sandstorm fx")
+g.currWeather = Game3.OW_WEATHER_NONE
+g:syncWeatherFx()
+eq(g.weatherFx, nil, "clear weather drops fx")
+g:setScriptVar(0x800D, 2)
+g:runSpecial(Game3.SPECIAL_ORB_CUTSCENE)
+eq(g.orb.stage, "open", "orb open for pulse")
+g.orb.stage = "hold"
+g.orb.phase = 1
+check(g.orb.phase == 1, "orb pulse phase")
+end)()
+
+;(function()
 eq(Game3.SPECIAL_GAME_CLEAR, 272, "GameClear")
 eq(Game3.FLAG_SYS_GAME_CLEAR, 0x804, "SYSTEM_FLAGS+4")
 eq(Game3.GAME_STAT_FIRST_HOF_PLAY_TIME, 1, "stat 1")
@@ -14570,8 +17801,22 @@ egg.isEgg = true
 g.party = { torchic, egg }
 g.playSeconds = 3600 + 2 * 60 + 3
 g:runSpecial(Game3.SPECIAL_GAME_CLEAR)
-check(not g:scriptWaiting(), "credits skip does not wait")
-eq(g.map.id, "g1_1", "warps to the bedroom heal")
+-- `special GameClear` is followed by `waitstate`. The cart leaves the
+-- overworld for the Hall of Fame screen and the script parks there until it
+-- hands control back. Not arming that wait let the script run straight on
+-- through releaseall/end, which tore the cinema down and returned control
+-- INSIDE the Hall of Fame -- a room whose only way out is the rest of this
+-- very script, so the player was stranded and could save there.
+check(g:scriptWaiting(), "the script parks while the Hall of Fame plays")
+-- GameClear hands off to the Hall of Fame screen (SetMainCallback2 in the
+-- cart); the walk home is what happens after it, not instead of it.
+eq(g.field and g.field.kind, "hof", "the Hall of Fame screen opens first")
+eq(g.map.id, "g16_11", "and you are still in the Hall of Fame while it plays")
+while g.field and g.field.stage ~= "team" do g:stepHofCinema(1) end
+g:hofCinemaPressed()
+check(not g:scriptWaiting(),
+  "and the wait is released when it ends, so releaseall can run")
+eq(g.map.id, "g1_1", "warps to the bedroom heal once it is done")
 eq(torchic.hp, torchic.maxHp, "heals the party")
 check(torchic.championRibbon, "Champion ribbon")
 check(not egg.championRibbon, "eggs skip SANITY_BIT3")
@@ -15020,8 +18265,10 @@ g.map = {
   id = "g0_22", width = 2, height = 2, grid = { 0, 0, 0, 0 },
   objects = {
     { localId = 1, x = 0, y = 1, graphicsId = 1,
+      trainerId = Game3.TRAINER_VICTOR,
       flagId = Game3.FLAG_HIDE_VICTOR_WINSTRATE },
     { localId = 2, x = 0, y = 0, graphicsId = 2,
+      trainerId = Game3.TRAINER_VICTORIA,
       flagId = Game3.FLAG_HIDE_VICTORIA_WINSTRATE },
   },
 }
@@ -15037,7 +18284,55 @@ g.phase = "play"
 g.battle = nil
 g:removeObject(1)
 check(g.flags[Game3.FLAG_HIDE_VICTOR_WINSTRATE], "removeobject sets hide")
-check(g:isNpcDefeated(g._scriptNpc), "Victor's hide flag looks defeated")
+check(g:isNpcDefeated(g._scriptNpc), "Victor stays defeated via trainer flag")
+check(g:trainerDefeated(Game3.TRAINER_VICTOR), true, "his 0x500+id bit is set")
+-- Shared Magma hide flags must not mark undefeated grunts as beaten.
+local magmaA = {
+  trainerId = 582, party = { { species = 280, level = 27 } },
+  flagId = 0x37A,
+}
+local magmaB = {
+  trainerId = 583, party = { { species = 280, level = 27 } },
+  flagId = 0x37A,
+}
+g.flags[0x37A] = true
+eq(g:isNpcDefeated(magmaA), false,
+  "shared Weather Institute hide flag is not a defeat")
+eq(g:isNpcDefeated(magmaB), false,
+  "so the other Magma grunt can still fight")
+g:setTrainerDefeated(582)
+check(g:isNpcDefeated(magmaA), "trainer flag still marks that grunt")
+eq(g:isNpcDefeated(magmaB), false, "without marking her neighbor")
+g.flags[0x37A] = nil
+g.flags[Game3.TRAINER_FLAG_START + 582] = nil
+-- Magma Hideout maps omit SetupEvilTeamGfxIds; enterMap must still paint
+-- GFX_VAR_* so grunts are not brown squares.
+local hideout = {
+  id = "g24_74", group = 24, index = 74,
+  width = 2, height = 2, grid = { 0, 0, 0, 0 },
+  objects = {
+    { localId = 1, x = 0, y = 0, graphicsId = Game3.GFX_VAR_1 },
+  },
+}
+local magmaMap = Game3.new()
+magmaMap.phase = "play"
+check(magmaMap:mapNeedsEvilTeamGfx(hideout), "Magma Hideout 1F needs gfx vars")
+magmaMap:enterMap(hideout, 1, 1, true)
+eq(magmaMap:resolveGraphicsId(Game3.GFX_VAR_1), Game3.GFX_MAGMA_MEMBER_M,
+  "enterMap sets Magma M on Hideout")
+eq(magmaMap:npcsFor(hideout)[1].graphicsId, Game3.GFX_MAGMA_MEMBER_M,
+  "so the grunt sprite resolves")
+-- Ran battles must not resume CONTINUE_SCRIPT after (Courtney Castform path).
+local ran = Game3.new()
+ran.phase = "battle"
+ran.scriptWait = { kind = "battle" }
+ran._scriptPause = { ops = { { op = "setflag", flag = 0x37A } }, at = 1 }
+ran.battleOutcome = Game3.B_OUTCOME_RAN
+ran.battle = { kind = "menu" }
+ran:endBattle()
+eq(ran.scriptWait, nil, "ran clears scripted battle wait")
+eq(ran._scriptPause, nil, "and drops the after-script pause")
+eq(ran.phase, "play", "back on the field")
 check(g:scriptTrainerBattle({
   kind = Game3.TRAINER_BATTLE_NO_INTRO,
   trainerId = Game3.TRAINER_VICTORIA,
@@ -15142,6 +18437,14 @@ check(BattleData.collectSpecies({ byMap = {} }, nil, {})[360] == true,
   "Wynaut pics are seeded for the Lavaridge egg")
 
 local g = Game3.new()
+-- decoration.c gDecorations rows for the two ids below. The inventory only
+-- reads `category`, so the tile lists are left out rather than invented.
+g.data.decorations = { count = 121, byId = {
+  [6]  = { permission = 0, shape = 8, width = 3, height = 3,
+           category = 0, price = 9000, tiles = {} },   -- PRETTY DESK
+  [13] = { permission = 1, shape = 0, width = 1, height = 1,
+           category = 1, price = 2000, tiles = {} },   -- PRETTY CHAIR
+} }
 eq(g:giveEgg(Game3.SPECIES_WYNAUT), 0, "giveegg into the party")
 eq(g.party[1].species, Game3.SPECIES_WYNAUT, "not remapped to Wobbuffet")
 
@@ -15165,10 +18468,11 @@ g:pickMauvilleMenu(7)
 eq(g:varGet(Gen3Script.VAR_RESULT), 7, "A on CANCEL is 7")
 
 check(g:addDecoration(Game3.DECOR_PRETTY_CHAIR), "AddDecoration")
-eq(g.decorations[13], 1, "one pretty chair")
+eq(g:decorationInventory(1)[1], 13, "first DECORCAT_CHAIR slot holds it")
+eq(g:numDecorationsInInventory(), 1, "one pretty chair")
 g.scriptVars[0x8000] = Game3.DECOR_PRETTY_DESK
 Gen3Script.run(g, { { op = "callstd", id = Gen3Script.STD_OBTAIN_DECORATION } })
-eq(g.decorations[6], 1, "callstd 7 gives the desk")
+eq(g:decorationInventory(0)[1], 6, "callstd 7 gives the desk, in DECORCAT_DESK")
 eq(g:varGet(Gen3Script.VAR_RESULT), 1, "RESULT TRUE")
 g.stringVars = {}
 Gen3Script.run(g, { { op = "bufferdecoration", slot = 0, id = 13 } })
@@ -15411,6 +18715,50 @@ eq(Gen3Script.SHOWCONTESTWINNER, 0x77, "showcontestwinner is 0x77")
 eq(Gen3Script.parse(string.char(0x77, 2, 0x02), 0)[1].op, "showcontestwinner",
   "showcontestwinner is kept")
 eq(Gen3Script.parse(string.char(0x77, 2, 0x02), 0)[1].contestId, 2, "painting id")
+eq(Game3.contestPaintingMosaic(0, 0), 15, "mosaic starts at 15")
+eq(Game3.contestPaintingMosaic(0, 0.5), 0, "mosaic clears after 30 frames")
+do
+  local paint = Game3.new()
+  paint.phase = "play"
+  paint.playSeconds = 0
+  paint.data.pokemon = {
+    byIndex = {
+      [280] = { name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45,
+        spa = 70, spd = 50, type1 = 10, type2 = 10 },
+    },
+  }
+  paint.party = { paint:makeMon(280, 5) }
+  paint.party[1].name = "TORCHY"
+  paint.contest = {
+    won = true, category = Game3.CONTEST_CATEGORY_COOL, rank = 0,
+    monIndex = 1, playerIndex = Game3.CONTEST_PLAYER_MON_INDEX,
+  }
+  paint.contestMons = {
+    [1] = { species = 280, nickname = "TORCHY", trainerName = "MAY",
+      contestCategory = 0 },
+    [2] = { species = 280, nickname = "A", trainerName = "A", contestCategory = 0 },
+    [3] = { species = 280, nickname = "B", trainerName = "B", contestCategory = 0 },
+    [4] = { species = 280, nickname = "TORCHY", trainerName = "MAY",
+      contestCategory = 0 },
+  }
+  paint.contestFinalStandings = { 1, 2, 3, 0 }
+  paint.customName = "MAY"
+  paint:showContestWinnerPainting(0)
+  eq(paint.field.kind, "contest_winner", "painting field")
+  check(paint.field.subject ~= nil, "subject is set")
+  eq(paint.field.subject.species, 280, "winner species")
+  check(paint.field.caption:find("COOL", 1, true) ~= nil, "caption has category")
+  check(paint.field.caption:find("TORCHY", 1, true) ~= nil, "caption has nick")
+  paint:drawContestPainting(paint.field)
+  check(true, "painting draws")
+  paint:runSpecial(Game3.SPECIAL_SAVE_MUSEUM_CONTEST_PAINTING)
+  local pic = paint.museumPortraits[1]
+  check(type(pic) == "table", "museum stores a portrait row")
+  eq(pic.species, 280, "museum species")
+  paint:showContestWinnerPainting(8)
+  check(paint.field.subject.museum == true, "id 8 is museum caption")
+  check(paint.field.caption:find("TORCHY", 1, true) ~= nil, "museum nick")
+end
 
 local g = Game3.new()
 g.phase = "play"
@@ -15480,14 +18828,25 @@ g:runSpecial(161)
 check(g:scriptWaiting(), "blender waits")
 eq(g.field.kind, "blender_berry", "berry pick")
 g:pickBlenderBerry(0)
+eq(g.field.kind, "blender_spin", "RPM minigame")
+eq(g:itemCount(Game3.ITEM_PECHA_BERRY), 0, "berry consumed at pick")
+eq(Game3.blenderHitGrade(8000, 0), "best", "yellow BEST window")
+eq(Game3.blenderHitGrade(3000, 0), "good", "green GOOD window")
+eq(Game3.blenderHitGrade(0, 0), "miss", "outside is MISS")
+eq(Game3.blenderRpmFromSpeed(128), 703, "start speed ~7.03 RPM")
+g.field.maxRpm = 12345
+g.field.progress = 1000
+g:finishBlenderSpin()
 eq(g:scriptWaiting(), false, "blend returns")
 eq(g.pokeblocks[1].color, Game3.PBLOCK_CLR_PINK, "Pecha makes PINK")
 eq(g:getFirstFreePokeblockSlot(), 1, "slot 1 is free")
-eq(g:itemCount(Game3.ITEM_PECHA_BERRY), 0, "berry consumed")
 eq((g.gameStats and g.gameStats[33]) or 0, 1, "GAME_STAT_POKEBLOCKS")
+eq((g.berryBlenderRecords and g.berryBlenderRecords[1]) or 0, 12345, "2P record")
 
 g.flags = { [0x80F] = true, [0x812] = true }
-g:openPokeNav()
+-- the visited-town list belongs to the map screen, which is now one entry in
+-- the PokeNav menu rather than the whole feature
+g.field = g:regionMapOpenState(false)
 eq(g.field.lines[1], "LITTLEROOT TOWN", "visited towns list")
 eq(g.field.lines[2], "LAVARIDGE TOWN", "Lavaridge is on the map")
 g:runSpecial(251)
@@ -15560,6 +18919,44 @@ g:setScriptVar(0x8004, 255)
 eq(g:runSpecial(Game3.SPECIAL_GET_NON_MASS_OUTBREAK_TV_SHOW), 255,
   "255 stays 255")
 eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW), 1, "DoTVShow ends the loop")
+
+;(function()
+local g = Game3.new()
+g.party = { g:makeMon(280, 5) }
+g:setScriptVar(0x8005, Game3.TVSHOW_FAN_CLUB_LETTER)
+g:interviewAfter()
+check(g.tvShows[6] and g.tvShows[6].kind == Game3.TVSHOW_FAN_CLUB_LETTER,
+  "InterviewAfter queues Fan Club Letter")
+eq(g.tvShows[6].active, true, "show is active")
+local idx = g:special0x44()
+eq(idx, 5, "special_0x44 finds the show")
+g:setScriptVar(0x8004, idx)
+eq(g:getTVShowType(), Game3.TVSHOW_FAN_CLUB_LETTER, "GetTVShowType")
+eq(g:doTVShow(), 0, "first DoTVShow page")
+eq(g.field.kind, "talk", "show opens talk")
+eq(g:doTVShow(), 1, "second DoTVShow finishes")
+eq(g.tvShows[6].active, false, "show is off the air")
+end)()
+
+;(function()
+local g = Game3.new()
+g.party = { g:makeMon(Game3.SPECIES_SHROOMISH, 5) }
+eq(g:roulettePartySpeciesFlags(), Game3.ROULETTE_HAS_SHROOMISH, "Shroomish flag")
+g.party[2] = g:makeMon(Game3.SPECIES_TAILLOW, 5)
+eq(g:roulettePartySpeciesFlags(),
+  Game3.ROULETTE_HAS_SHROOMISH + Game3.ROULETTE_HAS_TAILLOW, "both flags")
+g.coins = 100
+g.clockHour = 8
+g:playRoulette()
+eq(g.field.partySpeciesFlags,
+  Game3.ROULETTE_HAS_SHROOMISH + Game3.ROULETTE_HAS_TAILLOW, "roulette stamps party")
+local bias = g:rouletteTravelBias(0, 1)
+check(bias <= 2, "morning + both mons is tight travel")
+g.field.lastSlot = 3
+local slot = g:pickRouletteSlot()
+check(slot >= 0 and slot <= 11, "biased pick is a wheel index")
+end)()
+
 eq(g:runSpecial(Game3.SPECIAL_IS_POKERUS_IN_PARTY), 0, "no Pokerus is 0")
 g.party = { g:makeMon(280, 5) }
 g.party[1].pokerus = 1
@@ -15639,7 +19036,11 @@ g.gabbyAndTy.valA_0 = 0
 g:runSpecial(Game3.SPECIAL_RESET_TV_SHOW_STATE)
 eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 0")
 check(g._scriptSays[1]:find("IN SEARCH OF TRAINERS", 1, true) ~= nil, "intro")
-eq(g.stringVars[1], "this area", "unknown section")
+-- GetMapSectionName(gStringVar1, mapSecId, 0) reads gRegionMapEntries[].name.
+-- With no map loaded d.mapnum is 0, which is MAPSEC_LITTLEROOT_TOWN on the
+-- cart too -- not a placeholder.
+eq(g.stringVars[1], "LITTLEROOT TOWN", "section 0 is Littleroot")
+eq(g:mapSectionName(26) ~= "this area", true, "routes name themselves")
 eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 2")
 eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 0, "page 4")
 eq(g:runSpecial(Game3.SPECIAL_DO_TV_SHOW_IN_SEARCH_OF_TRAINERS), 1, "last page")
@@ -15713,9 +19114,17 @@ Input.wasPressed = function(_, key) return key == "a" end
 g:walkHeld(1 / 60)
 check(g:scriptWaiting(), "first JOY_NEW only erases")
 eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "first press does not open")
+-- DELIBERATE DEVIATION: Task_BrailleWait case 2 cancels on any JOY_NEW, but
+-- that made the very tap dismissing the braille arm a silent kill, and the
+-- screen looks identical either way. A now does nothing once the message is
+-- erased and the countdown keeps running; only B backs out.
 g:walkHeld(1 / 60)
-eq(g:scriptWaiting(), false, "second JOY_NEW cancels")
-eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "cancel does not open")
+check(g:scriptWaiting(), "a second A does not cancel any more")
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "and has not opened it either")
+Input.wasPressed = function(_, key) return key == "b" end
+g:walkHeld(1 / 60)
+eq(g:scriptWaiting(), false, "B is what backs out")
+eq(g.flags[Game3.FLAG_SYS_BRAILLE_WAIT], nil, "backing out does not open")
 Input.wasPressed = oldBraille
 
 g = Game3.new()
@@ -15723,7 +19132,7 @@ g.phase = "play"
 g.map = { id = "g13_0", width = 20, height = 12, grid = {} }
 for i = 1, 20 * 12 do g.map.grid[i] = 0 end
 g:runSpecial(Game3.SPECIAL_DO_LOTTERY_CORNER_COMPUTER_EFFECT)
-eq(g:scriptWaiting(), false, "lottery does not wait")
+eq(g:scriptWaiting(), true, "lottery waits for blinks")
 eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
   0, "first toggle is at frame 7")
 g:walkHeld((Game3.LOTTERY_BLINK_PERIOD - 1) / 60)
@@ -15740,6 +19149,7 @@ eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
 g:walkHeld((Game3.LOTTERY_BLINK_PERIOD * 3) / 60)
 eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
   Game3.MT_SHOP_LAPTOP1_FLASH, "5th blink leaves Flash")
+eq(g:scriptWaiting(), false, "blinks end the wait")
 g:runSpecial(Game3.SPECIAL_END_LOTTERY_CORNER_COMPUTER_EFFECT)
 eq(g:mapGridGetMetatileId(Game3.LOTTERY_LAPTOP_GX, Game3.LOTTERY_LAPTOP_GY),
   Game3.MT_SHOP_LAPTOP1_NORMAL, "EndLottery snaps Normal")
@@ -17231,11 +20641,27 @@ local hall = {
 g.data.maps = { maps = { g9_2 = lobby, g25_28 = hall } }
 g:enterMap(hall, 7, 5, true)
 g.invisible = true
-g.field = { kind = "move" }
-g._scriptPause = { ops = { { op = "end" } }, at = 1 }
+g.walkCooldown = 1
+g.moveJobs = {}
+check(not g:scriptMoving(), "hidden leftover lerp is not waitmovement")
 g:setScriptVar(Game3.VAR_LINK_CONTEST_ROOM_STATE, 1)
 g:setScriptVar(Game3.VAR_CONTEST_LOCATION, 3)
+g:setScriptVar(Game3.VAR_CONTEST_CATEGORY, Game3.CONTEST_CATEGORY_BEAUTY)
+g:setScriptVar(Game3.VAR_CONTEST_RANK, 0)
+g.contest = nil
+g.contestMons = nil
+g.contestMonIndex = 1
+g:runNpcScript({
+  { op = "waitmovement", localId = 0 },
+  { op = "startcontest" },
+})
+eq(g.field and g.field.kind, "contest_move", "hall waitmovement reaches startcontest")
 check(g:inContestHall(), "state 1 in LinkContestRoom1")
+check(not g:tryAbortContestHall(), "START does not dump mid-appeal")
+eq(g.map.id, "g25_28", "still in the hall")
+eq(g.field.kind, "contest_move", "appeal UI stays")
+g.field = { kind = "move" }
+g._scriptPause = { ops = { { op = "end" } }, at = 1 }
 check(g:tryAbortContestHall(), "START abort")
 eq(g.map.id, "g9_2", "15FB64 Slateport lobby")
 eq(g.playerX, 5, "lobby x")
@@ -17327,6 +20753,92 @@ press(g, "right")
 eq(g.field.bar, Game3.DEX_SCREEN_AREA, "RIGHT highlights AREA")
 press(g, "a")
 eq(g.field.screen, Game3.DEX_SCREEN_AREA, "A opens AREA")
+do
+  local Dex = require("src.import.RomExtractorGen3Dex")
+  local romPath = "misc/Pokemon - Ruby Version (USA).gba"
+  local rf = io.open(romPath, "rb")
+  if rf then
+    local rom = rf:read("*a")
+    rf:close()
+    eq(Dex.findFootprintTable(rom), Dex.RUBY_US.footprintTable,
+      "footprint table offset")
+    local gfx, pal, layout = Dex.findMenuChrome(rom)
+    eq(gfx, Dex.RUBY_US.menuGfx, "menu gfx")
+    eq(pal, Dex.RUBY_US.menuPal, "menu pal")
+    eq(layout, Dex.RUBY_US.detailLayout, "detail layout")
+    check(Dex.validMenuChrome(rom, gfx, pal, layout), "chrome validates")
+  end
+  local habitatHost = Game3.new()
+  habitatHost.data.encounters = {
+    byMap = {
+      g0_16 = {
+        mapGroup = 0, mapNum = 16,
+        land = { rate = 20, slots = { { species = 290, minLevel = 2, maxLevel = 3 } } },
+      },
+      g24_0 = {
+        mapGroup = 24, mapNum = 0,
+        land = { rate = 10, slots = { { species = 41, minLevel = 5, maxLevel = 8 } } },
+      },
+      g0_34 = {
+        mapGroup = 0, mapNum = 34,
+        fish = { rate = 30, slots = { { species = 349, minLevel = 20, maxLevel = 25 } } },
+      },
+    },
+  }
+  habitatHost.data.maps = {
+    maps = {
+      g0_16 = { id = "g0_16", group = 0, index = 16, regionMapSectionId = 16 },
+      g0_34 = { id = "g0_34", group = 0, index = 34, regionMapSectionId = 34 },
+      g24_0 = { id = "g24_0", group = 24, index = 0, regionMapSectionId = 63 },
+    },
+  }
+  local wurmple = habitatHost:dexHabitatFor(290)
+  check(wurmple.overworld[16] == true, "Wurmple glows on Route 101")
+  eq(Game3.dexHabitatCount(wurmple), 1, "Wurmple has one habitat")
+  local zubat = habitatHost:dexHabitatFor(41)
+  check(zubat.special[63] == true, "Zubat marks Meteor Falls")
+  check(not zubat.overworld[63], "dungeons are markers, not glow")
+  local feebas = habitatHost:dexHabitatFor(Game3.SPECIES_FEEBAS)
+  check(feebas.overworld[34] == true, "Feebas always lists Route 119")
+  local wynaut = habitatHost:dexHabitatFor(Game3.SPECIES_WYNAUT)
+  eq(Game3.dexHabitatCount(wynaut), 0, "Wynaut is hidden from AREA")
+  local RM = require("src.core.Game3RegionMap")
+  eq(RM.overworldFromUnderwater(50), 39, "underwater 124 → Route 124")
+  eq(RM.overworldFromUnderwater(59), 19, "Petalburg Woods → Route 104")
+  habitatHost.flags = { [RM.FLAG_LANDMARK_SKY_PILLAR] = false }
+  habitatHost.data.encounters.byMap.g24_sky = {
+    mapGroup = 24, mapNum = 99,
+    land = { rate = 5, slots = { { species = 384, minLevel = 70, maxLevel = 70 } } },
+  }
+  habitatHost.data.maps.maps.g24_sky = {
+    id = "g24_sky", group = 24, index = 99, regionMapSectionId = RM.MAPSEC_SKY_PILLAR,
+  }
+  local ray = habitatHost:dexHabitatFor(384)
+  check(not ray.special[RM.MAPSEC_SKY_PILLAR], "Sky Pillar hidden without landmark")
+  habitatHost.flags[RM.FLAG_LANDMARK_SKY_PILLAR] = true
+  ray = habitatHost:dexHabitatFor(384)
+  check(ray.special[RM.MAPSEC_SKY_PILLAR] == true, "Sky Pillar after landmark")
+  g.field.screen = Game3.DEX_SCREEN_AREA
+  g.field.species = 290
+  g.data.encounters = habitatHost.data.encounters
+  g.data.maps = habitatHost.data.maps
+  g.data.menus = {
+    dex = {
+      entry = "assets/generated/pokedex/entry.png",
+      footprints = "assets/generated/pokedex/footprints.png",
+      footprintCols = 20,
+      footprintPx = 16,
+      footprintTileX = 25,
+      footprintTileY = 8,
+    },
+  }
+  g:drawDexAreaScreen(g.field)
+  check(true, "AREA habitat map draws")
+  g:drawDexChrome()
+  check(true, "dex chrome falls back without image")
+  g:drawDexFootprint(280)
+  check(true, "footprint draw tolerates missing sheet")
+end
 press(g, "b")
 eq(g.field.screen, Game3.DEX_SCREEN_INFO, "B returns to INFO")
 press(g, "right")
@@ -17415,12 +20927,7 @@ press(again, "a")
 eq(again.field.kind, "nickname", "YES opens DoNamingScreen")
 eq(again.field.name, "WURMPLE", "buffer starts as the species name")
 again.field.name = "WURM"
-again.field.cursor = 0
-local keys = again.field.keys
-for i = 1, #keys do
-  if keys[i] == "END" then again.field.cursor = i - 1 break end
-end
-press(again, "a")
+press(again, "start")
 eq(again.party[2].name, "WURM", "SetMonData nickname")
 check(not again.field, "naming screen closed")
 
@@ -17513,7 +21020,8 @@ eq(g:regionMapKind(RM.MAPSEC_SOUTHERN_ISLAND), RM.KIND_NONE, "island hidden")
 g.flags[Game3.FLAG_LANDMARK_SOUTHERN_ISLAND] = true
 eq(g:regionMapKind(RM.MAPSEC_SOUTHERN_ISLAND), RM.KIND_LANDMARK, "island is 1")
 
-g:openPokeNav()
+-- the zoom belongs to the map screen inside the PokeNav
+g.field = g:regionMapOpenState(false)
 eq(g.field.kind, "pokenav", "POKeNAV")
 eq(g.field.zoomed, false, "starts unzoomed")
 Input:init()
@@ -17561,6 +21069,476 @@ g:stepField()
 Input.wasPressed = old
 eq(g.map.id, "g0_9", "A on a visited town flies")
 check(g.field.kind == "talk", "then the flew line")
+end)()
+
+-- ------- start-of-turn residuals must not crash beginTurn
+
+-- YAWN, WISH and FUTURE SIGHT all speak at the top of the turn, before the
+-- turn's own `queue` local exists. They were appending to a bare `texts`,
+-- which is a nil global, so beginTurn died on #texts the moment any of the
+-- three actually resolved. They return {} otherwise, which is why an
+-- ordinary battle never hit it.
+;(function()
+-- Same data and starter the runtime battle tests above use.
+local function fighting()
+  local g = Game3.new()
+  g.phase = "play"
+  g.data = field.data
+  g.map = field.map
+  g.rng = function() return 1 end
+  g.party = { g:makeMon(280, 5) }
+  g:startWildBattle(286, 5)
+  g.battle.kind = "menu"
+  return g
+end
+
+-- YAWN coming due puts the mon to sleep and says so.
+local y = fighting()
+y.battle.player.yawnTurns = 1
+local ok, err = pcall(function()
+  y:beginTurn(y.battle.player.moves[1])
+end)
+check(ok, "a YAWN coming due does not crash beginTurn: " .. tostring(err))
+check(y.battle.queue and #y.battle.queue > 0, "the turn still queues text")
+eq(y.battle.player.yawnTurns, nil, "and the YAWN counter is spent")
+
+-- WISH and FUTURE SIGHT take the same path.
+local w = fighting()
+w.battle.player.wishTurns = 1
+w.battle.player.hp = 1
+ok, err = pcall(function() w:beginTurn(w.battle.player.moves[1]) end)
+check(ok, "a WISH coming due does not crash either: " .. tostring(err))
+
+local fs = fighting()
+fs.battle.enemy.futureTurns = 1
+ok, err = pcall(function() fs:beginTurn(fs.battle.player.moves[1]) end)
+check(ok, "nor does FUTURE SIGHT landing: " .. tostring(err))
+
+-- An ordinary turn is unchanged: nothing due, nothing extra queued.
+local plain = fighting()
+plain:beginTurn(plain.battle.player.moves[1])
+check(plain.battle.queue and #plain.battle.queue >= 2,
+  "a turn with no residual due still runs both sides")
+end)()
+
+-- ------- script-only species must be collected before the scripts are baked
+
+-- run() bakes map scripts in the Cache stage, AFTER extractBattle calls
+-- collectSpecies. Every entry.script was still a raw offset at that point, so
+-- collectScriptSpecies' type(script) == "table" test failed on every entry and
+-- it collected nothing at all -- the regis, Groudon, Rayquaza and Latios have
+-- no wild table, no evolution and no trainer, so they ended up with no battle
+-- pic and appeared as a blank rectangle. It now parses from scriptOff.
+;(function()
+local BattleData = require("src.import.RomExtractorGen3Battle")
+local function rom(species)
+  -- setwildbattle <species> <level> <item>, then end
+  local lo = species % 256
+  local hi = math.floor(species / 256) % 256
+  local body = string.char(0xB6, lo, hi, 40, 0, 0, 0x02)
+  return string.rep(string.char(0), 0x40) .. body, 0x40
+end
+
+local data, off = rom(402)
+
+-- unbaked: only scriptOff, exactly what extractBattle sees
+local unbaked = { maps = { a = { objects = { { x = 1, y = 1, scriptOff = off } },
+  bgEvents = {}, coordEvents = {} } } }
+local got = BattleData.collectScriptSpecies(unbaked, {}, data)
+check(got[402], "a species only named by an unbaked script is still collected")
+
+-- without the ROM there is nothing it can do, and it must not blow up
+local none = BattleData.collectScriptSpecies(unbaked, {})
+eq(none[402], nil, "with no ROM to parse it simply finds nothing")
+
+-- baked: the same map after bakeMapScripts
+local baked = { maps = { a = { objects = { { x = 1, y = 1, script = {
+  { op = "setwildbattle", species = 402, level = 40 } } } },
+  bgEvents = {}, coordEvents = {} } } }
+check(BattleData.collectScriptSpecies(baked, {}, data)[402],
+  "and a baked script still works the way it always did")
+
+-- nested under a call_if body, which the old top-level-only walk missed
+local nested = { maps = { a = { objects = { { x = 1, y = 1, script = {
+  { op = "call_if", cond = 1, body = {
+    { op = "setwildbattle", species = 403, level = 40 } } } } } },
+  bgEvents = {}, coordEvents = {} } } }
+check(BattleData.collectScriptSpecies(nested, {}, data)[403],
+  "a setwildbattle inside a call_if body counts too")
+
+-- mapScripts is keyed, never an array: ipairs over it walked nothing
+local keyed = { maps = { a = { objects = {}, bgEvents = {}, coordEvents = {},
+  mapScripts = { onLoad = { { op = "givemon", species = 401, level = 5 } } } } } }
+check(BattleData.collectScriptSpecies(keyed, {}, data)[401],
+  "a species handed out by onLoad is collected")
+end)()
+
+-- ------- YAWN and WISH belong to the end of the turn
+
+-- battle_util.c puts YAWN in the per-battler end-turn list (ENDTURN_YAWN,
+-- after TAUNT) and WISH in the field one (ENDTURN_WISH, ahead of the
+-- weathers). beginTurn ticked both at the TOP of the turn, so a yawned
+-- battler fell asleep before it had moved and lost a turn the cart gives it.
+;(function()
+local function turnOf(setup)
+  local g = Game3.new()
+  g.phase = "play"
+  g.data = field.data
+  g.map = field.map
+  g.rng = function() return 1 end
+  g.party = { g:makeMon(280, 5) }
+  g:startWildBattle(286, 5)
+  g.battle.kind = "menu"
+  setup(g)
+  g:beginTurn(g.battle.player.moves[1])
+  return g, g.battle.queue or {}
+end
+local function indexOf(q, needle)
+  for i = 1, #q do
+    if tostring(q[i]):find(needle, 1, true) then return i end
+  end
+end
+
+local g, q = turnOf(function(gg) gg.battle.enemy.yawnTurns = 1 end)
+local acted = indexOf(q, "POOCHYENA used")
+local slept = indexOf(q, "fell asleep")
+check(acted, "the yawned battler still takes its turn")
+check(slept, "and then falls asleep")
+check(acted < slept, "it acts BEFORE the sleep lands, not after")
+eq(g.battle.enemy.status, Game3.STATUS_SLP, "it is asleep once the turn ends")
+check(indexOf(q, "is fast asleep") == nil,
+  "it never loses the turn to a sleep applied at the top of it")
+
+-- A yawn with turns left just counts down and says nothing.
+local g2, q2 = turnOf(function(gg) gg.battle.enemy.yawnTurns = 2 end)
+eq(indexOf(q2, "fell asleep"), nil, "a yawn not yet due is silent")
+eq(g2.battle.enemy.yawnTurns, 1, "and counts down")
+eq(g2.battle.enemy.status, nil, "leaving it awake")
+
+-- WISH heals at the end of the turn too.
+local g3, q3 = turnOf(function(gg)
+  gg.battle.player.hp = math.max(1, math.floor((gg.battle.player.maxHp or 2) / 2))
+  gg.battle.player.wishTurns = 1
+end)
+eq(g3.battle.player.wishTurns, nil, "the wish is spent at the end of the turn")
+local healed = indexOf(q3, "recovered HP")
+if healed then
+  local used = indexOf(q3, "used")
+  check(used and used < healed, "and heals after the turn's moves, not before")
+end
+end)()
+
+-- ------- the Hall of Fame screen
+
+-- post_battle_event_funcs.c GameClear ends with SetMainCallback2(sub_8141F90):
+-- it leaves the overworld for the Hall of Fame screen, where each party mon
+-- slides in, cries and is captioned, and only afterwards do you go home.
+-- gameClear here did the bookkeeping and warped straight to the bedroom, so
+-- beating the champion showed nothing at all.
+;(function()
+local function champion(n)
+  local g = Game3.new()
+  g.phase = "play"
+  g.data = field.data
+  g.map = field.map
+  g.rng = function() return 1 end
+  g.flags = {}
+  g.party = {}
+  for i = 1, n do g.party[i] = g:makeMon(280, 40) end
+  return g
+end
+
+-- sHallOfFame_MonsFullTeamPositions / ...HalfTeamPositions, { sx, sy, dx, dy }
+eq(#Game3.HOF_FULL_TEAM_POS, 6, "six slots in the full-team layout")
+eq(#Game3.HOF_HALF_TEAM_POS, 3, "three in the half-team one")
+local full = { { 120, 210, 120, 40 }, { 326, 220, 56, 40 },
+  { -86, 220, 184, 40 }, { 120, -62, 120, 88 }, { -25, -62, 200, 88 },
+  { 265, -62, 40, 88 } }
+for i = 1, 6 do
+  local got, want = Game3.hofSlotPos(i, 6), full[i]
+  eq(table.concat(got, ","), table.concat(want, ","),
+    "full-team slot " .. i .. " matches the cart")
+end
+eq(table.concat(Game3.hofSlotPos(1, 3), ","), "120,214,120,64",
+  "a team of three uses the other table")
+
+-- gameClear opens the screen instead of warping home
+local g = champion(6)
+check(g:gameClear(), "gameClear succeeds")
+eq(g.field and g.field.kind, "hof", "and it opens the Hall of Fame screen")
+check(g.flags[Game3.FLAG_SYS_GAME_CLEAR], "the clear flag is still set")
+check(g.party[1].championRibbon, "and the champion ribbons still land")
+
+-- every mon is presented in turn, then the team
+local f = g.field
+local shown = {}
+for i = 1, 5000 do
+  shown[f.slot] = true
+  g:stepHofCinema(1)
+  if f.stage == "done" then break end
+end
+eq(f.stage, "done", "the presentation finishes")
+for i = 1, 6 do check(shown[i], "mon " .. i .. " got its turn") end
+
+-- a mon slides in for HOF_SLIDE_FRAMES, then holds for HOF_MON_HOLD_FRAMES
+local h = champion(2)
+h:gameClear()
+local hf = h.field
+eq(hf.stage, "slide", "it starts by sliding the first mon in")
+local sx, sy = h:hofMonXY(hf, 1)
+eq(sy, Game3.hofSlotPos(1, 2)[2], "starting off the bottom of the screen")
+h:stepHofCinema(Game3.HOF_SLIDE_FRAMES)
+eq(hf.stage, "hold", "then holds once it arrives")
+local dx, dy = h:hofMonXY(hf, 1)
+eq(dx, Game3.hofSlotPos(1, 2)[3], "parked on the destination x")
+eq(dy, Game3.hofSlotPos(1, 2)[4], "and its destination y")
+check(sy ~= dy, "so it really travelled -- slot 1 slides straight up")
+eq(h:hofMonXY(hf, 2), nil, "a mon whose turn has not come is not on screen")
+
+-- A does nothing until the whole team is up, so a stray tap cannot eat it
+local p = champion(3)
+p:gameClear()
+eq(p:hofCinemaPressed(), false, "a press mid-presentation is ignored")
+eq(p.field and p.field.kind, "hof", "the screen stays up")
+while p.field.stage ~= "team" do p:stepHofCinema(1) end
+check(p:hofCinemaPressed(), "once the team is up, a press moves on")
+eq(p.field, nil, "the screen closes")
+end)()
+
+-- battle_main.c TryRunFromBattle. Running used to be unconditional: the RUN
+-- option set kind="ran" outright, so you could always walk out of any wild
+-- battle. The cart only lets you go for free when you are at least as fast
+-- as the foe; slower than it, escaping is a roll that gets easier with each
+-- failed try.
+;(function()
+local Game3 = require("src.core.Game3")
+local function runner(mySpe, foeSpe, roll)
+  local g = Game3.new()
+  local me  = { name = "MINE", hp = 20, maxHp = 20, spe = mySpe }
+  local foe = { name = "FOE",  hp = 20, maxHp = 20, spe = foeSpe }
+  g.battle = { player = me, enemy = foe }
+  g.speedOf = function(_, mon) return mon and mon.spe or 0 end
+  g.holdEffectOf = function() return nil end
+  g.hasAbility = function() return false end
+  g.gbaRandom = function() return roll or 0 end
+  return g, me
+end
+
+local g, me = runner(50, 50)
+check(g:tryRunFromBattle(me), "equal speed always gets away")
+g, me = runner(90, 50)
+check(g:tryRunFromBattle(me), "and so does being faster")
+
+-- 40 vs 200: (40*128)/200 = 25, so it beats a roll under 25 and loses to 25.
+g, me = runner(40, 200, 24)
+check(g:tryRunFromBattle(me), "slower: 25 > roll 24 escapes")
+g, me = runner(40, 200, 25)
+check(not g:tryRunFromBattle(me), "slower: 25 is not > roll 25, so it fails")
+g, me = runner(40, 200, 255)
+check(not g:tryRunFromBattle(me), "and a max roll never escapes on one try")
+
+-- runTries adds 30 per attempt, so the same hopeless roll comes good later.
+g, me = runner(40, 200, 54)
+check(not g:tryRunFromBattle(me), "first try: 25 loses to 54")
+eq(g.battle.runTries, 1, "a failed try still counts")
+check(g:tryRunFromBattle(me), "second try: 25 + 30 = 55 clears it")
+eq(g.battle.runTries, 2, "and a successful one counts too")
+
+-- The roll only reads the low byte of Random().
+g, me = runner(40, 200, 0x100 + 24)
+check(g:tryRunFromBattle(me), "only the low byte of the roll is used")
+
+-- Smoke Ball and RUN AWAY skip the roll even when hopelessly outsped.
+g, me = runner(1, 255, 255)
+g.holdEffectOf = function() return Game3.HOLD_EFFECT_CAN_ALWAYS_RUN end
+local ok, hold = g:tryRunFromBattle(me)
+check(ok, "a SMOKE BALL always gets away")
+eq(hold, Game3.HOLD_EFFECT_CAN_ALWAYS_RUN, "and reports the item that did it")
+eq(g.battle.runTries, nil, "the roll is skipped entirely, so nothing is spent")
+
+g, me = runner(1, 255, 255)
+g.hasAbility = function(_, _, ab) return ab == Game3.ABILITY_RUN_AWAY end
+local ok2, _, ability = g:tryRunFromBattle(me)
+check(ok2, "RUN AWAY always gets away")
+eq(ability, Game3.ABILITY_RUN_AWAY, "and reports the ability")
+
+-- A wild double battle cannot be fled: the cart's branch leaves effect unset.
+g, me = runner(255, 1, 0)
+g.battle.doubles = true
+check(not g:tryRunFromBattle(me),
+  "no escaping a double battle even at top speed")
+end)()
+
+-- ...and losing the roll costs the turn, so the wild POKeMON still attacks.
+-- The RUN option used to set kind="ran" outright, which ended the battle
+-- before the enemy ever moved.
+;(function()
+local Input = require("src.core.Input")
+local oldSpeed, oldRand = field.speedOf, field.gbaRandom
+local function chooseRun()
+  field:startWildBattle(290, 2)
+  field.battle.kind = "menu"
+  field.battle.cursor = 3
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, key) return key == "a" end
+  field:stepBattle(0)
+  Input.wasPressed = old
+  return field.battle
+end
+
+-- hopelessly outsped, worst roll
+field.speedOf = function(_, mon)
+  return mon == field.battle.enemy and 200 or 40
+end
+field.gbaRandom = function() return 255 end
+local b = chooseRun()
+eq(b.kind, "text", "a failed run does not end the battle")
+eq(b.queue and b.queue[1], "Can't escape!", "it says so first")
+check(b.queue and #b.queue >= 2, "and the wild POKeMON still gets its move")
+
+-- faster: away cleanly, no roll spent
+field.speedOf = function(_, mon)
+  return mon == field.battle.enemy and 40 or 200
+end
+b = chooseRun()
+eq(b.kind, "ran", "outspeeding the foe always escapes")
+eq(b.text, "Got away safely!", "with the cart's line")
+
+field.speedOf, field.gbaRandom = oldSpeed, oldRand
+end)()
+
+-- atk1B_cleareffectsonfaint: fainting zeroes status1 and writes that zero
+-- straight back to the party mon, which is why a revived POKeMON is not
+-- still poisoned. The sweep only looked at the four battler slots at BATTLE
+-- END, so anything that fainted and was then switched out kept its PSN all
+-- the way to the party screen.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+local lead    = { name = "LEAD",    hp = 0,  maxHp = 20,
+                  status = Game3.STATUS_SLP, sleepTurns = 3 }
+local active  = { name = "ACTIVE",  hp = 10, maxHp = 20,
+                  status = Game3.STATUS_PSN }
+local swapped = { name = "SWAPPED", hp = 0,  maxHp = 20,
+                  status = Game3.STATUS_PSN }
+local foeDown = { name = "FOEDOWN", hp = 0,  maxHp = 20,
+                  status = Game3.STATUS_BRN }
+g.party = { lead, active, swapped }
+g.battle = {
+  player = active,
+  enemy = { name = "FOE", hp = 5, maxHp = 5 },
+  trainerParty = { foeDown },
+}
+g:clearFaintedStatus()
+eq(lead.status, nil, "a fainted party mon loses its status")
+eq(lead.sleepTurns, nil, "and the sleep counter with it")
+eq(swapped.status, nil,
+  "including one that fainted and was already switched out -- the four"
+  .. " battler slots never saw it")
+eq(active.status, Game3.STATUS_PSN, "a living mon keeps its status")
+eq(foeDown.status, nil, "the trainer's fainted mon is cleared too")
+
+-- The clear happens as the faint's messages resolve, not only at battle end.
+local g2 = Game3.new()
+local cleared = false
+g2.battle = { queue = {}, qi = 1 }
+g2.clearFaintedStatus = function() cleared = true end
+g2.startPendingLearn = function() return true end
+g2:afterBattleMessages()
+check(cleared, "afterBattleMessages clears fainted status before anything else")
+end)()
+
+-- birch_pc.c ScriptGetPokedexInfo reads VAR_0x8004 to choose WHICH dex to
+-- count: prof_birch.inc calls it with 0 for the Hoenn totals and, if the
+-- National dex is unlocked, again with 1 for the nationwide ones. Counting
+-- whichever dex happened to be unlocked made the second message a copy of
+-- the first.
+;(function()
+local Game3 = require("src.core.Game3")
+local Gen3Script = require("src.import.Gen3Script")
+local g = Game3.new()
+g.phase = "play"
+g.seen = { [1] = true, [2] = true }
+g.caught = { [1] = true }
+-- species 1 is in the Hoenn dex, species 2 is National-only
+g.hasHoennDexTable = function() return true end
+g.hoennDexOf = function(_, id) return id == 1 and 5 or nil end
+g.nationalDexOf = function(_, id) return id end
+
+local hs, hc = g:dexCountsFor(false)
+eq(hs, 1, "the Hoenn count sees only the Hoenn-listed species")
+eq(hc, 1, "and counts it caught")
+local ns, nc = g:dexCountsFor(true)
+eq(ns, 2, "the National count sees both")
+eq(nc, 1, "with the same one caught")
+
+g.hasNationalDex = function() return true end
+g:setScriptVar(0x8004, 0)
+g:runSpecial(Game3.SPECIAL_GET_POKEDEX_INFO)
+eq(g.scriptVars[0x8005], 1, "0x8004 = 0 asks for the Hoenn totals")
+eq(g:varGet(Gen3Script.VAR_RESULT), 1, "VAR_RESULT still reports National")
+g:setScriptVar(0x8004, 1)
+g:runSpecial(Game3.SPECIAL_GET_POKEDEX_INFO)
+eq(g.scriptVars[0x8005], 2, "0x8004 = 1 asks for the National totals")
+eq(g.scriptVars[0x8006], 1, "caught is reported either way")
+end)()
+
+-- Losing a trainerbattle blacks you out from INSIDE the script, which is
+-- still parked on the `waitstate` that follows the battle. The cart does
+-- not resume it: DoWhiteOut sets up EventScript_WhiteOut, which replaces
+-- whatever was running, so the trainer's post-battle lines are discarded.
+-- endBattle handles that for every other outcome, but blackout does not go
+-- through endBattle, so scriptWait stayed set and the field waited forever
+-- on a script that could never come back -- losing to a gym leader froze
+-- the game where you stood.
+;(function()
+local Game3 = require("src.core.Game3")
+local function downed(setup)
+  local g = Game3.new()
+  g.phase = "battle"
+  g.data.pokemon = { byIndex = { [280] = {
+    name = "TORCHIC", hp = 45, atk = 60, def = 40, spe = 45, spa = 70,
+    spd = 50, type1 = 10, type2 = 10, catchRate = 45, expYield = 65,
+    growthRate = 3,
+  } } }
+  local town = { id = "g0_9", group = 0, index = 9, width = 4, height = 4,
+    mapType = Game3.MAP_TYPE_TOWN, grid = { 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0 }, spawn = { x = 1, y = 1 } }
+  g.data.maps = { maps = { g0_9 = town } }
+  g:enterMap(town, 1, 1, true)
+  g.lastHeal = { mapId = "g0_9", x = 1, y = 1 }
+  g.party = { g:makeMon(280, 5) }
+  g.party[1].hp = 0
+  if setup then setup(g) end
+  g:blackout()
+  return g
+end
+
+-- a trainerbattle leaves the script parked on waitstate
+local g = downed(function(gg)
+  gg.scriptWait = true
+  gg._scriptPause = { ops = {}, at = 1 }
+  gg._scriptDepth = 1
+  gg.battle = { isTrainer = true }
+end)
+eq(g.scriptWait, nil,
+  "the whiteout drops the battle script instead of waiting on it")
+eq(g._scriptPause, nil, "and the paused instruction with it")
+eq(g._scriptDepth, nil, "and the depth, so the field is not held")
+eq(g.phase, "play", "control returns to the overworld")
+
+-- ResetInitialPlayerAvatarState: DIR_SOUTH, on foot.
+local h = downed(function(gg)
+  gg.facing = "north"
+  gg.surfing = true
+end)
+eq(h.facing, "south", "and the avatar faces south again")
+eq(h.surfing, nil, "on foot, not still surfing")
+
+-- A plain wild loss has no script to drop and must still be fine.
+local k = downed(function(gg) gg.battle = { isTrainer = false } end)
+eq(k.scriptWait, nil, "a wild blackout leaves nothing waiting either")
+eq(k.phase, "play", "and also returns control")
 end)()
 
 S.finish()

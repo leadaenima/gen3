@@ -186,12 +186,13 @@ Party.HP_BAR_AT = {
 
 -- party_menu.h PARTY_MENU_LAYOUT_*. DrawPartyMonBackground writes
 -- STANDARD when IsDoubleBattle() is false, DOUBLE when it is an in-game
--- double, LINK_DOUBLE only for a real link double. CreateMonIcon indexes
--- gUnknown_08376678 with the same 0/1/2 values (TYPE_STANDARD / BATTLE /
--- CONTEST coincidentally share those numbers).
+-- double, LINK_DOUBLE for a link double, MULTI for Cable Club multi.
+-- CreateMonIcon indexes gUnknown_08376678 with the same 0/1/2 values for
+-- the first three; MULTI reorders slots like gUnknown_08376678[3].
 Party.LAYOUT_STANDARD = 0
 Party.LAYOUT_DOUBLE = 1
 Party.LAYOUT_LINK_DOUBLE = 2
+Party.LAYOUT_MULTI = 3
 
 -- CreateSprite anchors on the sprite centre, so a 32x32 icon's top-left
 -- is (cx - 16, cy - 16). ICON_AT above is already converted; these helpers
@@ -234,8 +235,8 @@ Party.HP_BAR_AT_DOUBLE = {
 }
 
 -- gUnknown_083769A8[gPartyMenuType=2] lands in gUnknown_083769C0.
--- Tables are here so a later link-double slice does not re-derive them;
--- the runtime does not select this layout unless asked.
+-- Link-double: two tall leads stacked left; right column shifted one
+-- tile down vs in-game DOUBLE (PartyMonTextSettings row 2).
 Party.BOX_AT_LINK_DOUBLE = {
   { 0, 1 }, { 0, 8 }, { 11, 2 }, { 11, 5 }, { 11, 9 }, { 11, 12 },
 }
@@ -248,15 +249,45 @@ Party.LEVEL_AT_LINK_DOUBLE = {
 Party.NAME_AT_LINK_DOUBLE = {
   { 5, 2 }, { 5, 9 }, { 16, 2 }, { 16, 5 }, { 16, 9 }, { 16, 12 },
 }
+Party.NAME_BOX_LINK_DOUBLE = {
+  { 2, 2, 10, 7 }, { 2, 9, 10, 14 },
+  { 16, 2, 29, 4 }, { 16, 5, 29, 7 }, { 16, 9, 29, 11 }, { 16, 12, 29, 14 },
+}
 Party.HP_BAR_VRAM_LINK_DOUBLE = { 0xF148, 0xF308, 0xF0EE, 0xF1AE, 0xF2AE, 0xF36E }
 Party.HP_BAR_AT_LINK_DOUBLE = {
   { 4, 5 }, { 4, 12 }, { 23, 3 }, { 23, 6 }, { 23, 10 }, { 23, 13 },
 }
 
+-- PARTY_MENU_LAYOUT_MULTI_BATTLE: same boxes as link-double, slots
+-- reordered (player left / partner right pairs). gUnknown_08376678[3]
+-- icon centres; gUnknown_08376858[3] HP VRAM; PartyMonTextSettings[3].
+Party.BOX_AT_MULTI = {
+  { 0, 1 }, { 11, 2 }, { 11, 5 }, { 0, 8 }, { 11, 9 }, { 11, 12 },
+}
+Party.ICON_AT_MULTI = {
+  { 0, 8 }, { 88, 10 }, { 88, 34 }, { 0, 64 }, { 88, 66 }, { 88, 90 },
+}
+Party.LEVEL_AT_MULTI = {
+  { 6, 3 }, { 17, 3 }, { 17, 6 }, { 6, 10 }, { 17, 10 }, { 17, 13 },
+}
+Party.NAME_AT_MULTI = {
+  { 5, 2 }, { 16, 2 }, { 16, 5 }, { 5, 9 }, { 16, 9 }, { 16, 12 },
+}
+Party.NAME_BOX_MULTI = {
+  { 2, 2, 10, 7 }, { 16, 2, 29, 4 }, { 16, 5, 29, 7 },
+  { 2, 9, 10, 14 }, { 16, 9, 29, 11 }, { 16, 12, 29, 14 },
+}
+Party.HP_BAR_VRAM_MULTI = { 0xF148, 0xF0EE, 0xF1AE, 0xF308, 0xF2AE, 0xF36E }
+Party.HP_BAR_AT_MULTI = {
+  { 4, 5 }, { 23, 3 }, { 23, 6 }, { 4, 12 }, { 23, 10 }, { 23, 13 },
+}
+
 -- DrawPartyMonBackground: slots 0 and 1 use the 11x7 lead box in any
--- double layout; STANDARD only stamps it on slot 0.
+-- double layout; MULTI uses slots 0 and 3 (left column). STANDARD only
+-- stamps the lead shape on slot 0.
 function Party.isLeadSlot(layout, slot)
   if slot == 0 then return true end
+  if layout == Party.LAYOUT_MULTI then return slot == 3 end
   return slot == 1 and (layout == Party.LAYOUT_DOUBLE
     or layout == Party.LAYOUT_LINK_DOUBLE)
 end
@@ -277,8 +308,19 @@ function Party.layoutFields(layout)
       boxAt = Party.BOX_AT_LINK_DOUBLE,
       iconAt = Party.ICON_AT_LINK_DOUBLE,
       nameAt = Party.NAME_AT_LINK_DOUBLE,
+      nameBox = Party.NAME_BOX_LINK_DOUBLE,
       levelAt = Party.LEVEL_AT_LINK_DOUBLE,
       hpBarAt = Party.HP_BAR_AT_LINK_DOUBLE,
+    }
+  end
+  if layout == Party.LAYOUT_MULTI then
+    return {
+      boxAt = Party.BOX_AT_MULTI,
+      iconAt = Party.ICON_AT_MULTI,
+      nameAt = Party.NAME_AT_MULTI,
+      nameBox = Party.NAME_BOX_MULTI,
+      levelAt = Party.LEVEL_AT_MULTI,
+      hpBarAt = Party.HP_BAR_AT_MULTI,
     }
   end
   return {
@@ -600,6 +642,7 @@ function Party.extract(data)
       [Party.LAYOUT_STANDARD] = Party.layoutFields(Party.LAYOUT_STANDARD),
       [Party.LAYOUT_DOUBLE] = Party.layoutFields(Party.LAYOUT_DOUBLE),
       [Party.LAYOUT_LINK_DOUBLE] = Party.layoutFields(Party.LAYOUT_LINK_DOUBLE),
+      [Party.LAYOUT_MULTI] = Party.layoutFields(Party.LAYOUT_MULTI),
     },
   }
 end

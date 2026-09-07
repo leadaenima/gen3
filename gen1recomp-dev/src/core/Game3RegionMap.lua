@@ -7,11 +7,41 @@ M.CURSOR_X_MIN = 1
 M.CURSOR_Y_MIN = 2
 M.MAPSEC_NONE = 88
 M.MAPSEC_LITTLEROOT = 0
+M.MAPSEC_LILYCOVE = 12
+M.MAPSEC_SOOTOPOLIS = 14
 M.MAPSEC_EVER_GRANDE = 15
 M.MAPSEC_ROUTE_104 = 19
+M.MAPSEC_ROUTE_112 = 27
+M.MAPSEC_ROUTE_119 = 34
+M.MAPSEC_ROUTE_122 = 37
+M.MAPSEC_ROUTE_124 = 39
+M.MAPSEC_ROUTE_126 = 41
+M.MAPSEC_ROUTE_127 = 42
+M.MAPSEC_ROUTE_128 = 43
+M.MAPSEC_ROUTE_131 = 46
+M.MAPSEC_ROUTE_134 = 49
+M.MAPSEC_UNDERWATER_124 = 50
+M.MAPSEC_UNDERWATER_125 = 51
+M.MAPSEC_UNDERWATER_126 = 52
+M.MAPSEC_UNDERWATER_127 = 53
+M.MAPSEC_UNDERWATER_SOOTOPOLIS = 54
 M.MAPSEC_BATTLE_TOWER = 58
-M.MAPSEC_SOUTHERN_ISLAND = 73
+M.MAPSEC_PETALBURG_WOODS = 59
 M.MAPSEC_MT_CHIMNEY = 56
+M.MAPSEC_MT_PYRE = 65
+M.MAPSEC_MAGMA_HIDEOUT = 66
+M.MAPSEC_SEAFLOOR_CAVERN = 68
+M.MAPSEC_UNDERWATER_128 = 69
+M.MAPSEC_SOUTHERN_ISLAND = 73
+M.MAPSEC_JAGGED_PASS = 76
+M.MAPSEC_UNDERWATER_SEALED_CHAMBER = 79
+M.MAPSEC_SKY_PILLAR = 85
+-- region_map.c sUnderwaterMaps: glow uses the surface MAPSEC.
+M.OVERWORLD_FROM_UNDERWATER = {
+  [50] = 39, [51] = 41, [52] = 42, [53] = 43, [54] = 14,
+  [69] = 43, [66] = 12, [79] = 49, [59] = 19, [76] = 27,
+  [65] = 37, [85] = 46,
+}
 -- CalcZoomScrollParams pivot (0x38, 0x48). Affine PA 256 = 1×, 128 = 2×.
 M.ZOOM_CX = 0x38
 M.ZOOM_CY = 0x48
@@ -189,6 +219,12 @@ function M.name(id)
   id = math.floor(tonumber(id) or 0)
   if id < 0 or id >= M.MAPSEC_NONE then return '' end
   return M.NAMES[id + 1] or ''
+end
+
+-- pokedex_area_screen.c SetAreaHasMon → GetOverworldMapFromUnderwaterMap.
+function M.overworldFromUnderwater(sec)
+  sec = math.floor(tonumber(sec) or 0)
+  return M.OVERWORLD_FROM_UNDERWATER[sec] or sec
 end
 
 function M.cursorForSection(id)

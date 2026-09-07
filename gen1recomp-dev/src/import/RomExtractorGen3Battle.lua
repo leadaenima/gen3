@@ -18,6 +18,14 @@ Battle.WATER_SLOTS = 5
 Battle.ROCK_SLOTS = 5
 Battle.FISH_SLOTS = 10
 Battle.STARTER_SPECIES = 280 -- Torchic, Ruby's fire starter
+-- ANIM_TAG_GOLD_STARS = ANIM_SPRITES_START(10000)+233; sheet is 0xC0 bytes
+-- (6 tiles = 16x24). Used by TryShinyAnimation send-out sparkles.
+Battle.GOLD_STARS_TAG = 10233
+Battle.GOLD_STARS_BYTES = 0xC0
+Battle.GOLD_STARS_W = 16
+Battle.GOLD_STARS_H = 24
+Battle.POKERUBY_GOLD_STARS =
+  "misc/pokeruby-master/pokeruby-master/graphics/battle_anims/sprites/233.png"
 Battle.FRONT_PICS = 0x1E8354
 Battle.BACK_PICS = 0x1E97F4
 Battle.FRONT_COORDS = 0x1E7C74
@@ -89,6 +97,11 @@ local RUBY_US = {
   backCoords = 0x1E9114,
   backPics = 0x1E97F4,
   palettes = 0x1EA5B4,
+  -- gMonShinyPaletteTable (US Ruby 1.0); normal table is 412*8 then a gap.
+  shinyPalettes = 0x1EB374,
+  -- gBattleAnimSpriteSheet_233 / Palette_233 (ANIM_TAG_GOLD_STARS).
+  goldStarsGfx = 0xD28910,
+  goldStarsPal = 0xD28994,
   wildHeaders = 0x39D454,
   moveNames = 0x1F8320,
   moveData = 0x1FB12C,
@@ -113,6 +126,18 @@ end
 
 function Battle.backPath(species)
   return ("assets/generated/battle/back/%d.png"):format(species)
+end
+
+function Battle.frontShinyPath(species)
+  return ("assets/generated/battle/front_shiny/%d.png"):format(species)
+end
+
+function Battle.backShinyPath(species)
+  return ("assets/generated/battle/back_shiny/%d.png"):format(species)
+end
+
+function Battle.goldStarsPath()
+  return "assets/generated/battle/gold_stars.png"
 end
 
 function Battle.isStarter(species)
@@ -155,6 +180,11 @@ function Battle.parseOneStats(data, offset)
     eggGroup2 = GbaBin.u8(data, offset + 21),
     ability1 = GbaBin.u8(data, offset + 22),
     ability2 = GbaBin.u8(data, offset + 23),
+    safariFleeRate = GbaBin.u8(data, offset + 24),
+    -- struct BaseStats 0x19: bodyColor is the low 7 bits, noFlip the top.
+    -- The Pokedex COLOR search reads it and had nothing to read before.
+    bodyColor = GbaBin.u8(data, offset + 25) % 128,
+    noFlip = math.floor(GbaBin.u8(data, offset + 25) / 128) == 1,
   }
 end
 
@@ -302,11 +332,12 @@ end
 function Battle.findPicTables(data)
   if type(data) ~= "string" then return nil end
   local front, back, pal = RUBY_US.frontPics, RUBY_US.backPics, RUBY_US.palettes
+  local shinyPal = RUBY_US.shinyPalettes
   if picEntryOk(data, front + 8) and picEntryOk(data, back + 8) then
     local fp = GbaBin.u32(data, front + 8)
     local bp = GbaBin.u32(data, back + 8)
     if fp ~= bp then
-      return front, back, pal
+      return front, back, pal, shinyPal
     end
   end
   return nil
@@ -504,7 +535,218 @@ function Battle.extractEnvironments(data)
   return bgs
 end
 
-function Battle.collectSpecies(encounters, evolutions, trainers)
+-- ANIM_TAG_GOLD_STARS sheet for TryShinyAnimation. Prefer the same pokeruby
+-- 233.png the engine falls back to; otherwise LZ77 the cart graphic so a
+-- reimport without the decomp tree still keeps sparkle art in the cache.
+function Battle.readPokerubyGoldStarsPng()
+  local rel = Battle.POKERUBY_GOLD_STARS
+  local bytes
+  if love and love.filesystem and love.filesystem.read then
+    bytes = love.filesystem.read(rel)
+  end
+  if type(bytes) ~= "string" or #bytes < 8 then
+    local candidates = { rel }
+    if love and love.filesystem and love.filesystem.getSource then
+      local src = love.filesystem.getSource()
+      if type(src) == "string" and src ~= "" then
+        local base = src:gsub("[/\\]+$", "")
+        candidates[#candidates + 1] = base .. "/" .. rel
+        candidates[#candidates + 1] = base .. "\\" .. rel:gsub("/", "\\")
+      end
+    end
+    for i = 1, #candidates do
+      local f = io.open(candidates[i], "rb")
+      if f then
+        bytes = f:read("*a")
+        f:close()
+        if type(bytes) == "string" and #bytes >= 8 then break end
+        bytes = nil
+      end
+    end
+  end
+  if type(bytes) ~= "string" or #bytes < 8 then return nil end
+  if bytes:sub(1, 8) ~= "\137PNG\r\n\26\n" then return nil end
+  return bytes
+end
+
+function Battle.copyGoldStarsFromPokeruby()
+  local bytes = Battle.readPokerubyGoldStarsPng()
+  if not bytes then return nil end
+  local CacheFs = require("src.import.CacheFs")
+  local ok, err = CacheFs.write(Battle.goldStarsPath(), bytes)
+  if not ok then return nil, err end
+  return Battle.goldStarsPath()
+end
+
+function Battle.findGoldStars(data)
+  if type(data) ~= "string" then return nil end
+  local gfx = RUBY_US.goldStarsGfx
+  local pal = RUBY_US.goldStarsPal
+  if GbaBin.u8(data, gfx) == 0x10 then
+    local size = GbaBin.u8(data, gfx + 1)
+      + GbaBin.u8(data, gfx + 2) * 256
+      + GbaBin.u8(data, gfx + 3) * 65536
+    if size == Battle.GOLD_STARS_BYTES and GbaBin.u8(data, pal) == 0x10 then
+      return gfx, pal
+    end
+  end
+  -- CompressedSpriteSheet { ptr, size=0xC0, tag=10233 }
+  local tag = Battle.GOLD_STARS_TAG
+  local needle = string.char(
+    Battle.GOLD_STARS_BYTES % 256,
+    math.floor(Battle.GOLD_STARS_BYTES / 256) % 256,
+    tag % 256,
+    math.floor(tag / 256) % 256)
+  local search = 1
+  while true do
+    local at = data:find(needle, search, true)
+    if not at then return nil end
+    local entry = at - 1 - 4
+    if entry >= 0 then
+      local _, sheetOff = romPtr(data, entry)
+      if sheetOff and GbaBin.u8(data, sheetOff) == 0x10 then
+        local palNeedle = string.char(
+          tag % 256, math.floor(tag / 256) % 256, 0, 0)
+        local psearch = 1
+        while true do
+          local pat = data:find(palNeedle, psearch, true)
+          if not pat then break end
+          local pe = pat - 1 - 4
+          if pe >= 0 then
+            local _, palOff = romPtr(data, pe)
+            if palOff and GbaBin.u8(data, palOff) == 0x10 then
+              return sheetOff, palOff
+            end
+          end
+          psearch = pat + 1
+        end
+      end
+    end
+    search = at + 1
+  end
+end
+
+function Battle.renderGoldStars(data)
+  local sheetOff, palOff = Battle.findGoldStars(data)
+  if not (sheetOff and palOff) then return nil, "gold stars gfx not found" end
+  local raw, err = GbaLz77.decompress(data, sheetOff)
+  if not raw or #raw < Battle.GOLD_STARS_BYTES then
+    return nil, err or "gold stars lz77 failed"
+  end
+  local palBytes, palErr = GbaLz77.decompress(data, palOff)
+  if not palBytes or #palBytes < Battle.PAL_BYTES then
+    return nil, palErr or "gold stars palette lz77 failed"
+  end
+  local pal = {}
+  for c = 0, 15 do
+    local r, g, b = bgr555(GbaBin.u16(palBytes, c * 2))
+    pal[c] = { r, g, b }
+  end
+  local w, h = Battle.GOLD_STARS_W, Battle.GOLD_STARS_H
+  local image = ImageWriter.blank(w, h, 0, 0, 0, 0)
+  local tw = w / 8
+  local tiles = (w / 8) * (h / 8)
+  for ti = 0, tiles - 1 do
+    local col = ti % tw
+    local row = math.floor(ti / tw)
+    local start = ti * Battle.TILE_BYTES
+    blitTile(image, col * 8, row * 8,
+      raw:sub(start + 1, start + Battle.TILE_BYTES), pal)
+  end
+  return image
+end
+
+function Battle.extractGoldStars(data)
+  local copied = Battle.copyGoldStarsFromPokeruby()
+  if copied then return copied end
+  local image, err = Battle.renderGoldStars(data)
+  if not image then return nil, err end
+  local path = Battle.goldStarsPath()
+  ImageWriter.save(image, path)
+  return path
+end
+
+-- Species a map script hands over or throws at you: setwildbattle for the
+-- legendaries, givemon for the fossils and Castform, giveegg for Wynaut. None
+-- of these appear in a wild table, an evolution or a trainer's party, so
+-- collectSpecies used to miss every one of them and they had to be added to
+-- the list below by hand as each was noticed. Reading them off the scripts
+-- covers the whole class instead of the ones somebody hit.
+-- `data` is the ROM. run() bakes map scripts in the Cache stage, which is
+-- AFTER extractBattle calls this -- so every entry.script was still a raw
+-- offset here and type(script) == "table" was false on every one of them.
+-- This collected nothing at all on a real import, which is why the regis,
+-- the weather trio and Latias had no battle pic: the renderer skips a
+-- species it was never told about, silently. Parse from scriptOff when the
+-- bake has not happened yet.
+local function opsFor(entry, data)
+  if type(entry) ~= "table" then return nil end
+  if type(entry.script) == "table" then return entry.script end
+  local off = tonumber(entry.scriptOff)
+  if not (off and data) then return nil end
+  local RomExtractorGen3 = require("src.import.RomExtractorGen3")
+  return RomExtractorGen3.parseOps(data, off)
+end
+
+local function scanOps(ops, into, depth)
+  if type(ops) ~= "table" or (depth or 0) > 8 then return end
+  for i = 1, #ops do
+    local op = ops[i]
+    if type(op) == "table" then
+      if op.op == "setwildbattle" or op.op == "givemon"
+          or op.op == "giveegg" then
+        local id = tonumber(op.species)
+        if id and id > 0 then into[id] = true end
+      end
+      -- call_if / goto_if carry their ops under body
+      scanOps(op.body, into, (depth or 0) + 1)
+    end
+  end
+end
+
+function Battle.collectScriptSpecies(maps, into, data)
+  into = into or {}
+  local pack = maps and (maps.maps or maps)
+  if type(pack) ~= "table" then return into end
+  for _, map in pairs(pack) do
+    if type(map) == "table" then
+      -- Not ipairs over a built table: a map with no bgEvents leaves a hole
+      -- and ipairs stops there, which would skip coordEvents entirely --
+      -- and coordEvents is where the legendary cutscenes live.
+      local groups = {}
+      groups[#groups + 1] = map.objects
+      groups[#groups + 1] = map.bgEvents
+      groups[#groups + 1] = map.coordEvents
+      for g = 1, #groups do
+        local group = groups[g]
+        for i = 1, #group do
+          scanOps(opsFor(group[i], data), into, 0)
+        end
+      end
+      -- mapScripts is keyed (onLoad / onResume / ...), never an array, so
+      -- the old ipairs over it walked nothing. onLoad-style keys hold ops
+      -- directly; onFrame / onWarp hold rows that each carry a script.
+      local ms = map.mapScripts
+      if type(ms) == "table" then
+        for _, v in pairs(ms) do
+          if type(v) == "table" then
+            if v[1] and type(v[1]) == "table" and v[1].op ~= nil then
+              scanOps(v, into, 0)
+            else
+              for i = 1, #v do scanOps(opsFor(v[i], data), into, 0) end
+            end
+          elseif type(v) == "number" and data then
+            local RomExtractorGen3 = require("src.import.RomExtractorGen3")
+            scanOps(RomExtractorGen3.parseOps(data, v), into, 0)
+          end
+        end
+      end
+    end
+  end
+  return into
+end
+
+function Battle.collectSpecies(encounters, evolutions, trainers, maps, data)
   local used = {
     [Battle.STARTER_SPECIES] = true,
     [277] = true,
@@ -526,7 +768,13 @@ function Battle.collectSpecies(encounters, evolutions, trainers)
     [388] = true, -- Lileep (Devon Root Fossil)
     [390] = true, -- Anorith (Devon Claw Fossil)
     [405] = true, -- Groudon (title / intro)
+    -- The roamer is the one legendary no table names: roamer.c takes it
+    -- from ROAMER_SPECIES, which is LATIOS in Ruby and LATIAS in
+    -- Sapphire. Southern Island's setwildbattle covers the other one, so
+    -- collectScriptSpecies finds Latias but never this.
+    [408] = true, -- Latios (ROAMER_SPECIES)
   }
+  Battle.collectScriptSpecies(maps, used, data)
   local byMap = encounters and encounters.byMap
   if type(byMap) == "table" then
     for _, row in pairs(byMap) do
@@ -786,9 +1034,13 @@ function Battle.findEvolutionTable(data)
   return nil
 end
 
+-- A 64-byte window missed real trainerbattle commands in the actual Ruby
+-- ROM (lock/faceplayer/msgbox/checkflag preambles before the grunt's
+-- trainerbattle command run past it, up to +353 bytes seen in practice).
+-- 512 covers those with margin while still bounded.
 function Battle.readTrainerIdFromScript(data, scriptOff)
   if type(data) ~= "string" or type(scriptOff) ~= "number" then return nil end
-  for i = 0, 63 do
+  for i = 0, 511 do
     if scriptOff + i + 4 > #data then break end
     if GbaBin.u8(data, scriptOff + i) == Battle.TRAINERBATTLE_CMD then
       local kind = GbaBin.u8(data, scriptOff + i + 1)
@@ -847,6 +1099,7 @@ function Battle.parseOneTrainer(data, offset, classNames)
   end
   local flags = GbaBin.u8(data, offset)
   local class = GbaBin.u8(data, offset + 1)
+  local pic = GbaBin.u8(data, offset + 3)
   local name = GbaText.decodeName(data:sub(
     offset + 5, offset + 4 + Battle.TRAINER_NAME_LENGTH))
   local doubleBattle = GbaBin.u32(data, offset + 24) ~= 0
@@ -855,6 +1108,10 @@ function Battle.parseOneTrainer(data, offset, classNames)
     local id = GbaBin.u16(data, offset + 16 + i * 2)
     if id ~= 0 then items[#items + 1] = id end
   end
+  -- struct Trainer: bool8 doubleBattle at 0x18, u32 aiFlags at 0x1C. The AI
+  -- flags pick which scoring passes battle_ai runs for this trainer; without
+  -- them every opponent has to fall back to choosing at random.
+  local aiFlags = GbaBin.u32(data, offset + 28)
   local partySize = GbaBin.u8(data, offset + 32)
   local _, partyOff = romPtr(data, offset + 36)
   local party = {}
@@ -864,9 +1121,11 @@ function Battle.parseOneTrainer(data, offset, classNames)
   return {
     flags = flags,
     class = class,
+    pic = pic,
     className = (classNames and classNames[class]) or "TRAINER",
     name = name ~= "" and name or "TRAINER",
     doubleBattle = doubleBattle,
+    aiFlags = aiFlags,
     partySize = partySize,
     party = party,
     items = items,
@@ -935,13 +1194,33 @@ function Battle.parseOneItem(data, offset)
   end
   local name = GbaText.decodeName(data:sub(
     offset + 1, offset + Battle.ITEM_NAME_LENGTH))
+  -- struct Item: description pointer at +0x14. Bag ItemListMenu_InitDescription
+  -- prints these lines (0xFE newlines) under the list; without them the port
+  -- fell back to the item name and looked empty/wrong.
+  local description = ""
+  local descPtr = GbaBin.u32(data, offset + 20)
+  if GbaBin.isRomPtr(descPtr, #data) then
+    local descOff = GbaBin.romOffset(descPtr)
+    local pages = GbaText.decodePages(data:sub(descOff + 1, descOff + 128), 128)
+    description = pages[1] or ""
+  end
   return {
     name = name,
     itemId = GbaBin.u16(data, offset + 14),
     price = GbaBin.u16(data, offset + 16),
     holdEffect = GbaBin.u8(data, offset + 18),
     holdEffectParam = GbaBin.u8(data, offset + 19),
+    description = description,
     pocket = GbaBin.u8(data, offset + 26),
+    -- The rest of struct Item. importance marks a key item, and the two use
+    -- function pointers are what say whether an item does anything at all in
+    -- the field or in battle -- NULL for most, a shared handler for the rest.
+    importance = GbaBin.u8(data, offset + 24),
+    type = GbaBin.u8(data, offset + 27),
+    fieldUseFunc = GbaBin.u32(data, offset + 28),
+    battleUsage = GbaBin.u8(data, offset + 32),
+    battleUseFunc = GbaBin.u32(data, offset + 36),
+    secondaryId = GbaBin.u8(data, offset + 40),
   }
 end
 
@@ -1020,6 +1299,194 @@ function Battle.readMartFromScript(data, scriptOff)
       end
     end
   end
+end
+
+
+-- gTrainerEyeDescriptions. pokeruby leaves this one extern, so it comes off
+-- the cart by shape rather than by symbol. LoadTrainerEyesDescriptionLines
+-- takes the pointer for a row and then walks forward past three EOS bytes, so
+-- every entry is four terminated strings laid end to end, and entry k+1 starts
+-- exactly where entry k finished. That -- 69 of them in a row, one per rematch
+-- row plus one per gym leader -- is signature enough to find it alone.
+Battle.TRAINER_EYE_DESCRIPTIONS = 69
+Battle.TRAINER_EYE_LINES = 4
+Battle.TRAINER_EYE_MAX_LINE = 120
+
+local function eyeTextByte(c)
+  if c == GbaText.EOS then return nil end
+  -- The description text uses letters, digits, spaces, the accented E of
+  -- POKeMON, ordinary punctuation and the buffer placeholders.
+  if c >= 0xBB and c <= 0xEE then return true end
+  if c >= 0xA1 and c <= 0xAA then return true end
+  if c == 0x00 or c == 0x1B or c == 0x2D then return true end
+  if c >= 0xAB and c <= 0xBA then return true end
+  if c >= 0x55 and c <= 0x59 then return true end
+  return false
+end
+
+-- One EOS-terminated line. Returns its length and the offset of the EOS.
+local function eyeLine(data, off)
+  local i = off
+  local last = math.min(#data - 1, off + Battle.TRAINER_EYE_MAX_LINE)
+  while i <= last do
+    local c = GbaBin.u8(data, i)
+    if c == GbaText.EOS then return i - off, i end
+    if not eyeTextByte(c) then return nil end
+    i = i + 1
+  end
+  return nil
+end
+
+-- Four lines back to back. Returns the offset just past the last EOS.
+local function eyeEntryEnd(data, off)
+  local p = off
+  for _ = 1, Battle.TRAINER_EYE_LINES do
+    local len, eos = eyeLine(data, p)
+    if not len or len < 3 then return nil end
+    p = eos + 1
+  end
+  return p
+end
+
+local function eyePointer(data, off)
+  local v = GbaBin.u32(data, off)
+  if v < 0x08000000 or v >= 0x08000000 + #data then return nil end
+  return v - 0x08000000
+end
+
+function Battle.findTrainerEyeDescriptions(data)
+  local off = 0
+  local limit = #data - 4 * Battle.TRAINER_EYE_DESCRIPTIONS
+  while off <= limit do
+    local first = eyePointer(data, off)
+    local finish = first and eyeEntryEnd(data, first)
+    if finish then
+      local run, k, prev = 1, off + 4, finish
+      while run < Battle.TRAINER_EYE_DESCRIPTIONS do
+        local t = eyePointer(data, k)
+        -- the next row's text must begin where this one ended
+        if t ~= prev then break end
+        local e = eyeEntryEnd(data, t)
+        if not e then break end
+        run, prev, k = run + 1, e, k + 4
+      end
+      if run >= Battle.TRAINER_EYE_DESCRIPTIONS then return off end
+    end
+    off = off + 4
+  end
+  return nil
+end
+
+function Battle.parseTrainerEyeDescriptions(data, tableOff)
+  tableOff = tableOff or Battle.findTrainerEyeDescriptions(data)
+  if not tableOff then return nil end
+  local out = {}
+  for i = 0, Battle.TRAINER_EYE_DESCRIPTIONS - 1 do
+    local at = eyePointer(data, tableOff + i * 4)
+    if not at then return nil end
+    local lines, p = {}, at
+    for _ = 1, Battle.TRAINER_EYE_LINES do
+      local _, eos = eyeLine(data, p)
+      if not eos then return nil end
+      local chars = {}
+      for j = p, eos - 1 do
+        chars[#chars + 1] = GbaText.decodeByte(GbaBin.u8(data, j))
+      end
+      lines[#lines + 1] = table.concat(chars)
+      p = eos + 1
+    end
+    out[i] = lines
+  end
+  return out
+end
+
+
+-- gRibbonDescriptions is [25][2]: two lines per ribbon, and unlike the
+-- Trainer's Eye table its text sits before it rather than after. What makes it
+-- findable is the shape of the contest half -- five categories of four ranks,
+-- where each group of four shares one "COOL CONTEST" style first line and
+-- differs only in the rank on the second. Five runs of four identical first
+-- pointers in a row is a fingerprint nothing else in the cart carries.
+Battle.RIBBON_DESCRIPTIONS = 25
+Battle.RIBBON_CONTEST_GROUPS = 5
+Battle.RIBBON_CONTEST_RANKS = 4
+Battle.RIBBON_MAX_LINE = 90
+
+local function ribbonPointer(data, off)
+  local v = GbaBin.u32(data, off)
+  if v < 0x08000000 or v >= 0x08000000 + #data then return nil end
+  return v - 0x08000000
+end
+
+local function ribbonLine(data, off)
+  local i = off
+  local last = math.min(#data - 1, off + Battle.RIBBON_MAX_LINE)
+  local chars = {}
+  while i <= last do
+    local c = GbaBin.u8(data, i)
+    if c == GbaText.EOS then
+      local text = table.concat(chars)
+      -- a run of spaces is padding, not a description
+      if #text < 3 or not text:find("[^ ]") then return nil end
+      return text
+    end
+    local ch = GbaText.decodeByte(c)
+    -- decodeByte turns anything it does not know into an empty string, so a
+    -- run of control bytes would read as a short blank rather than fail
+    if ch == "" and c ~= GbaText.SPACE then return nil end
+    chars[#chars + 1] = ch
+    i = i + 1
+  end
+  return nil
+end
+
+function Battle.findRibbonDescriptions(data)
+  local limit = #data - 8 * Battle.RIBBON_DESCRIPTIONS
+  for off = 0, limit, 4 do
+    local ok = true
+    local seen = {}
+    -- the five groups of four ranks, each sharing a first line, and the five
+    -- category names are five different strings
+    for g = 0, Battle.RIBBON_CONTEST_GROUPS - 1 do
+      local base = ribbonPointer(data, off + (1 + 4 * g) * 8)
+      if not base or seen[base] then ok = false break end
+      seen[base] = true
+      for r = 1, Battle.RIBBON_CONTEST_RANKS - 1 do
+        if ribbonPointer(data, off + (1 + 4 * g + r) * 8) ~= base then
+          ok = false
+          break
+        end
+      end
+      if not ok then break end
+    end
+    if ok then
+      -- and every one of the fifty pointers must read as a line
+      for i = 0, Battle.RIBBON_DESCRIPTIONS * 2 - 1 do
+        local t = ribbonPointer(data, off + i * 4)
+        if not t or not ribbonLine(data, t) then
+          ok = false
+          break
+        end
+      end
+      if ok then return off end
+    end
+  end
+  return nil
+end
+
+function Battle.parseRibbonDescriptions(data, tableOff)
+  tableOff = tableOff or Battle.findRibbonDescriptions(data)
+  if not tableOff then return nil end
+  local out = {}
+  for i = 0, Battle.RIBBON_DESCRIPTIONS - 1 do
+    local a = ribbonPointer(data, tableOff + i * 8)
+    local b = ribbonPointer(data, tableOff + i * 8 + 4)
+    local l1 = a and ribbonLine(data, a)
+    local l2 = b and ribbonLine(data, b)
+    if not (l1 and l2) then return nil end
+    out[i] = { l1, l2 }
+  end
+  return out
 end
 
 return Battle

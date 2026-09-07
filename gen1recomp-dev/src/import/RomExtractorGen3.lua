@@ -50,6 +50,9 @@ local MAP_CELL_METATILE = 1023
 local MAP_CELL_COLLISION_SHIFT = 10
 local MAX_MAP_DIM = 255
 local ATLAS_COLS = 32
+-- lcm of one tileset's animation lengths, capped: each frame is another
+-- pair of atlases resident while that tileset is loaded.
+RomExtractorGen3.MAX_ANIM_FRAMES = 12
 local ATLAS_ROWS = 32
 local ATLAS_METATILES = ATLAS_COLS * ATLAS_ROWS
 local METATILE_PX = 16
@@ -112,17 +115,41 @@ function RomExtractorGen3.tilesetPath(pairId, layer)
   return ("assets/generated/tilesets/pair_%s_%s.png"):format(n, layer)
 end
 
+-- Frame 0 keeps the plain path so an un-animated pair and the resting frame
+-- of an animated one are the same file.
+function RomExtractorGen3.tilesetFramePath(pairId, layer, frame)
+  if not frame or frame == 0 then
+    return RomExtractorGen3.tilesetPath(pairId, layer)
+  end
+  local n = tostring(pairId):gsub("^pair_", "")
+  return ("assets/generated/tilesets/pair_%s_%s_f%d.png"):format(n, layer, frame)
+end
+
 function RomExtractorGen3.spritePath(graphicsId)
   return ("assets/generated/sprites/ow_%d.png"):format(graphicsId)
 end
 
 -- trainer_see.c gSpriteImage_839B308 / 839B388 / 839B408: 16x16 4bpp
--- frames for ! / ? / heart. Heart's template uses pal tag 0x1004
--- (gFieldEffectObjectPalette0); ! and ? use TAG_NONE and pick up the
--- same field-effect slot already in OBJ VRAM.
+-- frames for ! / ? / heart.
+--
+-- The heart's template (gSpriteTemplate_839B528) carries pal tag 0x1004,
+-- gFieldEffectObjectPalette0, and its frame uses indices 0/4/9/15 out of
+-- that palette.
+--
+-- ! and ? come from gSpriteTemplate_839B510, whose tag is 0xffff
+-- (SPRITE_INVALID_TAG): they never load a palette at all and render
+-- against whatever OBJ palette is already in slot 0, which in the
+-- overworld is an object-event palette. That is safe because those two
+-- frames only ever use indices 14 and 15, and EVERY object-event palette
+-- reserves 14 = white and 15 = black (checked across the cart's 27 of
+-- them). Reading them out of gFieldEffectObjectPalette0 instead made the
+-- speech bubble tan, because that palette has (205,156,82) at index 14.
 RomExtractorGen3.EMOTE_GFX = 0x39B308
 RomExtractorGen3.EMOTE_BYTES = 0x80
 RomExtractorGen3.EMOTE_PAL = 0x369488
+-- object-event palette tag 0x1100, the one slot 0 normally holds
+RomExtractorGen3.EMOTE_PAL_TAGLESS = 0x310F48
+RomExtractorGen3.EMOTE_TAGLESS = { exclaim = true, question = true }
 RomExtractorGen3.EMOTE_NAMES = { "exclaim", "question", "heart" }
 
 function RomExtractorGen3.emotePath(name)
@@ -140,12 +167,15 @@ end
 function RomExtractorGen3.renderEmote(data, name)
   local frameOff = RomExtractorGen3.emoteFrameOff(name)
   if not frameOff then return nil, "unknown emote" end
+  local pal = RomExtractorGen3.EMOTE_TAGLESS[name]
+    and RomExtractorGen3.EMOTE_PAL_TAGLESS
+    or RomExtractorGen3.EMOTE_PAL
   return RomExtractorGen3.renderOwFrame(data, {
     width = 16,
     height = 16,
     frameSize = RomExtractorGen3.EMOTE_BYTES,
     frameOff = frameOff,
-  }, RomExtractorGen3.EMOTE_PAL, frameOff)
+  }, pal, frameOff)
 end
 
 function RomExtractorGen3:extractEmotes()
@@ -429,6 +459,8 @@ function RomExtractorGen3.parseMapHeader(data, offset)
     cave = GbaBin.u8(data, offset + 0x15) ~= 0,
     weather = GbaBin.u8(data, offset + 0x16),
     mapType = GbaBin.u8(data, offset + 0x17),
+    -- MapHeader.flags / show_map_name (overworld.c ShowMapNamePopup gate).
+    flags = GbaBin.u8(data, offset + 0x1A),
     width = width,
     height = height,
   }
@@ -530,6 +562,324 @@ end
 -- 327) have no map header, so walking gMapGroups would miss them.
 local MAX_MAP_LAYOUTS = 400
 
+-- ---------------------------------------------------------------------------
+-- Tileset animations
+--
+-- struct Tileset carries a callback at +0x14. That function installs an inner
+-- driver, and the driver calls
+--     QueueTilesetAnimDma(frames[n % N], dest, length)
+-- so the frame data is only reachable by reading the code. Everything needed
+-- sits in THUMB literal pools, which is little enough to decode directly:
+--
+--   LDR Rd,[PC,#imm8*4]  0100 1ddd iiiiiiii   literal at ((pc+4)&~3)+imm8*4
+--   MOV Rd,#imm8         0010 0ddd iiiiiiii
+--   LSL/LSR Rd,Rs,#imm5  0000 0iiiii sss ddd / 0000 1iiiii sss ddd
+--   BL  label            1111 0ooo oooooooo + 1111 1ooo oooooooo
+--   return               POP {..,pc} 0xBDxx | BX Rn 0x4700..0x477F
+
+-- tileset_anim.c's own code, the only region the walk follows calls into.
+-- Exposed so a fixture can point it at a synthetic ROM.
+RomExtractorGen3.THUMB_CODE_LO = 0x8072000
+RomExtractorGen3.THUMB_CODE_HI = 0x8075000
+local VRAM_LO, VRAM_HI = 0x6000000, 0x6018000
+local THUMB_MAX_HALFWORDS = 160
+
+-- Returns the pc-relative literals, the MOV immediates, the BL targets, and
+-- the value of r2 at each BL, which is QueueTilesetAnimDma's size argument.
+-- A length over 0xFF cannot be a single MOV, so the cart builds it with a
+-- shift (Pacifidlog's 0x3C0 is mov r2,#0xF0 then lsl r2,r2,#2). Tracking a
+-- tiny register file recovers it where reading the MOV alone reports 0xF0.
+function RomExtractorGen3.decodeThumb(data, fnOff, maxHalf)
+  local lits, movs, calls, lens, shifts, regs = {}, {}, {}, {}, {}, {}
+  if type(data) ~= "string" or type(fnOff) ~= "number" then
+    return lits, movs, calls, lens, shifts
+  end
+  local pc = fnOff
+  for _ = 1, (maxHalf or THUMB_MAX_HALFWORDS) do
+    local hw = GbaBin.u16(data, pc)
+    if not hw then break end
+    if hw >= 0x4800 and hw <= 0x4FFF then
+      local rd, imm = math.floor(hw / 256) % 8, hw % 256
+      local at = (math.floor((pc + 0x8000000 + 4) / 4) * 4) + imm * 4 - 0x8000000
+      if at >= 0 and at + 4 <= #data then
+        lits[#lits + 1] = { reg = rd, value = GbaBin.u32(data, at) }
+      end
+      regs[rd] = nil
+    elseif hw >= 0x2000 and hw <= 0x27FF then
+      local rd = math.floor(hw / 256) % 8
+      movs[rd] = hw % 256
+      regs[rd] = hw % 256
+    elseif hw < 0x0800 then
+      local rd, rs = hw % 8, math.floor(hw / 8) % 8
+      local imm = math.floor(hw / 64) % 32
+      regs[rd] = regs[rs] and regs[rs] * 2 ^ imm or nil
+    elseif hw < 0x1000 then
+      local rd, rs = hw % 8, math.floor(hw / 8) % 8
+      local imm = math.floor(hw / 64) % 32
+      shifts[#shifts + 1] = imm
+      regs[rd] = regs[rs] and math.floor(regs[rs] / 2 ^ imm) or nil
+    elseif hw >= 0xF000 and hw <= 0xF7FF then
+      local lo2 = GbaBin.u16(data, pc + 2)
+      if lo2 and lo2 >= 0xF800 then
+        local hi = hw % 0x800
+        if hi >= 0x400 then hi = hi - 0x800 end
+        calls[#calls + 1] = (pc + 0x8000000) + 4 + hi * 0x1000 + (lo2 % 0x800) * 2
+        lens[#lens + 1] = regs[2]
+        pc = pc + 2
+      end
+    elseif (hw >= 0xBD00 and hw <= 0xBDFF)
+        or (hw >= 0x4700 and hw <= 0x477F) then
+      break
+    end
+    pc = pc + 2
+  end
+  return lits, movs, calls, lens, shifts
+end
+
+-- The animation tables sit back to back in ROM, so the end of one is the start
+-- of the next. `bounds` is every table offset the callbacks load; clamping on
+-- the nearest higher neighbour recovers real lengths -- gTilesetAnims_Mauville0
+-- is 12 frames, not the 16 an unbounded walk reads.
+local function boundedEnd(bounds, base)
+  if not bounds then return nil end
+  local best
+  for i = 1, #bounds do
+    local b = bounds[i]
+    if b > base and (not best or b < best) then best = b end
+  end
+  return best
+end
+
+-- Frames sit next to each other, but an array may repeat a pointer (Mauville
+-- holds each frame twice, so the stride is 0 half the time) or hold a NULL
+-- (Rustboro skips a tick). The test is locality, not a fixed stride.
+local function thumbFrameArray(data, value, size, bounds)
+  local base = value - 0x8000000
+  if base < 0 or base >= #data then return nil end
+  local limit = boundedEnd(bounds, base)
+  local frames, first, distinct, n = {}, nil, {}, 0
+  for i = 0, 15 do
+    if limit and base + i * 4 >= limit then break end
+    local w = GbaBin.u32(data, base + i * 4)
+    if w == 0 then
+      frames[#frames + 1] = false
+      n = n + 1
+    else
+      if not w or w < 0x8000000 or w >= 0x8000000 + #data then break end
+      local lo = w - 0x8000000
+      if first and math.abs(lo - first) > 0x8000 then break end
+      first = first or lo
+      distinct[lo] = true
+      frames[#frames + 1] = lo
+      n = n + 1
+    end
+  end
+  while n > 0 and frames[n] == false do frames[n] = nil; n = n - 1 end
+  if n < 2 or not first then return nil end
+  local d = 0
+  for _ in pairs(distinct) do d = d + 1 end
+  if d < 2 then return nil end
+  if not size or first + size > #data then return nil end
+  return { at = value, count = n, frames = frames }
+end
+
+-- gTilesetAnims_MauvilleVDests0 and friends: the destination is a table the
+-- caller indexes, so one leaf drives several tile slots.
+local function thumbDestTable(data, value, bounds)
+  local base = value - 0x8000000
+  if base < 0 or base >= #data then return nil end
+  local limit = boundedEnd(bounds, base)
+  local dests = {}
+  for i = 0, 15 do
+    if limit and base + i * 4 >= limit then break end
+    local w = GbaBin.u32(data, base + i * 4)
+    if not w or w < VRAM_LO or w >= VRAM_HI then break end
+    dests[#dests + 1] = w
+  end
+  if #dests < 2 then return nil end
+  return dests
+end
+
+-- Every QueueTilesetAnimDma site reachable from one tileset callback, as
+-- { frames = { romOffset | false, ... }, dest = vramAddr, size = bytes }.
+function RomExtractorGen3.tilesetAnimSites(data, callback, bounds)
+  local out, seen = {}, {}
+  if type(data) ~= "string" or type(callback) ~= "number" or callback == 0 then
+    return out
+  end
+  -- sub_8072EDC ticks the callback once per field frame, and the wrapper
+  -- gates the DMA with `if (a1 % P == 0) leaf(a1 / P)` -- P is 8 or 16, and
+  -- the division shows up as an LSR by 3 or 4.
+  local function visit(addr, depth, period)
+    local off = addr - (addr % 2) - 0x8000000
+    if off < 0 or off >= #data or seen[off] or depth > 3 then return end
+    seen[off] = true
+    local lits, movs, calls, lens, shifts = RomExtractorGen3.decodeThumb(data, off)
+    for _, sh in ipairs(shifts) do
+      if sh == 3 or sh == 4 then period = 2 ^ sh end
+    end
+    local size = lens[1] or movs[2]
+    local arrs, dests = {}, {}
+    for _, l in ipairs(lits) do
+      local v = l.value
+      if v then
+        if v >= VRAM_LO and v < VRAM_HI then
+          dests[#dests + 1] = { single = v }
+        else
+          local t = thumbDestTable(data, v, bounds)
+          if t then
+            dests[#dests + 1] = { list = t, at = v }
+          elseif size then
+            local a = thumbFrameArray(data, v, size, bounds)
+            if a then arrs[#arrs + 1] = a end
+          end
+        end
+      end
+    end
+    for k, a in ipairs(arrs) do
+      local d = dests[k] or dests[1]
+      local sz = lens[k] or size
+      if d and sz then
+        local list = d.single and { d.single } or d.list
+        for _, dv in ipairs(list) do
+          out[#out + 1] = {
+            frames = a.frames,
+            count = a.count,
+            dest = dv,
+            size = sz,
+            period = period or 16,
+            framesAt = a.at,
+            destAt = d.at,
+          }
+        end
+      end
+    end
+    for _, l in ipairs(lits) do
+      local v = l.value
+      if v and v % 2 == 1 and v >= RomExtractorGen3.THUMB_CODE_LO
+          and v < RomExtractorGen3.THUMB_CODE_HI then
+        visit(v, depth + 1, period)
+      end
+    end
+    for _, c in ipairs(calls) do
+      if c >= RomExtractorGen3.THUMB_CODE_LO
+          and c < RomExtractorGen3.THUMB_CODE_HI then
+        visit(c, depth + 1, period)
+      end
+    end
+  end
+  visit(callback, 0, nil)
+  return out
+end
+
+-- Two passes over the tileset structs: the first learns where the tables
+-- start, the second re-reads them with those bounds.
+-- VRAM holds the primary tileset's tiles at 0 and the secondary's at
+-- NUM_TILES_IN_PRIMARY * TILE_SIZE_4BPP (fieldmap.c CopySecondaryTilesetToVram),
+-- so a DMA destination decodes to one half plus a tile index.
+local VRAM_BASE = 0x6000000
+local SECONDARY_VRAM = PRIMARY_TILES * TILE_BYTES
+
+local function gcd(a, b)
+  while b ~= 0 do a, b = b, a % b end
+  return a
+end
+
+-- One pair's whole animation, as the frame-by-frame tile substitutions the
+-- atlas renderer needs. Frame count is the lcm of the sites' own lengths so a
+-- 4-frame and a 12-frame animation on one tileset stay in step; period is the
+-- tick gap the wrapper imposes.
+function RomExtractorGen3.tilesetAnimPlan(data, primaryOff, secondaryOff, byCallback)
+  local sites = {}
+  local period
+  for _, off in ipairs({ primaryOff, secondaryOff }) do
+    if off then
+      local cb = GbaBin.u32(data, off + 0x14)
+      for _, site in ipairs((cb and byCallback and byCallback[cb]) or {}) do
+        local vram = site.dest - VRAM_BASE
+        if vram >= 0 and site.size and site.size > 0 then
+          local secondary = vram >= SECONDARY_VRAM
+          local tileIndex = (secondary and (vram - SECONDARY_VRAM) or vram) / TILE_BYTES
+          if tileIndex == math.floor(tileIndex) then
+            sites[#sites + 1] = {
+              secondary = secondary,
+              tileIndex = tileIndex,
+              frames = site.frames,
+              count = site.count,
+              size = site.size,
+            }
+            period = math.min(period or site.period, site.period)
+          end
+        end
+      end
+    end
+  end
+  if #sites < 1 then return nil end
+  local frames = 1
+  for _, s in ipairs(sites) do
+    frames = frames * s.count / gcd(frames, s.count)
+  end
+  -- Every extra frame is another pair of full atlases held in memory while
+  -- that tileset is loaded, so cap the cycle rather than let an lcm run away.
+  if frames > RomExtractorGen3.MAX_ANIM_FRAMES then
+    frames = RomExtractorGen3.MAX_ANIM_FRAMES
+  end
+  -- Frames repeat: Mauville stores each frame pointer twice, so a 12-frame
+  -- cycle paints only 6 distinct atlases. `sameAs` lets the caller reuse an
+  -- already-rendered frame rather than pay for the duplicate.
+  local subs, sameAs, byKey = {}, {}, {}
+  for f = 0, frames - 1 do
+    local list, key = {}, {}
+    for _, s in ipairs(sites) do
+      local romOff = s.frames[(f % s.count) + 1]
+      if romOff and romOff + s.size <= #data then
+        list[#list + 1] = {
+          secondary = s.secondary,
+          tileIndex = s.tileIndex,
+          bytes = data:sub(romOff + 1, romOff + s.size),
+        }
+        key[#key + 1] = ("%s:%d:%d"):format(
+          s.secondary and "s" or "p", s.tileIndex, romOff)
+      end
+    end
+    subs[f] = list
+    local k = table.concat(key, ",")
+    if byKey[k] ~= nil then sameAs[f] = byKey[k] else byKey[k] = f end
+  end
+  return {
+    frames = frames,
+    period = period or 16,
+    subs = subs,
+    sameAs = sameAs,
+    siteList = sites,
+    sites = #sites,
+  }
+end
+
+function RomExtractorGen3.collectTilesetAnims(data, tilesetOffsets)
+  local callbacks, seen = {}, {}
+  for _, off in ipairs(tilesetOffsets or {}) do
+    local cb = GbaBin.u32(data, off + 0x14)
+    if cb and cb ~= 0 and not seen[cb] then
+      seen[cb] = true
+      callbacks[#callbacks + 1] = cb
+    end
+  end
+  table.sort(callbacks)
+  local bounds = {}
+  for _, cb in ipairs(callbacks) do
+    for _, site in ipairs(RomExtractorGen3.tilesetAnimSites(data, cb, nil)) do
+      if site.framesAt then bounds[#bounds + 1] = site.framesAt - 0x8000000 end
+      if site.destAt then bounds[#bounds + 1] = site.destAt - 0x8000000 end
+    end
+  end
+  local byCallback = {}
+  for _, cb in ipairs(callbacks) do
+    byCallback[cb] = RomExtractorGen3.tilesetAnimSites(data, cb, bounds)
+  end
+  return byCallback, callbacks
+end
+
 function RomExtractorGen3.findMapLayouts(data, found)
   local town = found and found.town
   if type(data) ~= "string" or not town or not town.layoutOff
@@ -546,8 +896,9 @@ function RomExtractorGen3.findMapLayouts(data, found)
     end
     local _, mapOff = romPtr(data, layoutOff + 12)
     local primPtr = romPtr(data, layoutOff + 16)
-    local secPtr = romPtr(data, layoutOff + 20)
-    return mapOff ~= nil and primPtr ~= nil and secPtr ~= nil
+    local secWord = GbaBin.u32(data, layoutOff + 20)
+    local secOk = secWord == 0 or romPtr(data, layoutOff + 20) ~= nil
+    return mapOff ~= nil and primPtr ~= nil and secOk
   end
   local needle = GbaBin.packPtr(town.layoutOff)
   local search = 1
@@ -612,10 +963,15 @@ local function parseLayout(data, layoutOff)
   local _, borderOff = romPtr(data, layoutOff + 8)
   local _, mapOff = romPtr(data, layoutOff + 12)
   local primPtr, primOff = romPtr(data, layoutOff + 16)
+  local secWord = GbaBin.u32(data, layoutOff + 20)
   local secPtr, secOff = romPtr(data, layoutOff + 20)
-  if not (mapOff and primPtr and secPtr) then
+  if not (mapOff and primPtr) or not (secPtr or secWord == 0) then
     return nil, "map layout pointers are not in ROM"
   end
+  -- A NULL secondaryTileset is legal; fieldmap.c and tileset_anim.c both
+  -- guard on it.  Only LAYOUT_UNKNOWN_MAP_082EDF30 (243) uses one, and no
+  -- map header or setmaplayoutindex ever loads it.
+  if secWord == 0 then secOff = nil end
   local cells = width * height
   if mapOff + cells * 2 > #data then
     return nil, "map grid is truncated"
@@ -745,23 +1101,50 @@ function RomExtractorGen3.parseOps(data, off)
   return nil
 end
 
-local function bakeScriptField(data, row)
+local function bakeScriptField(data, row, keepOffsets)
   if type(row) ~= "table" then return end
   if row.scriptOff then
     row.script = RomExtractorGen3.parseOps(data, row.scriptOff)
-    row.scriptOff = nil
+    if not keepOffsets then row.scriptOff = nil end
   end
 end
 
-function RomExtractorGen3.bakeMapScripts(data, map)
+-- `keepOffsets` leaves scriptOff in place so the trainer / item / mart reads
+-- in run(), which are keyed off the raw offset, still work after this has
+-- run. stripScriptOffsets clears them once those are done.
+function RomExtractorGen3.stripScriptOffsets(map)
+  if type(map) ~= "table" then return map end
+  for _, key in ipairs({ "coordEvents", "bgEvents", "objects" }) do
+    local rows = map[key]
+    if type(rows) == "table" then
+      for i = 1, #rows do
+        if type(rows[i]) == "table" then rows[i].scriptOff = nil end
+      end
+    end
+  end
+  local ms = map.mapScripts
+  if type(ms) == "table" then
+    for _, key in ipairs({ "onFrame", "onWarp" }) do
+      local rows = ms[key]
+      if type(rows) == "table" then
+        for i = 1, #rows do
+          if type(rows[i]) == "table" then rows[i].scriptOff = nil end
+        end
+      end
+    end
+  end
+  return map
+end
+
+function RomExtractorGen3.bakeMapScripts(data, map, keepOffsets)
   if type(map) ~= "table" then return map end
   local events = map.coordEvents
   if type(events) == "table" then
-    for i = 1, #events do bakeScriptField(data, events[i]) end
+    for i = 1, #events do bakeScriptField(data, events[i], keepOffsets) end
   end
   local bgs = map.bgEvents
   if type(bgs) == "table" then
-    for i = 1, #bgs do bakeScriptField(data, bgs[i]) end
+    for i = 1, #bgs do bakeScriptField(data, bgs[i], keepOffsets) end
   end
   local ms = map.mapScripts
   if type(ms) == "table" then
@@ -773,7 +1156,7 @@ function RomExtractorGen3.bakeMapScripts(data, map)
     for _, key in ipairs({ "onFrame", "onWarp" }) do
       local rows = ms[key]
       if type(rows) == "table" then
-        for i = 1, #rows do bakeScriptField(data, rows[i]) end
+        for i = 1, #rows do bakeScriptField(data, rows[i], keepOffsets) end
       end
     end
   end
@@ -783,7 +1166,7 @@ function RomExtractorGen3.bakeMapScripts(data, map)
       local o = objects[i]
       if o and o.scriptOff then
         o.script = RomExtractorGen3.parseOps(data, o.scriptOff) or o.script
-        o.scriptOff = nil
+        if not keepOffsets then o.scriptOff = nil end
       end
     end
   end
@@ -799,9 +1182,22 @@ local GFX_INFO_SIZE = 0x24
 local MAX_OW_GFX = 256
 local PAL_TAG_MIN = 0x1100
 local PAL_TAG_MAX = 0x11FF
+-- decoration.h DECORPERM_SOLID_MAT. Declared up here because
+-- collectGraphicsIds needs it too, and that runs well before the
+-- decoration section below.
+local DECORPERM_SOLID_MAT = 4
 local PLAYER_GFX_ID = 0
+-- Avatar forms that never appear as map objects (field-move / bike / surf /
+-- fishing poses). Without these, May/Brendan go brown-square mid HM or when
+-- a rival bike/surf template resolves through GFX_VAR.
 local PLAYER_FORM_GFX = {
-  0, 1, 2, 63, 89, 90, 91, 92, 100, 105, 111, 112, 191, 192,
+  -- Brendan: normal, mach, surf, field-move, acro, underwater, fishing, watering
+  0, 1, 2, 3, 63, 111, 137, 191,
+  -- May: normal, mach, acro, surf, field-move, underwater, fishing, watering
+  89, 90, 91, 92, 93, 112, 138, 192,
+  -- Rival Brendan / Rival May: normal + bike/surf/field-move variants
+  100, 101, 102, 103, 104,
+  105, 106, 107, 108, 109,
 }
 -- Map templates only stamp gfx 60. get_berry_tree_graphics swaps 61/62.
 -- Both share gObjectEventPicTable_PechaBerryTree (16x16 then 16x32).
@@ -809,6 +1205,9 @@ local BERRY_TREE_STAGE_GFX = { 61, 62 }
 -- Woods/Rustboro grunts are OBJ_EVENT_GFX_VAR_1 until SetupEvilTeamGfxIds
 -- writes Magma/Aqua. collectGraphicsIds never sees 117-120 on the map.
 local EVIL_TEAM_GFX = { 117, 118, 119, 120, 195, 196 }
+-- OBJ_EVENT_GFX_SS_TIDAL 140 (96x40) and SUBMARINE_SHADOW 141 (88x32).
+-- MagmaHideout_B2F stamps 141; parseGraphicsInfo used to reject those sizes.
+local HIDEOUT_GFX = { 140, 141 }
 
 -- EventScript_ResetAllMapFlags: setflag FLAG_LINK_CONTEST_ROOM_POKEBALL
 -- (0x56) then FLAG_HIDE_VICTORIA_WINSTRATE (0x301), then ~130 more setflags,
@@ -950,8 +1349,9 @@ local function parseConnections(data, connectionsOff)
   return out
 end
 
+-- GBA OW sprites are 8px tiles; submarine is 88x32, SS Tidal 96x40.
 local function validOwSize(n)
-  return n == 8 or n == 16 or n == 24 or n == 32 or n == 48 or n == 64
+  return type(n) == "number" and n >= 8 and n <= 96 and n % 8 == 0
 end
 
 function RomExtractorGen3.parseGraphicsInfo(data, offset)
@@ -994,6 +1394,9 @@ function RomExtractorGen3.parseGraphicsInfo(data, offset)
     width = width,
     height = height,
     paletteSlot = GbaBin.u8(data, offset + 12) % 16,
+    -- global.fieldmap.h: byte 0x0C is paletteSlot:4, shadowSize:2,
+    -- inanimate:1, disableReflectionPaletteLoad:1.
+    inanimate = math.floor(GbaBin.u8(data, offset + 12) / 64) % 2 == 1,
     imagesOff = imagesOff,
     animsOff = select(2, romPtr(data, offset + 24)),
     frameOff = frames[1],
@@ -1201,8 +1604,47 @@ function RomExtractorGen3.colorIndex4bpp(raw, width, x, y)
   return math.floor(byte / 16)
 end
 
-function RomExtractorGen3.collectGraphicsIds(maps)
+local VAR_OBJ_GFX_ID_0 = 0x4010
+
+-- Walk a parsed map (scripts included) for setvar/setorcopyvar writes into
+-- VAR_OBJ_GFX_ID_0..F and record the graphics ids they assign.
+local function collectGfxVarWrites(node, used, depth)
+  depth = depth or 0
+  if depth > 8 or type(node) ~= "table" then return end
+  local op = node.op
+  if (op == "setvar" or op == "setorcopyvar") and type(node.var) == "number" then
+    local n = node.var - VAR_OBJ_GFX_ID_0
+    if n >= 0 and n <= 15 then
+      local v = tonumber(node.val)
+      -- ObjectEventTemplate.graphicsId is a u8. Anything larger is a var
+      -- reference from setorcopyvar, not a literal graphics id.
+      if v and v > 0 and v <= 255 then used[v] = true end
+    end
+  end
+  for _, child in pairs(node) do
+    if type(child) == "table" then
+      collectGfxVarWrites(child, used, depth + 1)
+    end
+  end
+end
+
+function RomExtractorGen3.collectGraphicsIds(maps, decorations)
   local used = {}
+  -- A DECORPERM_SOLID_MAT decoration's tiles[0] is an OBJ_EVENT_GFX id,
+  -- not a metatile: sub_80BBDD0 writes it into VAR_OBJ_GFX_ID_n at
+  -- runtime and the room's decoration slot resolves through that. So the
+  -- doll and cushion sheets are never any map object's graphicsId, and
+  -- scanning the maps alone leaves every one of them unextracted -- ids
+  -- 143..188 came out missing, which is why placed dolls had no sprite.
+  local byId = decorations and decorations.byId
+  if type(byId) == "table" then
+    for _, row in pairs(byId) do
+      if row and row.permission == DECORPERM_SOLID_MAT then
+        local gid = tonumber(row.gfx)
+        if gid then used[gid] = true end
+      end
+    end
+  end
   for i = 1, #PLAYER_FORM_GFX do
     used[PLAYER_FORM_GFX[i]] = true
   end
@@ -1211,6 +1653,9 @@ function RomExtractorGen3.collectGraphicsIds(maps)
   end
   for i = 1, #EVIL_TEAM_GFX do
     used[EVIL_TEAM_GFX[i]] = true
+  end
+  for i = 1, #HIDEOUT_GFX do
+    used[HIDEOUT_GFX[i]] = true
   end
   if type(maps) == "table" then
     for _, map in pairs(maps) do
@@ -1221,6 +1666,15 @@ function RomExtractorGen3.collectGraphicsIds(maps)
           if type(gid) == "number" then used[gid] = true end
         end
       end
+      -- An object placed as OBJ_EVENT_GFX_VAR_0..F resolves through
+      -- VAR_OBJ_GFX_ID_n (0x4010 + n) at RUNTIME, so the sheet it ends up
+      -- wanting is never any object's graphicsId. Collect whatever the
+      -- map's own scripts write into those vars --
+      -- Common_EventScript_SetupLegendaryGfxIds puts Groudon (198/206) and
+      -- Kyogre (197/205) there, and nothing else in the game references
+      -- them, so they came out unextracted and the legendary rendered as a
+      -- blank square. Covers the evil team and rival gfx the same way.
+      collectGfxVarWrites(map, used)
     end
   end
   local ids = {}
@@ -1265,6 +1719,7 @@ function RomExtractorGen3.decodeTownMap(data)
     mapType = header.mapType,
     weather = header.weather,
     regionMapSectionId = header.regionMapSectionId,
+    flags = header.flags,
     cave = header.cave,
     spawn = { x = sx, y = sy },
     grid = layout.grid,
@@ -1409,11 +1864,78 @@ local function drawMetatile(image, data, primary, secondary, pals, mx, my, mid, 
   end
 end
 
-function RomExtractorGen3.renderTilesetPair(data, primaryOff, secondaryOff, used)
+-- Which metatiles sample a tile the animation overwrites. Only these need
+-- repainting per frame; the rest of the atlas is identical to frame 0, so a
+-- native paste plus a few dozen cells beats re-rendering all 1024.
+function RomExtractorGen3.animMetatiles(data, primaryOff, secondaryOff, sites)
+  local hot = {}
+  for _, site in ipairs(sites or {}) do
+    local base = site.tileIndex + (site.secondary and PRIMARY_TILES or 0)
+    for t = base, base + math.floor(site.size / TILE_BYTES) - 1 do hot[t] = true end
+  end
+  local primary = parseTileset(data, primaryOff)
+  local secondary = parseTileset(data, secondaryOff)
+  local mids = {}
+  for mid = 0, ATLAS_METATILES - 1 do
+    local ts = mid < PRIMARY_METATILES and primary or secondary
+    local row = ts and metatileTiles(data, ts, mid)
+    if row then
+      for i = 0, 7 do
+        if hot[row[i] % 1024] then
+          mids[#mids + 1] = mid
+          break
+        end
+      end
+    end
+  end
+  return mids
+end
+
+-- Frame f as a copy of frame 0 with only the animated cells repainted.
+function RomExtractorGen3.renderTilesetFrame(data, primaryOff, secondaryOff,
+    subs, mids, baseBottom, baseTop)
+  local primary = parseTileset(data, primaryOff)
+  local secondary = parseTileset(data, secondaryOff)
+  if not (primary and secondary) then return nil, "tileset pair is unreadable" end
+  for _, sub in ipairs(subs or {}) do
+    local ts = sub.secondary and secondary or primary
+    local at = sub.tileIndex * TILE_BYTES
+    if at >= 0 and at + #sub.bytes <= #ts.tiles then
+      ts.tiles = ts.tiles:sub(1, at) .. sub.bytes .. ts.tiles:sub(at + #sub.bytes + 1)
+    end
+  end
+  local pals = loadPalettes(data, primary, secondary)
+  local w = ATLAS_COLS * METATILE_PX
+  local h = ATLAS_ROWS * METATILE_PX
+  local bottom = love.image.newImageData(w, h)
+  local top = love.image.newImageData(w, h)
+  bottom:paste(baseBottom, 0, 0, 0, 0, w, h)
+  top:paste(baseTop, 0, 0, 0, 0, w, h)
+  for _, mid in ipairs(mids or {}) do
+    local col = mid % ATLAS_COLS
+    local row = math.floor(mid / ATLAS_COLS)
+    drawMetatile(bottom, data, primary, secondary, pals, col, row, mid, false)
+    drawMetatile(top, data, primary, secondary, pals, col, row, mid, true)
+  end
+  return bottom, top
+end
+
+-- `subs` splices animation frame data over the static tiles before painting,
+-- which is what QueueTilesetAnimDma does to VRAM at runtime. parseTileset
+-- hands back a fresh table each call, so editing .tiles here is local.
+function RomExtractorGen3.renderTilesetPair(data, primaryOff, secondaryOff, used, subs)
   local primary, pErr = parseTileset(data, primaryOff)
   if not primary then return nil, pErr end
   local secondary, sErr = parseTileset(data, secondaryOff)
   if not secondary then return nil, sErr end
+  for _, sub in ipairs(subs or {}) do
+    local ts = sub.secondary and secondary or primary
+    local at = sub.tileIndex * TILE_BYTES
+    if at >= 0 and at + #sub.bytes <= #ts.tiles then
+      ts.tiles = ts.tiles:sub(1, at) .. sub.bytes
+        .. ts.tiles:sub(at + #sub.bytes + 1)
+    end
+  end
   local pals = loadPalettes(data, primary, secondary)
   local w = ATLAS_COLS * METATILE_PX
   local h = ATLAS_ROWS * METATILE_PX
@@ -1429,6 +1951,165 @@ function RomExtractorGen3.renderTilesetPair(data, primaryOff, secondaryOff, used
     drawMetatile(top, data, primary, secondary, pals, col, row, mid, true)
   end
   return bottom, top
+end
+
+-- field_door.c gDoorAnimGraphicsTable (ROM 0x0830F9B4; confirmed by scanning
+-- the ROM for the 34 known {metatileNum,sound} pairs at a 12-byte struct
+-- DoorGraphics stride -- exactly one hit). 34 real doors + a NULL
+-- terminator (tiles == 0). Each door's `tiles` pointer is 3 open-animation
+-- frames (gDoorOpenAnimFrames offsets 0/0x100/0x200) of 8 tiles apiece: the
+-- first 4 are the metatile drawn at the door's (x, y-1) -- the arch -- and
+-- the next 4 at (x, y) -- the opening (door_build_blockdef /
+-- DrawCurrentDoorAnimFrame). `palette` is one shared 8-entry array of
+-- per-tile BG palette *bank indices* (0-15) reused across all 3 frames, so
+-- the actual colors depend on whichever tileset pair is loaded -- same as
+-- any other metatile tile ref, just outside the normal metatile table.
+local DOOR_TABLE_OFF = 0x30F9B4
+local DOOR_COUNT = 34
+local DOOR_TILES_PER_FRAME = 8
+local DOOR_FRAMES = 3
+local DOOR_FRAME_BYTES = DOOR_TILES_PER_FRAME * TILE_BYTES -- 0x100
+RomExtractorGen3.DOOR_FRAMES = DOOR_FRAMES
+RomExtractorGen3.DOOR_CELL_W = METATILE_PX
+RomExtractorGen3.DOOR_CELL_H = METATILE_PX * 2
+
+function RomExtractorGen3.parseDoorTable(data)
+  local doors = {}
+  for i = 0, DOOR_COUNT - 1 do
+    local off = DOOR_TABLE_OFF + i * 12
+    local tilesPtr = GbaBin.u32(data, off + 4)
+    if tilesPtr == 0 then break end
+    doors[#doors + 1] = {
+      row = #doors, -- 0-based atlas row, stable regardless of table order
+      metatile = GbaBin.u16(data, off),
+      sound = GbaBin.u16(data, off + 2),
+      tilesOff = GbaBin.romOffset(tilesPtr),
+      palOff = GbaBin.romOffset(GbaBin.u32(data, off + 8)),
+    }
+  end
+  return doors
+end
+
+-- One atlas per tileset pair: DOOR_FRAMES columns x #doors rows, each cell
+-- the door's two stacked metatiles (arch over opening) for that frame.
+-- Column 0/1/2 = gDoorOpenAnimFrames offsets 0/0x100/0x200 in order; the
+-- reverse close sequence and the plain closed art (frame offset -1, which
+-- is just the tileset's own metatile already drawn by the normal layer)
+-- are a runtime concern, not baked here.
+function RomExtractorGen3.renderDoorAtlas(data, pals, doors)
+  doors = doors or RomExtractorGen3.parseDoorTable(data)
+  if #doors == 0 then return nil, doors end
+  local cellW, cellH = METATILE_PX, METATILE_PX * 2
+  local w = cellW * DOOR_FRAMES
+  local h = cellH * #doors
+  local image = ImageWriter.blank(w, h, 0, 0, 0, 0)
+  for _, door in ipairs(doors) do
+    local palBank = {}
+    for i = 0, 7 do palBank[i] = GbaBin.u8(data, door.palOff + i) end
+    local baseY = door.row * cellH
+    for frame = 0, DOOR_FRAMES - 1 do
+      local frameOff = door.tilesOff + frame * DOOR_FRAME_BYTES
+      local fx = frame * cellW
+      for tileIdx = 0, DOOR_TILES_PER_FRAME - 1 do
+        local start = frameOff + tileIdx * TILE_BYTES
+        local raw = data:sub(start + 1, start + TILE_BYTES)
+        local within = tileIdx % 4
+        local tx = fx + (within % 2) * 8
+        local ty = baseY + (tileIdx < 4 and 0 or 16) + math.floor(within / 2) * 8
+        blitTile(image, tx, ty, raw, pals[palBank[tileIdx]] or pals[0],
+          false, false, true)
+      end
+    end
+  end
+  return image, doors
+end
+
+function RomExtractorGen3.renderDoorAtlasForPair(data, primaryOff, secondaryOff, doors)
+  local primary, pErr = parseTileset(data, primaryOff)
+  if not primary then return nil, pErr end
+  local secondary, sErr = parseTileset(data, secondaryOff)
+  if not secondary then return nil, sErr end
+  local pals = loadPalettes(data, primary, secondary)
+  return RomExtractorGen3.renderDoorAtlas(data, pals, doors)
+end
+
+-- decoration.c gDecorations (ROM 0x083EB6C4). 121 entries of
+-- struct Decoration { u8 id; u8 name[16]; u8 permission; u8 shape;
+-- u8 category; u16 price; const u8 *description; const u16 *tiles; },
+-- 32 bytes each. Located by the structural signature -- id counts 0..120
+-- and both trailing words are ROM pointers -- which matched at exactly one
+-- offset; the parse re-checks it rather than trusting the constant.
+--
+-- tiles[0] is the only tile field this engine needs so far, and it means
+-- two different things by permission: a metatile id for the ones
+-- InitSecretBaseAppearance bakes into the room grid, and an
+-- OBJ_EVENT_GFX_* id for DECORPERM_SOLID_MAT, the dolls and cushions
+-- sub_80BBDD0 spawns as object events. Name and description are text
+-- pointers and are left for whenever the decoration PC needs them.
+local DECORATIONS_OFF = 0x3EB6C4
+local DECORATION_COUNT = 121
+local DECORATION_STRIDE = 32
+-- decoration.h DECORSHAPE_*, in declaration order, as width x height.
+-- sub_80FF394 switches on the shape to pick the footprint it stamps.
+local DECOR_SHAPE_SIZE = {
+  [0] = { 1, 1 }, [1] = { 2, 1 }, [2] = { 3, 1 }, [3] = { 4, 2 }, [4] = { 2, 2 },
+  [5] = { 1, 2 }, [6] = { 1, 3 }, [7] = { 2, 4 }, [8] = { 3, 3 }, [9] = { 3, 2 },
+}
+RomExtractorGen3.DECORATION_COUNT = DECORATION_COUNT
+RomExtractorGen3.DECOR_SHAPE_SIZE = DECOR_SHAPE_SIZE
+
+function RomExtractorGen3.parseDecorations(data)
+  local byId = {}
+  for i = 0, DECORATION_COUNT - 1 do
+    local off = DECORATIONS_OFF + i * DECORATION_STRIDE
+    if GbaBin.u8(data, off) ~= i then
+      return nil, ("gDecorations: id %d does not count up at %06X"):format(i, off)
+    end
+    local tilesPtr = GbaBin.u32(data, off + 0x1C)
+    if not GbaBin.isRomPtr(tilesPtr, #data)
+        or not GbaBin.isRomPtr(GbaBin.u32(data, off + 0x18), #data) then
+      return nil, ("gDecorations: entry %d has no ROM pointers"):format(i)
+    end
+    local permission = GbaBin.u8(data, off + 0x11)
+    local shape = GbaBin.u8(data, off + 0x12)
+    -- How many u16s tiles actually holds. For everything the room bakes
+    -- into its grid it is one metatile per footprint cell (sub_80FF1EC
+    -- indexes tiles[i * w + j]). For DECORPERM_SOLID_MAT it is a single
+    -- OBJ_EVENT_GFX id no matter the shape -- DecorGfx_SNORLAX_DOLL is
+    -- 1x2 yet holds one entry -- so sizing those by w*h would read the
+    -- next decoration's array as tiles.
+    local size = DECOR_SHAPE_SIZE[shape]
+    local n = 1
+    if permission ~= DECORPERM_SOLID_MAT and size then n = size[1] * size[2] end
+    local tilesOff = GbaBin.romOffset(tilesPtr)
+    local tiles = {}
+    for k = 0, n - 1 do tiles[k + 1] = GbaBin.u16(data, tilesOff + k * 2) end
+    -- decoration.h: name is an INLINE u8[16] at +0x01, not a pointer.
+    -- description at +0x18 is a pointer, and is what the PC prints under
+    -- a highlighted decoration.
+    local name = GbaText.decodeText(data:sub(off + 2, off + 0x11), 16)
+    local descOff = GbaBin.romOffset(GbaBin.u32(data, off + 0x18))
+    local description =
+      GbaText.decodeText(data:sub(descOff + 1, descOff + 128), 128)
+    byId[i] = {
+      name = name,
+      description = description,
+      permission = permission,
+      shape = shape,
+      width = size and size[1] or 1,
+      height = size and size[2] or 1,
+      category = GbaBin.u8(data, off + 0x13),
+      price = GbaBin.u16(data, off + 0x14),
+      tiles = tiles,
+      gfx = tiles[1],
+    }
+  end
+  return { count = DECORATION_COUNT, byId = byId }
+end
+
+function RomExtractorGen3.doorAtlasPath(pairId)
+  local n = tostring(pairId):gsub("^pair_", "")
+  return ("assets/generated/tilesets/pair_%s_doors.png"):format(n)
 end
 
 local function pairKey(primOff, secOff)
@@ -1518,6 +2199,7 @@ function RomExtractorGen3.decodeHoenn(data)
           mapType = header.mapType,
           weather = header.weather,
           regionMapSectionId = header.regionMapSectionId,
+          flags = header.flags,
           cave = header.cave,
           tileset = pair.id,
           spawn = { x = sx, y = sy },
@@ -1549,34 +2231,39 @@ function RomExtractorGen3.decodeHoenn(data)
       if not lo then break end
       local layout = parseLayout(data, lo)
       if not layout then break end
-      local key = pairKey(layout.primaryOff, layout.secondaryOff)
-      local pair = pairsByKey[key]
-      if not pair then
-        pair = {
-          primaryOff = layout.primaryOff,
-          secondaryOff = layout.secondaryOff,
-          used = {},
-        }
-        pairsByKey[key] = pair
-        pairOrder[#pairOrder + 1] = pair
-        pair.id = "pair_" .. (#pairOrder - 1)
-      end
-      for i = 1, #layout.grid do
-        pair.used[layout.grid[i] % (MAP_CELL_METATILE + 1)] = true
-      end
-      if layout.border then
-        for i = 1, #layout.border do
-          pair.used[layout.border[i] % (MAP_CELL_METATILE + 1)] = true
+      -- Layout 243 has a NULL secondaryTileset and no map header or
+      -- setmaplayoutindex reaches it.  Skip it, but keep walking: the
+      -- slots above it hold the alternate layouts (264, 313, 320, 327).
+      if layout.secondaryOff then
+        local key = pairKey(layout.primaryOff, layout.secondaryOff)
+        local pair = pairsByKey[key]
+        if not pair then
+          pair = {
+            primaryOff = layout.primaryOff,
+            secondaryOff = layout.secondaryOff,
+            used = {},
+          }
+          pairsByKey[key] = pair
+          pairOrder[#pairOrder + 1] = pair
+          pair.id = "pair_" .. (#pairOrder - 1)
         end
-      end
-      if not usedLayoutIds[id] then
-        extraLayouts[id] = {
-          width = layout.width,
-          height = layout.height,
-          grid = layout.grid,
-          border = layout.border,
-          tileset = pair.id,
-        }
+        for i = 1, #layout.grid do
+          pair.used[layout.grid[i] % (MAP_CELL_METATILE + 1)] = true
+        end
+        if layout.border then
+          for i = 1, #layout.border do
+            pair.used[layout.border[i] % (MAP_CELL_METATILE + 1)] = true
+          end
+        end
+        if not usedLayoutIds[id] then
+          extraLayouts[id] = {
+            width = layout.width,
+            height = layout.height,
+            grid = layout.grid,
+            border = layout.border,
+            tileset = pair.id,
+          }
+        end
       end
     end
   end
@@ -1631,6 +2318,7 @@ function RomExtractorGen3:extractPokemon()
         row.eggCycles = st.eggCycles
         row.eggGroup1, row.eggGroup2 = st.eggGroup1, st.eggGroup2
         row.ability1, row.ability2 = st.ability1, st.ability2
+        row.bodyColor = st.bodyColor
       end
     end
   end
@@ -1652,33 +2340,89 @@ function RomExtractorGen3:extractMaps()
   self:beginStage("Maps")
   local hoenn, err = RomExtractorGen3.decodeHoenn(self.data)
   if not hoenn then error(err) end
+  local doorTable = RomExtractorGen3.parseDoorTable(self.data)
+  local doorByMetatile = {}
+  for _, door in ipairs(doorTable) do
+    doorByMetatile[door.metatile] = { row = door.row, sound = door.sound }
+  end
   local tilesets = {
     atlasCols = ATLAS_COLS,
     atlasRows = ATLAS_ROWS,
     tileSize = METATILE_PX,
+    doorFrames = DOOR_FRAMES,
+    doorCellW = RomExtractorGen3.DOOR_CELL_W,
+    doorCellH = RomExtractorGen3.DOOR_CELL_H,
+    doorByMetatile = doorByMetatile,
     byId = {},
   }
   local total = hoenn.mapCount + #hoenn.pairs
   local done = 0
+  -- One bounds pass over every tileset struct, so each animation table can be
+  -- clamped against its neighbour rather than read past its end.
+  local animOffsets = {}
   for _, pair in ipairs(hoenn.pairs) do
-    local bottom, top = RomExtractorGen3.renderTilesetPair(
-      self.data, pair.primaryOff, pair.secondaryOff, pair.used)
-    if not bottom then error(top or "could not render a tileset pair") end
+    if pair.primaryOff then animOffsets[#animOffsets + 1] = pair.primaryOff end
+    if pair.secondaryOff then animOffsets[#animOffsets + 1] = pair.secondaryOff end
+  end
+  local animByCallback = RomExtractorGen3.collectTilesetAnims(self.data, animOffsets)
+  for _, pair in ipairs(hoenn.pairs) do
     local id = pair.id
+    local plan = RomExtractorGen3.tilesetAnimPlan(
+      self.data, pair.primaryOff, pair.secondaryOff, animByCallback)
+    local bottom, top = RomExtractorGen3.renderTilesetPair(
+      self.data, pair.primaryOff, pair.secondaryOff, pair.used,
+      plan and plan.subs[0])
+    if not bottom then error(top or "could not render a tileset pair") end
     local bottomPath = RomExtractorGen3.tilesetPath(id, "bottom")
     local topPath = RomExtractorGen3.tilesetPath(id, "top")
     ImageWriter.save(bottom, bottomPath)
     ImageWriter.save(top, topPath)
+    -- Frames 1..n-1 as their own atlases. Only the animated pairs pay this,
+    -- and only the loaded pair's frames are ever resident.
+    local animFrames
+    if plan and plan.frames > 1 then
+      animFrames = { frames = plan.frames, period = plan.period, layers = {} }
+      local rendered = { [0] = { bottom = bottomPath, top = topPath } }
+      local hot = RomExtractorGen3.animMetatiles(
+        self.data, pair.primaryOff, pair.secondaryOff, plan.siteList)
+      for f = 1, plan.frames - 1 do
+        local twin = plan.sameAs[f]
+        if twin ~= nil and rendered[twin] then
+          animFrames.layers[f] = rendered[twin]
+        else
+          local fb, ft = RomExtractorGen3.renderTilesetFrame(
+            self.data, pair.primaryOff, pair.secondaryOff, plan.subs[f], hot,
+            bottom, top)
+          if fb then
+            local fbPath = RomExtractorGen3.tilesetFramePath(id, "bottom", f)
+            local ftPath = RomExtractorGen3.tilesetFramePath(id, "top", f)
+            ImageWriter.save(fb, fbPath)
+            ImageWriter.save(ft, ftPath)
+            rendered[f] = { bottom = fbPath, top = ftPath }
+            animFrames.layers[f] = rendered[f]
+          end
+        end
+      end
+    end
+    local doorImage = RomExtractorGen3.renderDoorAtlasForPair(
+      self.data, pair.primaryOff, pair.secondaryOff, doorTable)
+    local doorPath
+    if doorImage then
+      doorPath = RomExtractorGen3.doorAtlasPath(id)
+      ImageWriter.save(doorImage, doorPath)
+    end
     local behavior, layerType, tiles, overworldAnim = loadBehaviors(
       self.data, pair.primaryOff, pair.secondaryOff, pair.used)
     tilesets.byId[id] = {
       id = id,
       bottom = bottomPath,
       top = topPath,
+      doorAtlas = doorPath,
       behavior = behavior,
       layerType = layerType,
       tiles = tiles,
       overworldAnim = overworldAnim or nil,
+      anim = animFrames,
     }
     done = done + 1
     self:tick("Maps", done, total)
@@ -1696,13 +2440,85 @@ function RomExtractorGen3:extractMaps()
   }
 end
 
-function RomExtractorGen3:extractSprites(maps)
+-- event_object_movement.c get_berry_tree_graphics. The graphics ID only
+-- chooses EARLY (61) vs LATE (62) stages, and gBerryTreeGraphicsIdTable is
+-- {61,61,62,62,62} for every berry alike. What actually differs per berry
+-- is the ART: sprite->images = gBerryTreePicTablePointers[berryId], with
+-- sprite->oam.paletteNum = gBerryTreePaletteSlotTablePointers[berryId][stage].
+-- gfx 62's own images pointer happens to be Pecha's table, so rendering
+-- that one sheet for all 43 berries made every mature tree identical.
+--
+-- Each pic table is nine entries: three shared 16x16 frames (dirt pile and
+-- two sprout frames) then six 16x32 frames of that berry's own tree.
+-- PatchObjectPalettes fills OBJ slots 0..9 from gObjectPaletteTags1, so
+-- slots 2..5 are palette tags 0x1103..0x1106.
+RomExtractorGen3.BERRY_PIC_PTRS = 0x374314
+RomExtractorGen3.BERRY_PAL_PTRS = 0x3743C0
+RomExtractorGen3.BERRY_TREE_COUNT = 43
+RomExtractorGen3.BERRY_LATE_FIRST = 3
+RomExtractorGen3.BERRY_LATE_FRAMES = 6
+RomExtractorGen3.BERRY_LATE_W = 16
+RomExtractorGen3.BERRY_LATE_H = 32
+RomExtractorGen3.BERRY_SLOT_TAG =
+  { [2] = 0x1103, [3] = 0x1104, [4] = 0x1105, [5] = 0x1106 }
+
+function RomExtractorGen3.berryTreePath(berryId)
+  return ("assets/generated/sprites/berry_%02d.png"):format(berryId)
+end
+
+function RomExtractorGen3:extractBerryTrees(pals)
+  local data = self.data
+  local W = RomExtractorGen3.BERRY_LATE_W
+  local H = RomExtractorGen3.BERRY_LATE_H
+  local frameSize = W * H / 2
+  local out, count = {}, 0
+  for berry = 0, RomExtractorGen3.BERRY_TREE_COUNT - 1 do
+    local _, picOff = romPtr(data, RomExtractorGen3.BERRY_PIC_PTRS + berry * 4)
+    local _, slotOff = romPtr(data, RomExtractorGen3.BERRY_PAL_PTRS + berry * 4)
+    if picOff and slotOff then
+      -- stage index 2 is the first LATE stage; 2..4 always share a slot
+      local slot = GbaBin.u8(data, slotOff + 2)
+      local palAddr = RomExtractorGen3.BERRY_SLOT_TAG[slot]
+      palAddr = palAddr and pals and pals.byTag and pals.byTag[palAddr]
+      local frames = {}
+      for n = 0, RomExtractorGen3.BERRY_LATE_FRAMES - 1 do
+        local at = picOff + (RomExtractorGen3.BERRY_LATE_FIRST + n) * 8
+        local p, off = romPtr(data, at)
+        if p and GbaBin.u16(data, at + 4) == frameSize then
+          frames[#frames + 1] = off
+        end
+      end
+      if palAddr and #frames == RomExtractorGen3.BERRY_LATE_FRAMES then
+        local image = RomExtractorGen3.renderOwSheet(data, {
+          width = W, height = H, frameSize = frameSize,
+          frames = frames, frameOff = frames[1],
+        }, palAddr, #frames)
+        if image then
+          local path = RomExtractorGen3.berryTreePath(berry)
+          ImageWriter.save(image, path)
+          out[berry] = {
+            path = path, width = W, height = H,
+            frameCount = #frames, paletteSlot = slot,
+          }
+          count = count + 1
+        end
+      end
+    end
+  end
+  if count ~= RomExtractorGen3.BERRY_TREE_COUNT then
+    error(("only %d of %d berry tree sheets were extracted"):format(
+      count, RomExtractorGen3.BERRY_TREE_COUNT))
+  end
+  return out
+end
+
+function RomExtractorGen3:extractSprites(maps, decorations)
   self:beginStage("Sprites")
   local graphics, gErr = RomExtractorGen3.findObjectEventGraphics(self.data)
   if not graphics then error(gErr) end
   local pals, pErr = RomExtractorGen3.findObjectEventPalettes(self.data, graphics)
   if not pals then error(pErr) end
-  local ids = RomExtractorGen3.collectGraphicsIds(maps and maps.maps)
+  local ids = RomExtractorGen3.collectGraphicsIds(maps and maps.maps, decorations)
   local byId = {}
   local count = 0
   for i = 1, #ids do
@@ -1718,6 +2534,13 @@ function RomExtractorGen3:extractSprites(maps)
       local frameCount = have
       if need > 1 then
         frameCount = math.min(have, math.max(need, 1))
+      elseif info.inanimate then
+        -- An inanimate object has one image, but the frame walk in
+        -- parseGraphicsInfo keeps going while the next pic table entry is
+        -- the same byte size -- and the dolls are all 16x16, in one
+        -- contiguous run. Without this clamp ow_142 came out as a 32-frame
+        -- sheet made of its neighbours.
+        frameCount = 1
       end
       local image, err = RomExtractorGen3.renderOwSheet(
         self.data, info, palOff, frameCount)
@@ -1740,11 +2563,17 @@ function RomExtractorGen3:extractSprites(maps)
   if not byId[PLAYER_GFX_ID] then
     error("player overworld sprite (ow_0) was not extracted")
   end
+  if not byId[2] or not byId[92] then
+    error("surfing sprites (ow_2/ow_92) were not extracted")
+  end
   if not byId[61] or not byId[62] then
     error("berry tree stage sprites (ow_61/ow_62) were not extracted")
   end
   if not byId[191] or not byId[192] then
     error("watering sprites (ow_191/ow_192) were not extracted")
+  end
+  if not byId[141] then
+    error("submarine shadow (ow_141) was not extracted")
   end
   self:tick("Sprites", #ids, #ids)
   return {
@@ -1752,6 +2581,7 @@ function RomExtractorGen3:extractSprites(maps)
     count = count,
     byId = byId,
     emotes = self:extractEmotes(),
+    berryTrees = self:extractBerryTrees(pals),
   }
 end
 
@@ -1795,18 +2625,28 @@ function RomExtractorGen3:extractBattle()
   local trainerOff, classOff = BattleData.findTrainerTable(self.data)
   if trainerOff then
     trainers = BattleData.parseTrainers(self.data, trainerOff, classOff)
+    -- gTrainerEyeDescriptions is extern in the decomp, so it is located by
+    -- shape: 69 pointers, each to four EOS-terminated lines laid end to end.
+    trainers.eyeDescriptions =
+      BattleData.parseTrainerEyeDescriptions(self.data)
+    -- gRibbonDescriptions is [25][2] and also extern; its contest half is five
+    -- groups of four ranks sharing a category name, which is what locates it.
+    trainers.ribbonDescriptions =
+      BattleData.parseRibbonDescriptions(self.data)
   end
   local itemOff = BattleData.findItemTable(self.data)
   local items = itemOff and BattleData.parseItems(self.data, itemOff)
-  local frontOff, backOff, palOff = BattleData.findPicTables(self.data)
+  local frontOff, backOff, palOff, shinyPalOff = BattleData.findPicTables(self.data)
   if not (frontOff and backOff and palOff) then
     error("pokemon pic tables not found")
   end
-  local used = BattleData.collectSpecies(encounters, evolutions, trainers)
+  local used = BattleData.collectSpecies(encounters, evolutions, trainers,
+    self.mapsForPics, self.data)
   local ids = {}
   for species in pairs(used) do ids[#ids + 1] = species end
   table.sort(ids)
   local fronts, backs = {}, {}
+  local frontsShiny, backsShiny = {}, {}
   for i = 1, #ids do
     local species = ids[i]
     local image, err = BattleData.renderMonPic(
@@ -1831,6 +2671,23 @@ function RomExtractorGen3:extractBattle()
       ImageWriter.save(back, path)
       backs[species] = path
     end
+    -- Shiny palettes: same front/back sheets, gMonShinyPaletteTable.
+    if shinyPalOff then
+      local shinyFront = BattleData.renderMonPic(
+        self.data, frontOff + species * 8, shinyPalOff + species * 8)
+      if shinyFront then
+        local path = BattleData.frontShinyPath(species)
+        ImageWriter.save(shinyFront, path)
+        frontsShiny[species] = path
+      end
+      local shinyBack = BattleData.renderMonPic(
+        self.data, backOff + species * 8, shinyPalOff + species * 8)
+      if shinyBack then
+        local path = BattleData.backShinyPath(species)
+        ImageWriter.save(shinyBack, path)
+        backsShiny[species] = path
+      end
+    end
     self:tick("Battle", i, #ids)
   end
   if not fronts[BattleData.STARTER_SPECIES] then
@@ -1843,6 +2700,10 @@ function RomExtractorGen3:extractBattle()
   local frontY = frontCoordOff and BattleData.parsePicCoords(self.data, frontCoordOff)
   local backY = backCoordOff and BattleData.parsePicCoords(self.data, backCoordOff)
   local battleBgs = BattleData.extractEnvironments(self.data)
+  local goldStars, goldErr = BattleData.extractGoldStars(self.data)
+  if not goldStars then
+    error(goldErr or "gold_stars.png (ANIM_TAG_GOLD_STARS) was not extracted")
+  end
   local namesOff, dataOff = BattleData.findMoveTables(self.data)
   if not (namesOff and dataOff) then error("move tables not found") end
   local moves = BattleData.parseMoves(self.data, namesOff, dataOff)
@@ -1868,9 +2729,12 @@ function RomExtractorGen3:extractBattle()
     byMap = encounters.byMap,
     fronts = fronts,
     backs = backs,
+    frontsShiny = frontsShiny,
+    backsShiny = backsShiny,
     frontY = frontY,
     backY = backY,
     bgs = battleBgs,
+    goldStars = goldStars,
     moves = moves,
     learnsets = learnsets,
     tmhmLearnsets = tmhmLearnsets,
@@ -1890,23 +2754,127 @@ end
 
 -- Mon icons and party menu chrome share a stage: both are menu furniture
 -- and the icons are what the party screen puts in its boxes.
+-- script_menu.c gMultichoiceLists: an array of
+--   struct { const struct MenuAction *list; u8 count; }   (8 bytes, padded)
+-- where each list is `count` MenuAction pairs { const u8 *text; MenuFunc func }
+-- with func always NULL. Ten of these were hand-typed into Game3.MULTICHOICE,
+-- one at a time as somebody noticed a menu was empty, and the rest simply did
+-- not exist -- which is why the Battle Tower ferry had no destinations to pick
+-- (its list is 53, SLATEPORT / LILYCOVE / CANCEL). Read the table instead.
+-- Found by signature rather than a fixed address: a run of entries whose
+-- pointer is in ROM, whose count is small, whose padding is zero, and whose
+-- target really is `count` {ptr, 0} pairs.
+local MULTICHOICE_MIN_RUN = 40
+local MULTICHOICE_MAX_COUNT = 12
+
+local function multichoiceEntryAt(data, off)
+  if off + 8 > #data then return nil end
+  local p = select(2, romPtr(data, off))
+  if not p then return nil end
+  local count = GbaBin.u8(data, off + 4)
+  if count < 1 or count > MULTICHOICE_MAX_COUNT then return nil end
+  if GbaBin.u8(data, off + 5) ~= 0 or GbaBin.u8(data, off + 6) ~= 0
+      or GbaBin.u8(data, off + 7) ~= 0 then
+    return nil
+  end
+  for i = 0, count - 1 do
+    local e = p + i * 8
+    if e + 8 > #data then return nil end
+    if not select(2, romPtr(data, e)) then return nil end
+    if GbaBin.u32(data, e + 4) ~= 0 then return nil end
+  end
+  return p, count
+end
+
+-- `from` only exists so a small fixture ROM can be scanned from 0; real ROMs
+-- skip the header and code region for speed.
+function RomExtractorGen3.findMultichoiceLists(data, from)
+  if type(data) ~= "string" then return nil end
+  local bestOff, bestRun = nil, 0
+  local off = tonumber(from) or 0x080000
+  while off < #data - 8 do
+    if multichoiceEntryAt(data, off) then
+      local run, p = 0, off
+      while p < #data - 8 and multichoiceEntryAt(data, p) do
+        run = run + 1
+        p = p + 8
+      end
+      if run >= MULTICHOICE_MIN_RUN and run > bestRun then
+        bestOff, bestRun = off, run
+      end
+      off = p
+    else
+      off = off + 4
+    end
+  end
+  if not bestOff then return nil end
+  return bestOff, bestRun
+end
+
+function RomExtractorGen3.parseMultichoiceLists(data, from)
+  local off, run = RomExtractorGen3.findMultichoiceLists(data, from)
+  if not off then return nil end
+  local out = {}
+  for i = 0, run - 1 do
+    local p, count = multichoiceEntryAt(data, off + i * 8)
+    if p then
+      local labels = {}
+      for j = 0, count - 1 do
+        local t = select(2, romPtr(data, p + j * 8))
+        labels[#labels + 1] = t
+          and GbaText.decodeText(data:sub(t + 1, t + 64), 64) or ""
+      end
+      -- keyed by the id the multichoice op uses, which is the table index
+      out[i] = labels
+    end
+  end
+  return out
+end
+
 function RomExtractorGen3:extractMenus()
   self:beginStage("Menus")
   local icons = Gen3Icons.extract(self.data)
   if not icons then error("gMonIconTable was not found") end
-  self:tick("Menus", 1, 2)
+  self:tick("Menus", 1, 3)
   local party = Gen3Party.extract(self.data)
   if not party then error("the party menu graphics group was not found") end
-  self:tick("Menus", 2, 2)
-  return { icons = icons, party = party }
+  self:tick("Menus", 2, 3)
+  local Dex = require("src.import.RomExtractorGen3Dex")
+  local dex = Dex.extractArt(self.data)
+  if not dex then error("pokedex chrome / footprints were not extracted") end
+  self:tick("Menus", 3, 3)
+  local multichoice = RomExtractorGen3.parseMultichoiceLists(self.data)
+  if not multichoice then error("gMultichoiceLists was not found") end
+  return { icons = icons, party = party, dex = dex, multichoice = multichoice }
 end
 
 function RomExtractorGen3:run()
   local header = self:extractHeader()
   local pokemon = self:extractPokemon()
   local maps = self:extractMaps()
-  local sprites = self:extractSprites(maps)
+  -- Bake the map scripts HERE, not down in the Cache stage. Two collectors
+  -- read scripts and both run above that point: collectGraphicsIds (through
+  -- extractSprites) and collectScriptSpecies (through extractBattle). With
+  -- the bake last, every entry.script was still a raw offset when they ran,
+  -- so both quietly collected nothing script-driven -- Groudon's overworld
+  -- sheets (198/206) and every script-only battle pic (the regis, Groudon,
+  -- Rayquaza, Latios) came out missing, and both render as a blank square.
+  -- Offsets are kept: the trainer / item / mart reads below are keyed off
+  -- them, and stripScriptOffsets clears them once those are done.
+  if type(maps) == "table" and type(maps.maps) == "table" then
+    for _, map in pairs(maps.maps) do
+      RomExtractorGen3.bakeMapScripts(self.data, map, true)
+    end
+  end
+  -- Before the sprites: extractSprites needs the catalog to know which
+  -- OBJ_EVENT_GFX sheets the SOLID_MAT decorations resolve to.
+  local decorations, decorErr = RomExtractorGen3.parseDecorations(self.data)
+  if not decorations then error(decorErr) end
+  local sprites = self:extractSprites(maps, decorations)
   local font, ui = self:extractUi()
+  -- extractBattle renders one pic per species it believes is reachable, and
+  -- the script-only ones are only visible in the maps.
+  self.mapsForPics = maps
   local battle = self:extractBattle()
   local audio = self:extractAudio()
   local menus = self:extractMenus()
@@ -1987,7 +2955,7 @@ function RomExtractorGen3:run()
           if mart and #mart > 0 then o.mart = mart end
         end
       end
-      RomExtractorGen3.bakeMapScripts(self.data, map)
+      RomExtractorGen3.stripScriptOffsets(map)
     end
   end
   self:write("pokemon", pokemon)
@@ -2005,12 +2973,15 @@ function RomExtractorGen3:run()
   self:write("ui", ui or {})
   self:write("audio", audio)
   self:write("menus", menus)
+  self:write("decorations", decorations)
   self:write("encounters", {
     starterSpecies = battle.starterSpecies,
     count = battle.encounterCount,
     byMap = battle.byMap,
     fronts = battle.fronts,
     backs = battle.backs,
+    frontsShiny = battle.frontsShiny,
+    backsShiny = battle.backsShiny,
     frontY = battle.frontY,
     backY = battle.backY,
     bgs = battle.bgs,

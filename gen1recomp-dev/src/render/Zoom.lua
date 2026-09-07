@@ -34,7 +34,18 @@ Zoom.allowSurvey = true
 -- not a guessed-at general zoom restriction. Needs the user's own on-device
 -- confirmation; extend the margin (currently 1 step) if OUT6 turns out to
 -- be risky too.
-local ShaderFX
+-- Optional: survey OUT is floored when a shader preset is active (see below).
+-- Loaded lazily via pcall so zoom never crashes on builds that omit ShaderFX.
+local shaderFxModule
+
+local function shaderFxActive()
+  if shaderFxModule == false then return false end
+  if not shaderFxModule then
+    local ok, mod = pcall(require, "src.render.ShaderFX")
+    if ok then shaderFxModule = mod else shaderFxModule = false end
+  end
+  return shaderFxModule and shaderFxModule.active()
+end
 
 -- legal offset range for a given fit scale (vanilla: survey at 1 px/world
 -- through 2× fit).  zoom.range may widen or shrink the window.
@@ -59,8 +70,7 @@ function Zoom.offsetRange(S)
   -- SHADER FX + the single deepest survey step: see the comment above.
   -- The floor is one step above the deepest this call would otherwise
   -- allow, so the three-step minimum above still keeps a zoom-out.
-  ShaderFX = ShaderFX or require("src.render.ShaderFX")
-  if ShaderFX.active() then
+  if shaderFxActive() then
     local floor = math.min(2 - S, lo + 1)
     if lo < floor then lo = floor end
   end
@@ -77,9 +87,14 @@ function Zoom.scale(S)
   local maxScale = math.max(minScale, S + hi)
   if s < minScale then s = minScale end
   if s > maxScale then s = maxScale end
-  -- Integer offset below 1px/world (OPTIONS OUT on a 1× window): 1/2, 1/4, …
-  if s < 1 then s = 0.5 ^ (1 - s) end
-  if s < 0.25 then s = 0.25 end
+  -- Integer offset below 1px/world (OPTIONS OUT on a 1x window): same
+  -- halving curve as before (was 0.5^(1-s): 1/2, 1/4, 1/8, ...) but at
+  -- half the rate per OUT step, so OUT1/OUT2/OUT3 pull in noticeably
+  -- less extra world per step -- requested after OUT3 on a small window
+  -- pulled in enough connected-map area to stall the frame (survey-zoom
+  -- void fill, see Game3:drawVoidFill).
+  if s < 1 then s = 0.5 ^ ((1 - s) / 2) end
+  if s < 0.3 then s = 0.3 end
   return s
 end
 

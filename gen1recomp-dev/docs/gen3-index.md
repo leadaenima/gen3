@@ -20,7 +20,7 @@ Narrative history: `docs/gen3-phase1.md`. This file is the lookup.
 4. Then `src/core/Game3.lua` / `src/import/Gen3Script.lua`
 
 ROM (not in git): `C:\Users\Feces\Desktop\Pokemon - Ruby Version (USA).gba`
-Cache: `%APPDATA%\LOVE\pokemon-love2d\ruby\` contract **ruby41**
+Cache: `%APPDATA%\LOVE\pokemon-love2d\ruby\` contract **ruby43**
 Do not copy Nintendo graphics into git. No cache bump unless extractor/IR
 must change. LÖVE does not hot-reload. PowerShell: `;` not `&&`.
 
@@ -55,7 +55,7 @@ must change. LÖVE does not hot-reload. PowerShell: `;` not `&&`.
 | Party/cinema harness | `tools/gen3_finder/` `tools/gen3_preview/` (`lovec tools/gen3_finder`) |
 | Scratch dumps | `tmp/debug/` (gitignored; never the Desktop) |
 | Overworld tiles | Live windowed SpriteBatch like Gen 1 (`Game3:tileWindow`); 2x2 border fill (`GetBorderBlockAt`) clipped to MAP_OFFSET (ocean/underwater skip the tree wallpaper); water DMA is a flip on surfable / flower tiles only (harbor walls that share flower VRAM do not blink) |
-| Survey zoom / tilt | Same `Zoom.lua` / `Tilt.lua` as Gen 1/2. Hotkeys `3` (tilt), `4`/`-`/`=`/wheel (zoom). World fills the window at zoom scale so neighbors show; UI stays 240×160 letterbox. Camera re-follows after every view size (zoom/tilt), on the window centre; connections lerp one tile like `World:tryConnection`. Tilt: ground plane, then upright sprites, then BG1 overlay (roofs) so you cannot walk on buildings. Land NPCs cannot wander onto surfable water (Route 110 cyclists stay on the cycling road). OW reflections use `IsReflective` (pond/ice/under-bridge), including the tile a 32px sprite covers north of the feet. Trainer-see `!` / `?` / heart are the ROM 16×16 field-effect sprites (`gSpriteImage_839B308`, pal 0x1004), not FONT3 glyphs. |
+| Survey zoom / tilt | Same `Zoom.lua` / `Tilt.lua` as Gen 1/2. Hotkeys `3` (tilt), `4`/`-`/`=`/wheel (zoom). World fills the window at zoom scale so neighbors show; UI stays 240×160 letterbox. Camera re-follows after every view size (zoom/tilt), on the window centre; connections lerp one tile like `World:tryConnection`. Tilt: ground plane, then upright sprites, then BG1 overlay (roofs) so you cannot walk on buildings. Land NPCs cannot wander onto surfable water (Route 110 cyclists stay on the cycling road). OW reflections use `IsReflective` (pond/ice/under-bridge) on tiles *south* of the feet (`ObjectEventCheckForReflectiveSurface`); tilt paints them on the ground plane. Surf dismount onto elevation-3 beach despite Z mismatch (`sub_8058EF0`); surfing uses `ow_2`/`ow_92` (ruby44 cache). Trainer-see `!` / `?` / heart are the ROM 16×16 field-effect sprites (`gSpriteImage_839B308`, pal 0x1004), not FONT3 glyphs. |
 
 Map id is `g{group}_{num}` via `Game3.mapId`. `mapMatches` returns true
 for stub maps whose id is not `gN_M`.
@@ -123,8 +123,8 @@ exterior stairs skip them). Then Slateport Harbor → Magma Hideout.
 | Fortree gym Winona | Endeavor 189 + TM40 Aerial Ace; gates already done |
 | Lilycove dept elevator | inbound MAP_DYNAMIC save; specials 216/273/306; temp 0x1–0x1F |
 | Ice / currents / walk-slide pads | forced movement; currents surfable 0x50–0x53 |
-| Route 121 Safari Zone | Enter/Exit 205/206, 30 balls / 500 steps, BALL/GO NEAR/RUN |
-| Mt. Pyre holes / hideout pads / arrow warps | 0x0F fall 319; 0x67 pad; arrows match dir |
+| Route 121 Safari Zone | Enter/Exit 205/206, 30 balls / 500 steps, BALL/POKeBLOCK/GO NEAR/RUN; POKeBLOCK opens owned case |
+| Mt. Pyre holes / hideout pads / arrow warps | 0x0F fall 319; 0x67 pad + `SE_WARP_IN`; gfx 141 sub (`ow_141.png`); arrows match dir |
 | Route 119/123 weather cycle | specials 324/325; header is SUNNY |
 | FACE_DOWN_AND_* look types | 0x0D–0x16 stay put; medium delay; dash snap |
 | Mossdeep gym arrows | pair_35 walk pads 0x40–0x43; `setmetatile` flips dir |
@@ -135,7 +135,7 @@ exterior stairs skip them). Then Slateport Harbor → Magma Hideout.
 | SS Tidal | specials 203/204/270 waitstate; 205 steps; harbor lists 52/56 |
 | Lavaridge / Fortree / Mossdeep / Sootopolis gyms | Lavaridge + Fortree + Mossdeep arrows + Sootopolis ice |
 | PokéNav | visited FLAG_VISITED towns; FieldShowRegionMap 251 waits |
-| Pokeblocks / contests / blender | lobby specials 76-91/134-138, blender 160-161/259, feeder 208 |
+| Pokeblocks / contests / blender | lobby specials 76-91/134-138, hall waitmovement, `startcontest` appeal UI; blender 160-161/259, feeder 208 |
 | PC from scripts | CreatePCMultichoice 262, BedroomPC 249, PlayerPC 250, storage 60 |
 | Rotating gates Fortree | done (ROM 4bpp, ruby36) |
 | Rematches / Pokerus / size / diploma | trainer-eye 57-59; Pokerus infect/spread/decay; Pacifidlog TM 333/334; fan club 163-170; diploma 264; Enigma 50/339; Southern Island 323 |
@@ -149,7 +149,8 @@ exterior stairs skip them). Then Slateport Harbor → Magma Hideout.
 | Flutes / wild rate | White 43 / Black 42; flags 0x84D/0x84E last until LoadMap; Blue/Yellow/Red reusable; bike *80/100; Cleanse Tag *2/3; Stench /2 Illuminate *2; Rock Smash skips ability; Strength and CTRL_OBJ_DELETE also clear on LoadMap |
 | Dialogue box | 2 FONT3 lines, 208px via `sFont3Widths`; frame tiles 0,14–29,19; text at 2,15; typewriter is the current page; `\l` 0xFA scrolls; `\p` pages; `TEXT_LEN` 1024 |
 | START / menus | START `Menu_DrawStdWindowFrame(22,0,29,n*2+3)`; title CONTINUE/NEW GAME/OPTION `main_menu.c` frames; OPTION title `(2,0,27,3)` list `(2,4,27,19)`; OVERWORLD / BATTLE / MENU SPEED (GameSpeed.lua) scroll with ZOOM / TILT in the unused BUTTON MODE / FRAME rows |
-| Pokédex | START POKeDEX: seen/caught list in Hoenn (or National) order; A opens INFO (front pic, category, HT/WT, flavour). Left/right is the INFO/AREA/CRY/SIZE bar; A opens that screen. SIZE uses `pokemonScale`/`trainerScale` silhouettes (256/PA). AREA habitat map parked. First catch: AddedToDex, `displaydexinfo`, cry, then `trygivecaughtmonnick`. Chrome tiles / footprints parked. |
+| Trainer card | START player-name row -> `openTrainerCard` / `drawTrainerCardFront|Back`. Baked from pokeruby `graphics/trainer_card/` via `tools/bake_trainer_card.py` (`ruby_front_N` / `ruby_back_N` / `ruby_badges` / `ruby_star` / Brendan+May). Tile positions from `trainer_card.c`. A flips front->back; B or A-on-back closes. `cardStars` = HoF / Hoenn dex / BT streak>49 / museum>4. No cache bump. |
+| Pokédex | START POKeDEX: seen/caught list in Hoenn (or National) order; A opens INFO (front pic, category, HT/WT, flavour, footprint when owned). Left/right is the INFO/AREA/CRY/SIZE bar; A opens that screen. SIZE uses `pokemonScale`/`trainerScale` silhouettes (256/PA). AREA: region map with wild-header glow + dungeon/Safari markers (`FindMapsWithMon`). Entry chrome + footprints from ROM (`pokedex/entry.png`, `footprints.png`). First catch: AddedToDex, `displaydexinfo`, cry, then `trygivecaughtmonnick`. |
 | Boot cinema | Affine 8bpp title logo (`gUnknown_08E9F7E4`, BG2X -29, resting BG2Y 0) + glow Groudon; copyright pal `0xE9CA24` / map `0xE9CA44`; intro1 is four 256x256 parallax layers (1.5/1.0/0.75/0 px per frame from VOFS 0x28/0x18/0x50/0) + GAME FREAK OBJ at 560; intro2 grass+trees ~4px/frame. Re-import. |
 | Window chrome | `RomExtractorGen3Ui`. 20 text-window styles at gfx `0xE9ADDC` / pal `0xE9AEFC`, stride `0x140` (9 tiles + 16 colors each); `drawWindow` 9-slices them (row = OPTION FRAME). Dialogue box `0xEA0108` (14 tiles) via `sDialogueFrameTilemap` 7x5 with flip bits. Pals `0xD1212C` window / `0xD1214C` hpbar; healthbox elements `0xD1216C`..`0xD129AC` (66 tiles). Re-import. |
 | Battle bar | `gBattleTextboxTilemap` `0xD00524` is 4096 bytes copied to ONE bg, so it is 64x32 = two 32x32 screenblocks side by side, holding three 6-row bands all shown at y=112: message (left block row 14), action select (right block row 2), move select (right block row 22). Tiles `0xD00000` LZ (256), pal `0xD004E0` LZ (2 pals). Extracted as three 240x48 overlays. |
@@ -257,7 +258,7 @@ Grep `SPECIAL_` here or in Game3. `check_specials.py` is the oracle.
 | 84 | CheckSelectedMonAndInitContest | 0-4 like CanMonParticipateInContest |
 | 90 | sub_80C5044 | link-contest flag; 0 is valid |
 | 160 | GetFirstFreePokeblockSlot | 0-based; `-1` if the 40-slot case is full |
-| 161 | DoBerryBlending | wait; berry pick; skip RPM minigame |
+| 161 | DoBerryBlending | wait; berry pick; RPM minigame; pokeblock |
 | 207 | SafariZoneGetPokeblockNameInFeeder | 0xFFFF until a feeder pokeblock |
 | 208 | OpenPokeblockCaseOnFeeder | wait; list; RESULT 1 placed / 0 cancel |
 | 214-215 | DoPCTurnOn/Off | 7×5 blink at facing tile; Off snaps; no wait |
@@ -290,8 +291,9 @@ Grep `SPECIAL_` here or in Game3. `check_specials.py` is the oracle.
 | 283 | ShowBattleTowerRecords | field UI; Lv50/100 current+record; A/B close |
 | 231 | sub_8134548 | VAR_TEMP_0 = 5 so lobby ON_FRAME stops |
 | 237-238 | SetBattleTowerProperty / BattleTowerUtil | var_4AE 0 is idle; must return |
-| 233 | CheckPartyBattleTowerBanlist | 0x8004 = 0 allow |
-| 245 | ChooseBattleTowerPlayerParty | RESULT 0 cancel; no wait |
+| 245 | ChooseBattleTowerPlayerParty | wait; pick 3; RESULT 1/0 |
+| 233 | CheckPartyBattleTowerBanlist | 0x8004 = 0 allow / 1 refuse |
+| 239 | SetBattleTowerParty | ReducePlayerPartyToThree from selected |
 | 246 | ValidateEReaderTrainer | empty checksum → 1 (door closed) |
 | 247 | GetBestBattleTowerStreak | stat 32; 0 is valid |
 | 12 | GetCurSecretBaseRegistrationValidity | 0 can-register |
@@ -585,7 +587,10 @@ an egg into slot 1 is legal. Battle start still uses `firstHealthy`.
   unused in pokeruby.
 - Arrow warps (`0x62–0x65`, water-south `0x6D`, ship stairs `0x1B`,
   Shoal Cave `0x1C`) only warp when walking onto the tile from that
-  direction. Do not treat them like doors.
+  direction, or when already on the tile holding that dir
+  (`mapheader_run_first_tag2`). Indoor doorways are often two mats;
+  shuffling onto the other drops `ignoreWarp`. A tap that only turns
+  still leaves. Do not treat them like doors.
 - `MB_MT_PYRE_HOLE` 0x0F lands, then special **319** (`DoFallWarp`).
   Dest is the hole's warp event (`sub_8068C30`), not `gLastUsedWarp`.
   `sp13E` **318** is the same dest fade without the fall callback.
@@ -718,10 +723,36 @@ luajit tests/engine/ruby_save_test.lua
 
 ## Phase one-liners (latest first)
 
-254 Party gender + double layout: `monGender` stamps 0x42/0x44; genderless skips; battle doubles use two lead boxes (`gUnknown_083769A8` row 1). Link-double tables unused
+261 Day Care gfx stubs: OLD_MAN_2 / OLD_WOMAN_2 only open Day Care when the object has no ROM script (shared sprite with Route 109, Berry Master, houses)
+262 Teala contest stub: only on contest lobby maps (`isContestLobbyMap`); Battle Tower / PC Teala with NULL scripts no longer open Contests
+263 Mom heal stub: only Brendan/May house 1F (`isMomHealMap`); bedroom 2F NULL-script Mom no longer heals
+264 Mart stub: gfx 83 alone no longer opens a shop; needs baked `npc.mart` stock or `map.martStub` (cycling road / Oldale greeter)
+265 Nurse heal stub: only on Center/League maps (`isNurseHealMap` via MUS_POKE_CENTER / name / `nurseHeal`)
+266 Dex AREA habitat map: region-map glow from wild headers + dungeon/Safari markers; Wynaut/Feebas/roamer/landmark rules
+267 Dex chrome + footprints: `entry.png` from menu gfx/layout; owned INFO stamps footprint sheet (ruby46)
+268 Contest painting CG: `showcontestwinner` mosaic frame + caption; museum portrait rows; link contests still parked
+269 Safari POKeBLOCK case: battle opens owned case; nature gain → flee cut; consume block; feeder clears slot
+270 PC item storage / mailbox: 50-slot `pcItems` + 10 `pcMail`; New Game Potion; Lanette PSS title
+271 Field weather tiles + orb chrome: `assets/generated/weather/*` OBJ scroll over tint; orb cutscene centre pulse (no cart orb tiles); ruby47 re-import
+278 Battle Tower party pick + banlist: eligible count; `tower_party` 3-pick wait; property case 5; SetBattleTowerParty; elevator battles parked
+277 Slot Pika Power / stop-bias: DrawMachineBias odds + biased windows; ReelTime spin count; POWER bumps gauge
+276 Berry Blender RPM minigame: `blender_spin` after berry pick; BEST/GOOD/MISS → speed + progress; max RPM → records + pokeblock scale
+275 Link-double / multi party layouts: LAYOUT 2/3 box+icon+HP tables; `f.layout` / `b.partyLayout`; no link battles yet
+274 PSS PC chrome extract: wallpapers + header/party/hand → `assets/generated/pc/` (ruby48)
+273 TV / lottery wait / roulette bias: `tvShows` queue + DoTVShow; lottery 217 waits blinks; Shroomish/Taillow travel bias
+272 Link contest refuse: Lilycove `sub_808363C` → RESULT 5; CloseLink nop (no soft-reset); `contestlinktransfer` failsafe; no GBA cable
+260 Surf dismount + sprite: `canStep` allows surfing onto elevation-3 dry land when `IsZCoordMismatchAt` would block (`sub_8058EF0`); `ow_2`/`ow_92` are required cache outputs. Rebuild ROM cache (ruby44). Restart LÖVE.
+259 OW reflections: `ObjectEventCheckForReflectiveSurface` south of feet only; tilt paints the flip on the ground plane so pond-bank NPCs do not mirror onto dirt
+258 Contest hall waitmovement / START: leftover hidden-player lerp is not `waitmovement`; START dumps stuck move/wait cinema only, not `contest_move`
+257 Magma hideout submarine + hole pads: `OBJ_EVENT_GFX_SUBMARINE_SHADOW` 141 is 88×32 (`ow_141.png`); `MB_AQUA_HIDEOUT_WARP` 0x67 plays `SE_WARP_IN` then the pad warp (`sub_8080F68`) (ruby43)
+256 Starter-choose Birch bag cinema: `gBirchHelpGfx` grass+bag BGs, 4×32×32 ball/hand frames, 64×64 open-circle; `sub_810A62C` hand bob + selected-ball wiggle; A still reveals `battlePic` (`assets/generated/starter/bg.png`) (ruby42)
+255 Side-approach door mats: `mapheader_run_first_tag2` on turn; `ignoreWarp` clears after a real step / d-pad release so two-tile house exits leave from either mat
+254 Party gender + double layout: `monGender` stamps 0x42/0x44; genderless skips; battle doubles use two lead boxes (`gUnknown_083769A8` row 1). Link-double / multi are Phase 275
+- Live bug (no phase): `drawWorldStanding` now forwards the overlay pass so elevation 4 (Meteor Falls 1F_1R warp 27,18; cycling road) draws after BG1 instead of vanishing under the floor
 253 Dex screens + catch nickname: INFO/AREA/CRY/SIZE bar; size silhouettes use `pokemonScale`/`trainerScale` (256/PA); catch overlay cry then `trygivecaughtmonnick`
 252 TradeEvolutionScene: after in-game trade take-care A, `GetEvolutionTargetSpecies` type 1; cannot B-cancel; `EVO_TRADE_ITEM` zeros the hold
 251 Pokéball glow pal pulse: `MultiplyInvertedPaletteRGBComponents` `{16,12,8,0}` R/G during glow stages 2–3; B stays 0
+- Starter-choose scene (live bug, no phase): CreateStarterPokemonLabel category/name label + ball-open circle revealing `battlePic` front sprite; confirm text is the ROM's generic `gOtherText_DoYouChoosePoke`; removed dead shadowed `drawStarterChoose`/`drawMartMenu` duplicates
 250 Ruby launcher slots: Game3 SAVE/CONTINUE use `saves/ruby/`; `save3_ruby.lua` migrates; slotSummary reads playerName/playSeconds; GBA .sav import/export still refused
 249 Region-map zoom / Fly icons / landmarks: PokéNav A is 16-frame 2× affine; Fly is the painted map with town icons; `sub_80FB758` + `GetLandmarkName`
 248 Contest engine: `gContestMoves`/`gContestEffects`/`gContestOpponents`, `CalculateAppealMoveImpact` + 48 effects, combo/jam/nervous/excitement, round-1 condition, `DetermineFinalStandings`. START still aborts the hall.
@@ -737,7 +768,7 @@ luajit tests/engine/ruby_save_test.lua
 227 Cable car tiles: gCableCarBG_Gfx 0xE7EC3C + mountain/tree/pylon/chimney maps; car/door/cord OBJs; HOFS/VOFS from sub_81239E4 (ruby33)
 228 Field-effect cinema: dofieldeffect / waitfieldeffect (sparkle 48, NPCFLY 32, HoF record); EndTrainerApproach 1-frame wait
 229 Watering / elevator / sealed-chamber / Route 128 cinema: waitstate shakes and BLDY flash; watering gfx is 191/192 (ruby37)
-231 Braille wait / lottery laptop / porthole: 280 waits 7200+30; 217 blinks 7×5 no wait; 270 ocean view waitstate
+231 Braille wait / lottery laptop / porthole: 280 waits 7200+30; 217 blinks 7×5 (wait until done / EndLottery); 270 ocean view waitstate
 230 Egg hatch tiles: sEggHatchTiles 0x209AF8 four 32x32 frames + trade GBA BG; SpriteCB_Egg_0..5 wobble then front pic (ruby34)
 233 Camera dummy / PC blink / Cable Club warp / records: 275 follows local 127; 214 blinks 7×5; 2/3 wait FADE then warp; 196/283 field UI no wait
 232 Egg hatch shards + white fade: sEggShardVelocities Q_8_8; Egg_4 pal fade; Egg_5 affine 0x28+0x12x12; shard anim is vid%4 not Random()
@@ -796,7 +827,7 @@ luajit tests/engine/ruby_save_test.lua
 176 Sootopolis ice: VAR_ICE_STEP_COUNT on callback 4; special 309; temp vars clear on load
 175 FACE_DOWN_AND_* 0x0D–0x16 look + dash snap; Mossdeep arrows are walk pads 0x204/0x20C
 174 Mt. Pyre hole 0x0F / DoFallWarp 319; hideout pad 0x67; arrow warps; rotate 0x17/0x18; 324/325
-173 Safari Zone: Enter/Exit 205/206, 30 balls / 500 steps, BALL/GO NEAR, no SAVE
+173 Safari Zone: Enter/Exit 205/206, 30 balls / 500 steps, BALL/GO NEAR, no SAVE; POKeBLOCK case USE in 269
 172 ice / currents / walk-slide pads; currents surfable; Pokéblock Case 273
 171 Lilycove elevator: inbound MAP_DYNAMIC save, specials 216/273/306, temp flags 0x1–0x1F
 170 Fortree Winona: Endeavor 189 + TM40 Aerial Ace
@@ -822,3 +853,61 @@ luajit tests/engine/ruby_save_test.lua
 154 EV yield from KOs
 153 friendship, fadescreen 16, SwapRegisteredBike
 (see gen3-phase1.md for 1-152)
+
+## Gen 3 shiny (PID × OT)
+
+Formula (pokeruby `IsShinyOtIdPersonality` / `GetShinyValue`):
+
+```
+shinyValue = HIHALF(otId) XOR LOHALF(otId) XOR HIHALF(personality) XOR LOHALF(personality)
+shiny iff shinyValue < 8   -- odds 1/8192
+HIHALF(n) = floor(n/65536) % 65536
+LOHALF(n) = n % 65536
+```
+
+Key funcs in `Game3.lua`:
+- `Game3.shinyValue(otId, pid)` / `Game3.isShinyOtIdPersonality(otId, pid)`
+- `Game3:isShinyMon(mon)` -- uses `otId`, else HoF `tid`, else `ensureTrainerId()` (wild pre-catch)
+- `makeMon` stamps player OT via `stampPlayerOt` at create
+- `makeTrainerMon` re-rolls synthetic OT until non-shiny (ROM otIdType=2)
+- Debug: Gen3 has **no** Lua REPL console. With `--developer` / `Play-Developer.bat` (`POKEPORT_DEV=1`), `forceShiny` starts **ON**; backtick `` ` `` toggles it (`print` to the LOVE console). Forces wild/gift `makeMon` shiny via PID rewrite (nature kept); trainers still anti-shiny (`opts.trainer` / `makeTrainerMon`)
+- Daycare egg: pending low16 + fresh hi16 (`SetInitialEggData`)
+- Battle (singles + doubles, both sides): `battlePic` / `drawBattlePic` load `front_shiny` / `back_shiny` when shiny
+- Summary: shiny front pic + cream name accent (`sub_809FA94`); party/box **icons** stay non-shiny (`drawMonIcon`)
+- Hall of Fame cinema, egg hatch, trade scene/evolution, contest painting, PC mon **preview**: shiny-aware via GetMonSpritePal* parity
+- Hall of Fame **PC** (`AccessHallOfFamePC` 263 / `drawHofPc`): full-team front sprites at ROM dest positions; selected mon uses `isShinyMon` (tid+pid); UP/DOWN cycles mon + cry; A previous team / B close
+- Pokedex INFO/SIZE/CRY: **ROM never shows shiny** -- `CreateMonSpriteFromNationalDexNumber` always loads `gMonPaletteTable` (normal). Catch-register page likewise starts normal; `GetMonSpritePalFromOtIdPersonality` only reloads on exit into nickname/battle. Port matches: leave dex pics non-shiny. (Dex save only stores seen/caught bits + Unown/Spinda personality; no per-species shiny PID.)
+- Field OW "show mon" field-move FX: still pose-only (no mon pic draw path) -- nothing to tint
+- Send-out: `armShinySparkle` / `drawShinySparkles` = `TryShinyAnimation` timing (60f delay, dual orbit/streak, 5x, `SE_SHINY`=102) + `ANIM_TAG_GOLD_STARS` sheet (`battle/gold_stars.png` from pokeruby `233.png` / cache)
+
+Assets (baked by extractor into the ruby cache, not the Gen1 `assets/generated` tree):
+- Live path: `%APPDATA%\LOVE\pokemon-love2d\ruby\assets\generated\battle\`
+- Normal: `front/%d.png`, `back/%d.png` (internal species ids; Torchic = 280)
+- Shiny: `front_shiny/%d.png`, `back_shiny/%d.png`
+- Send-out sparkles: `gold_stars.png` (ANIM_TAG_GOLD_STARS / battle anim 233)
+- ROM palettes: normal `@ 0x1EA5B4`, shiny `@ 0x1EB374`
+- Visual check copies: project `_shiny_validate/` (and Desktop twin)
+
+Re-extract: cache contract **ruby77** (includes `battle/gold_stars.png`). Delete
+`%APPDATA%\LOVE\pokemon-love2d\ruby\rom-cache.complete` (or the whole ruby
+cache folder) and re-import the US Ruby cart so `RomExtractorGen3` bakes
+`front_shiny` / `back_shiny` PNGs. Until then, battle falls back to normal pics.
+
+Gen2 DV shiny (`Mon.isShiny` / `Stats.isShiny`) is untouched.
+
+## Bugs.txt pass 2026-09-07 (run / Briney / doubles / confuse / textbox / map popup)
+
+Ordered Desktop `bugs.txt` items patched against pokeruby:
+
+| Bug | Cause | Fix |
+|-----|-------|-----|
+| B-run always | Missing `IsRunningDisallowed` | `wantRun` + indoor/metatile gate; still needs `FLAG_SYS_B_DASH` |
+| Briney never home | `VAR_BRINEY_LOCATION` 0 mid-sail; no teleport reset | `resetMrBriney` on teleport; loc0→house after Devon flags; hide outdoor beach |
+| Doubles no notice | Partner tile blocked LOS | `isDoubleBattlePartner` skip in `trainerSeeInfo` |
+| Confuse loop | BattleFx idle re-pulse | `NO_IDLE_REPULSE`; `pulseStatusFx` on confuse check |
+| Truck empty box | (prior) `truck_seq` not WORLD_FIELD | Verified still excluded from dialogue fallthrough |
+| Continue arrow | ASCII `v` | Red `down_arrow.png` (pokeruby fonts) |
+| 2-line text flush | Frame top 14 / pad 0 | Frame top 13 / pad 4 |
+| Route name popup | No ShowMapNamePopup | Slide popup on `enterMap` |
+
+Gen2 untouched. Re-test: New Game before Mom shoes (no B-dash); indoors with shoes (no dash); after Devon+teleport Briney cottage; Mossdeep/Meteor doubles with sight>0; confuse in battle (one orbit per check); dialogue continue arrow red; 2-line msgbox spacing; warp between routes for name popup.

@@ -68,6 +68,17 @@ local function withGame()
       [33] = { id = 33, name = "TACKLE", power = 35, type = 0, pp = 35, accuracy = 95 },
     },
   }
+  -- decoration.c gDecorations rows for the ids these tests handle.
+  -- 21 PRETTY FLOWERS is DECORCAT_PLANT; 1 SMALL DESK is DECORCAT_DESK.
+  g.data.decorations = {
+    count = 121,
+    byId = {
+      [1] = { permission = 0, shape = 0, width = 1, height = 1,
+              category = 0, price = 3000, tiles = { 0x28 }, gfx = 0x28 },
+      [21] = { permission = 2, shape = 5, width = 1, height = 2,
+               category = 2, price = 3000, tiles = { 0x40, 0x48 }, gfx = 0x40 },
+    },
+  }
   local map = {
     id = "g0_9", name = "Littleroot Town",
     width = 4, height = 2, grid = { 0, 0, 0, 0, 0, 0, 0, 0 },
@@ -243,6 +254,40 @@ check(bare:applySave(oldSnap), "a save without daycare still applies")
 eq(bare:daycareCount(), 0, "missing daycare stays empty")
 end)()
 
+-- Regression: daycareTakeRows() re-runs daycarePreview() every frame the
+-- take-list is on screen (input handling and draw both call it). Preview
+-- must not queue a real "wants to learn" prompt, or leaving the list open
+-- floods pendingLearn and the player gets stuck answering the same prompt
+-- forever after closing the DAY-CARE menu.
+;(function()
+local g = withGame()
+g.data.pokemon = g.data.pokemon or {}
+g.data.pokemon.byIndex = g.data.pokemon.byIndex or {}
+g.data.pokemon.byIndex[280] = {
+  name = "TORCHIC", learnset = { { move = 16, level = 10 } },
+  growthRate = 3, hp = 45, atk = 60, def = 40, spa = 70, spd = 50, spe = 45,
+}
+local full = {
+  name = "TORCHIC", species = 280, level = 9, growth = 3,
+  exp = Game3.expAtLevel(3, 10) - 8,
+  hp = 22, maxHp = 22,
+  moves = {
+    { id = 10, name = "SCRATCH" }, { id = 45, name = "GROWL" },
+    { id = 52, name = "EMBER" }, { id = 98, name = "QUICK ATTACK" },
+  },
+}
+g.party = { full, g:makeMon(290, 2) }
+check(g:depositToDaycare(1), "deposit the almost-level-10 chick")
+g.daycare[1].steps = 8
+for i = 1, 200 do g:daycareTakeRows() end
+check(not (g.pendingLearn and g.pendingLearn[1]),
+  "browsing the take list 200x does not queue a learn prompt")
+check(g:takeFromDaycare(1), "take the chick back out")
+check(g.pendingLearn and g.pendingLearn[1], "taking it out queues the real prompt")
+eq(#g.pendingLearn, 1, "exactly one prompt, not a flood")
+eq(g.pendingLearn[1].move, 16, "Peck is waiting")
+end)()
+
 ;(function()
 local g = withGame()
 g.party = { g:makeMon(280, 5), g:makeMon(290, 2) }
@@ -306,7 +351,12 @@ eq(loaded.playerY, 4, "interior y comes back")
 eq(loaded.secretBase.id, 42, "spot id comes back")
 eq(loaded.secretBase.mapId, "g0_9", "overworld map comes back")
 eq(loaded.secretBase.outX, 2, "exit x comes back")
-eq(loaded.scriptVars[Game3.VAR_CURRENT_SECRET_BASE], 42, "var 0x4054 comes back")
+-- VAR_CURRENT_SECRET_BASE is the ROM's INDEX into secretBases[20], not the
+-- layout id: secret_base.c reads secretBases[VarGet(..)].secretBaseId for the
+-- layout. Own base is always slot 0 (recordPlayerSecretBase and the
+-- "someone else's base" PC-tile check already assume that). The layout stays
+-- on secretBase.id, asserted above.
+eq(loaded.scriptVars[Game3.VAR_CURRENT_SECRET_BASE], 0, "var 0x4054 is the own-base slot")
 wipeRubySave()
 local bare = withGame()
 bare.secretBase = { id = 1, mapId = "g0_9", x = 0, y = 0, outX = 0, outY = 0 }
@@ -416,8 +466,12 @@ g:stepField()
 eq(g.field.pocket, Game3.POCKET_BALLS, "RIGHT is POKe BALLS")
 Input.wasPressed = function(_, key) return key == "a" end
 g:stepField()
-eq(g.field.kind, "talk", "A uses the selected pocket item")
-eq(g.field.text, "Use this in battle.", "balls stay battle-only")
+-- item_menu.c: A opens the popup first. USE is one entry in it, and for the
+-- BALLS pocket the cart's table puts GIVE ahead of it entirely.
+eq(g.field.kind, "bag_actions", "A opens the item popup")
+eq(g.field.actions[1], "GIVE", "BAG_POCKET_POKE_BALLS leads with GIVE")
+eq(g.field.actions[2], "TOSS", "then TOSS")
+eq(g.field.actions[#g.field.actions], "CANCEL", "and CANCEL last")
 g:openBag()
 Input.wasPressed = function(_, key) return key == "b" end
 g:stepField()
@@ -633,8 +687,23 @@ local pechaBefore = g:itemCount(Game3.ITEM_PECHA_BERRY)
 g:runSpecial(Game3.SPECIAL_PLANT_BERRY_TREE)
 eq(g.berryTrees[1].stage, Game3.BERRY_STAGE_PLANTED, "replant is stage 1")
 eq(g.berryTrees[1].berry, 3, "and still Pecha")
+eq(g:itemCount(Game3.ITEM_PECHA_BERRY), pechaBefore,
+  "PlantBerryTree does not spend; the script already removeitem'd")
+-- BerryTree_EventScript_1A1577: removeitem VAR_ITEM_ID, 1 then
+-- S_PlantBerryTree (special 45 + GAME_STAT_PLANTED_BERRIES).
+g:removeBerryTree()
+g.scriptVars[Game3.VAR_ITEM_ID] = Game3.ITEM_PECHA_BERRY
+local planted = (g.gameStats or {})[Game3.GAME_STAT_PLANTED_BERRIES] or 0
+Gen3Script.run(g, {
+  { op = "removeitem", item = Game3.VAR_ITEM_ID, count = 1 },
+  { op = "special", id = Game3.SPECIAL_PLANT_BERRY_TREE },
+  { op = "incrementgamestat", id = Game3.GAME_STAT_PLANTED_BERRIES },
+})
 eq(g:itemCount(Game3.ITEM_PECHA_BERRY), pechaBefore - 1,
-  "PlantBerryTree spends the berry")
+  "talk-to-soil spends one berry, not two")
+eq(g.berryTrees[1].stage, Game3.BERRY_STAGE_PLANTED, "and plants it")
+eq((g.gameStats or {})[Game3.GAME_STAT_PLANTED_BERRIES], planted + 1,
+  "GAME_STAT_PLANTED_BERRIES from the soil script")
 
 local snap = g:snapshotSave()
 eq(type(snap.berryTrees), "table", "trees are in the snapshot")
@@ -897,24 +966,159 @@ eq(loaded.weatherCycleStage, 2, "cycle stage")
 wipeRubySave()
 end)()
 
+-- Anything ON_LOAD writes has to survive CONTINUE too. Lilycove's
+-- LilycoveCity_EventScript_SetWailmerMetatiles stamps six solid metatiles
+-- over the cove; applySave applies the saved mapLayoutId AFTER enterMap
+-- has already run ON_LOAD, and that layout write blanked them -- the cove
+-- came back as open water you could surf straight through. overworld.c
+-- runs InitMapLayoutData and only then RunOnLoadMapScript, so ON_LOAD has
+-- to end up on top.
+;(function()
+local g = withGame()
+local WAILMER = 656
+local cove = {
+  id = "g0_cove", layoutId = 700, width = 4, height = 2,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0 },
+  spawn = { x = 0, y = 0 },
+  mapScripts = {
+    onLoad = {
+      { op = "setmetatile", x = 2, y = 1, tile = WAILMER, collision = 1 },
+    },
+  },
+}
+local pristine = {}
+for i = 1, 8 do pristine[i] = cove.grid[i] end
+g.data.maps.maps.g0_cove = cove
+g.data.maps.layouts = { [700] = {
+  width = 4, height = 2, grid = pristine, tileset = cove.tileset } }
+g:enterMap(cove, 0, 0, true)
+local gi = 1 * cove.width + 2 + 1
+eq(Game3.metatileOf(cove.grid[gi]), WAILMER, "ON_LOAD stamps the Wailmer")
+eq(Game3.collisionOf(cove.grid[gi]), 1, "and they are solid")
+check(g:writeSave(), "save at the cove")
+
+local back = withGame()
+back.data.maps.maps.g0_cove = cove
+back.data.maps.layouts = g.data.maps.layouts
+for i = 1, 8 do cove.grid[i] = pristine[i] end
+check(back:continueSave(), "CONTINUE back to the cove")
+eq(back.map.id, "g0_cove", "lands at the cove")
+eq(back.mapLayoutId, 700, "and keeps the saved layout")
+eq(Game3.metatileOf(cove.grid[gi]), WAILMER,
+  "the Wailmer are still there, not wiped by the layout write")
+eq(Game3.collisionOf(cove.grid[gi]), 1, "and still solid")
+eq(Game3.walkable(cove, 2, 1), false, "so you cannot surf past early")
+wipeRubySave()
+end)()
+
+-- An ON_LOAD setmetatile must not outlive the condition that made it.
+-- LilycoveCity_OnLoad only stamps the Wailmer while
+-- FLAG_EVIL_TEAM_ESCAPED_IN_SUBMARINE is unset; once the hideout scene
+-- sets it, ON_LOAD stops writing them -- but the tiles already baked into
+-- this engine's shared cached grid stayed put and kept the cove blocked
+-- forever. enterMap reverts map.dirtyTiles before the map scripts run,
+-- which is what InitMapLayoutData gives the ROM for free, so setmetatile
+-- has to record there the same way writeMetatile does.
+;(function()
+local g = withGame()
+local BLOCK, STORY = 656, 0x070
+local cove = {
+  id = "g0_cove2", width = 4, height = 2,
+  grid = { 0, 0, 0, 0, 0, 0, 0, 0 },
+  spawn = { x = 0, y = 0 },
+  mapScripts = {
+    onLoad = {
+      { op = "checkflag", flag = STORY },
+      { op = "call_if", cond = 0, body = {
+          { op = "setmetatile", x = 2, y = 1, tile = BLOCK, collision = 1 },
+        } },
+    },
+  },
+}
+g.data.maps.maps.g0_cove2 = cove
+local gi = 1 * cove.width + 2 + 1
+
+g:enterMap(cove, 0, 0, true)
+eq(Game3.metatileOf(cove.grid[gi]), BLOCK, "ON_LOAD stamps the blocker")
+eq(Game3.walkable(cove, 2, 1), false, "and it is solid")
+
+g:enterMap(cove, 0, 0, true)
+eq(Game3.metatileOf(cove.grid[gi]), BLOCK, "re-entering keeps it while unset")
+
+-- The story flag goes up: ON_LOAD now skips the write.
+g.flags[STORY] = true
+g:enterMap(cove, 0, 0, true)
+eq(Game3.metatileOf(cove.grid[gi]), 0,
+  "and the stale tile is reverted, not left baked in")
+eq(Game3.walkable(cove, 2, 1), true, "so the way through is open")
+end)()
+
+-- A decoration placed in a base has to survive CONTINUE. The grid stamp
+-- is applied by enterMap, but applySave then calls setMapLayoutIndex for
+-- the saved layout, which rewrites the grid from the layout table -- so
+-- the layout has to re-bake, the way the ROM's InitMapLayoutData runs
+-- before InitSecretBaseAppearance rather than after it.
+;(function()
+local g = withGame()
+local base = {
+  id = "g25_0", group = 25, index = 0, layoutId = 900,
+  width = 6, height = 6, grid = {}, behavior = {}, objects = {}, warps = {},
+  spawn = { x = 3, y = 4 },
+}
+for i = 1, 36 do base.grid[i] = 0 end
+local pristine = {}
+for i = 1, 36 do pristine[i] = base.grid[i] end
+g.data.maps.maps.g25_0 = base
+g.data.maps.layouts = {
+  [900] = { width = 6, height = 6, grid = pristine, tileset = base.tileset },
+}
+g.secretBase = {
+  id = 0, mapId = "g0_9", x = 2, y = 0, outX = 3, outY = 1,
+  decorations = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+  decorationPos = Game3.decorSlots(Game3.DECOR_MAX_SECRET_BASE),
+}
+g.secretBase.decorations[1] = 1
+g.secretBase.decorationPos[1] = Game3.decorPosPack(2, 3)
+g:enterMap(base, 3, 4, true)
+local gi = 3 * base.width + 2 + 1
+local stamped = Game3.metatileOf(base.grid[gi])
+eq(stamped, Game3.DECOR_TILE_BASE + 0x28, "the desk bakes into the grid")
+check(g:writeSave(), "save inside the base")
+
+local loaded = withGame()
+loaded.data.maps.maps.g25_0 = base
+loaded.data.maps.layouts = g.data.maps.layouts
+for i = 1, 36 do base.grid[i] = pristine[i] end
+base._pristineGrid = nil
+check(loaded:continueSave(), "CONTINUE back into the base")
+eq(loaded.map.id, "g25_0", "lands inside the base")
+eq(loaded.secretBase.decorations[1], 1, "the record still lists the desk")
+eq(Game3.metatileOf(base.grid[gi]), stamped,
+  "and it is back on the grid, not just in the record")
+eq(loaded:varGet(Game3.VAR_SECRET_BASE_INITIALIZED), 0,
+  "entering arms SecretBase_OnWarp so sub_80BBDD0 re-shows the dolls")
+wipeRubySave()
+end)()
+
 ;(function()
 local g = withGame()
 g.trainerId = 2
 g:setupMauvilleOldMan()
 g:unlockTrendySaying(3)
-g.decorations = { [21] = 1 }
+check(g:addDecoration(21), "PRETTY FLOWERS go into the plant slots")
 check(g:writeSave(), "old man writes")
 local loaded = withGame()
 check(loaded:continueSave(), "CONTINUE restores the old man")
 eq(loaded.mauvilleMan.id, Game3.MAUVILLE_MAN_HIPSTER, "id 2 is still hipster")
 eq(loaded:trendySayingUnlocked(3), true, "taught trendy word comes back")
-eq(loaded.decorations[21], 1, "PRETTY FLOWERS come back")
+eq(loaded:inventoryContainsDecoration(21), true, "PRETTY FLOWERS come back")
+eq(loaded:numDecorationsInInventory(), 1, "and only the one")
 eq(loaded:getGameStat(Game3.GAME_STAT_SAVED_GAME) >= 1, true,
   "GAME_STAT_SAVED_GAME counted the write")
 wipeRubySave()
 local bare = withGame()
 local oldSnap = bare:snapshotSave()
-oldSnap.mauvilleMan, oldSnap.trendyUnlocked, oldSnap.decorations = nil, nil, nil
+oldSnap.mauvilleMan, oldSnap.trendyUnlocked, oldSnap.decorInv = nil, nil, nil
 oldSnap.gameStats = nil
 check(bare:applySave(oldSnap), "a save without the man still applies")
 eq(type(bare.mauvilleMan), "table", "and SetupMauvilleOldMan fills him")
@@ -1050,6 +1254,10 @@ g:openBag()
 local old = Input.wasPressed
 Input.wasPressed = function(_, key) return key == "a" end
 g:stepField()
+-- the popup, then USE (first entry for the ITEMS pocket)
+eq(g.field.kind, "bag_actions", "A opens the item popup")
+eq(g.field.actions[1], "USE", "BAG_POCKET_ITEMS leads with USE")
+g:stepField()
 eq(g.field.kind, "party_use", "BAG Revive opens the party")
 eq(g.field.from, "bag", "so B can return to the pack")
 eq(g.party[2].hp, 0, "does not auto-pick the fainted mon")
@@ -1063,6 +1271,7 @@ check(g.field.thenBag, "sub_808B224 fades back to the bag")
 g:stepField()
 eq(g.field.kind, "bag", "A dismisses to the pack")
 g:stepField()
+g:stepField()  -- the item popup, then USE
 eq(g.field.kind, "party_use", "Use again reopens the picker")
 Input.wasPressed = function(_, key) return key == "down" end
 g:stepField()
@@ -1077,12 +1286,14 @@ eq(g:itemCount(Game3.ITEM_REVIVE), 0, "consumed after a hit")
 g:addItem(Game3.ITEM_REVIVE, 1)
 g:openBag()
 g:stepField()
+g:stepField()  -- the item popup, then USE
 eq(g.field.kind, "party_use", "picker again")
 Input.wasPressed = function(_, key) return key == "b" end
 g:stepField()
 eq(g.field.kind, "bag", "B is HandleDefaultPartyMenuInput cancel")
 Input.wasPressed = function(_, key) return key == "a" end
 g:stepField()
+g:stepField()  -- the item popup, then USE
 eq(g.field.kind, "party_use", "Use again")
 g.field.cursor = 6
 g:stepField()
@@ -1092,6 +1303,7 @@ g.party[1] = { name = "EGG", species = 280, isEgg = true, hp = 0, maxHp = 20 }
 g.party[2].hp = 0
 g:openBag()
 g:stepField()
+g:stepField()  -- the item popup, then USE
 eq(g.field.kind, "party_use", "Revive on an egg party")
 g:stepField()
 eq(g.field.kind, "party_use", "sub_808B0C0 egg is SE_FAILURE, stay")
@@ -1392,6 +1604,565 @@ eq(g.field.page, 1, "second page is the new values")
 g:stepField()
 eq(g.field.kind, "bag", "thenBag after both pages")
 Input.wasPressed = old
+end)()
+
+-- (#536 parity) a save made mid-surf must resume surfing and dismount on land.
+do
+  local surfMap = {
+    id = "g_surf_save", width = 3, height = 3, tileset = "wat",
+    -- shore tile (1,1) is elevation 3: Surf only ever dismounts landing at
+    -- elevation 3 (field_player_avatar.c sub_8058EF0), not any land tile.
+    grid = { 0, 0, 0, 0, 3 * 4096, 1025, 0, 0, 0 },
+  }
+  local tilesets = { byId = { wat = { behavior = { [1] = 0x10, [2] = 0x13 } } } }
+  local function surfGame()
+    local g = withGame()
+    g.data.tilesets = tilesets
+    g.data.maps = { start = "g_surf_save", maps = { g_surf_save = surfMap } }
+    g.party[1].moves = { { id = Game3.MOVE_SURF } }
+    g.flags[Game3.FLAG_BADGE05_GET] = true
+    g:enterMap(surfMap, 2, 1, true)
+    g.surfing = true
+    return g
+  end
+  local g = surfGame()
+  local snap = g:snapshotSave()
+  eq(snap.surfing, true, "snapshot records surfing=true")
+  eq(snap.mapId, "g_surf_save", "snapshot records surf map")
+  eq(snap.x, 2, "snapshot records surf x")
+  eq(snap.y, 1, "snapshot records surf y")
+
+  local loaded = surfGame()
+  check(loaded:applySave(snap), "surf save applies")
+  eq(loaded.surfing, true, "CONTINUE restores surfing on water")
+  eq(loaded.playerX, 2, "surf x restored")
+  eq(loaded.playerY, 1, "surf y restored")
+  check(loaded:tryWalk(-1, 0), "can walk back to land after reload")
+  eq(loaded.playerX, 1, "back on land after reload")
+  eq(loaded.surfing, nil, "dismounts after reload")
+
+  -- Old saves without a surfing field on water auto-repair.
+  snap.surfing = nil
+  loaded = surfGame()
+  check(loaded:applySave(snap), "legacy surf save applies")
+  eq(loaded.surfing, true, "legacy save on water infers surfing")
+  check(loaded:tryWalk(-1, 0), "legacy save can leave the water")
+  eq(loaded.surfing, nil, "legacy save dismounts on land")
+end
+
+-- CONTINUE on Route 110's cycling path remounts. Avatar flags are EWRAM;
+-- FLAG_SYS_CYCLING_ROAD and the bag bike are what the save actually keeps.
+do
+  local road = {
+    id = "g0_33", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  }
+  local gate = {
+    id = "g29_11", group = 29, index = 11,
+    mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  }
+  local indoor = {
+    id = "g_pc", mapType = Game3.MAP_TYPE_INDOOR, width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+  }
+  local railMap = {
+    id = "g_rail", mapType = Game3.MAP_TYPE_ROUTE, width = 3, height = 3,
+    grid = { 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+    behavior = { 0, 0, 0, 0, Game3.MB_VERTICAL_RAIL, 0, 0, 0, 0 },
+  }
+  local function bikeGame(map)
+    map = map or road
+    local g = withGame()
+    g.data.maps = { start = map.id, maps = { [map.id] = map, g0_33 = road,
+      g29_11 = gate, g_pc = indoor, g_rail = railMap } }
+    g:addItem(Game3.ITEM_ACRO_BIKE, 1)
+    g.registeredItem = Game3.ITEM_ACRO_BIKE
+    g.flags[Game3.FLAG_SYS_CYCLING_ROAD] = true
+    g:enterMap(map, 1, 1, true)
+    g.bike = "acro"
+    return g
+  end
+
+  local g = bikeGame()
+  local snap = g:snapshotSave()
+  eq(snap.bike, "acro", "snapshot records the Acro Bike")
+  local loaded = bikeGame()
+  loaded.bike = nil
+  check(loaded:applySave(snap), "bike save applies")
+  eq(loaded.bike, "acro", "CONTINUE restores the bike on the cycling path")
+  eq(loaded:playerGraphicsId(), Game3.GFX_BRENDAN_ACRO_BIKE,
+    "CONTINUE uses the Acro Bike sprite")
+
+  snap.bike = nil
+  loaded = bikeGame()
+  loaded.bike = nil
+  check(loaded:applySave(snap), "legacy cycling save applies")
+  eq(loaded.bike, "acro", "FLAG_SYS_CYCLING_ROAD remounts the registered bike")
+
+  local gateSnap = bikeGame(gate):snapshotSave()
+  loaded = bikeGame(gate)
+  loaded.bike = nil
+  check(loaded:applySave(gateSnap), "gate bike save applies")
+  eq(loaded.bike, "acro", "CONTINUE keeps the bike in the cycling gate")
+
+  snap.bike = nil
+  snap.mapId = "g_pc"
+  loaded = bikeGame()
+  loaded.bike = nil
+  check(loaded:applySave(snap), "indoor cycling-flag save applies")
+  eq(loaded.bike, nil, "stuck cycling flag does not remount indoors")
+
+  local railG = bikeGame(railMap)
+  railG.flags[Game3.FLAG_SYS_CYCLING_ROAD] = nil
+  local railSnap = railG:snapshotSave()
+  railSnap.bike = nil
+  loaded = bikeGame(railMap)
+  loaded.bike = nil
+  loaded.flags[Game3.FLAG_SYS_CYCLING_ROAD] = nil
+  check(loaded:applySave(railSnap), "rail save applies")
+  eq(loaded.bike, "acro", "standing on a cycling-road rail remounts")
+end
+
+-- TRAINER'S EYE, the PokeNav list sub_80F6C20 builds. Ruby has no Match Call
+-- and no registration step: the list is derived from the trainer flags every
+-- time it opens.
+;(function()
+local g = Game3.new()
+g.flags = {}
+g.data = { maps = { maps = {} }, trainers = { byId = {
+  [37] = { name = "ROSE" },
+  [265] = { name = "ROXANNE" },
+  [266] = { name = "BRAWLY" },
+} } }
+-- stand in a map for each rematch row so the section lookup has something
+for i = 1, #Game3.TRAINER_EYE_TRAINERS do
+  local row = Game3.TRAINER_EYE_TRAINERS[i]
+  g.data.maps.maps[Game3.mapId(row[2], row[3])] = { regionMapSectionId = 19 }
+end
+
+eq(#Game3.TRAINERS_EYE_GYM_LEADERS, 13,
+  "sGymLeaderTrainersEye holds the eight leaders, the Elite Four and STEVEN")
+eq(Game3.TRAINERS_EYE_GYM_BASE, 56,
+  "and they are numbered on from the 56 rematch rows")
+eq(Game3.TRAINERS_EYE_GYM_LEADERS[1][1], 265, "ROXANNE leads the table")
+eq(Game3.TRAINERS_EYE_GYM_LEADERS[13][1], 335, "STEVEN closes it")
+
+eq(#g:trainersEyeList(), 0, "nothing beaten, nothing listed")
+
+-- A rematch-table trainer appears once beaten
+local first = Game3.TRAINER_EYE_TRAINERS[1][1][1]
+g:setTrainerDefeated(first)
+local list = g:trainersEyeList()
+eq(#list, 1, "a beaten trainer is listed")
+eq(list[1].opponentId, first, "by their first opponent id")
+eq(list[1].rematchTableIdx, 0, "the rematch row index is zero-based")
+eq(list[1].rematchNo, 0, "and no rematch is pending yet")
+eq(list[1].regionMapSectionId, 19, "the section comes off the row's own map")
+
+-- A gym leader appears after the rematch rows, whatever the order beaten
+g:setTrainerDefeated(266)                    -- BRAWLY, the second gym row
+list = g:trainersEyeList()
+eq(#list, 2, "the gym leader joins the list")
+eq(list[2].opponentId, 266, "after the rematch rows")
+eq(list[2].rematchTableIdx, Game3.TRAINERS_EYE_GYM_BASE + 1,
+  "with an index carried on from 56")
+eq(list[2].regionMapSectionId, 2, "and its own fixed section, DEWFORD TOWN")
+check(list[2].gymLeader, "flagged as a gym leader")
+
+-- Only a rematch row can want a rematch
+eq(Game3.trainersEyeWantsRematch(list[1]), false, "no rematch pending")
+g:ensureTrainerRematches()[1] = 3
+list = g:trainersEyeList()
+eq(list[1].rematchNo, 3, "the rematch number is read off the save")
+eq(Game3.trainersEyeWantsRematch(list[1]), true, "which is what marks the row")
+eq(Game3.trainersEyeWantsRematch(list[2]), false,
+  "a gym leader is always zero -- sub_80F6C20 never reads a flag for them")
+
+-- Beating everything gives 56 + 13 rows in table order
+g.flags = {}
+g.trainerRematches = {}
+for i = 1, #Game3.TRAINER_EYE_TRAINERS do
+  g:setTrainerDefeated(Game3.TRAINER_EYE_TRAINERS[i][1][1])
+end
+for i = 1, #Game3.TRAINERS_EYE_GYM_LEADERS do
+  g:setTrainerDefeated(Game3.TRAINERS_EYE_GYM_LEADERS[i][1])
+end
+list = g:trainersEyeList()
+eq(#list, 69, "every row, once beaten")
+eq(list[1].rematchTableIdx, 0, "indices run from zero")
+eq(list[56].rematchTableIdx, 55, "through the rematch rows")
+eq(list[57].rematchTableIdx, 56, "then straight on into the gym leaders")
+eq(list[69].rematchTableIdx, 68, "to the last of them")
+end)()
+
+-- gTrainerEyeDescriptions, found by shape rather than by symbol: the decomp
+-- leaves it extern, so the extractor scans for 69 pointers whose targets are
+-- four EOS-terminated lines laid end to end.
+;(function()
+local Battle = require("src.import.RomExtractorGen3Battle")
+eq(Battle.TRAINER_EYE_DESCRIPTIONS, 69,
+  "one description per rematch row plus one per gym leader")
+eq(Battle.TRAINER_EYE_LINES, 4, "each is four lines")
+
+local g = Game3.new()
+g.data = { trainers = { eyeDescriptions = {
+  [0] = { "a", "b", "c", "d" },
+  [56] = { "rock", "solid", "through", "battling" },
+} } }
+eq(g:trainersEyeDescription({ rematchTableIdx = 0 })[1], "a",
+  "a rematch row reads its own four lines")
+eq(g:trainersEyeDescription({ rematchTableIdx = 56 })[1], "rock",
+  "and a gym leader reads on from 56 in the same table")
+eq(g:trainersEyeDescription({ rematchTableIdx = 3 }), nil,
+  "a row with no text reads back nothing rather than a blank")
+eq(g:trainersEyeDescription(nil), nil, "and so does no row at all")
+end)()
+
+
+-- gRibbonDescriptions is [25][2] and extern in the decomp, so it is located by
+-- the shape of its contest half: five category names, each shared by four
+-- ranks.
+;(function()
+local Battle = require("src.import.RomExtractorGen3Battle")
+eq(Battle.RIBBON_DESCRIPTIONS, 25,
+  "the Hall of Fame ribbon, 5 x 4 contest ribbons, two tower, artist, effort")
+eq(Battle.RIBBON_CONTEST_GROUPS * Battle.RIBBON_CONTEST_RANKS, 20,
+  "the contest half is twenty of them")
+
+local g = Game3.new()
+local ribbons = {}
+for i = 0, Game3.RIBBON_COUNT - 1 do ribbons[i] = { "line one", "line two" } end
+g.data = { trainers = { ribbonDescriptions = ribbons } }
+
+-- a contest ribbon holds the highest rank won, so Master implies the rest
+local mon = { ribbons = { cool = 4, beauty = 1 } }
+check(g:monHasRibbon(mon, 1), "COOL Normal")
+check(g:monHasRibbon(mon, 4), "up to COOL Master")
+check(g:monHasRibbon(mon, 5), "BEAUTY Normal")
+check(not g:monHasRibbon(mon, 6), "but not BEAUTY Super")
+check(not g:monHasRibbon(mon, 9), "and no CUTE at all")
+eq(#g:monRibbons(mon), 5, "five ribbons in total")
+
+mon.championRibbon = true
+check(g:monHasRibbon(mon, Game3.RIBBON_CHAMPION), "the CHAMPION ribbon reads off its own flag")
+mon.effortRibbon = true
+check(g:monHasRibbon(mon, Game3.RIBBON_EFFORT), "and so does the effort one")
+mon.artistRibbon = true
+check(g:monHasRibbon(mon, Game3.RIBBON_ARTIST), "and the artist's")
+eq(#g:monRibbons(mon), 8, "which brings it to eight")
+
+-- The BATTLE TOWER is not implemented, so neither of its ribbons is ever held.
+check(not g:monHasRibbon(mon, Game3.RIBBON_WINNING), "no LV50 tower ribbon")
+check(not g:monHasRibbon(mon, Game3.RIBBON_VICTORY), "no LV100 tower ribbon")
+
+eq(g:monHasRibbon(nil, 0), false, "no mon, no ribbon")
+eq(g:monHasRibbon(mon, 99), false, "and nothing outside the table")
+eq(g:ribbonDescription(1)[1], "line one", "a description reads back by index")
+eq(g:ribbonDescription(99), nil, "and an unknown index reads back nothing")
+
+-- The PokeNav offers all four of the cart's entries.
+local items = g:pokenavMenuItems()
+eq(items[1], "MAP", "MAP")
+eq(items[2], "CONDITION", "CONDITION")
+eq(items[3], "TRAINER'S EYE", "TRAINER'S EYE")
+eq(items[4], "RIBBONS", "RIBBONS")
+
+-- RIBBONS opens on the lead mon and follows it across the party.
+g.party = {
+  { name = "A", ribbons = { cool = 2 } },
+  { name = "B", ribbons = {} },
+}
+g.phase = "play"
+g:openPokenavRibbons()
+eq(g.field.kind, "pokenav_ribbons", "the ribbons screen opens")
+eq(#g.field.ribbons, 2, "with the lead mon's two")
+g.field.monIndex = 2
+g.field.ribbons = g:monRibbons(g.party[2])
+eq(#g.field.ribbons, 0, "and none for the second")
+end)()
+
+
+-- C3: the setwarp opcode and the two specials the map scripts still called
+-- without a handler.
+;(function()
+local Script = require("src.import.Gen3Script")
+local g = Game3.new()
+g.scriptVars = {}
+
+-- Overworld_SetWarpDestination. The Safari Zone's out-of-steps exit is the one
+-- caller reachable in a normal run: MAP_ROUTE121_SAFARI_ZONE_ENTRANCE, 255, 2, 5.
+Script.run(g, { { op = "setwarp", mapGroup = 0, mapNum = 17,
+  warpId = 255, x = 2, y = 5 } })
+local w = g.warpDestination
+check(w ~= nil, "setwarp now reaches the host")
+eq(w.mapNum, 17, "the destination map is kept")
+eq(w.warpId, 255, "and the warp id")
+eq(w.x, 2, "and the coordinates")
+eq(w.y, 5, "both of them")
+check(g:takeWarpDestination() ~= nil, "the destination can be taken")
+eq(g:takeWarpDestination(), nil, "and only once")
+
+-- setwarp reads its coordinates through VarGet, like its siblings.
+g.scriptVars[0x8000] = 9
+Script.run(g, { { op = "setwarp", mapGroup = 1, mapNum = 2,
+  warpId = 3, x = 0x8000, y = 5 } })
+eq(g.warpDestination.x, 9, "a var-held coordinate is resolved")
+g:takeWarpDestination()
+
+-- sub_80EB7C4: the Lilycove boards you read, not the Easy Chat editor. Four
+-- boards, each with its own row and column shape.
+eq(Game3.SPECIAL_SHOW_EASY_CHAT_BOARD, 96, "the board special is 96")
+eq(Game3.SPECIAL_SHOW_EASY_CHAT, 95, "the editor is the one below it")
+eq(Game3.EC_BOARD_COUNT, 4, "four boards")
+eq(Game3.EC_BOARD_SHAPE[0][1], 2, "the first is two words across")
+eq(Game3.EC_BOARD_SHAPE[1][1], 3, "the rest are three")
+
+g.scriptVars[0x8004] = 0
+eq(g:runSpecial(Game3.SPECIAL_SHOW_EASY_CHAT_BOARD), 1, "a valid board runs")
+g.scriptVars[0x8004] = Game3.EC_BOARD_COUNT
+eq(g:runSpecial(Game3.SPECIAL_SHOW_EASY_CHAT_BOARD), 0,
+  "and the cart returns without doing anything past the last one")
+
+-- An empty board says nothing rather than inventing text: the boards are
+-- written over the link cable, so in a single-player run they are blank.
+g.scriptVars[0x8004] = 0
+g._scriptSays = nil
+g:runSpecial(Game3.SPECIAL_SHOW_EASY_CHAT_BOARD)
+eq(g._scriptSays, nil, "an empty board prints nothing")
+
+-- A board with words in it reads them back in rows.
+local board = g:easyChatBoard(0)
+check(type(board) == "table", "a board can be addressed")
+eq(g:easyChatBoardText(9), nil, "but only the four that exist")
+
+-- What is left. Walking every map script turns up 184 distinct specials, and
+-- after this pass exactly one of them still has no handler: 41, sub_80C5568,
+-- which sets a saved callback and opens the contest entry screen. Four uses on
+-- one map, and it needs the contest system rather than a handler of its own, so
+-- it is recorded rather than stubbed. runSpecial returns 0 for it, which is
+-- what an unknown special has always done.
+eq(g:runSpecial(41), 0, "special 41 is the one still unhandled")
+check(rawget(Game3, "SPECIAL_CONTEST_ENTRY_SCREEN") == nil,
+  "and it is not declared, so the coverage sweep cannot count it as done")
+end)()
+
+
+
+;(function()
+-- item_menu.c sItemPopupMenuChoicesTable. Picking a bag item opens a popup;
+-- it does not use the item outright. Without it there was no route to GIVE
+-- from the bag at all, so a held item like the EXP. SHARE could only answer
+-- with DAD's advice -- the "you can't use that here" line.
+local g = Game3.new()
+g.phase = "play"
+
+-- The per-pocket action lists, in the cart's own order. ITEM_ACTION_NONE
+-- entries in that table are padding and are dropped.
+eq(table.concat(g:bagActionsFor(Game3.POCKET_ITEMS), ","),
+  "USE,TOSS,GIVE,CANCEL", "BAG_POCKET_ITEMS")
+eq(table.concat(g:bagActionsFor(Game3.POCKET_BALLS), ","),
+  "GIVE,TOSS,CANCEL", "BAG_POCKET_POKE_BALLS leads with GIVE")
+eq(table.concat(g:bagActionsFor(Game3.POCKET_TMHM), ","),
+  "USE,GIVE,CANCEL", "BAG_POCKET_TMs_HMs has no TOSS")
+eq(table.concat(g:bagActionsFor(Game3.POCKET_BERRIES), ","),
+  "CHECK TAG,USE,TOSS,GIVE,CANCEL", "BAG_POCKET_BERRIES leads with CHECK TAG")
+eq(table.concat(g:bagActionsFor(Game3.POCKET_KEY), ","),
+  "USE,REGISTER,CANCEL", "BAG_POCKET_KEY_ITEMS has REGISTER, no TOSS or GIVE")
+
+-- A key item cannot be tossed even if something asks for it.
+local keyed = Game3.new()
+keyed.phase = "play"
+keyed.bag = {}
+keyed:addItem(Game3.ITEM_RED_ORB, 1)
+local tossed, why = keyed:tossBagItem(Game3.ITEM_RED_ORB, 1)
+eq(tossed, false, "a KEY ITEM refuses to be tossed")
+check((why or ""):find("important", 1, true) ~= nil, "and says why")
+eq(keyed:itemCount(Game3.ITEM_RED_ORB), 1, "so it is still in the pack")
+
+-- The whole EXP. SHARE route, which is the bug this fixes.
+local Input = require("src.core.Input")
+local function press(gg, key)
+  local old = Input.wasPressed
+  Input.wasPressed = function(_, k) return k == key end
+  gg:stepField()
+  Input.wasPressed = old
+end
+
+local h = Game3.new()
+h.phase = "play"
+h.party = { { name = "TREECKO", hp = 20, maxHp = 20, species = 277,
+  level = 10, moves = {} } }
+h.bag = {}
+h:addItem(Game3.ITEM_EXP_SHARE, 1)
+h:openBag()
+press(h, "a")
+eq(h.field.kind, "bag_actions", "A on the EXP. SHARE opens the popup")
+eq(h.field.actions[3], "GIVE", "GIVE is the third entry for ITEMS")
+press(h, "down")
+press(h, "down")
+eq(h.field.actions[(h.field.cursor or 0) + 1], "GIVE", "cursor reaches GIVE")
+press(h, "a")
+eq(h.field.kind, "party_give", "GIVE opens the party")
+eq(h.field.from, "bag", "and knows it came from the pack")
+press(h, "a")
+eq(h.party[1].item, Game3.ITEM_EXP_SHARE, "TREECKO is holding it")
+eq(h:itemCount(Game3.ITEM_EXP_SHARE), 0, "and it left the bag")
+check((h.field and h.field.text or ""):find("given the", 1, true) ~= nil,
+  "with the line saying so, not a silent hand-off")
+
+-- TAKE puts it back.
+local ok2, msg2 = h:takeHeldItem(1)
+check(ok2, "TAKE returns it")
+eq(h.party[1].item, nil, "the mon holds nothing")
+eq(h:itemCount(Game3.ITEM_EXP_SHARE), 1, "and the pack has it again")
+check((msg2 or ""):find("Received", 1, true) ~= nil, "with its own line")
+
+-- CANCEL goes back to the pack rather than doing anything.
+local c = Game3.new()
+c.phase = "play"
+c.bag = {}
+c:addItem(Game3.ITEM_POTION, 2)
+c:openBag()
+press(c, "a")
+eq(c.field.kind, "bag_actions", "popup opens")
+c.field.cursor = #c.field.actions - 1
+press(c, "a")
+eq(c.field.kind, "bag", "CANCEL returns to the pack")
+eq(c:itemCount(Game3.ITEM_POTION), 2, "and nothing was consumed")
+
+-- TOSS drops one.
+c:openBag()
+press(c, "a")
+c.field.cursor = 1
+eq(c.field.actions[2], "TOSS", "TOSS is second for ITEMS")
+press(c, "a")
+eq(c:itemCount(Game3.ITEM_POTION), 1, "one POTION is gone")
+end)()
+
+-- ------- using SECRET POWER when you already have a base
+
+-- gUnknown_081A2C51 opens with CheckPlayerHasSecretBase and jumps straight
+-- to AskToMoveSecretBase when slot 0 is taken. This engine defers those
+-- questions until you are standing in the new base (see useSecretPower), and
+-- every piece was there -- askMoveSecretBaseInside, the decorations follow-up,
+-- commitSecretBaseMove, and the decline branch that un-digs and hands the old
+-- record back. Nothing called them: enterNewSecretBase entered the base
+-- itself instead of going through secretBaseCreationWarp, so _secretBaseMoveFrom
+-- was set, carried across createSecretBase, and never read. Using SECRET POWER
+-- on a second spot silently moved your base and dropped you inside it.
+;(function()
+local function atSpot()
+  local w, h = 8, 8
+  local grid, behavior = {}, {}
+  for i = 1, w * h do grid[i] = 0; behavior[i] = 0 end
+  -- MB_SECRET_BASE_SPOT_YELLOW_CAVE one tile north of the player
+  behavior[2 * w + 3 + 1] = Game3.MB_SECRET_BASE_SPOT_YELLOW_CAVE
+  local m = { id = "route", group = 0, index = 42, width = w, height = h,
+    grid = grid, behavior = behavior }
+  local g = Game3.new()
+  g.phase = "play"
+  g.data.maps = { maps = { route = m } }
+  g.party = { { name = "LOMBRE", hp = 1, maxHp = 1, species = 271, level = 40,
+    moves = { { id = Game3.MOVE_SECRET_POWER, pp = 10 } } } }
+  g.flags = {}
+  g.secretBase = { mapId = "old", x = 1, y = 1, id = 102 }
+  g:enterMap(m, 3, 3, true)
+  g.playerX, g.playerY = 3, 3
+  g.facing = "north"
+  return g
+end
+
+-- Walk the whole thing: prompt, field effect, discovery line, then the base.
+local function useSecretPower(g)
+  g:trySecretPowerInteract()
+  g:answerSecretBaseYesNo(true)
+  g:finishSecretPowerEntrance()
+  local pending = g._secretPowerEnter
+  g._secretPowerEnter = nil
+  g.field = nil
+  g:enterNewSecretBase(pending)
+end
+
+local g = atSpot()
+check(g:trySecretPowerInteract(), "a spot you do not own offers SECRET POWER")
+eq(g.field.kind, "secret_base_yesno", "as a yes/no, not an outright move")
+
+g = atSpot()
+useSecretPower(g)
+check(g.field ~= nil, "it does not drop you in without a word")
+eq(g.field.kind, "secret_base_yesno", "AskToMoveSecretBase's first question")
+check(g.field.text:find("only make one", 1, true) ~= nil,
+  "UnknownString_81A3C71 names the one-base rule")
+
+-- NO: EventScript_1A2F3A backs out and sub_80BC440 un-digs the new one.
+g = atSpot()
+useSecretPower(g)
+g:answerSecretBaseYesNo(false)
+check(g._secretBaseRestore ~= nil, "declining restores the old record")
+eq(g._secretBaseRestore.mapId, "old", "and it is the base you already had")
+eq(g._secretBaseRestore.x, 1, "at its own tile")
+
+-- YES: the decorations warning, then the move commits.
+g = atSpot()
+useSecretPower(g)
+g:answerSecretBaseYesNo(true)
+eq(g.field.kind, "secret_base_yesno", "then the decorations warning")
+check(g.field.text:find("decorations", 1, true) ~= nil,
+  "SecretBase_Text_AllDecorationsWillBeReturned")
+g:answerSecretBaseYesNo(true)
+eq(g.secretBase.mapId, "route", "both yeses move the base to the new spot")
+eq(g.secretBase.x, 3, "at the tile you dug")
+eq(g.secretBase.y, 2, "one north of where you stood")
+check(g._secretBaseMoveFrom == nil, "and the pending move is consumed")
+
+-- With no base yet, CheckPlayerHasSecretBase is 0 and nothing is asked.
+local fresh = atSpot()
+fresh.secretBase = nil
+useSecretPower(fresh)
+check(fresh._secretBaseMoveFrom == nil, "a first base asks no move question")
+eq(fresh.secretBase and fresh.secretBase.mapId, "route",
+  "it is just created where you dug")
+end)()
+
+-- ------- FIRST COMES RELICANTH. LAST COMES WAILORD.
+
+-- CheckRelicanthWailord compares MON_DATA_SPECIES2 against SPECIES_RELICANTH
+-- and SPECIES_WAILORD, which are INTERNAL species ids (381 and 314), not
+-- National Dex numbers. The dex numbers 369 and 321 are TROPIUS and TORKOAL
+-- in internal order, so the check was asking for a TROPIUS in front and a
+-- TORKOAL at the back and the Sealed Chamber could not be opened at all.
+;(function()
+eq(Game3.SPECIES_RELICANTH, 381, "RELICANTH is the internal id, not dex 369")
+eq(Game3.SPECIES_WAILORD, 314, "WAILORD is the internal id, not dex 321")
+
+local function party(list)
+  local g = Game3.new()
+  g.party = {}
+  for i, sp in ipairs(list) do
+    g.party[i] = { name = "M" .. i, species = sp, level = 40,
+      hp = 1, maxHp = 1 }
+  end
+  return g
+end
+local R, W, OTHER = Game3.SPECIES_RELICANTH, Game3.SPECIES_WAILORD, 277
+
+eq(party({ R, OTHER, OTHER, OTHER, OTHER, W }):checkRelicanthWailord(), 1,
+  "RELICANTH first and WAILORD last opens it")
+eq(party({ R, W }):checkRelicanthWailord(), 1,
+  "a party of just the two works as well")
+-- The order the player is most likely to get wrong: both present, reversed.
+eq(party({ OTHER, OTHER, OTHER, OTHER, W, R }):checkRelicanthWailord(), 0,
+  "WAILORD fifth and RELICANTH last does not")
+eq(party({ W, OTHER, OTHER, OTHER, OTHER, R }):checkRelicanthWailord(), 0,
+  "and neither does the straight swap")
+eq(party({ R, OTHER, W, OTHER }):checkRelicanthWailord(), 0,
+  "WAILORD has to be in the LAST filled slot")
+eq(party({ OTHER, OTHER }):checkRelicanthWailord(), 0, "neither of them, no")
+
+-- gPlayerPartyCount - 1 is the last filled slot, so a shorter party still works
+local g = party({ R, OTHER, W })
+eq(g:checkRelicanthWailord(), 1, "three mons, WAILORD last, still opens it")
 end)()
 
 S.finish()

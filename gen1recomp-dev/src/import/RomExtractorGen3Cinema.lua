@@ -55,6 +55,32 @@ Cinema.RUBY_US = {
   latiosPal = 0x416234,
   latiosGfx = 0x416254,
   latiosGfxBytes = 0x1000,
+  -- intro2 May rider (between Brendan LZ and bike). Pal then 0x1E0 zero pad.
+  mayPal = 0x414F70,
+  mayGfx = 0x415170,
+  mayGfxBytes = 0x3800,
+  -- title_screen.c sLogoShineTiles after lava map; pal after press_start LZ.
+  logoShineGfx = 0x393D14,
+  logoShineGfxBytes = 0x800,
+  logoShinePal = 0xE9D8AC,
+  -- main_menu.c birch_speech BG pals + shadow LZ + map LZ + bg2 pal.
+  birchBg0Pal = 0x1E764C,
+  birchBg1Pal = 0x1E766C,
+  birchShadowGfx = 0x1E768C,
+  birchShadowGfxBytes = 0x600,
+  birchMap = 0x1E7834,
+  birchMapBytes = 0x500,
+  birchBg2Pal = 0x1E795C,
+  -- field_effect.c birch portrait 64x64 uncompressed 4bpp + pal.
+  birchPortraitGfx = 0x39DC14,
+  birchPortraitGfxBytes = 0x800,
+  birchPortraitPal = 0x39E414,
+  -- gTrainerFrontPicTable Brendan/May (front_pic_table.inc @ 0x1EC53C).
+  trainerFrontBrendanGfx = 0xE492B8,
+  trainerFrontMayGfx = 0xE495CC,
+  trainerFrontGfxBytes = 0x800,
+  trainerFrontBrendanPal = 0xE5A028,
+  trainerFrontMayPal = 0xE5A050,
   -- intro.c gIntro3Pokeball* immediately after intro1 tiles.
   ballPal = 0x4098D4,
   ballPalBytes = 0x200,
@@ -226,6 +252,43 @@ Cinema.RUBY_US = {
   regionMapMapBytes = 0x1000,
   regionMapWrap = 512,
   regionMapPitch = 64,
+  -- starter_choose.c: gBirchBagGrassPal then ball/circle pals, LZ maps/gfx.
+  -- Found because gOamData_83F76CC sits at 0x3F76CC after the circle gfx.
+  starterBagPal = 0x3F62EC,
+  starterGrassPal = 0x3F630C,
+  starterBallPal = 0x3F632C,
+  starterCirclePal = 0x3F634C,
+  starterBagMap = 0x3F636C,
+  starterBagMapBytes = 0x500,
+  starterGrassMap = 0x3F64F8,
+  starterGrassMapBytes = 0x800,
+  starterHelpGfx = 0x3F66F0,
+  starterHelpGfxBytes = 0x2000,
+  starterBallGfx = 0x3F7198,
+  starterBallGfxBytes = 0x800,
+  starterCircleGfx = 0x3F74B8,
+  starterCircleGfxBytes = 0x800,
+  -- field_weather_effects.c: 1/2.gbapal then fog2..sandstorm.4bpp.
+  weatherPal1 = 0x397108,
+  weatherPal2 = 0x397128,
+  weatherFog2Gfx = 0x397148,
+  weatherFog2GfxBytes = 0x800,
+  weatherFog1Gfx = 0x397948,
+  weatherFog1GfxBytes = 0x800,
+  weatherCloudGfx = 0x398148,
+  weatherCloudGfxBytes = 0x800,
+  weatherSnow0Gfx = 0x398948,
+  weatherSnow0GfxBytes = 0x20,
+  weatherSnow1Gfx = 0x398968,
+  weatherSnow1GfxBytes = 0x20,
+  weatherBubbleGfx = 0x398988,
+  weatherBubbleGfxBytes = 0x40,
+  weatherAshGfx = 0x3989C8,
+  weatherAshGfxBytes = 0x1000,
+  weatherRainGfx = 0x3999C8,
+  weatherRainGfxBytes = 0x600,
+  weatherSandGfx = 0x399FC8,
+  weatherSandGfxBytes = 0xA00,
 }
 
 local function bgr555(c)
@@ -530,6 +593,11 @@ function Cinema.renderIntro2Brendan(data)
   return sheetOf(data, u.brendanGfx, u.brendanGfxBytes, u.brendanPal, 7, 8, 8)
 end
 
+function Cinema.renderIntro2May(data)
+  local u = Cinema.RUBY_US
+  return sheetOf(data, u.mayGfx, u.mayGfxBytes, u.mayPal, 7, 8, 8)
+end
+
 function Cinema.renderIntro2Bike(data)
   local u = Cinema.RUBY_US
   return sheetOf(data, u.bikeGfx, u.bikeGfxBytes, u.brendanPal, 4, 8, 4)
@@ -677,7 +745,8 @@ function Cinema.renderTitle(data)
   -- is groudon_glow (lava). 0xEF (pal 14 color 15) is the pulsing marking.
   -- Color 0 on both maps is transparent; paint Groudon over lava so the
   -- body is not buried without EVA/EVB blend.
-  local mark = (glow and glow[9]) or dark[15]
+  -- Ruby markings: RGB(0,0,c) mid pulse for still composite.
+  local mark = { 0, 0, 16 / 31 }
   local body = {}
   for i = 0, 15 do body[i] = dark[i] end
   body[15] = mark
@@ -713,6 +782,214 @@ function Cinema.renderTitle(data)
   return image
 end
 
+function Cinema.renderLogoShine(data)
+  local u = Cinema.RUBY_US
+  local gfx = lz(data, u.logoShineGfx, u.logoShineGfxBytes)
+  local pal = readPal(data, u.logoShinePal, 16)
+  if not (gfx and pal) then return nil end
+  -- OAM size 3 square = 64x64 shine sweep sprite.
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  -- Soften for additive draw: luminance -> alpha (stock OBJ mode 1), not a
+  -- fat opaque bar. No cache format bump; runtime also remaps in cinemaPic.
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      local lum = math.max(r or 0, g or 0, b or 0)
+      if (a or 0) < 0.01 or lum < 0.02 then return 0, 0, 0, 0 end
+      return r, g, b, math.min(1, lum * 0.65)
+    end)
+  end
+  return image
+end
+
+-- Layered title pieces so runtime can scroll lava, pulse markings, slide logo.
+function Cinema.renderTitleLava(data)
+  local u = Cinema.RUBY_US
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local lmap = lz(data, u.lavaMap, u.lavaMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and lmap and dark) then return nil end
+  -- Stock lava_map entries use pal bank 15 = groudon_glow (bubbly lava).
+  -- mGBA title frames read ~RGB(246,24,16); raw glow reds top out ~140.
+  -- Boost red channel toward stock while preserving relative bubble shade.
+  local function boost(pal)
+    if not pal then return pal end
+    local out = {}
+    for i = 0, 15 do
+      local c = pal[i] or { 0, 0, 0 }
+      local r, g, b = c[1] or 0, c[2] or 0, c[3] or 0
+      if r > g + 0.05 and r > b + 0.05 then
+        local t = math.min(1, r / 0.55)
+        r = math.min(1, 0.72 + 0.28 * t)
+        g = math.min(r * 0.10, g * 0.40)
+        b = math.min(r * 0.07, b * 0.40)
+      end
+      out[i] = { r, g, b }
+    end
+    return out
+  end
+  local lavaPal = boost(glow or dark)
+  local pals = { [0] = lavaPal, [14] = dark, [15] = lavaPal }
+  local bg = lavaPal[1] or lavaPal[0] or dark[0]
+  local image = ImageWriter.blank(256, 256, bg[1], bg[2], bg[3], 1)
+  return Cinema.paintTilemap(image, gfx, lmap, pals, 32, 32, 0, 0, true)
+end
+
+-- Lighter scrolling bubble overlay (glow pal). Darker texels keyed out so
+-- yellowish/orange blobs scroll over the dark base.
+function Cinema.renderTitleLavaBubbles(data)
+  local u = Cinema.RUBY_US
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local lmap = lz(data, u.lavaMap, u.lavaMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and lmap and glow) then return nil end
+  local pals = { [0] = glow, [14] = dark or glow, [15] = glow }
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 0)
+  Cinema.paintTilemap(image, gfx, lmap, pals, 32, 32, 0, 0, true)
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      local lum = 0.35 * r + 0.45 * g + 0.20 * b
+      -- Glow sheet is dark (~lum 0.18-0.28); keep relative highlights.
+      if lum < 0.16 then return 0, 0, 0, 0 end
+      local t = math.min(1, (lum - 0.16) / 0.14)
+      local yr = math.min(1, r * 0.45 + 1.00 * 0.55 * t)
+      local yg = math.min(1, g * 0.35 + (123/255) * 0.55 * t)
+      local yb = math.min(1, b * 0.20)
+      return yr, yg, yb, math.min(1, 0.65 + 0.35 * t)
+    end)
+  end
+  return image
+end
+
+function Cinema.renderTitleGroudon(data, markIntensity)
+  local u = Cinema.RUBY_US
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local gmap = lz(data, u.groudonMap, u.groudonMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and gmap and dark) then return nil end
+  local intensity = markIntensity
+  if intensity == nil then intensity = 16 end
+  if intensity < 0 then intensity = 0 end
+  if intensity > 31 then intensity = 31 end
+  -- pret title_screen.c Ruby: LEGENDARY_MARKING_COLOR(c) = RGB(0, 0, c).
+  -- Bake mid-blue markings; runtime pulses only those pixels.
+  local c = intensity / 31
+  local mark = { 0, 0, c }
+  local body = {}
+  for i = 0, 15 do body[i] = dark[i] end
+  body[15] = mark
+  local pals = { [0] = dark, [14] = body, [15] = glow or dark }
+  -- Stamp bright green on clear so paletted PNG encode (no tRNS) still
+  -- carries a chroma key. Game3Boot cinemaPic keys green -> alpha.
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 1, 0, 1)
+  Cinema.paintTilemap(image, gfx, gmap, pals, 32, 20, 0, 0, true)
+  -- Body stays opaque here; translucency is stock BLDCNT/BLDALPHA at draw.
+  return image
+end
+
+function Cinema.renderTitleLogo(data, bg2y)
+  local u = Cinema.RUBY_US
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  local logoTiles = lz(data, u.logoGfx, u.logoGfxBytes)
+  local logoMap = lz(data, u.logoMap, u.logoMapBytes)
+  if not (logoTiles and logoMap) then return nil end
+  local y = bg2y
+  if y == nil then y = u.logoBg2Y end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  return Cinema.paintAffine8(image, logoTiles, logoMap, logoPal, u.logoBg2X, y)
+end
+
+function Cinema.renderVersionBanner(data)
+  local u = Cinema.RUBY_US
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  local version = lz(data, u.versionGfx, u.versionGfxBytes)
+  if not version then return nil end
+  -- Two 64x32 8bpp halves side by side (left tile 0, right tile 32).
+  local image = ImageWriter.blank(128, 32, 0, 0, 0, 0)
+  blitObj8(image, version, logoPal, 0, 8, 4, 0, 0)
+  blitObj8(image, version, logoPal, 32, 8, 4, 64, 0)
+  return image
+end
+
+function Cinema.renderTitleCopyright(data)
+  local u = Cinema.RUBY_US
+  local press = lz(data, u.pressStartGfx, u.pressStartGfxBytes)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  if not press then return nil end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  local x = 120 - 64
+  for i = 0, 4 do
+    blitObj4(image, press, logoPal, 12 + i * 4, 4, 1, x + i * 32 - 16, 148 - 4)
+  end
+
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      -- Stock PRESS START / copyright are white (logo-pal index often encodes
+      -- yellow fill). Remap near-yellow/cream opaque texels to white.
+      if r > 0.85 and g > 0.70 and b < 0.45 then
+        return 1, 1, 1, 1
+      end
+      return r, g, b, a
+    end)
+  end
+  return image
+end
+
+function Cinema.renderBirchBg(data)
+  local u = Cinema.RUBY_US
+  local map = lz(data, u.birchMap, u.birchMapBytes)
+  local shadow = lz(data, u.birchShadowGfx, u.birchShadowGfxBytes)
+  local pal0 = readPal(data, u.birchBg0Pal, 16)
+  local pal1 = readPal(data, u.birchBg1Pal, 16)
+  local pal2 = readPal(data, u.birchBg2Pal, 16)
+  if not (map and shadow and pal0 and pal1) then return nil end
+  local pals = { [0] = pal0, [1] = pal1, [2] = pal2 or pal0 }
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H,
+    pal0[0][1], pal0[0][2], pal0[0][3], 1)
+  Cinema.paintTilemap(image, shadow, map, pals, 32, 20, 0, 0, false)
+  return image
+end
+
+function Cinema.renderBirchPortrait(data)
+  local u = Cinema.RUBY_US
+  local gfx = slice(data, u.birchPortraitGfx, u.birchPortraitGfxBytes)
+  local pal = readPal(data, u.birchPortraitPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  return image
+end
+
+function Cinema.renderTrainerFront(data, who)
+  local u = Cinema.RUBY_US
+  local gfxOff, palOff = u.trainerFrontBrendanGfx, u.trainerFrontBrendanPal
+  if who == "may" then
+    gfxOff, palOff = u.trainerFrontMayGfx, u.trainerFrontMayPal
+  end
+  local gfx = lz(data, gfxOff, u.trainerFrontGfxBytes)
+  local pal = readPalLz(data, palOff)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  return image
+end
+
 function Cinema.renderPressStart(data)
   local u = Cinema.RUBY_US
   local press = lz(data, u.pressStartGfx, u.pressStartGfxBytes)
@@ -726,6 +1003,19 @@ function Cinema.renderPressStart(data)
   local x = 120 - 32
   for i = 0, 2 do
     blitObj4(image, press, logoPal, i * 4, 4, 1, x + i * 32 - 16, 108 - 4)
+  end
+
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      -- Stock PRESS START / copyright are white (logo-pal index often encodes
+      -- yellow fill). Remap near-yellow/cream opaque texels to white.
+      if r > 0.85 and g > 0.70 and b < 0.45 then
+        return 1, 1, 1, 1
+      end
+      return r, g, b, a
+    end)
   end
   return image
 end
@@ -861,6 +1151,41 @@ function Cinema.renderCableCar(data)
     out.cord = cord
   end
   return out
+end
+
+-- CB2_ChooseStarter: grass BG3 under bag BG2 (color 0 punch-through), then
+-- four 32x32 ball/hand OBJ frames and one 64x64 ball-open circle.
+function Cinema.renderStarterChoose(data)
+  local u = Cinema.RUBY_US
+  local tiles = lz(data, u.starterHelpGfx, u.starterHelpGfxBytes)
+  local bagMap = lz(data, u.starterBagMap, u.starterBagMapBytes)
+  local grassMap = lz(data, u.starterGrassMap, u.starterGrassMapBytes)
+  local bagPal = readPal(data, u.starterBagPal, 16)
+  local grassPal = readPal(data, u.starterGrassPal, 16)
+  if not (tiles and bagMap and grassMap and bagPal and grassPal) then
+    return nil
+  end
+  local pals = { [0] = bagPal, [1] = grassPal }
+  local bg = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+  Cinema.paintTilemap(bg, tiles, grassMap, pals, 32, 32, 0, 0, false)
+  Cinema.paintTilemap(bg, tiles, bagMap, pals, 32, 20, 0, 0, true)
+  local ballPal = readPal(data, u.starterBallPal, 16)
+  local ballGfx = lz(data, u.starterBallGfx, u.starterBallGfxBytes)
+  local balls
+  if ballPal and ballGfx then
+    balls = ImageWriter.blank(128, 32, 0, 0, 0, 0)
+    for i = 0, 3 do
+      blitObj4(balls, ballGfx, ballPal, i * 16, 4, 4, i * 32, 0)
+    end
+  end
+  local circlePal = readPal(data, u.starterCirclePal, 16)
+  local circleGfx = lz(data, u.starterCircleGfx, u.starterCircleGfxBytes)
+  local circle
+  if circlePal and circleGfx then
+    circle = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+    blitObj4(circle, circleGfx, circlePal, 0, 8, 8, 0, 0)
+  end
+  return { bg = bg, balls = balls, circle = circle }
 end
 
 function Cinema.renderEggHatch(data)
@@ -1077,6 +1402,70 @@ function Cinema.renderRegionMapIcons(data)
 end
 
 -- Two 24x16 pokécenter screens side by side.
+local function renderWeatherSheet(data, gfxOff, gfxBytes, palOff, pxW, pxH)
+  local gfx = slice(data, gfxOff, gfxBytes)
+  local pal = readPal(data, palOff, 16)
+  if not (gfx and pal) then return nil end
+  local tw, th = pxW / 8, pxH / 8
+  local image = ImageWriter.blank(pxW, pxH, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, tw, th, 0, 0)
+  return image
+end
+
+function Cinema.renderWeatherFog2(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherFog2Gfx, u.weatherFog2GfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherFog1(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherFog1Gfx, u.weatherFog1GfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherCloud(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherCloudGfx, u.weatherCloudGfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherSnow(data)
+  local u = Cinema.RUBY_US
+  local pal = readPal(data, u.weatherPal1, 16)
+  local s0 = slice(data, u.weatherSnow0Gfx, u.weatherSnow0GfxBytes)
+  local s1 = slice(data, u.weatherSnow1Gfx, u.weatherSnow1GfxBytes)
+  if not (pal and s0 and s1) then return nil end
+  local image = ImageWriter.blank(16, 8, 0, 0, 0, 0)
+  blitObj4(image, s0, pal, 0, 1, 1, 0, 0)
+  blitObj4(image, s1, pal, 0, 1, 1, 8, 0)
+  return image
+end
+
+function Cinema.renderWeatherBubble(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherBubbleGfx, u.weatherBubbleGfxBytes,
+    u.weatherPal1, 8, 16)
+end
+
+function Cinema.renderWeatherAsh(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherAshGfx, u.weatherAshGfxBytes,
+    u.weatherPal1, 64, 128)
+end
+
+function Cinema.renderWeatherRain(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherRainGfx, u.weatherRainGfxBytes,
+    u.weatherPal1, 16, 192)
+end
+
+function Cinema.renderWeatherSand(data)
+  local u = Cinema.RUBY_US
+  return renderWeatherSheet(data, u.weatherSandGfx, u.weatherSandGfxBytes,
+    u.weatherPal2, 64, 80)
+end
+
 function Cinema.renderPokecenterMonitor(data)
   local u = Cinema.RUBY_US
   local pal = readPal(data, u.pokecenterMonPal, 16)
@@ -1103,6 +1492,28 @@ function Cinema.extract(data)
     pressStart = save(Cinema.renderPressStart(data),
       "assets/generated/title/press_start.png"),
   }
+  out.titleLava = save(Cinema.renderTitleLava(data),
+    "assets/generated/title/title_lava.png")
+  out.titleLavaBubbles = save(Cinema.renderTitleLavaBubbles(data),
+    "assets/generated/title/title_lava_bubbles.png")
+  out.titleGroudon = save(Cinema.renderTitleGroudon(data),
+    "assets/generated/title/title_groudon.png")
+  out.titleLogo = save(Cinema.renderTitleLogo(data),
+    "assets/generated/title/title_logo.png")
+  out.versionBanner = save(Cinema.renderVersionBanner(data),
+    "assets/generated/title/version_banner.png")
+  out.titleCopyright = save(Cinema.renderTitleCopyright(data),
+    "assets/generated/title/title_copyright.png")
+  out.logoShine = save(Cinema.renderLogoShine(data),
+    "assets/generated/title/logo_shine.png")
+  out.birchBg = save(Cinema.renderBirchBg(data),
+    "assets/generated/birch/bg.png")
+  out.birchPortrait = save(Cinema.renderBirchPortrait(data),
+    "assets/generated/birch/portrait.png")
+  out.trainerFrontBrendan = save(Cinema.renderTrainerFront(data, "brendan"),
+    "assets/generated/birch/brendan.png")
+  out.trainerFrontMay = save(Cinema.renderTrainerFront(data, "may"),
+    "assets/generated/birch/may.png")
   local layers = Cinema.renderIntro1Layers(data)
   if layers then
     for i = 1, 4 do
@@ -1130,6 +1541,8 @@ function Cinema.extract(data)
     "assets/generated/intro/intro2_treesobj.png")
   out.intro2brendan = save(Cinema.renderIntro2Brendan(data),
     "assets/generated/intro/intro2_brendan.png")
+  out.intro2may = save(Cinema.renderIntro2May(data),
+    "assets/generated/intro/intro2_may.png")
   out.intro2bike = save(Cinema.renderIntro2Bike(data),
     "assets/generated/intro/intro2_bike.png")
   out.intro2latios = save(Cinema.renderIntro2Latios(data),
@@ -1150,6 +1563,13 @@ function Cinema.extract(data)
   local water, ember = Cinema.renderIntro3AttackGfx(data)
   out.intro3water = save(water, "assets/generated/intro/intro3_water.png")
   out.intro3ember = save(ember, "assets/generated/intro/intro3_ember.png")
+  local starter = Cinema.renderStarterChoose(data)
+  if starter then
+    out.starterBg = save(starter.bg, "assets/generated/starter/bg.png")
+    out.starterBalls = save(starter.balls, "assets/generated/starter/balls.png")
+    out.starterCircle = save(starter.circle,
+      "assets/generated/starter/circle.png")
+  end
   local car = Cinema.renderCableCar(data)
   if car then
     out.cableCarMountain = save(car.mountain,
@@ -1218,6 +1638,27 @@ function Cinema.extract(data)
       "assets/generated/pokenav/brendan.png")
     out.regionMapMay = save(icons.may,
       "assets/generated/pokenav/may.png")
+  end
+  out.weatherRain = save(Cinema.renderWeatherRain(data),
+    "assets/generated/weather/rain.png")
+  out.weatherSand = save(Cinema.renderWeatherSand(data),
+    "assets/generated/weather/sand.png")
+  out.weatherAsh = save(Cinema.renderWeatherAsh(data),
+    "assets/generated/weather/ash.png")
+  out.weatherCloud = save(Cinema.renderWeatherCloud(data),
+    "assets/generated/weather/cloud.png")
+  out.weatherFog1 = save(Cinema.renderWeatherFog1(data),
+    "assets/generated/weather/fog1.png")
+  out.weatherFog2 = save(Cinema.renderWeatherFog2(data),
+    "assets/generated/weather/fog2.png")
+  out.weatherSnow = save(Cinema.renderWeatherSnow(data),
+    "assets/generated/weather/snow.png")
+  out.weatherBubble = save(Cinema.renderWeatherBubble(data),
+    "assets/generated/weather/bubble.png")
+  local PcArt = require("src.import.RomExtractorGen3Pc")
+  local pc = PcArt.extract(data)
+  for k, v in pairs(pc) do
+    out[k] = v
   end
   return out
 end

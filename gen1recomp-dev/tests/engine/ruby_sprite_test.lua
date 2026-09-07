@@ -108,6 +108,22 @@ eq(truckInfo.width, 48, "truck width")
 eq(truckInfo.height, 48, "truck height")
 eq(truckInfo.frameSize, 1152, "48x48 4bpp is 1152 bytes")
 
+-- gObjectEventGraphicsInfo_SubmarineShadow: 88x32, size 1408.
+local SUB_INFO, SUB_FRAME, SUB_PIC = 0x40, 0x80, 0xC0
+local subRom = string.rep("\0", 0x800)
+subRom = overlay(subRom, SUB_PIC, string.rep(string.char(0x11), 1408))
+subRom = overlay(subRom, SUB_FRAME,
+  GbaBin.packPtr(SUB_PIC) .. GbaBin.packU16(1408) .. GbaBin.packU16(0))
+subRom = overlay(subRom, SUB_INFO,
+  gfxInfo(0x111A, 1408, 88, 32, SUB_FRAME, SUB_FRAME))
+local subInfo = RomExtractorGen3.parseGraphicsInfo(subRom, SUB_INFO)
+check(subInfo ~= nil, "parseGraphicsInfo accepts the 88x32 submarine")
+eq(subInfo.width, 88, "submarine width")
+eq(subInfo.height, 32, "submarine height")
+eq(subInfo.frameSize, 1408, "88x32 4bpp is 1408 bytes")
+eq(Game3.GFX_SS_TIDAL, 140, "OBJ_EVENT_GFX_SS_TIDAL")
+eq(Game3.GFX_SUBMARINE_SHADOW, 141, "OBJ_EVENT_GFX_SUBMARINE_SHADOW")
+
 -- gObjectEventPicTable_PechaBerryTree: 3×16x16 dirt/sprout, 6×16x32 bush,
 -- then the next berry table starts at 16x16 again.
 local function packFrameImage(off, sz)
@@ -161,7 +177,8 @@ eq(pals.byTag[0x1103], PAL, "tag 0x1103 is present")
 local ids = RomExtractorGen3.collectGraphicsIds({
   g0_0 = { objects = { { graphicsId = 17 }, { graphicsId = 9 } } },
 })
-eq(#ids, 24, "player forms, berry stages, evil-team gfx, plus two NPCs")
+-- 36 always-extracted (see below) plus the two NPCs this fixture places.
+eq(#ids, 38, "player forms, berry stages, evil-team gfx, hideout ships, plus two NPCs")
 eq(ids[1], 0, "gid 0 is always extracted")
 local used = {}
 for i = 1, #ids do used[ids[i]] = true end
@@ -171,10 +188,17 @@ check(used[191] and used[192], "Brendan and May watering sheets")
 check(used[9] and used[17], "map NPCs stay in the set")
 eq(RomExtractorGen3.collectGraphicsIds(nil)[1], 0,
   "empty maps still extract Brendan")
-eq(#RomExtractorGen3.collectGraphicsIds(nil), 22,
-  "player-form sheets, berry stages, and Magma/Aqua")
+-- 26 player-form sheets (Brendan 8, May 8, rival Brendan/May 100-109),
+-- 2 berry stages, 6 evil-team (Magma/Aqua grunts plus ARCHIE 195 /
+-- MAXIE 196, which SetupEvilTeamGfxIds writes into GFX_VAR slots), and
+-- the 2 hideout ships.
+eq(#RomExtractorGen3.collectGraphicsIds(nil), 36,
+  "player-form sheets, berry stages, Magma/Aqua, and hideout ships")
+check(used[100] and used[109], "rival Brendan/May form sheets")
+check(used[195] and used[196], "ARCHIE and MAXIE for VAR gfx")
 check(used[61] and used[62], "early and late berry sheets")
 check(used[119] and used[117], "Magma M and Aqua M for VAR gfx")
+check(used[140] and used[141], "SS Tidal and submarine shadow")
 eq(RomExtractorGen3.spritePath(0), "assets/generated/sprites/ow_0.png",
   "player PNG path is the cache sentinel")
 
@@ -489,6 +513,107 @@ eq(rider:startMenuItems()[5], "OPTION", "OPTION is in START")
     emotes = { exclaim = { path = "x.png", width = 16, height = 16 } },
   }, "exclaim")
   eq(cached.path, "x.png", "imported sprites.lua wins")
+end)()
+
+-- event_object_movement.c get_berry_tree_graphics. The graphics ID is the
+-- same for every berry -- gBerryTreeGraphicsIdTable is {61,61,62,62,62} --
+-- but the call also swaps sprite->images to gBerryTreePicTablePointers
+-- [berryId], so the LATE stages are that berry's own tree. We rendered one
+-- table (Pecha's, which is what gfx 62's images pointer happens to be) for
+-- all 43, so every mature tree looked identical.
+;(function()
+local Game3 = require("src.core.Game3")
+local R = require("src.import.RomExtractorGen3")
+
+eq(R.BERRY_TREE_COUNT, 43, "gBerryTreePicTablePointers has 43 entries")
+eq(R.BERRY_LATE_FIRST, 3,
+  "the first three frames are the shared dirt pile and two sprouts")
+eq(R.BERRY_LATE_FRAMES, 6, "then six 16x32 frames of that berry's tree")
+-- PatchObjectPalettes fills OBJ slots 0..9 from gObjectPaletteTags1
+eq(R.BERRY_SLOT_TAG[2], 0x1103, "OBJ palette slot 2 is tag 0x1103")
+eq(R.BERRY_SLOT_TAG[3], 0x1104)
+eq(R.BERRY_SLOT_TAG[4], 0x1105)
+eq(R.BERRY_SLOT_TAG[5], 0x1106)
+
+local g = Game3.new()
+g.data.sprites = {
+  byId = {
+    [Game3.GFX_BERRY_TREE_EARLY] = { id = Game3.GFX_BERRY_TREE_EARLY,
+      path = "ow_61.png", width = 16, height = 16, frameCount = 3 },
+    [Game3.GFX_BERRY_TREE_LATE] = { id = Game3.GFX_BERRY_TREE_LATE,
+      path = "ow_62.png", width = 16, height = 32, frameCount = 6 },
+  },
+  berryTrees = {
+    [0] = { path = "berry_00.png", width = 16, height = 32,
+      frameCount = 6, paletteSlot = 4 },
+    [5] = { path = "berry_05.png", width = 16, height = 32,
+      frameCount = 6, paletteSlot = 3 },
+  },
+}
+local npc = { graphicsId = Game3.GFX_BERRY_TREE, trainerRange = 1 }
+local function grown(berry, stage)
+  g.berryTreeInfo = function() return { berry = berry, stage = stage } end
+  return g:applyBerryTreeSprite(npc)
+end
+
+grown(6, Game3.BERRY_STAGE_BERRIES)
+eq(npc.graphicsId, Game3.GFX_BERRY_TREE_LATE, "a grown tree uses gfx 62")
+eq(npc.berrySheet, 5, "and its own sheet -- berryId is the cart's berry - 1")
+eq(g:berryTreeSpec(npc).path, "berry_05.png", "which is what the draw picks up")
+eq(g:objectSpriteSpec(npc, Game3.GFX_BERRY_TREE_LATE).path, "berry_05.png",
+  "and drawOneObject resolves the same sheet, not the shared gfx 62 one")
+
+grown(1, Game3.BERRY_STAGE_BERRIES)
+eq(npc.berrySheet, 0, "a different berry picks a different sheet")
+eq(g:berryTreeSpec(npc).path, "berry_00.png",
+  "so two mature trees no longer share one image")
+
+grown(6, Game3.BERRY_STAGE_SPROUTED)
+eq(npc.graphicsId, Game3.GFX_BERRY_TREE_EARLY, "sprouts use gfx 61")
+eq(npc.berrySheet, nil, "and share one sheet, as the cart's table does")
+eq(g:berryTreeSpec(npc), nil, "so the draw falls back to the shared art")
+
+-- An unplanted tree is invisible either way.
+grown(0, Game3.BERRY_STAGE_NO_BERRY)
+eq(npc.invisible, true, "an empty patch draws nothing")
+
+-- A berry with no extracted sheet must not blank the tree.
+grown(40, Game3.BERRY_STAGE_BERRIES)
+eq(npc.berrySheet, 39, "the id is still recorded")
+eq(g:berryTreeSpec(npc), nil, "but a missing sheet falls back rather than fails")
+end)()
+
+-- field_door.c door_build_blockdef writes the door's four tiles into a
+-- metatile's FIRST four entries -- the bottom layer -- and zeroes the last
+-- four, so an open door has no BG1 content whatsoever. The player walks in
+-- front of the doorway, both halves of it. Painting the door after the
+-- actors put it over the player instead.
+;(function()
+local Game3 = require("src.core.Game3")
+local g = Game3.new()
+local order = {}
+g.drawActors = function() order[#order + 1] = "actors" end
+g.drawDoorAnim = function() order[#order + 1] = "doors" end
+g.drawDecorPlacingCursor = function() end
+g.drawFieldEffects = function() end
+g.drawPokecenterHealOverlay = function() end
+g.drawHofRecordOverlay = function() end
+g.drawRotatingGates = function() end
+g:drawWorldStanding(false)
+eq(order[1], "doors", "the doorway paints first")
+eq(order[2], "actors", "so the player stands in front of it, as the cart has")
+
+-- ...and no part of a door is ever painted on the overlay pass, which runs
+-- after the sprites.
+local h = Game3.new()
+local painted = 0
+h.drawDoorFrame = function() painted = painted + 1 end
+h.map = { id = "g_door", width = 1, height = 2, grid = { 0, 0 },
+  openDoors = { [1] = true } }
+h:drawDoorAnim(true)
+eq(painted, 0, "nothing on the overlay pass")
+h:drawDoorAnim(false)
+check(painted > 0, "but the open door does paint on the ground pass")
 end)()
 
 S.finish()

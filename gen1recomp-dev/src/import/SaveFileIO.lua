@@ -16,11 +16,42 @@
 
 local SaveConvert = require("src.save_convert.SaveConvert")
 local SaveData = require("src.core.SaveData")
+local SaveSerializer = require("src.core.SaveSerializer")
 local GameVersion = require("src.core.GameVersion")
 
 local SaveFileIO = {}
 
 local SAVE_SIZE = SaveConvert.SAVE_SIZE
+
+-- Shared exports/<version>/<filename> write, used by both the Gen 1 .sav
+-- path and the Gen 2/3 native path below. Same portable-vs-LOVE-save-dir
+-- seam SaveData's own persistFs uses (#752), so an export lands next to
+-- the slots it came from either way. Returns the absolute path, or nil +
+-- a friendly message.
+local function writeExport(version, filename, bytes)
+  local portableFs = SaveData.portableFs()
+  local fs = portableFs or (love and love.filesystem)
+  if not (fs and fs.write) then
+    return nil, "no filesystem available to export to"
+  end
+  if fs.createDirectory then
+    fs.createDirectory("exports")
+    fs.createDirectory("exports/" .. version)
+  end
+  local rel = ("exports/%s/%s"):format(version, filename)
+  local ok, writeErr = fs.write(rel, bytes)
+  if not ok then
+    return nil, "could not write the export: " .. tostring(writeErr)
+  end
+  local portableBase = SaveData.portableBaseDir()
+  if portableBase then
+    local sep = package.config:sub(1, 1)
+    return portableBase .. sep .. rel:gsub("/", sep)
+  end
+  local base = fs.getSaveDirectory and fs.getSaveDirectory() or ""
+  if base ~= "" then return base .. "/" .. rel end
+  return rel
+end
 
 -- Resolve raw save bytes from whatever the launcher hands us:
 --   * a LOVE DroppedFile (a table/userdata with :open/:read/:getSize), read the
@@ -76,11 +107,14 @@ end
 -- are dropped and the 32768-byte save imports.
 function SaveFileIO.importToSlot(source, version, force)
   version = version or GameVersion.get()
-  if GameVersion.generation(version) > 1 then
+  local gen = GameVersion.generation(version)
+  if gen == 3 then
+    return SaveFileIO.importToSlotNative(source, version)
+  end
+  if gen > 1 then
     local info = GameVersion.info(version)
-    local kind = GameVersion.generation(version) == 3 and "GBA save" or "Gen 2 cart save"
     return false, (info and info.displayName or version)
-      .. " uses a " .. kind .. "; importing one is not supported yet."
+      .. " uses a Gen 2 cart save; importing one is not supported yet."
   end
   local bytes, readErr = readSource(source)
   if not bytes then return false, readErr end
@@ -120,6 +154,37 @@ function SaveFileIO.importToSlot(source, version, force)
   return true, slotId
 end
 
+-- Gen 2/3 saves are already this engine's own SaveSerializer-encoded Lua
+-- table (there is no GBA/GBC hardware SRAM image to emulate the way Gen
+-- 1's importSav/exportSav crosswalk does), so importing one is just:
+-- decode it, sanity-check it is really a save table, land it in a fresh
+-- slot exactly like a Gen 1 import does. `source` is whatever exportActiveSlotNative
+-- just wrote (an absolute path, a dropped file, or raw text).
+function SaveFileIO.importToSlotNative(source, version)
+  version = version or GameVersion.get()
+  local text, readErr = readSource(source)
+  if not text then return false, readErr end
+  local save, decodeErr = SaveSerializer.decode(text)
+  if not save then
+    return false, "that file is not a valid exported save (" .. tostring(decodeErr) .. ")"
+  end
+  if save.version and save.version ~= version then
+    local info = GameVersion.info(version)
+    return false, ("that export is for %s, not %s"):format(
+      tostring(save.version), info and info.displayName or version)
+  end
+  save.version = version
+  save.meta = SaveData.buildMeta(nil, save.meta)
+  local slotId = SaveData.createSlot(version)
+  if not slotId then return false, "this game has no save slots to import into" end
+  local ok, writeErr = SaveData.writeSlot(version, slotId, save)
+  if not ok then
+    return false, "could not write the imported save: " .. tostring(writeErr)
+  end
+  SaveData.setActiveSlot(version, slotId)
+  return true, slotId
+end
+
 -- exportActiveSlot(version) -> ok, pathOrErr
 -- Loads the version's active slot save (SaveData.load semantics), encodes it
 -- back to a 32768-byte SRAM image, and writes it to
@@ -129,45 +194,44 @@ end
 -- message otherwise.
 function SaveFileIO.exportActiveSlot(version)
   version = version or GameVersion.get()
-  if GameVersion.generation(version) > 1 then
+  local gen = GameVersion.generation(version)
+  if gen == 3 then
+    return SaveFileIO.exportActiveSlotNative(version)
+  end
+  if gen > 1 then
     local info = GameVersion.info(version)
-    local kind = GameVersion.generation(version) == 3 and "GBA save" or "Gen 2 cart save"
     return false, (info and info.displayName or version)
-      .. " uses a " .. kind .. "; exporting one is not supported yet."
+      .. " uses a Gen 2 cart save; exporting one is not supported yet."
   end
   local save = SaveData.load(version)
   if not save then return false, "this game has no save to export yet" end
   local bytes, exportErr = SaveConvert.exportSav(save, version)
   if not bytes then return false, exportErr end
   local slotId = SaveData.activeSlot(version) or "save"
-  -- Portable mode is the same seam SaveData's own persistFs uses: when
-  -- portable.txt marks the install every persistent write leaves the OS save
-  -- directory for the game folder, and an export is no exception.  Writing
-  -- through love.filesystem here dropped the .sav in AppData while the slots
-  -- it came from lived on the stick, and the desktop "Open folder" affordance
-  -- (RomImporter:exportSave) followed the returned path straight there (#752).
-  local portableFs = SaveData.portableFs()
-  local fs = portableFs or (love and love.filesystem)
-  if not (fs and fs.write) then return false, "no filesystem available to export to" end
-  if fs.createDirectory then
-    fs.createDirectory("exports")
-    fs.createDirectory("exports/" .. version)
-  end
   -- Per-game folder so MTP browsing matches inbox layout (red/blue/yellow/gold).
-  local rel = ("exports/%s/gen1recomp-%s-%s.sav"):format(version, version, slotId)
-  local ok, writeErr = fs.write(rel, bytes)
-  if not ok then return false, "could not write the export: " .. tostring(writeErr) end
-  -- Absolute path for the notice line, resolved against whichever root took
-  -- the write.  Portable paths use the OS separator (slotDiskPath does the
-  -- same); LOVE save-directory paths stay "/"-joined as before.
-  local portableBase = SaveData.portableBaseDir()
-  if portableBase then
-    local sep = package.config:sub(1, 1)
-    return true, portableBase .. sep .. rel:gsub("/", sep)
-  end
-  local base = fs.getSaveDirectory and fs.getSaveDirectory() or ""
-  if base ~= "" then return true, base .. "/" .. rel end
-  return true, rel
+  local filename = ("gen1recomp-%s-%s.sav"):format(version, slotId)
+  local path, writeErr = writeExport(version, filename, bytes)
+  if not path then return false, writeErr end
+  return true, path
+end
+
+-- Gen 2/3 counterpart of exportActiveSlot: writes the plain SaveSerializer
+-- text this engine already stores slots in, not a hardware-format image
+-- (there is nothing an emulator could load either way), to
+-- exports/<version>/gen1recomp-<version>-<slotId>.lua -- the .lua suffix
+-- (rather than .sav) so nobody mistakes the export for something mGBA or
+-- a real cart could read.  importToSlotNative above reads this same shape
+-- back in.
+function SaveFileIO.exportActiveSlotNative(version)
+  version = version or GameVersion.get()
+  local save = SaveData.load(version)
+  if not save then return false, "this game has no save to export yet" end
+  local encoded = SaveSerializer.encode(save)
+  local slotId = SaveData.activeSlot(version) or "save"
+  local filename = ("gen1recomp-%s-%s.lua"):format(version, slotId)
+  local path, writeErr = writeExport(version, filename, encoded)
+  if not path then return false, writeErr end
+  return true, path
 end
 
 return SaveFileIO

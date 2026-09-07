@@ -18,6 +18,11 @@ Ui.FRAME_STYLES = 20
 Ui.FRAME_TILES = 9
 Ui.DIALOG_TILES = 14
 
+-- NUM_BRAILLE_CHARS. Only the first 64 glyphs are braille; the sheet in the
+-- cart runs on past them.
+Ui.BRAILLE_GLYPHS = 64
+Ui.BRAILLE_COLS = 16
+
 -- US Ruby 1.0. graphics.c stores each text window style as 9 tiles (288
 -- bytes) immediately followed by its 16-color palette, so the pair strides
 -- 0x140.  The battle labels (`gUnknown_08D1212C`, `Tiles_D129AC`) encode
@@ -38,6 +43,8 @@ Ui.RUBY_US = {
   healthboxGfx = 0xD1216C,
   healthboxBytes = 2112,
   windowPal = 0xD1212C,
+  -- text.c sBrailleGlyphs: the braille font, 1bpp and 8 bytes a glyph.
+  brailleGlyphs = 0x1E58F0,
   hpBarPal = 0xD1214C,
   -- gBattleWindowLargeGfx / gBattleWindowSmallGfx. No neighbouring label
   -- fixes these, so they were found as the only run of five consecutive LZ
@@ -52,6 +59,23 @@ Ui.HEALTHBOX = {
   player = { off = "healthboxPlayerGfx", halfW = 64, halfH = 64 },
   enemy = { off = "healthboxEnemyGfx", halfW = 64, halfH = 32 },
 }
+
+-- draw_status_ailment_maybe: 24x8 pills from gHealthboxElementsGfxTable
+-- (tiles in healthbox_elements.4bpp) with gBattleInterfaceStatusIcons_DynPal
+-- FillPalette'd onto palette index 12 (battler0 + 12). US Ruby 1.0.
+Ui.STATUS_DYNPAL = 0xE903F8
+Ui.STATUS_FILL_INDEX = 12
+Ui.STATUS_PILL_W = 24
+Ui.STATUS_PILL_H = 8
+-- name, first tile id, DynPal index (psn/par/slp/frz/brn)
+Ui.STATUS_PILLS = {
+  { "psn", 0x15, 0 },
+  { "par", 0x18, 1 },
+  { "slp", 0x1B, 2 },
+  { "frz", 0x1E, 3 },
+  { "brn", 0x21, 4 },
+}
+
 
 -- text_window.c sDialogueFrameTilemap: 7 wide x 5 tall, entries carry the
 -- GBA flip bits (0x0400 h, 0x0800 v) so corners mirror.
@@ -246,6 +270,37 @@ function Ui.renderHealthboxFrame(data, kind)
   return image
 end
 
+
+-- Battle-interface status pills (24x8): three healthbox_elements tiles per
+-- ailment with DynPal colour on index 12. Sheet order matches
+-- Game3.BATTLE_STATUS_PILL_ORDER (psn/par/slp/frz/brn).
+function Ui.renderStatusPills(data)
+  local u = Ui.RUBY_US
+  local tiles = data:sub(u.healthboxGfx + 1, u.healthboxGfx + u.healthboxBytes)
+  if #tiles < u.healthboxBytes then return nil end
+  local basePal = readPal(data, u.windowPal, 16)
+  if not basePal then return nil end
+  if type(data) ~= "string" or #data < Ui.STATUS_DYNPAL + 10 then return nil end
+  local dyn = {}
+  for i = 0, 4 do
+    dyn[i] = { bgr555(GbaBin.u16(data, Ui.STATUS_DYNPAL + i * 2)) }
+  end
+  local rows = #Ui.STATUS_PILLS
+  local image = ImageWriter.blank(Ui.STATUS_PILL_W, rows * Ui.STATUS_PILL_H,
+    0, 0, 0, 0)
+  for row, spec in ipairs(Ui.STATUS_PILLS) do
+    local tile0, di = spec[2], spec[3]
+    local pal = {}
+    for c = 0, 15 do pal[c] = basePal[c] end
+    pal[Ui.STATUS_FILL_INDEX] = dyn[di]
+    local py = (row - 1) * Ui.STATUS_PILL_H
+    for t = 0, 2 do
+      blitTile(image, t * Ui.TILE, py, tiles, tile0 + t, pal, false, false, true)
+    end
+  end
+  return image
+end
+
 local function save(image, path)
   if not image then return nil end
   local ok = pcall(ImageWriter.save, image, path)
@@ -253,10 +308,51 @@ local function save(image, path)
   return path
 end
 
+-- Sheet plus the five individual 24x8 PNGs Game3.BATTLE_STATUS_PILL_PATH uses.
+function Ui.saveStatusPills(data)
+  local sheet = Ui.renderStatusPills(data)
+  local sheetPath = save(sheet, "assets/generated/ui/battle_status_pills.png")
+  if not sheetPath then return nil, nil end
+  local individuals = {}
+  for row, spec in ipairs(Ui.STATUS_PILLS) do
+    local pill = ImageWriter.blank(Ui.STATUS_PILL_W, Ui.STATUS_PILL_H, 0, 0, 0, 0)
+    ImageWriter.blit(pill, sheet, 0, 0, 0, (row - 1) * Ui.STATUS_PILL_H,
+      Ui.STATUS_PILL_W, Ui.STATUS_PILL_H)
+    individuals[spec[1]] = save(pill,
+      ("assets/generated/ui/battle_status_%s.png"):format(spec[1]))
+  end
+  return sheetPath, individuals
+end
+
+
+-- The braille font, so the regi chambers can show the real dots rather than
+-- the letters they spell. LoadFixedWidthFont_Braille reads 8 bytes a glyph,
+-- unshadowed, which is exactly decode1bpp's layout.
+function Ui.renderBraille(data, off)
+  off = off or Ui.RUBY_US.brailleGlyphs
+  if type(data) ~= "string" or #data < off + Ui.BRAILLE_GLYPHS * 8 then
+    return nil, "braille font not found"
+  end
+  local cols = Ui.BRAILLE_COLS
+  local rows = math.ceil(Ui.BRAILLE_GLYPHS / cols)
+  local image = ImageWriter.blank(cols * Ui.TILE, rows * Ui.TILE, 0, 0, 0, 0)
+  for i = 0, Ui.BRAILLE_GLYPHS - 1 do
+    local raw = {}
+    for b = 1, 8 do raw[b] = data:byte(off + i * 8 + b) or 0 end
+    local glyph = ImageWriter.decode1bpp(raw, Ui.TILE, Ui.TILE, true)
+    ImageWriter.blit(image, glyph,
+      (i % cols) * Ui.TILE, math.floor(i / cols) * Ui.TILE)
+  end
+  return image
+end
+
 function Ui.extract(data)
   if type(data) ~= "string" or #data < 0xEA0108 + 448 then return {} end
+  local statusPillPath = Ui.saveStatusPills(data)
   return {
     frames = save(Ui.renderFrames(data), "assets/generated/ui/window_frames.png"),
+    -- text.c sDownArrowTiles; shipped under assets/generated/ui (no new extract).
+    down_arrow = "assets/generated/ui/down_arrow.png",
     dialogue = save(Ui.renderDialogueFrame(data),
       "assets/generated/ui/dialogue_frame.png"),
     battleMessage = save(Ui.renderBattleBar(data, "message"),
@@ -274,6 +370,10 @@ function Ui.extract(data)
       "assets/generated/ui/healthbox_player.png"),
     healthboxEnemy = save(Ui.renderHealthboxFrame(data, "enemy"),
       "assets/generated/ui/healthbox_enemy.png"),
+    statusPills = statusPillPath,
+    braille = save(Ui.renderBraille(data), "assets/generated/ui/braille.png"),
+    brailleCols = Ui.BRAILLE_COLS,
+    brailleGlyphs = Ui.BRAILLE_GLYPHS,
     frameStyles = Ui.FRAME_STYLES,
     frameTile = Ui.TILE,
   }

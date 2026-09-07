@@ -105,9 +105,9 @@ eq(bars.moves[1], 1, "the move bar is also in the right screenblock")
 eq(bars.moves[2], 22, "at rows 22..27")
 eq(Game3.BATTLE_ACTION_Y, Game3.DLG_TEXT_ROW * Game3.MENU_TILE,
   "action / message text share tile row 15")
-eq(Game3.BATTLE_TEXT_INK[1], 74 / 255, "battle FONT3 is gFontDefaultPalette 1")
-eq(Game3.BATTLE_TEXT_INK[2], 74 / 255, "the same gray on all channels")
-check(Game3.BATTLE_TEXT_INK[1] < 0.4, "so the fight menu stays dark-on-light")
+eq(Game3.BATTLE_TEXT_INK[1], Game3.TEXT_INK[1], "battle FONT3 is the dark field ink")
+eq(Game3.BATTLE_TEXT_INK[2], Game3.TEXT_INK[2], "same on all channels")
+check(Game3.BATTLE_TEXT_INK[1] < 0.2, "so the fight menu stays dark-on-light")
 eq(Game3.BATTLE_TEXT_SHADOW[1], 65 / 255, "unused white-ink shadow is pal 8")
 eq(Game3.BATTLE_TEXT_SHADOW[3], 123 / 255, "the blue channel of that shadow")
 eq(Game3.BATTLE_BAR_FILL[1], 213 / 255, "fill is menu.pal index 7")
@@ -251,5 +251,52 @@ g.battle.fightCursor = 0
 g.battle.moveSwap = nil
 press("select")
 eq(g.battle.moveSwap, nil, "one move cannot start a swap")
+
+-- The dialogue box, and a DELIBERATE deviation from the cart's geometry.
+-- text_window.c DrawDialogueFrame draws height + 2 rows from
+-- STD_DLG_FRAME_TOP 14, so Ruby's box is rows 14..19 with a 4-row interior
+-- (y 120..152), and Contest_StartTextPrinter places the text at tile
+-- (2, 15). Two 16px lines fill that interior exactly, edge to edge -- the
+-- second line rests on the frame. We give the box one extra row at the top
+-- and centre the text in the taller interior.
+;(function()
+local Game3 = require("src.core.Game3")
+local T = Game3.MENU_TILE
+local interiorTop = (Game3.DLG_FRAME_TOP + 1) * T
+local interiorBottom = Game3.DLG_FRAME_BOTTOM * T
+local textTop = Game3.dialogueTextY()
+local textBottom = textTop + Game3.MSG_LINES * Game3.MSG_LINE_H
+
+eq(Game3.DLG_FRAME_TOP, 14, "STD_DLG_FRAME_TOP")
+eq(Game3.DLG_FRAME_BOTTOM, 19, "and height + 2 rows puts the last one at 19")
+eq(interiorBottom - interiorTop, 32, "a four-row interior")
+eq(Game3.MSG_LINES * Game3.MSG_LINE_H, 32, "which two 16px lines fill")
+eq(textTop, 15 * T, "text starts at Text_InitWindow's 8 * 15")
+eq(Game3.DLG_TEXT_COL, 2, "at the cart's column 2")
+eq(Game3.dialogueTextY(), 15 * T, "so the helper reproduces the cart exactly")
+
+-- The cells fill the interior, but the GLYPHS do not: FONT3 ink runs from
+-- about row 3 to row 13 of the 16px cell, so the second line clears the
+-- frame by roughly 2px, near enough the ~3px above the first line. This is
+-- the cart's own spacing, not a flush edge.
+eq(textBottom, interiorBottom, "the line CELLS meet the frame")
+eq(Game3.DLG_TEXT_PAD_Y, 0, "and no padding is added on top of the cart")
+
+-- ...and drawDialogue actually uses it, rather than a copy of the old row.
+local g = Game3.new()
+local ys = {}
+g.setTextInk = function() end
+g.drawText = function(_, _, _, y) ys[#ys + 1] = y end
+g.printedText = function(_, box) return box.text end
+g.font3WidthTable = function() return nil end
+g.dialogueHasMore = function() return false end
+g:drawDialogue({ text = "HELLO" })
+check(#ys >= 1, "the box drew a line")
+eq(ys[1], Game3.dialogueTextY(), "drawDialogue starts at the centred y")
+
+-- The battle action menu keeps its own fixed y and does not follow.
+eq(Game3.BATTLE_ACTION_Y, Game3.DLG_TEXT_ROW * T,
+  "FIGHT/BAG/POKeMON/RUN still sit at the cart's row 15")
+end)()
 
 S.finish()

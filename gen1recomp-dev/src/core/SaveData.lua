@@ -277,8 +277,10 @@ function SaveData.defaultOptions()
     tilt = 0,
     -- survey zoom offset from window fit scale (0 = FIT); see Zoom.lua
     zoom = 0,
-    -- OVERWORLD beyond-edge fill: trees | water | black
-    voidFill = "trees",
+    -- Beyond-edge fill. Each game validates this against its own mode
+    -- list and falls back to its own default, so one shared value is
+    -- fine: Ruby reads SEA, Gen 1 falls back to trees, Gen 2 to fade.
+    voidFill = "sea",
     -- windowed | borderless (desktop fullscreen); ignored on mobile
     videoMode = "windowed",
     -- lock the window to an exact 160x144 multiple, 1..4 (0 = OFF); see

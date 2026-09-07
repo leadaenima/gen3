@@ -70,6 +70,7 @@ stub.graphics = {
   draw = noop, rectangle = noop, clear = noop,
   setDefaultFilter = noop, print = noop, printf = noop,
   line = noop, circle = noop, setLineWidth = noop,
+  polygon = noop, ellipse = noop,
   -- Fonts: the save editor lays itself out from font metrics, so a headless
   -- draw needs measurable text.  A fixed 6px advance / 12px line is enough
   -- for the layout to be exercised (tests assert state, never pixels).

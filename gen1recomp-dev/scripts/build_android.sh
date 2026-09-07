@@ -526,12 +526,24 @@ pack_game_love() {
 # --------------------------------------------------------------- SDK check
 require_android_sdk() {
   local sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+  # mobile/android/local.properties is where Android Studio records the SDK and
+  # what gradle itself reads, so honour it before guessing at well-known paths.
+  if [ -z "$sdk" ] && [ -f "$ANDROID_DIR/local.properties" ]; then
+    sdk=$(sed -n 's/^[[:space:]]*sdk[.]dir[[:space:]]*=[[:space:]]*//p' \
+      "$ANDROID_DIR/local.properties" | tail -1 | tr -d '\r')
+    # Android Studio escapes the drive colon on Windows (C\:\\Users\\...)
+    sdk=${sdk//\\:/:}
+    sdk=${sdk//\\\\//}
+    [ -d "$sdk" ] || sdk=""
+  fi
   if [ -z "$sdk" ]; then
     for candidate in \
       "$HOME/Library/Android/sdk" \
       "$HOME/Android/Sdk" \
+      "${LOCALAPPDATA:-}/Android/Sdk" \
+      "$HOME/AppData/Local/Android/Sdk" \
       /usr/local/lib/android/sdk; do
-      if [ -d "$candidate" ]; then
+      if [ -n "$candidate" ] && [ -d "$candidate" ]; then
         sdk="$candidate"
         break
       fi

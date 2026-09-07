@@ -1,21 +1,21 @@
-GEN 3 RUBY PORT — AGENT HANDOFF
+GEN 3 RUBY PORT â€” AGENT HANDOFF
 ================================
 Written 2026-08-27 after Phase 207 so a new chat can continue without
 the previous conversation. Read this, then `docs/gen3-index.md`, then
 edit. Do not wander `Game3.lua` looking for a name the index already
 lists.
 
-LAST COMPLETED PHASE: 254
-NEXT PHASE NUMBER: 255
-CACHE CONTRACT:       ruby41  (do not bump unless extractor/IR must change)
-LÖVE:                 does not hot-reload — player must restart after code changes
+LAST COMPLETED PHASE: 259
+NEXT PHASE NUMBER: 260
+CACHE CONTRACT:       ruby69  (do not bump unless extractor/IR must change)
+LÃ–VE:                 does not hot-reload â€” player must restart after code changes
 GIT:                  do not copy Nintendo graphics into git
 POWER SHELL:          use `;` not `&&`
 
 
 1. WHERE THE PLAYER IS
 ----------------------
-They are playing the live LÖVE build, not tests. They keep playing and
+They are playing the live LÃ–VE build, not tests. They keep playing and
 looking for bugs; you port ahead of them in bigger slices (not
 one-house / one-special phases).
 
@@ -25,18 +25,23 @@ Story progress (as of this handoff):
   toward the cable car.
 
 Next in their play order:
-  Cable car → Lavaridge (rival Go-Goggles AFTER Flannery, gym, Wynaut
-  egg) → Fallarbor (relearner, Cozmo TM27) → Weather Institute →
+  Cable car â†’ Lavaridge (rival Go-Goggles AFTER Flannery, gym, Wynaut
+  egg) â†’ Fallarbor (relearner, Cozmo TM27) â†’ Weather Institute â†’
   Route 119 / Fortree.
 
-Most of that stretch is already ported (phases 163–198). Remaining
+Most of that stretch is already ported (phases 163â€“198). Remaining
 pain for them is usually: cached IR still nops newly decoded opcodes
 until they re-import the ROM, missing pics until re-import, and any
-live bug they report.
+Live bug they report.
+
+Live bugfix after 254 (no phase bump): `drawWorldStanding` dropped the
+overlay-pass flag, so elevation-4 sprites (Meteor Falls Route 114
+entrance at 27,18; cycling road; any OAM-pri 1 Z) never drew and looked
+like they were under the floor. Restart LÃ–VE.
 
 Live bugfix after 198 (no phase bump): PKMN in battle could send an
 EGG because `switchTo` skipped `MON_DATA_IS_EGG`. Now it returns
-"An EGG can't battle!" and the party menu stays open. Restart LÖVE.
+"An EGG can't battle!" and the party menu stays open. Restart LÃ–VE.
 
 Phase 199 (JUST FINISHED): Herb Shop medicines + Chimney Lava Cookie
 + pokemartdecoration 0x87/0x88. Do not redo.
@@ -47,22 +52,22 @@ wait the ROM ride length then warp; mountain tiles still unextracted.
 
 Phase 224 (JUST FINISHED): EggHatch 194 waitstate + in-game trade 254
 waitstate. CreateInGameTradePokemon no longer swaps on the same frame.
-Do not redo. Restart LÖVE.
+Do not redo. Restart LÃ–VE.
 
 Phase 226 (JUST FINISHED): WaitWeather 284, orb 281/282, fade-out-music
 332, ShakeCamera 310 wait for their ROM tasks. Orb tiles unextracted.
-Do not redo. Restart LÖVE.
+Do not redo. Restart LÃ–VE.
 
 Phase 227 (JUST FINISHED): Cable car mountain / car tiles from the cart
 (ruby33). Do not redo.
 
 Phase 228 (JUST FINISHED): dofieldeffect / waitfieldeffect sparkle,
 NPCFLY_OUT, HoF record; EndTrainerApproach 1-frame wait. Cached IR nops
-0x9C-0x9E until re-import. Lottery 217 still does not wait. Restart LÖVE.
+0x9C-0x9E until re-import. Lottery 217 still does not wait. Restart LÃ–VE.
 
 Phase 229 (JUST FINISHED): watering 94, elevator 273, sealed chamber
 305/315, Route 128 fade 317 wait for their ROM tasks. Camera dummy
-still skips. Restart LÖVE.
+still skips. Restart LÃ–VE.
 
 Phase 230 (JUST FINISHED): EggHatch tiles + trade GBA BG (ruby34).
 Do not redo.
@@ -79,14 +84,14 @@ Do not redo.
 Phase 236 (already in tree): rotating-gate 4bpp / orb RGB555 (ruby36).
 Do not redo.
 
-Phase 237 (JUST FINISHED): live bug — Center setrespawn ids 3–22 were
+Phase 237 (JUST FINISHED): live bug â€” Center setrespawn ids 3â€“22 were
 ignored, so a Slateport whiteout warped to the bedroom. Heal table is
 the ROM outdoor doors. Walk into a Center once after restart. No cache
 bump.
 
 Phase 238 (JUST FINISHED): watering-can 4bpp (ruby37). Do not redo.
 
-Phase 239 (JUST FINISHED): HoF / Center pokéball glow 4bpp (ruby38).
+Phase 239 (JUST FINISHED): HoF / Center pokÃ©ball glow 4bpp (ruby38).
 Gold wash and world-space Center circles are gone. Re-import. Pal
 pulse is Phase 251. TradeEvolutionScene is Phase 252. Do not redo.
 
@@ -94,13 +99,13 @@ Phase 240 (JUST FINISHED): painted region map 8bpp (ruby39). START
 POKeNAV and special 251 draw the ROM Hoenn map. Zoom / Fly icons
 parked. Re-import. Do not redo.
 
-Phase 241 (JUST FINISHED): live bug — contest hall freeze. START
+Phase 241 (JUST FINISHED): live bug â€” contest hall freeze. START
 warps LinkContestRoom1 back to the lobby. B skips appeals. Restart
-LÖVE; if you are still in the hall, press START. No cache bump.
+LÃ–VE; if you are still in the hall, press START. No cache bump.
 
 Phase 242 (already in tree): FIGHT SELECT move reorder. Do not redo.
 
-Phase 243 (already in tree): Pokédex list + catch displaydexinfo
+Phase 243 (already in tree): PokÃ©dex list + catch displaydexinfo
 (ruby40). START POKeDEX is a real list/entry; a first catch shows the
 dex page. Nickname-after-catch is Phase 253; list/entry chrome tiles
 and footprints stay parked. Re-import.
@@ -109,44 +114,82 @@ Phase 245 (already in tree): ripe berry-tree frames (ruby41). Do not
 redo.
 
 Phase 249 (already in tree): region-map zoom, Fly icons, landmark
-names. PokéNav A is the 16-frame 2× affine; B still closes. HM Fly
+names. PokÃ©Nav A is the 16-frame 2Ã— affine; B still closes. HM Fly
 is the painted map (visited towns light, Battle Tower red). Landmark
-flags hide Battle Tower / Southern Island until set. Restart LÖVE.
+flags hide Battle Tower / Southern Island until set. Restart LÃ–VE.
 No cache bump.
+
+Live bugfix after 254 (no phase bump): starter-choose scene from
+misc/bugs.txt. starter_choose.c CreateStarterPokemonLabel (category
++ name) now draws over the balls; picking one plays a ball-open white
+circle that reveals the real battlePic front sprite (Task_StarterChoose3
+reveal, cosmetic-only -- Yes/No stays input-responsive, unlike the ROM's
+frame wait); confirm text is the ROM's generic gOtherText_DoYouChoosePoke,
+not "so you want X?". Also deleted two dead duplicate functions
+(drawStarterChoose, drawMartMenu) that an earlier phase left shadowed by
+later redefinitions -- Lua silently keeps only the last one, so neither
+was ever called. Placeholder bag art replaced in Phase 256.
+
+Phase 258 (JUST FINISHED): contest hall waitmovement + START.
+Hidden leftover walk lerp no longer freeze-waits LinkContestRoom1
+ON_FRAME. START still dumps a stuck move/wait cinema, not the appeal
+UI. Restart LÃ–VE. No cache bump.
+
+Phase 259 (JUST FINISHED): boot cinema overlays — GAME FREAK BLDALPHA,
+copyright white/black fades, intro2 May 50% + bike micro-bob, title
+layered lava/logo/shine/version banner/marking pulse/scanline, Birch
+speech BG+portrait+trainer fronts+fades (ruby69). Re-import ROM, restart
+LÖVE, watch copyright→intro→title→NEW GAME birch. Do not redo.
+
+Phase 257 (JUST FINISHED): Magma hideout submarine + hole pads (ruby43).
+OBJ_EVENT_GFX_SUBMARINE_SHADOW is 88x32 so the extractor skipped it;
+ow_141.png now extracts. Hole pads (MB 0x67) play SE_WARP_IN then warp.
+Restart LÃ–VE and re-import.
+
+Phase 256 (JUST FINISHED): starter-choose Birch bag cinema (ruby42).
+CB2_ChooseStarter now paints gBirchHelpGfx grass+bag, wobbling
+pokÃ©balls, pointing hand, and the affine open-circle around the
+front pic. Restart LÃ–VE and re-import.
+
+Phase 255 (JUST FINISHED): live bug â€” indoor door mats only left
+head-on. mapheader_run_first_tag2 now warps when you turn to the
+arrow dir while on the tile; ignoreWarp clears after a real step or
+d-pad release so shuffling across a two-tile doorway still exits.
+Restart LÃ–VE. No cache bump.
 
 Phase 254 (JUST FINISHED): party gender icons + double layout.
 `monGender` stamps order-text 0x42/0x44; genderless skips. Battle
 doubles stack two lead boxes on the left. Field START unchanged.
-Link-double tables unused. Restart LÖVE. No cache bump.
+Link-double tables unused. Restart LÃ–VE. No cache bump.
 
 Phase 253 (JUST FINISHED): dex INFO/AREA/CRY/SIZE bar, size compare,
 cry, nickname after catch. A on INFO toggles flavour; B closes. Catch
 overlay still A page then nick YES/NO. Habitat map / chrome tiles /
-footprints parked. Restart LÖVE. No cache bump.
+footprints parked. Restart LÃ–VE. No cache bump.
 
 Phase 252 (JUST FINISHED): TradeEvolutionScene after in-game trade.
 Take-care A still swaps, then GetEvolutionTargetSpecies type 1
 (Kadabra etc., item-trade consumes the hold). Cannot B-cancel.
-Restart LÖVE. No cache bump.
+Restart LÃ–VE. No cache bump.
 
-Phase 251 (JUST FINISHED): HoF / Center pokéball glow pal pulse.
+Phase 251 (JUST FINISHED): HoF / Center pokÃ©ball glow pal pulse.
 MultiplyInvertedPaletteRGBComponents yellow wash (R/G 16/12/8/0) on
-the 8×8 balls after the 32-frame wait. Restart LÖVE. No cache bump.
+the 8Ã—8 balls after the 32-frame wait. Restart LÃ–VE. No cache bump.
 
-Phase 250 (JUST FINISHED): live — launcher Ruby slots. In-game SAVE
-lands in saves/ruby/; save3_ruby.lua migrates. Restart LÖVE; the Ruby
+Phase 250 (JUST FINISHED): live â€” launcher Ruby slots. In-game SAVE
+lands in saves/ruby/; save3_ruby.lua migrates. Restart LÃ–VE; the Ruby
 tab lists CONTINUE. GBA .sav import is still not supported. No cache
 bump.
 
 Phase 248 (JUST FINISHED): ROM contest appeal engine. Five rounds
 of move select + jam/combo/excitement, 60 opponents by rank and
 category, ribbons on 1st. START still leaves the hall. Restart
-LÖVE. No cache bump.
+LÃ–VE. No cache bump.
 
-Phase 246 (JUST FINISHED): live bug — Route 110 cycling-road gates
+Phase 246 (JUST FINISHED): live bug â€” Route 110 cycling-road gates
 dismounted because they are indoor. Overworld_IsBikingAllowed keeps
 the bike on g29_11/g29_12. Ride onto the gate (bag-only is not
-enough). Restart LÖVE. No cache bump.
+enough). Restart LÃ–VE. No cache bump.
 
 
 
@@ -161,9 +204,9 @@ Pokeruby (ROM reconstruction, the spec):
 US Ruby ROM (not in git):
   C:\Users\Feces\Desktop\Pokemon - Ruby Version (USA).gba
 
-LÖVE cache:
+LÃ–VE cache:
   %APPDATA%\LOVE\pokemon-love2d\ruby\
-  contract ruby41
+  contract ruby43
 
 Runtime:
   src/core/Game3.lua
@@ -179,9 +222,9 @@ Script IR / extractor:
   src/import/Gen3MapPack.lua
 
 Docs:
-  docs/gen3-index.md     ← GREP THIS FIRST (lookup + hard rules + specials)
-  docs/gen3-phase1.md    ← narrative history of every phase
-  docs/gen3-agent-handoff.txt  ← this file
+  docs/gen3-index.md     â† GREP THIS FIRST (lookup + hard rules + specials)
+  docs/gen3-phase1.md    â† narrative history of every phase
+  docs/gen3-agent-handoff.txt  â† this file
 
 Tests (from repo root):
   luajit tests/engine/ruby_battle_test.lua
@@ -217,7 +260,7 @@ GBA oracle. No placeholders.
      python tools/gba_oracle/snapshot.py with the US Ruby cart
 4. THEN edit src/core/Game3.lua / src/import/Gen3Script.lua
 
-Agent lookup first: index → pokeruby → oracle → then edit.
+Agent lookup first: index â†’ pokeruby â†’ oracle â†’ then edit.
 
 
 4. HARD RULES (NEVER DROP)
@@ -231,7 +274,7 @@ Agent lookup first: index → pokeruby → oracle → then edit.
 - Specials that return **0 as a valid value** must `return` from the
   elseif. The footer is `if after ~= before then return after else
   return 0` and will eat a legitimate 0 that was already 0.
-- MapGrid includes **MAP_OFFSET 7**. Collision bits 10–11 = 0x0C00.
+- MapGrid includes **MAP_OFFSET 7**. Collision bits 10â€“11 = 0x0C00.
 - Cached IR still nops newly decoded opcodes until the player
   re-imports the ROM. No cache bump unless extractor/IR must change.
 - `mapMatches` is permissive on non-`gN_M` ids. Rusturf tests must
@@ -247,7 +290,7 @@ Agent lookup first: index → pokeruby → oracle → then edit.
   IIFEs `(function() ... end)()`. Require Gen3Script **inside** the
   IIFE; a `local` in an earlier IIFE is not visible later.
 - Do not copy Nintendo graphics into git.
-- LÖVE does not hot-reload. Tell the player to restart after code
+- LÃ–VE does not hot-reload. Tell the player to restart after code
   changes.
 - Port as-is. No placeholders. User asked for **bigger slices**, not
   one-house / one-special phases.
@@ -294,18 +337,18 @@ How gbaRandom maps to tests:
 
 6. WHAT WAS DONE RECENTLY
 -------------------------
-Phases 1–194: see docs/gen3-phase1.md and the one-liners at the bottom
+Phases 1â€“194: see docs/gen3-phase1.md and the one-liners at the bottom
 of docs/gen3-index.md. The live engine already covers intro through E4,
-roamer, SS Tidal, Safari, gyms, contests, PokéNav region map, script PC,
+roamer, SS Tidal, Safari, gyms, contests, PokÃ©Nav region map, script PC,
 etc. The player has been using it in-game.
 
-Phase 195 — field poison / whiteout / SaveGame
+Phase 195 â€” field poison / whiteout / SaveGame
   Poison every 4 steps. ExecuteWhiteOut / DoWhiteOut money/2.
   SaveGame special 93. Trainer EventScript specials 51-56/61/314.
   Interview leftovers, CountAlive 133, ScriptRandom 340,
   ScriptGetMultiplayerId 326 (4 when not link).
 
-Phase 196 — trainer-eye rematches (Ruby, NOT Emerald Match Call)
+Phase 196 â€” trainer-eye rematches (Ruby, NOT Emerald Match Call)
   After 5 badges, every step IncrementRematchStepCounter (cap 255).
   On enterMap / connection (not CONTINUE / `_skipRoamerMove`),
   TryUpdateRandomTrainerRematches: if counter maxed, for each of 56
@@ -322,11 +365,11 @@ Phase 196 — trainer-eye rematches (Ruby, NOT Emerald Match Call)
   party. Win: setTrainerDefeated(rematch id) + ClearTrainerEyeRematchFlag.
   Save: trainerRematches + trainerRematchStepCounter in snapshot/apply/wipe.
 
-Phase 197 — leftover field specials
+Phase 197 â€” leftover field specials
   Pokerus infect/spread/decay; Pacifidlog TM 333/334; size 119-122;
   fan club 163-168/170; diploma 264; Enigma 50/339; Southern Island 323.
 
-Phase 198 — leftover daycare / HoF PC / cinema skips
+Phase 198 â€” leftover daycare / HoF PC / cinema skips
   GetSelectedDaycareMonNickname 186: SPECIES + STR_VAR_1 nick; 0 valid.
   DaycareMonReceivedMail 195: 0 unless that slot has mail whose stored
   nick or OT differs from the current nick / playerName. 0 valid.
@@ -343,7 +386,7 @@ Phase 198 — leftover daycare / HoF PC / cinema skips
   Cinema skips (no wait): watering 94, camera dummy 275/276,
   sealed-chamber shake 305/315, Route 128 fade sub_807E25C 317.
 
-Phase 199 — herb shop / Lava Cookie / decoration marts
+Phase 199 â€” herb shop / Lava Cookie / decoration marts
   Energy Powder 30 / Energy Root 31 / Heal Powder 32 / Revival Herb 33
   match item_effects.h (50 / 200 / full status / half revive) and the
   signed ITEM5_FRIENDSHIP bands. Lava Cookie 38 is Full Heal, 200 yen
@@ -353,21 +396,21 @@ Phase 199 — herb shop / Lava Cookie / decoration marts
 
   Do NOT redo 196 / 197 / 198 / 199 / 200 / 201 / 202 / 203.
 
-Phase 200 — Cable Club / Battle Tower leftovers
+Phase 200 â€” Cable Club / Battle Tower leftovers
   No GBA link. Connect specials 28/29/30/36/341 return RESULT 5.
   Battle Tower lobby idles (VAR_TEMP_0=5). Party pick 245 cancels.
   Secret-base PC decoration/registry skip.
 
-Phase 201 — DoTimeBasedEvents UpdatePerDay
-  ClearDailyFlags 0x8C0–0x8FF (Route 111/114 berries now reset).
+Phase 201 â€” DoTimeBasedEvents UpdatePerDay
+  ClearDailyFlags 0x8C0â€“0x8FF (Route 111/114 berries now reset).
   Dewford trends days*5 then sort pop/maxPop. Weather cycle % 4.
   Mirage LCG on VAR_MIRAGE_RND. Birch % 7. SetShoalItemFlag 0x85F
   (ROM ignores days). Lottery Random then days LCG steps.
   InitBirchState special 211 zeros VAR_BIRCH_STATE (0 is valid).
-  TV show/outbreak daily decay is still a nop until tvShows exist.
+  TV show/outbreak daily decay uses SaveBlock1.tvShows (Phase 273).
   LCG uses 16-bit split multiply (Lua doubles lose u32*1103515245).
 
-Phase 202 — Glass Workshop flutes / DoWildEncounterTest
+Phase 202 â€” Glass Workshop flutes / DoWildEncounterTest
   White Flute 43 / Black Flute 42 (items.h; port had them swapped).
   Field use sets FLAG_SYS_ENC_UP_ITEM 0x84D or ENC_DOWN 0x84E,
   not consumed. DoWildEncounterTest: *16, bike *80/100, White +50%
@@ -377,27 +420,27 @@ Phase 202 — Glass Workshop flutes / DoWildEncounterTest
   ClearTempFieldEventData also FlagClears flute flags, Strength
   0x829, and FLAG_SYS_CTRL_OBJ_DELETE 0x861.
 
-Phase 203 — Gym-guide dialogue freeze
+Phase 203 â€” Gym-guide dialogue freeze
   Typewriter prints the current 2-line box only so A can page.
   \l 0xFA is a line break; readText uses decodePages; TEXT_LEN 1024.
   Cached IR still glues "andGRASS" until re-import.
 
-Phase 204 — FONT3 widths, ROM menus, boot cinema layout
+Phase 204 â€” FONT3 widths, ROM menus, boot cinema layout
   Extract sFont3Widths into font.lua; draw/wrap use those px.
   START / title / OPTION / Birch / field dialogue at ROM tiles.
 
-Phase 205 — ROM boot cinema stills
+Phase 205 â€” ROM boot cinema stills
   Copyright / intro1 / intro2 grass / title are extracted from the
   cart (intro.c / title_screen.c LZ77), not FONT3 stand-ins.
   Part 1 1026 frames, bike 2068. Affine bike/pokeball still skipped.
 
-Phase 206 — boot cinema motion + title affine logo (JUST FINISHED)
+Phase 206 â€” boot cinema motion + title affine logo (JUST FINISHED)
   Title logo is the 8bpp affine tilemap (gUnknown_08E9F7E4, BG2X/Y
   -29/-33), not a sequential sheet. Groudon pal 14 uses glow so it
-  is not a black silhouette. Intro1 256x512 scrolls 739–904; GAME
+  is not a black silhouette. Intro1 256x512 scrolls 739â€“904; GAME
   FREAK OBJ at 560; intro2 grass+trees ~4px/frame. PRESS START is
   the ROM banner overlay, not FONT3 on Groudon. Re-import + restart
-  LÖVE. No cache bump.
+  LÃ–VE. No cache bump.
 
 
 7. WHAT STILL NEEDS TO BE DONE
@@ -422,14 +465,14 @@ A. PLAYER ACTION (you cannot do this for them)
      dofieldeffect / setfieldeffectargument / waitfieldeffect 0x9C-0x9E
      boot cinema PNGs (copyright / intro1 256x512 / intro2 / GAME
      FREAK / title affine logo / PRESS START)
-   Tell them to restart LÖVE after every code drop. No cache bump
+   Tell them to restart LÃ–VE after every code drop. No cache bump
    unless you change the extractor or IR.
 
 B. STILL OUT OF SCOPE unless the user hits them or asks
    Real GBA link / Trade Center / Colosseum (2F says goodbye, RESULT 5)
    Real Battle Tower battles (lobby idles; party pick cancels)
    Full secret-base PC decoration UI (PC specials skip, no hang)
-   PokéNav Match Call (Emerald-only. Ruby rematches are trainer-eye,
+   PokÃ©Nav Match Call (Emerald-only. Ruby rematches are trainer-eye,
      Phase 196)
 
 C. REMAINING SPECIALS
@@ -451,7 +494,7 @@ C. REMAINING SPECIALS
    Do not "finish" the rest unless asked.
 
 D. NEXT SLICE SUGGESTIONS (bigger, ahead of the player)
-   They are at Chimney → Lavaridge. That path is largely done.
+   They are at Chimney â†’ Lavaridge. That path is largely done.
    Live bugs they report while playing come first. Cached IR still
    nops newly decoded opcodes until they re-import.
 
@@ -465,7 +508,7 @@ D. NEXT SLICE SUGGESTIONS (bigger, ahead of the player)
 
    Cinema leftovers after 254: dex chrome tiles / footprints / habitat
    AREA map. Party gender icons and in-game double layout are Phase 254.
-   Berry bag 44 waitstate (save test auto-picks first berry — do not
+   Berry bag 44 waitstate (save test auto-picks first berry â€” do not
    change that lightly). Do not turn Cable Club / Battle Tower into
    real link or tower battles unless asked. ChooseBattleTowerPlayerParty
    245 stays RESULT 0 cancel.
@@ -476,19 +519,19 @@ E. KNOWN LIVE QUIRKS (not necessarily bugs)
    Egg hatch / in-game trade cinema are extracted (ruby34/35).
    TradeEvolutionScene runs after take-care A (Phase 252).
    Cave of Origin orb is a WIN0 hole plus pal 0x1F/0x7C00 (no tiles).
-   Contest blender RPM minigame is skipped (berry pick + wait exist).
+   Contest blender RPM minigame is live (Phase 276 `blender_spin`).
    Trick House / Fortree rotating gates are ROM 4bpp (ruby36).
-   HoF / Center pokéball glow is ROM 4bpp (ruby38); pal pulse is Phase 251.
+   HoF / Center pokÃ©ball glow is ROM 4bpp (ruby38); pal pulse is Phase 251.
    Region map is the ROM 8bpp Hoenn map (ruby39); zoom / Fly icons /
    landmark names are Phase 249.
-   Field weather overlay is a tint, not ROM tiles.
-   Roulette Shroomish/Taillow drop bias is not ported.
+   Field weather overlay tiles are Phase 271 (`assets/generated/weather`).
+   Roulette Shroomish/Taillow travel bias is Phase 273.
 
 
 8. GOTCHAS THE NEXT AGENT WILL HIT
 ----------------------------------
 - IsPokerusInParty was WRONG before 197 (`pokerus ~= 0`). Now it is
-  low nibble. EV yield 2× still uses any nonzero byte (ROM: pokerus
+  low nibble. EV yield 2Ã— still uses any nonzero byte (ROM: pokerus
   != 0), including cured 0x10.
 - doTimeBasedEvents must check FLAG_SYS_CLOCK_SET. Without it, decay
   would run from a dummy clock. UpdatePerDay also clears daily flags,
@@ -542,15 +585,15 @@ Open the engine repo:
 
 Paste something like:
 
-  Continue the Gen 3 Ruby LÖVE port from docs/gen3-agent-handoff.txt
+  Continue the Gen 3 Ruby LÃ–VE port from docs/gen3-agent-handoff.txt
   and docs/gen3-index.md.   Last finished phase is 208. Boot cinema
   scrolls, the title logo is the affine tilemap, and the menus, battle
   bottom bar and healthboxes are now the cart's own art; player must
-  re-import (ruby28) + restart LÖVE. Port the ROM as-is via pokeruby +
+  re-import (ruby28) + restart LÃ–VE. Port the ROM as-is via pokeruby +
   oracle. Bigger slices. No placeholders. Do not redo 204-208.
 
-Then: index → pokeruby map scripts for where they are →
-find unimplemented specials/opcodes → implement with tests +
+Then: index â†’ pokeruby map scripts for where they are â†’
+find unimplemented specials/opcodes â†’ implement with tests +
 check_specials.py + docs Phase 209.
 
 If the player reports a bug, fix that first. They are the oracle for
@@ -582,7 +625,7 @@ No cache bump.
 Cache bumped to ruby28: menus now blit the cart's own window frames.
 
 Finding the offsets: the 4bpp reference PNGs in pokeruby are 4-bit
-indexed and LÖVE will not decode them, so do NOT try to pack the PNG and
+indexed and LÃ–VE will not decode them, so do NOT try to pack the PNG and
 search for it.  Two things that do work:
   - pack the PLTE of a *.gbapal PNG to BGR555 and search the cart
     (this is how 0xE9AEFC was found; stride 0x140 gives all 20 styles)
@@ -1015,7 +1058,7 @@ PHASE 217 -- FIELD MEDICINE PARTY PICKER (done)
   ("Use on which POKeMON?").  A is UseMedicine (useItemOnMon).  An egg
   is SE_FAILURE and stays.  B / A-on-CANCEL (cursor 6) returns to the
   bag.  After the message, thenBag is sub_808B224.  SELECT-registered
-  use has from=field so B closes to the overworld.  Restart LÖVE.
+  use has from=field so B closes to the overworld.  Restart LÃ–VE.
   No cache bump.
 
   Do not confuse the two party menus that both look like a target picker:
@@ -1039,9 +1082,9 @@ PHASE 221 FILES TOUCHED
 
 Remaining ItemUseOutOfBattle / ItemUseInBattle vs pokeruby item_use.c:
 CannotUse is Dad's advice; empty party is gOtherText_NoPokemon; Coin
-Case; Mail; Pokéblock Case; berry plant on empty soil; TM/HM boot then
+Case; Mail; PokÃ©block Case; berry plant on empty soil; TM/HM boot then
 YES/NO; Rare Candy two-page stats; battle Ether/Leppa item_pp;
-gOtherText_BoxIsFull. No cache bump. Restart LÖVE.
+gOtherText_BoxIsFull. No cache bump. Restart LÃ–VE.
 
 PHASE 222 FILES TOUCHED
 -----------------------
@@ -1054,7 +1097,7 @@ PHASE 222 FILES TOUCHED
 CableCar special 152 waits unk_0004 (0x15e up / 0x109 down) then
 WarpIntoMap. Mountain tiles still unextracted. Egg hatch, in-game
 trade, orb, WaitWeather, fade-out-music, and ShakeCamera wait. No
-cache bump. Restart LÖVE.
+cache bump. Restart LÃ–VE.
 
 PHASE 219 FILES TOUCHED
 -----------------------
@@ -1065,7 +1108,7 @@ PHASE 219 FILES TOUCHED
   docs/gen3-phase1.md
   docs/gen3-agent-handoff.txt
 
-No cache bump. Restart LÖVE.
+No cache bump. Restart LÃ–VE.
 
 THE IN-BATTLE PARTY MENU NOW USES THE REAL SCREEN
   Opening POKeMON from the battle menu used to paint a two row text list
@@ -1100,4 +1143,5 @@ STILL OPEN ON THE PARTY SCREEN
     carries their captions.  Only reachable from double, link and multi
     battles, so the standard screen is unaffected.
 
-No cache bump. Restart LÖVE.
+No cache bump. Restart LÃ–VE.
+
