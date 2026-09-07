@@ -2735,6 +2735,10 @@ function RomExtractorGen3:extractBattle()
     backY = backY,
     bgs = battleBgs,
     goldStars = goldStars,
+    animSheets = BattleData.extractAnimSheets
+      and BattleData.extractAnimSheets(self.data) or {},
+    animPlans = BattleData.parseMoveAnimPlans
+      and BattleData.parseMoveAnimPlans(self.data) or {},
     moves = moves,
     learnsets = learnsets,
     tmhmLearnsets = tmhmLearnsets,
@@ -2985,6 +2989,8 @@ function RomExtractorGen3:run()
     frontY = battle.frontY,
     backY = battle.backY,
     bgs = battle.bgs,
+    animSheets = battle.animSheets,
+    animPlans = battle.animPlans,
   })
   self:write("moves", battle.moves)
   self:write("trainers", battle.trainers or { byId = {}, count = 0 })

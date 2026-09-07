@@ -296,9 +296,11 @@ Game3.__index = Game3
 Game3.SCREEN_W = 240
 Game3.SCREEN_H = 160
 Game3.TILE = 16
--- Survey zoom draws only maps that touch this one. A second hop (Lilycove
--- + ocean + routes) ran the phone out of memory and stacked maps badly.
+-- Direct neighbors always draw. Extra hops only stay if they intersect
+-- the current camera (see connectedLayout). Cap stops a full-Hoenn walk.
 Game3.CONNECTION_DRAW_HOPS = 1
+Game3.CONNECTION_VIEW_HOPS = 4
+Game3.CONNECTION_LAYOUT_MAX = 16
 -- pokeruby text_window.c STD_DLG_FRAME: left 0, top 14, drawn
 -- height+2 = 6 tiles (112..160) and width+6 tiles (full 240px).
 -- Contest_StartTextPrinter(..., 2, 15) → text at (16, 120).
@@ -8586,16 +8588,37 @@ end
 -- Place every map in the hop cluster from a stable root (lowest id) so
 -- walking Oldale → Route 102 does not restitch the holes. Current map
 -- is translated to (0, 0).
+function Game3:layoutViewTiles()
+  local t = Game3.TILE
+  local vw, vh = self:viewSize()
+  local margin = 2
+  local x0 = ((self.camX or 0) / t) - margin
+  local y0 = ((self.camY or 0) / t) - margin
+  local x1 = ((self.camX or 0) + vw) / t + margin
+  local y1 = ((self.camY or 0) + vh) / t + margin
+  return x0, y0, x1, y1
+end
+
+function Game3.layoutRectHits(ox, oy, dest, vx0, vy0, vx1, vy1)
+  local w = dest and dest.width or 0
+  local h = dest and dest.height or 0
+  return ox < vx1 and ox + w > vx0 and oy < vy1 and oy + h > vy0
+end
+
 function Game3:connectedLayout(map, hops)
   map = map or self.map
-  hops = math.floor(tonumber(hops) or Game3.CONNECTION_DRAW_HOPS)
+  hops = math.floor(tonumber(hops) or Game3.CONNECTION_VIEW_HOPS or 4)
   if hops < 1 then hops = 1 end
+  if hops > 6 then hops = 6 end
   if not map then return {} end
   local function keyOf(m)
     return m.id or m
   end
   local here = keyOf(map)
-  local cacheKey = tostring(here) .. "|" .. hops
+  local vx0, vy0, vx1, vy1 = self:layoutViewTiles()
+  local cacheKey = tostring(here) .. "|" .. hops .. "|"
+    .. math.floor(vx0) .. "," .. math.floor(vy0) .. ","
+    .. math.floor(vx1) .. "," .. math.floor(vy1)
   local cache = self.connectedLayoutCache
   if cache and cache.key == cacheKey then return cache.list end
   local byKey = { [here] = map }
@@ -8663,11 +8686,23 @@ function Game3:connectedLayout(map, hops)
     hx, hy = origin[here][1], origin[here][2]
   end
   local list = {}
+  local maxMaps = Game3.CONNECTION_LAYOUT_MAX or 16
   for k, m in pairs(byKey) do
     local o = origin[k]
     if o then
-      list[#list + 1] = { map = m, ox = o[1] - hx, oy = o[2] - hy }
+      local ox, oy = o[1] - hx, o[2] - hy
+      local hop = dist[k] or 99
+      if hop <= (Game3.CONNECTION_DRAW_HOPS or 1)
+          or Game3.layoutRectHits(ox, oy, m, vx0, vy0, vx1, vy1) then
+        list[#list + 1] = { map = m, ox = ox, oy = oy, hop = hop }
+      end
     end
+  end
+  if #list > maxMaps then
+    table.sort(list, function(a, b)
+      return (a.hop or 0) < (b.hop or 0)
+    end)
+    while #list > maxMaps do list[#list] = nil end
   end
   table.sort(list, function(a, b)
     local ka = tostring(a.map.id or a.map)
@@ -14616,12 +14651,32 @@ end
 function Game3:spinRoulette()
   local f = self.field
   if not f or f.kind ~= "roulette" then return false end
+  if f.spinning then return false end
   local bet = f.cursor or 6
   local mult = self:rouletteMultiplier(bet, f)
   if mult < 1 then return false end
   local cost = f.minBet or 1
   if not self:removeCoins(cost) then return false end
   local slot = self:pickRouletteSlot()
+  f.spinning = true
+  f.spinT = 0
+  f.spinSlot = slot
+  f.spinBet = bet
+  f.spinMult = mult
+  f.spinCost = cost
+  f.landed = nil
+  f.won = nil
+  f.payout = nil
+  return true
+end
+
+function Game3:resolveRoulette()
+  local f = self.field
+  if not f or not f.spinning then return end
+  local slot = f.spinSlot or 0
+  local bet = f.spinBet or f.cursor or 6
+  local mult = f.spinMult or 1
+  local cost = f.spinCost or 1
   f.lastSlot = slot
   local square = self:recordRouletteHit(slot)
   local won = Game3.rouletteHitInBet(square, bet)
@@ -14642,6 +14697,7 @@ function Game3:spinRoulette()
     f.streak = 0
   end
   f.payout = pay
+  f.spinning = nil
   if (f.balls or 0) >= Game3.ROULETTE_BALLS then
     f.hitFlags = 0
     f.pokeHits = { 0, 0, 0, 0 }
@@ -14652,7 +14708,15 @@ function Game3:spinRoulette()
   else
     f.cleared = nil
   end
-  return true
+end
+
+function Game3:stepRoulette()
+  local f = self.field
+  if not f or f.kind ~= "roulette" or not f.spinning then return end
+  f.spinT = (f.spinT or 0) + 1 / 60
+  if f.spinT >= 1.2 then
+    self:resolveRoulette()
+  end
 end
 
 -- field_door.c gDoorOpenAnimFrames/gDoorCloseAnimFrames: 4 phases of 4
@@ -30713,7 +30777,25 @@ function Game3:scriptMenuCreatePCMultichoice()
 end
 
 function Game3:pickPcAccess(index)
-  self:setScriptVar(Gen3Script.VAR_RESULT, tonumber(index) or 0)
+  index = tonumber(index) or 0
+  self:setScriptVar(Gen3Script.VAR_RESULT, index)
+  local labels = self:pcAccessLabels()
+  local choice = labels[index + 1]
+  if choice == "LOG OFF" or not choice then
+    self.field = nil
+    self:endScriptWait()
+    return
+  end
+  if choice == "HALL OF FAME" then
+    self:accessHallOfFamePC()
+    return
+  end
+  if choice == "PLAYER'S PC" then
+    self:openPlayerPc(false)
+    return
+  end
+  -- SOMEONE'S PC / LANETTE'S PC
+  self:showPokemonStorageSystem()
 end
 
 function Game3:openPlayerPc(bedroom)
@@ -33452,7 +33534,150 @@ function Game3:drawMoneyBox()
   self:drawText(self:moneyString(), x + 16, y + 8)
 end
 
+function Game3:drawUiFull(name)
+  local G = love.graphics
+  local img = self:uiPic(name)
+  if not img then
+    G.setColor(0.08, 0.10, 0.18, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    return false
+  end
+  G.setColor(1, 1, 1, 1)
+  local iw, ih = img:getWidth(), img:getHeight()
+  if iw < 1 or ih < 1 then return false end
+  G.draw(img, 0, 0, 0, Game3.SCREEN_W / iw, Game3.SCREEN_H / ih)
+  return true
+end
+
+function Game3:drawSlotSymbol(reels, sym, x, y)
+  local G = love.graphics
+  sym = tonumber(sym) or 0
+  if reels and reels.getWidth then
+    self._slotReelQuads = self._slotReelQuads or {}
+    local q = self._slotReelQuads[sym]
+    if not q then
+      q = love.graphics.newQuad(sym * 32, 0, 32, 32,
+        reels:getWidth(), reels:getHeight())
+      self._slotReelQuads[sym] = q
+    end
+    G.setColor(1, 1, 1, 1)
+    G.draw(reels, q, x, y)
+    return
+  end
+  local fill = {
+    { 0.85, 0.12, 0.12 }, { 0.15, 0.35, 0.90 }, { 0.95, 0.75, 0.85 },
+    { 0.20, 0.70, 0.30 }, { 0.90, 0.15, 0.25 }, { 0.95, 0.80, 0.15 },
+    { 0.95, 0.95, 0.95 },
+  }
+  local c = fill[sym + 1] or { 0.5, 0.5, 0.5 }
+  G.setColor(c[1], c[2], c[3], 1)
+  G.rectangle("fill", x + 2, y + 2, 28, 20)
+  G.setColor(0.10, 0.10, 0.12, 1)
+  self:drawText((Game3.SLOT_SYM_NAME[sym + 1] or "?"):sub(1, 3), x + 4, y + 6)
+end
+
+function Game3:drawGameCorner(f)
+  local G = love.graphics
+  G.setColor(0.10, 0.18, 0.28, 1)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  if f.kind == "slots" then
+    local cab = self:uiPic("slots")
+    if cab then
+      G.setColor(1, 1, 1, 1)
+      G.draw(cab, 0, 0)
+    end
+    local reels = self:uiPic("slotReels")
+    -- pokeemerald CreateReelSymbolSprites: x = 0x30 + reel*0x28, 24px pitch.
+    local xs = { 0x30, 0x58, 0x80 }
+    local midY = 48
+    local windows = f.windows
+    if not windows then
+      windows = {
+        self:slotReelWindow(1, 0),
+        self:slotReelWindow(2, 0),
+        self:slotReelWindow(3, 0),
+      }
+    end
+    for reel = 1, 3 do
+      local w = windows[reel] or { 0, 0, 0 }
+      local x = xs[reel] - 16
+      self:drawSlotSymbol(reels, w[1], x, midY - 24)
+      self:drawSlotSymbol(reels, w[2], x, midY)
+      self:drawSlotSymbol(reels, w[3], x, midY + 24)
+    end
+    G.setColor(1, 1, 1, 1)
+    self:drawText(("%d"):format(self:getCoins()), 8, 4)
+    self:drawText(("BET %d"):format(f.bet or 1), 80, 4)
+    if (f.payout or 0) > 0 then
+      self:drawText(("WIN %d"):format(f.payout), 8, 148)
+    elseif f.replay then
+      self:drawText("REPLAY", 8, 148)
+    end
+    return
+  end
+  -- Betting table on the right, same 4x5 Ruby squares as roulette.c.
+  local labels = Game3.ROULETTE_LABELS
+  local cur = f.cursor or 6
+  local spinIdx = 0
+  if f.spinning then
+    spinIdx = math.floor((f.spinT or 0) * 18) % 12
+  end
+  local flash = Game3.ROULETTE_SLOTS[spinIdx + 1]
+  local ox, oy = 88, 16
+  for row = 0, 3 do
+    for col = 0, 4 do
+      local id = row * 5 + col
+      if id ~= 0 then
+        local x = ox + col * 30
+        local y = oy + row * 28
+        if id == cur then
+          G.setColor(0.95, 0.85, 0.20, 0.55)
+          G.rectangle("fill", x, y, 28, 26)
+        elseif f.spinning and id == flash then
+          G.setColor(1, 1, 1, 0.40)
+          G.rectangle("fill", x, y, 28, 26)
+        elseif f.landed == id then
+          G.setColor(0.20, 0.85, 0.35, 0.55)
+          G.rectangle("fill", x, y, 28, 26)
+        end
+        G.setColor(1, 1, 1, 1)
+        self:drawText((labels[id] or "?"):sub(1, 4), x + 1, y + 8)
+      end
+    end
+  end
+  -- 12-pocket wheel on the left (affine BG2 on GBA; circle here).
+  local cx, cy, r = 40, 72, 28
+  local landSlot = f.spinSlot or 0
+  for i = 0, 11 do
+    local a = (i / 12) * math.pi * 2 - math.pi / 2
+    if f.spinning then
+      a = a + (f.spinT or 0) * 10
+    end
+    local px = cx + math.cos(a) * r
+    local py = cy + math.sin(a) * r
+    if f.spinning and i == spinIdx then
+      G.setColor(1, 1, 1, 1)
+    elseif (not f.spinning) and f.landed and i == landSlot then
+      G.setColor(0.20, 0.90, 0.35, 1)
+    else
+      G.setColor(0.80, 0.20, 0.20, 1)
+    end
+    G.circle("fill", px, py, 4)
+  end
+  G.setColor(0.85, 0.75, 0.20, 1)
+  G.circle("line", cx, cy, r + 4)
+  G.setColor(1, 1, 1, 1)
+  self:drawText(("COINS %d  x%d"):format(
+    self:getCoins(), self:rouletteMultiplier(cur, f)), 8, 148)
+  if f.landed and not f.spinning then
+    local hit = f.won and "HIT" or "MISS"
+    self:drawText(("%s +%d"):format(hit, f.payout or 0), 140, 148)
+  end
+end
+
 function Game3:drawCoinsBox()
+  local f = self.field
+  if f and (f.kind == "slots" or f.kind == "roulette") then return end
   local box = self.coinsBox
   if not box then return end
   local tile = 8
@@ -46844,6 +47069,9 @@ end
 function Game3:stepField()
   local f = self.field
   if not f then return end
+  if f.kind == "roulette" then
+    self:stepRoulette()
+  end
   if f.kind == "move" or f.kind == "delay" or f.kind == "wait"
       or f.kind == "trainer_approach" or f.kind == "evolve"
       or f.kind == "fishing" or f.kind == "cable_car"
@@ -47243,6 +47471,9 @@ function Game3:stepField()
     return
   end
   if f.kind == "roulette" then
+    if f.spinning then
+      return
+    end
     if Input:wasPressed("up") then
       self:moveRouletteCursor(0)
     elseif Input:wasPressed("down") then
@@ -50064,6 +50295,10 @@ function Game3:drawFieldOverlay()
     self:drawHofPc(f)
     return
   end
+  if f.kind == "slots" or f.kind == "roulette" then
+    self:drawGameCorner(f)
+    return
+  end
   self:drawDialogueFrame()
   if f.kind == "daycare" then
     local labels = { "LEAVE", "TAKE" }
@@ -50175,22 +50410,49 @@ function Game3:drawFieldOverlay()
       self:drawText("LEFT/RIGHT bet  A spin  B exit", 8, 140)
     end
   elseif f.kind == "roulette" then
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("ROULETTE", 10, 100)
-    self:drawText(("COINS %d  BET %d  BALL %d/%d"):format(
-      self:getCoins(), f.minBet or 1, f.balls or 0, Game3.ROULETTE_BALLS), 8, 110)
     local labels = Game3.ROULETTE_LABELS
     local cur = f.cursor or 6
-    local name = labels[cur] or "?"
-    local mul = f.mult or self:rouletteMultiplier(cur, f)
-    self:drawText(("SEL %s  x%d"):format(name, self:rouletteMultiplier(cur, f)), 8, 120)
-    if f.landed then
-      local hit = f.won and ((mul == 12 and "JACKPOT") or "HIT") or "NOTHING DOING"
+    local spinIdx = 0
+    if f.spinning then
+      spinIdx = math.floor((f.spinT or 0) * 18) % 12
+    end
+    local flash = Game3.ROULETTE_SLOTS[spinIdx + 1]
+    for row = 0, 3 do
+      for col = 0, 4 do
+        local id = row * 5 + col
+        if id ~= 0 then
+          local x = 8 + col * 46
+          local y = 8 + row * 18
+          if id == cur then
+            G.setColor(0.95, 0.85, 0.20, 1)
+            G.rectangle("fill", x - 2, y - 2, 44, 16)
+          end
+          if f.spinning and id == flash then
+            G.setColor(1, 1, 1, 0.55)
+            G.rectangle("fill", x - 2, y - 2, 44, 16)
+          end
+          if f.landed == id then
+            G.setColor(0.20, 0.85, 0.35, 1)
+            G.rectangle("fill", x - 2, y - 2, 44, 16)
+          end
+          G.setColor(0.10, 0.10, 0.12, 1)
+          self:drawText(labels[id] or "?", x, y)
+        end
+      end
+    end
+    G.setColor(0.10, 0.10, 0.12, 1)
+    self:drawText(("COINS %d  BET %d  BALL %d/%d  x%d"):format(
+      self:getCoins(), f.minBet or 1, f.balls or 0, Game3.ROULETTE_BALLS,
+      self:rouletteMultiplier(cur, f)), 8, 88)
+    if f.spinning then
+      self:drawText("...", 8, 100)
+    elseif f.landed then
+      local hit = f.won and ((f.mult == 12 and "JACKPOT") or "HIT") or "NOTHING DOING"
       self:drawText(("%s  %s  +%d"):format(
-        hit, labels[f.landed] or "?", f.payout or 0), 8, 132)
-      if f.cleared then self:drawText("BOARD CLEARED", 8, 142) end
+        hit, labels[f.landed] or "?", f.payout or 0), 8, 100)
+      if f.cleared then self:drawText("BOARD CLEARED", 8, 112) end
     else
-      self:drawText("DPAD pick  A spin  B exit", 8, 142)
+      self:drawText("DPAD pick  A spin  B exit", 8, 100)
     end
   elseif f.kind == "script_yesno"
       or f.kind == "secret_base_yesno"

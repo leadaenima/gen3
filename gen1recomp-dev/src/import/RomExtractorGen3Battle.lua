@@ -1489,4 +1489,69 @@ function Battle.parseRibbonDescriptions(data, tableOff)
   return out
 end
 
+Battle.ANIM_PIC_COUNT = 286
+Battle.ANIM_PIC_TABLE = 0x37E164
+Battle.ANIM_PAL_TABLE = 0x37EA54
+Battle.ANIM_SCRIPT_TABLE = 0x1C7168
+Battle.ANIM_TAG_BASE = 0x2710
+
+function Battle.animPath(id)
+  return ("assets/generated/battle/anims/%d.png"):format(id)
+end
+
+function Battle.renderAnimSheet(data, picOff, palOff)
+  local _, gfxOff = romPtr(data, picOff)
+  local _, palDataOff = romPtr(data, palOff)
+  if not (gfxOff and palDataOff) then return nil end
+  local raw = GbaLz77.decompress(data, gfxOff)
+  local palBytes = GbaLz77.decompress(data, palDataOff)
+  if not raw or #raw < 32 or not palBytes or #palBytes < 32 then return nil end
+  local pal = {}
+  for c = 0, 15 do
+    pal[c] = { bgr555(GbaBin.u16(palBytes, c * 2)) }
+  end
+  local tiles = math.floor(#raw / Battle.TILE_BYTES)
+  local cols = 8
+  if tiles <= 4 then cols = math.max(1, tiles) end
+  local rows = math.max(1, math.floor((tiles + cols - 1) / cols))
+  local image = ImageWriter.blank(cols * 8, rows * 8, 0, 0, 0, 0)
+  for t = 0, tiles - 1 do
+    blitTile(image, (t % cols) * 8, math.floor(t / cols) * 8,
+      raw:sub(t * Battle.TILE_BYTES + 1, (t + 1) * Battle.TILE_BYTES), pal)
+  end
+  return image
+end
+
+function Battle.extractAnimSheets(data)
+  local sheets = {}
+  for i = 0, Battle.ANIM_PIC_COUNT - 1 do
+    local img = Battle.renderAnimSheet(data,
+      Battle.ANIM_PIC_TABLE + i * 8, Battle.ANIM_PAL_TABLE + i * 8)
+    if img then
+      local path = Battle.animPath(i)
+      ImageWriter.save(img, path)
+      sheets[i] = path
+    end
+  end
+  return sheets
+end
+
+function Battle.parseMoveAnimPlans(data)
+  local plans = {}
+  for i = 0, Battle.MOVE_COUNT - 1 do
+    local ptr = GbaBin.u32(data, Battle.ANIM_SCRIPT_TABLE + i * 4)
+    if GbaBin.isRomPtr(ptr, #data) then
+      local off = ptr - GbaBin.ROM_BASE
+      local sheet
+      if data:byte(off + 1) == 0 then
+        local tag = GbaBin.u16(data, off + 1)
+        local id = tag - Battle.ANIM_TAG_BASE
+        if id >= 0 and id < Battle.ANIM_PIC_COUNT then sheet = id end
+      end
+      plans[i] = { sheet = sheet or 0, delay = 16, sprites = {} }
+    end
+  end
+  return plans
+end
+
 return Battle
