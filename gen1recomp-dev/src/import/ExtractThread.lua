@@ -13,7 +13,7 @@ require("love.math")
 require("love.system")
 require("love.timer")
 
-local version, prefix, romData, progressName, resultName, romSha1 = ...
+local version, prefix, romData, progressName, resultName, romSha1, cacheRoot = ...
 
 local progressChannel = love.thread.getChannel(progressName)
 local resultChannel = love.thread.getChannel(resultName)
@@ -24,6 +24,7 @@ local PROGRESS_HZ = 20
 
 local ok, err = pcall(function()
   local CacheFs = require("src.import.CacheFs")
+  if cacheRoot ~= nil then CacheFs.adoptRoot(cacheRoot) end
   CacheFs.prefix = prefix
 
   local manifest = require("src.import.RomManifest").decode(version)

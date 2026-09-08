@@ -1787,6 +1787,11 @@ end
 -- exercise the fallback on a desktop.
 function RomImporter:_startExtractThread(version, prefix, data, displayName)
   if os.getenv("POKEPORT_NO_THREAD") == "1" then return false end
+  -- Gen 3 writes ~hundreds of tileset PNGs. On Windows a LÖVE worker thread
+  -- can return success from love.filesystem.write / io.open while the main
+  -- thread's CacheContract.publish still cannot see pair_0_bottom.png.
+  -- Keep Ruby on the main-thread coroutine so write and publish share one FS.
+  if GameVersion.generation(version) == 3 then return false end
   if not (love.thread and love.thread.newThread) then return false end
   local ok, thread = pcall(love.thread.newThread, "src/import/ExtractThread.lua")
   if not ok or not thread then return false end
@@ -1794,8 +1799,9 @@ function RomImporter:_startExtractThread(version, prefix, data, displayName)
   local resultName = "rom_import_result"
   love.thread.getChannel(progressName):clear()
   love.thread.getChannel(resultName):clear()
+  local cacheRoot = require("src.import.CacheFs").root()
   local started = pcall(thread.start, thread, version, prefix, data,
-    progressName, resultName, self.romSha1)
+    progressName, resultName, self.romSha1, cacheRoot)
   if not started then return false end
   self._extract = {
     thread = thread, version = version, prefix = prefix,

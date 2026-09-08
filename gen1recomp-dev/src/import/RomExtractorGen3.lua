@@ -2739,6 +2739,10 @@ function RomExtractorGen3:extractBattle()
       and BattleData.extractAnimSheets(self.data) or {},
     animPlans = BattleData.parseMoveAnimPlans
       and BattleData.parseMoveAnimPlans(self.data) or {},
+    trainerFronts = BattleData.extractTrainerFronts
+      and BattleData.extractTrainerFronts(self.data) or {},
+    trainerCard = BattleData.extractTrainerCard
+      and BattleData.extractTrainerCard(self.data) or nil,
     moves = moves,
     learnsets = learnsets,
     tmhmLearnsets = tmhmLearnsets,

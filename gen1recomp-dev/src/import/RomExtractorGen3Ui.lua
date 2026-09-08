@@ -7,6 +7,7 @@
 local GbaBin = require("src.import.GbaBin")
 local GbaLz77 = require("src.import.GbaLz77")
 local ImageWriter = require("src.import.ImageWriter")
+require("src.import.EnsureGeneratedFs")
 
 local Ui = {}
 
@@ -55,17 +56,25 @@ Ui.RUBY_US = {
   namingPal0 = 0xE86198,
   namingMenuGfx = 0xE832F8,
   namingMenuMap = 0xE84878,
-  -- slot_machine.c sub_8106448: pal gUnknown_08E95A18 (5 banks),
-  -- map gUnknown_08E95AB8 (20*32 raw), tiles LZ gSlotMachine_Gfx (233).
+  -- AXVE pointers: 0x1064A0 gfx, 0x1064B0 pal, 0x1064D0 map; reels 0x3EDC2C.
+  slotsGfx = 0xE8F844,
   slotsPal = 0xE95A18,
   slotsMap = 0xE95AB8,
   slotsMapBytes = 20 * 32 * 2,
-  slotsTiles = 233,
-  slotsReel0 = 0xE96C00,
-  -- roulette.c: base tiles 08E8096C, pal 083F86BC (0x1C0), map 083F8A60.
+  slotsTiles = 240,
+  slotsReel0 = 0xE977A8,
+  -- roulette.c: BG1 4bpp table 08E8096C + 083F88BC; BG2 8bpp wheel
+  -- 08E81098 + 083F8A60; pal 083F86BC (0x1C0).
   rouletteBaseGfx = 0xE8096C,
+  rouletteWheelGfx = 0xE81098,
   roulettePal = 0x3F86BC,
+  rouletteTableMap = 0x3F88BC,
   rouletteMap = 0x3F8A60,
+  -- wallclock.c: gMiscClock_Gfx + start tilemap 08E954B0 + male pal.
+  clockGfx = 0xE92118,
+  clockPal = 0xE94310,
+  clockMap = 0xE954B0,
+  clockViewMap = 0xE95774,
   pssPal = 0xE9F624,
   pssGfx = 0xE9EFD0,
   pssMap = 0xE9F7E4,
@@ -73,6 +82,14 @@ Ui.RUBY_US = {
   pokeblockPal = 0xE7883C,
   creditsGfx = 0xEA260C,
   creditsPal = 0xE9F624,
+  -- pokenav.c load: stripe tiles 083E007C + map 083DFF8C + pal 083DFECC,
+  -- outline tiles 083E05F4 + map 083E0804 + pal 083E05D4.
+  pokenavStripeGfx = 0x3E007C,
+  pokenavStripeMap = 0x3DFF8C,
+  pokenavStripePal = 0x3DFECC,
+  pokenavOutlineGfx = 0x3E05F4,
+  pokenavOutlineMap = 0x3E0804,
+  pokenavOutlinePal = 0x3E05D4,
 }
 
 -- Each healthbox is two OBJs drawn side by side: the name/HP box then the
@@ -325,8 +342,9 @@ end
 
 local function save(image, path)
   if not image then return nil end
-  local ok = pcall(ImageWriter.save, image, path)
-  if not ok then return nil end
+  -- Same call as tilesets/sprites/font in RomExtractorGen3.lua.
+  -- Do not pcall-and-drop: a failed write must surface like every other sheet.
+  ImageWriter.save(image, path)
   return path
 end
 
@@ -369,8 +387,10 @@ function Ui.renderBraille(data, off)
 end
 
 function Ui.renderMapped(data, gfxOff, palOff, mapOff)
-  local tiles = GbaLz77.decompress(data, gfxOff)
-  local map = GbaLz77.decompress(data, mapOff)
+  local okTiles, tiles = pcall(GbaLz77.decompress, data, gfxOff)
+  if not okTiles then tiles = nil end
+  local okMap, map = pcall(GbaLz77.decompress, data, mapOff)
+  if not okMap then map = nil end
   if not tiles then return nil end
   if not map then
     map = data:sub(mapOff + 1, mapOff + 0x800)
@@ -438,11 +458,7 @@ end
 
 function Ui.renderSlotsCabinet(data)
   local u = Ui.RUBY_US
-  local want = u.slotsTiles * Ui.TILE_BYTES
-  local gfxOff, tiles = Ui.findLzSize(data, want, 0xE8E000, 0xE96000)
-  if not tiles then
-    gfxOff, tiles = Ui.findLzSize(data, want, 0xE80000, 0xEA0000)
-  end
+  local tiles = GbaLz77.decompress(data, u.slotsGfx)
   if not tiles then return nil end
   local pals = {}
   for p = 0, 4 do
@@ -474,17 +490,7 @@ end
 function Ui.renderSlotReels(data)
   local pal = readPal(data, Ui.RUBY_US.slotsPal, 16)
   if not pal then return nil end
-  local start = Ui.RUBY_US.slotsReel0
-  local found
-  for off = 0xE96000, 0xE98800, 0x20 do
-    local ok = true
-    for i = 0, 6 do
-      local at = off + i * 0x200
-      if at + 0x200 > #data then ok = false break end
-    end
-    if ok then found = off break end
-  end
-  if not found then found = start end
+  local found = Ui.RUBY_US.slotsReel0
   local image = ImageWriter.blank(32 * 7, 32, 0, 0, 0, 0)
   for i = 0, 6 do
     local tiles = data:sub(found + i * 0x200 + 1, found + (i + 1) * 0x200)
@@ -500,23 +506,57 @@ end
 
 function Ui.renderRouletteBoard(data)
   local u = Ui.RUBY_US
-  local tiles = GbaLz77.decompress(data, u.rouletteBaseGfx)
-  local map = GbaLz77.decompress(data, u.rouletteMap)
-  local pal = readPal(data, u.roulettePal, 16)
-  if not (tiles and pal) then return nil end
-  if not map then
-    map = data:sub(u.rouletteMap + 1, u.rouletteMap + 0x800)
+  local tableTiles = GbaLz77.decompress(data, u.rouletteBaseGfx)
+  local tableMap = GbaLz77.decompress(data, u.rouletteTableMap)
+  local wheelTiles = GbaLz77.decompress(data, u.rouletteWheelGfx)
+  local wheelMap = GbaLz77.decompress(data, u.rouletteMap)
+  local pal16 = readPal(data, u.roulettePal, 16)
+  local pal256 = readPal(data, u.roulettePal, 112)
+  if not (tableTiles and tableMap and wheelTiles and wheelMap and pal16 and pal256) then
+    return nil
   end
-  local image = ImageWriter.blank(Ui.SCREEN_W, Ui.SCREEN_H, 0, 0, 0, 1)
-  local maxTiles = math.floor(#tiles / Ui.TILE_BYTES)
-  local mapW = 32
-  local mapH = math.min(20, math.max(1, math.floor(#map / (mapW * 2))))
-  for ty = 0, mapH - 1 do
-    for tx = 0, 29 do
-      local entry = GbaBin.u16(map, (ty * mapW + tx) * 2)
+  local image = ImageWriter.blank(Ui.SCREEN_W, Ui.SCREEN_H, 0.18, 0.38, 0.55, 1)
+  local maxW = math.floor(#wheelTiles / 64)
+  for ty = 0, 15 do
+    for tx = 0, 15 do
+      local entry = GbaBin.u16(wheelMap, (ty * 32 + tx) * 2)
       local tid = entry % 1024
-      if tid < maxTiles then
-        blitTile(image, tx * 8, ty * 8, tiles, tid, pal,
+      if tid < maxW then
+        local hf = math.floor(entry / 0x400) % 2 == 1
+        local vf = math.floor(entry / 0x800) % 2 == 1
+        local base = tid * 64
+        for row = 0, 7 do
+          for col = 0, 7 do
+            local sx = hf and (7 - col) or col
+            local sy = vf and (7 - row) or row
+            local ci = wheelTiles:byte(base + sy * 8 + sx + 1) or 0
+            if ci > 0 then
+              local colr = pal256[ci] or pal256[0]
+              local x = tx * 8 + col
+              local y = ty * 8 + row + 16
+              if x >= 0 and y >= 0 and x < Ui.SCREEN_W and y < Ui.SCREEN_H then
+                image:setPixel(x, y, colr[1], colr[2], colr[3], 1)
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+  local maxT = math.floor(#tableTiles / Ui.TILE_BYTES)
+  local pals = {}
+  for p = 0, 13 do
+    pals[p] = readPal(data, u.roulettePal + p * 32, 16) or pal16
+  end
+  local ox, oy = 112, 8
+  for ty = 0, 12 do
+    for tx = 0, 15 do
+      local entry = GbaBin.u16(tableMap, (ty * 16 + tx) * 2)
+      local tid = entry % 1024
+      local bank = math.floor(entry / 4096) % 16
+      if tid < maxT then
+        blitTile(image, ox + tx * 8, oy + ty * 8, tableTiles, tid,
+          pals[bank] or pal16,
           math.floor(entry / 0x400) % 2 == 1,
           math.floor(entry / 0x800) % 2 == 1, false)
       end
@@ -546,54 +586,108 @@ function Ui.renderNamingButtons(data)
   return image
 end
 
+function Ui.renderPokenav(data)
+  local u = Ui.RUBY_US
+  local stripe = GbaLz77.decompress(data, u.pokenavStripeGfx)
+  local stripeMap = GbaLz77.decompress(data, u.pokenavStripeMap)
+  local stripePal = readPal(data, u.pokenavStripePal, 16)
+  local outline = GbaLz77.decompress(data, u.pokenavOutlineGfx)
+  local outlineMap = GbaLz77.decompress(data, u.pokenavOutlineMap)
+  local outlinePal = readPal(data, u.pokenavOutlinePal, 16)
+  if not (stripe and stripeMap and stripePal and outline and outlineMap and outlinePal) then
+    return nil
+  end
+  local image = ImageWriter.blank(Ui.SCREEN_W, Ui.SCREEN_H, 0, 0, 0, 1)
+  local maxS = math.floor(#stripe / Ui.TILE_BYTES)
+  for ty = 0, 19 do
+    for tx = 0, 29 do
+      local entry = GbaBin.u16(stripeMap, (ty * 32 + tx) * 2)
+      local tid = entry % 1024
+      if tid < maxS then
+        blitTile(image, tx * 8, ty * 8, stripe, tid, stripePal,
+          math.floor(entry / 0x400) % 2 == 1,
+          math.floor(entry / 0x800) % 2 == 1, false)
+      end
+    end
+  end
+  local maxO = math.floor(#outline / Ui.TILE_BYTES)
+  for ty = 0, 19 do
+    for tx = 0, 29 do
+      local entry = GbaBin.u16(outlineMap, (ty * 32 + tx) * 2)
+      local tid = entry % 1024
+      if tid >= 1 then tid = tid - 1 end
+      if tid < maxO then
+        blitTile(image, tx * 8, ty * 8, outline, tid, outlinePal,
+          math.floor(entry / 0x400) % 2 == 1,
+          math.floor(entry / 0x800) % 2 == 1, true)
+      end
+    end
+  end
+  return image
+end
+
+local function safe(fn, ...)
+  local ok, result = pcall(fn, ...)
+  if ok then return result end
+  return nil
+end
+
 function Ui.extract(data)
   if type(data) ~= "string" or #data < 0xEA0108 + 448 then return {} end
-  local statusPillPath = Ui.saveStatusPills(data)
+  local statusPillPath = safe(Ui.saveStatusPills, data)
   return {
-    frames = save(Ui.renderFrames(data), "assets/generated/ui/window_frames.png"),
+    frames = save(safe(Ui.renderFrames, data), "assets/generated/ui/window_frames.png"),
     -- text.c sDownArrowTiles; shipped under assets/generated/ui (no new extract).
     down_arrow = "assets/generated/ui/down_arrow.png",
-    dialogue = save(Ui.renderDialogueFrame(data),
+    dialogue = save(safe(Ui.renderDialogueFrame, data),
       "assets/generated/ui/dialogue_frame.png"),
-    battleMessage = save(Ui.renderBattleBar(data, "message"),
+    battleMessage = save(safe(Ui.renderBattleBar, data, "message"),
       "assets/generated/ui/battle_message.png"),
-    battleActions = save(Ui.renderBattleBar(data, "actions"),
+    battleActions = save(safe(Ui.renderBattleBar, data, "actions"),
       "assets/generated/ui/battle_actions.png"),
-    battleMoves = save(Ui.renderBattleBar(data, "moves"),
+    battleMoves = save(safe(Ui.renderBattleBar, data, "moves"),
       "assets/generated/ui/battle_moves.png"),
     battleBarY = Ui.BATTLE_BAR_Y,
-    healthbox = save(Ui.renderHealthbox(data),
+    healthbox = save(safe(Ui.renderHealthbox, data),
       "assets/generated/ui/healthbox.png"),
-    healthboxHp = save(Ui.renderHealthbox(data, Ui.RUBY_US.hpBarPal),
+    healthboxHp = save(safe(Ui.renderHealthbox, data, Ui.RUBY_US.hpBarPal),
       "assets/generated/ui/healthbox_hp.png"),
-    healthboxPlayer = save(Ui.renderHealthboxFrame(data, "player"),
+    healthboxPlayer = save(safe(Ui.renderHealthboxFrame, data, "player"),
       "assets/generated/ui/healthbox_player.png"),
-    healthboxEnemy = save(Ui.renderHealthboxFrame(data, "enemy"),
+    healthboxEnemy = save(safe(Ui.renderHealthboxFrame, data, "enemy"),
       "assets/generated/ui/healthbox_enemy.png"),
     statusPills = statusPillPath,
-    braille = save(Ui.renderBraille(data), "assets/generated/ui/braille.png"),
+    braille = save(safe(Ui.renderBraille, data), "assets/generated/ui/braille.png"),
     brailleCols = Ui.BRAILLE_COLS,
     brailleGlyphs = Ui.BRAILLE_GLYPHS,
-    namingButtons = save(Ui.renderNamingButtons(data),
+    namingButtons = save(safe(Ui.renderNamingButtons, data),
       "assets/generated/ui/naming_buttons.png"),
-    namingBg = save(Ui.renderMapped(data, Ui.RUBY_US.namingMenuGfx,
+    namingBg = save(safe(Ui.renderMapped, data, Ui.RUBY_US.namingMenuGfx,
       Ui.RUBY_US.namingPal0, Ui.RUBY_US.namingMenuMap),
       "assets/generated/ui/naming_bg.png"),
-    roulette = save(Ui.renderRouletteBoard(data),
+    roulette = save(safe(Ui.renderRouletteBoard, data),
       "assets/generated/ui/roulette.png"),
-    pss = save(Ui.renderMapped(data, Ui.RUBY_US.pssGfx,
+    pss = save(safe(Ui.renderMapped, data, Ui.RUBY_US.pssGfx,
       Ui.RUBY_US.pssPal, Ui.RUBY_US.pssMap),
       "assets/generated/ui/pss.png"),
-    slots = save(Ui.renderSlotsCabinet(data),
+    slots = save(safe(Ui.renderSlotsCabinet, data),
       "assets/generated/ui/slots.png"),
-    slotReels = save(Ui.renderSlotReels(data),
+    slotReels = save(safe(Ui.renderSlotReels, data),
       "assets/generated/ui/slot_reels.png"),
-    pokeblockSheet = save(Ui.renderLzSheet(data, Ui.RUBY_US.pokeblockGfx,
+    pokeblockSheet = save(safe(Ui.renderLzSheet, data, Ui.RUBY_US.pokeblockGfx,
       Ui.RUBY_US.pokeblockPal, 8),
       "assets/generated/ui/pokeblock_sheet.png"),
-    credits = save(Ui.renderLzSheet(data, Ui.RUBY_US.creditsGfx,
+    credits = save(safe(Ui.renderLzSheet, data, Ui.RUBY_US.creditsGfx,
       Ui.RUBY_US.creditsPal, 10),
       "assets/generated/ui/credits.png"),
+    pokenav = save(safe(Ui.renderPokenav, data),
+      "assets/generated/ui/pokenav.png"),
+    clock = save(safe(Ui.renderMapped, data, Ui.RUBY_US.clockGfx,
+      Ui.RUBY_US.clockPal, Ui.RUBY_US.clockMap),
+      "assets/generated/ui/clock.png"),
+    clockView = save(safe(Ui.renderMapped, data, Ui.RUBY_US.clockGfx,
+      Ui.RUBY_US.clockPal, Ui.RUBY_US.clockViewMap),
+      "assets/generated/ui/clock_view.png"),
     frameStyles = Ui.FRAME_STYLES,
     frameTile = Ui.TILE,
   }

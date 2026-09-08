@@ -148,12 +148,17 @@ end
 function ImageWriter.save(image, path)
   local ok, fileData = pcall(image.encode, image, "png")
   if not ok then error("could not encode " .. path .. ": " .. tostring(fileData)) end
-  -- CacheFs routes this to the OS save directory (normal builds) or straight
-  -- into the game folder (portable installs), creating parent directories as
-  -- needed.  io.* needs the bytes as a string; love.filesystem would also
-  -- take the FileData, but getString() keeps one code path.
+  local bytes
+  if type(fileData) == "string" then
+    bytes = fileData
+  elseif fileData and fileData.getString then
+    bytes = fileData:getString()
+  end
+  if type(bytes) ~= "string" or bytes == "" then
+    error("could not encode " .. path .. ": empty png")
+  end
   local CacheFs = require("src.import.CacheFs")
-  local written, writeError = CacheFs.write(path, fileData:getString())
+  local written, writeError = CacheFs.write(path, bytes)
   if not written then
     error("could not write " .. path .. ": " .. tostring(writeError))
   end

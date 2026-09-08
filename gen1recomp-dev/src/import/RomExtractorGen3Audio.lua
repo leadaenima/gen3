@@ -63,6 +63,16 @@ Audio.SONGS = {
   vsAquaMagmaLeader = 466,
   victoryWild = 353,
   evolution = 377,
+  -- Fanfares / jingles (constants/songs.h). Must be in songs[] or
+  -- playFanfare falls through to a short SE.
+  heal = 368,
+  levelUp = 369,
+  obtainItem = 370,
+  evolved = 371,
+  obtainTmhm = 372,
+  obtainBadge = 373,
+  obtainBerry = 387,
+  tooBad = 388,
 }
 
 Audio.VOICES_PER_GROUP = 128
@@ -414,6 +424,18 @@ function Audio.extract(data)
   if u.songTable + u.songCount * u.songEntry > #data then return nil end
   local scan = Audio.scan(data)
   if scan.liveSongs < 1 or scan.hi <= scan.lo then return nil end
+  -- Jingles are normal song-table rows. If a required id has no header,
+  -- the runtime will play SE_FAILURE instead — fail import so it is fixed.
+  local missing = {}
+  for name, id in pairs(Audio.SONGS) do
+    if not scan.songs[id] then
+      missing[#missing + 1] = string.format("%s (%d)", name, id)
+    end
+  end
+  table.sort(missing)
+  if #missing > 0 then
+    error("audio extract missing songs: " .. table.concat(missing, ", "))
+  end
   -- Page-align the span so the blob is easy to reason about.
   local base = scan.lo - (scan.lo % 4)
   local last = scan.hi + ((4 - scan.hi % 4) % 4)

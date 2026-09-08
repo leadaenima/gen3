@@ -245,6 +245,20 @@ function CacheFs.root()
   return resolvePortableRoot()
 end
 
+-- Worker threads resolve portable.txt / FFI mkdir independently. If that
+-- disagrees with the main thread, extract writes tileset PNGs into one home
+-- and CacheContract.publish looks in the other -- import then dies with
+-- "cache is incomplete; missing pair_0_bottom.png" after a successful run().
+function CacheFs.adoptRoot(path)
+  if type(path) ~= "string" or path == "" then
+    portableResolved = true
+    portableRoot = nil
+    return
+  end
+  portableResolved = true
+  portableRoot = path
+end
+
 local function realPath(root, rel)
   return root .. SEP .. rel:gsub("/", SEP)
 end
@@ -268,23 +282,34 @@ end
 -- returns ok, err like love.filesystem.write
 function CacheFs.write(rel, data)
   rel = withPrefix(rel)
+  local wrote, lastErr = false, nil
   local root = CacheFs.root()
   if root then
     ensureParents(root, rel)
     local f, err = io.open(realPath(root, rel), "wb")
-    if not f then return false, err end
-    f:write(data)
-    f:close()
-    return true
+    if f then
+      f:write(data)
+      f:close()
+      wrote = true
+    else
+      lastErr = err
+    end
   end
-  local parent = rel:match("^(.*)/[^/]+$")
-  if parent and not love.filesystem.createDirectory(parent) then
-    local info = love.filesystem.getInfo(parent)
-    local reason = info and ("a " .. info.type .. " already exists there")
-      or "unknown reason"
-    return false, "could not create " .. parent .. ": " .. reason
+  -- Always also write through PhysFS when it exists. A LÖVE thread's io.*
+  -- home and the main thread's publish check are not the same directory on
+  -- Windows source runs; the save-dir copy is what CacheContract sees.
+  if love and love.filesystem and love.filesystem.write then
+    local parent = rel:match("^(.*)/[^/]+$")
+    if parent then love.filesystem.createDirectory(parent) end
+    local ok, err = love.filesystem.write(rel, data)
+    if ok then
+      wrote = true
+    else
+      lastErr = err or lastErr
+    end
   end
-  return love.filesystem.write(rel, data)
+  if wrote then return true end
+  return false, lastErr
 end
 
 -- Open a cache-relative file for streaming replacement. The returned handle
@@ -386,16 +411,26 @@ function CacheFs.loadActive(rel)
 end
 
 -- does cache-relative `rel` exist as a file?
-function CacheFs.exists(rel)
-  rel = withPrefix(rel)
+local function existsAt(rel)
   local root = CacheFs.root()
   if root then
     local f = io.open(realPath(root, rel), "rb")
-    if not f then return false end
-    f:close()
-    return true
+    if f then
+      f:close()
+      return true
+    end
   end
-  return love.filesystem.getInfo(rel, "file") ~= nil
+  if love and love.filesystem and love.filesystem.getInfo then
+    return love.filesystem.getInfo(rel, "file") ~= nil
+  end
+  return false
+end
+
+function CacheFs.exists(rel)
+  local prefixed = withPrefix(rel)
+  if existsAt(prefixed) then return true end
+  if prefixed ~= rel and existsAt(rel) then return true end
+  return false
 end
 
 -- remove a single cache-relative file

@@ -20,6 +20,17 @@ Cinema.RUBY_US = {
   -- gIntroCopyright_Gfx is LZ and ends at 0xE9CA21, padded to the 4-byte
   -- aligned palette; the raw (uncompressed) 32x20 tilemap follows that.
   -- Text is index 15 (white) on index 1 (black).
+  -- wallclock.c: gMiscClock_Gfx + male/female pals + edit/view maps.
+  -- Hands are ClockGfx_Misc (INCBIN in wallclock.c, dest size 0x2000).
+  clockGfx = 0xE8F1B8,
+  clockGfxBytes = 0x1000,
+  clockMalePal = 0xE8F804,
+  clockFemalePal = 0xE8F824,
+  clockEditMap = 0xE954B0,
+  clockViewMap = 0xE95774,
+  clockMapBytes = 0x500,
+  clockHandsGfx = 0x3F7814,
+  clockHandsGfxBytes = 0x1200,
   copyrightGfx = 0xE9C798,
   copyrightPal = 0xE9CA24,
   copyrightMap = 0xE9CA44,
@@ -1478,6 +1489,45 @@ function Cinema.renderPokecenterMonitor(data)
   return image
 end
 
+function Cinema.renderWallClock(data)
+  local u = Cinema.RUBY_US
+  local tiles = lz(data, u.clockGfx, u.clockGfxBytes)
+  local editMap = lz(data, u.clockEditMap, u.clockMapBytes)
+  local viewMap = lz(data, u.clockViewMap, u.clockMapBytes)
+  local hands = lz(data, u.clockHandsGfx, u.clockHandsGfxBytes)
+  if not (tiles and editMap and viewMap) then return nil end
+  local out = {}
+  for _, spec in ipairs({
+    { palOff = u.clockMalePal, tag = "male" },
+    { palOff = u.clockFemalePal, tag = "female" },
+  }) do
+    local pal = readPal(data, spec.palOff, 16)
+    if pal then
+      local edit = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+      Cinema.paintTilemap(edit, tiles, editMap, { [0] = pal }, 32, 20, 0, 0, false)
+      out["clockBgEdit" .. spec.tag] = save(edit,
+        "assets/generated/wallclock/bg_edit_" .. spec.tag .. ".png")
+      local view = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+      Cinema.paintTilemap(view, tiles, viewMap, { [0] = pal }, 32, 20, 0, 0, false)
+      out["clockBgView" .. spec.tag] = save(view,
+        "assets/generated/wallclock/bg_view_" .. spec.tag .. ".png")
+      if hands then
+        local sheet = ImageWriter.blank(64, 128, 0, 0, 0, 0)
+        blitObj4(sheet, hands, pal, 0, 8, 8, 0, 0)
+        blitObj4(sheet, hands, pal, 64, 8, 8, 0, 64)
+        out["clockHands" .. spec.tag] = save(sheet,
+          "assets/generated/wallclock/hands_" .. spec.tag .. ".png")
+        local ampm = ImageWriter.blank(16, 32, 0, 0, 0, 0)
+        blitObj4(ampm, hands, pal, 128, 2, 2, 0, 0)
+        blitObj4(ampm, hands, pal, 132, 2, 2, 0, 16)
+        out["clockAmpm" .. spec.tag] = save(ampm,
+          "assets/generated/wallclock/ampm_" .. spec.tag .. ".png")
+      end
+    end
+  end
+  return out
+end
+
 function Cinema.extract(data)
   if type(data) ~= "string" or #data < 0x4139C8 then return {} end
   local out = {
@@ -1655,6 +1705,10 @@ function Cinema.extract(data)
     "assets/generated/weather/snow.png")
   out.weatherBubble = save(Cinema.renderWeatherBubble(data),
     "assets/generated/weather/bubble.png")
+  local clock = Cinema.renderWallClock(data)
+  if clock then
+    for k, v in pairs(clock) do out[k] = v end
+  end
   local PcArt = require("src.import.RomExtractorGen3Pc")
   local pc = PcArt.extract(data)
   for k, v in pairs(pc) do
