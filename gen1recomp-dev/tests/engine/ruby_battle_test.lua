@@ -162,12 +162,14 @@ local chart = BattleData.parseTypeChart(chartBytes, 0)
 eq(Game3.typeMul(chart, 10, 12, 12), 20, "Fire vs Grass is 2x")
 eq(Game3.typeMul(chart, 0, 5, 5), 5, "Normal vs Rock is 0.5x")
 eq(Game3.typeMul(chart, 0, 0, 0), 10, "unlisted pairs stay 1x")
+do
 local sawForesight
 for i = 1, #chart do
   if chart[i][1] == 0xFE then sawForesight = true end
 end
 check(not sawForesight, "Foresight rows are skipped")
 
+end
 local learnBlob = GbaBin.packU16(10 + 1 * 512)
   .. GbaBin.packU16(45 + 1 * 512)
   .. GbaBin.packU16(52 + 10 * 512)
@@ -179,6 +181,7 @@ eq(learn[2].move, 45, "second move is Growl")
 eq(learn[3].move, 52, "Ember is in the learnset")
 eq(learn[3].level, 10, "Ember is level 10")
 
+do
 local evoRom = string.rep("\0", 291 * 5 * 8)
 local torchicSlot = 280 * 5 * 8
 evoRom = overlay(evoRom, torchicSlot,
@@ -196,6 +199,7 @@ eq(evos[280][1].param, 16, "at level 16")
 eq(evos[290][1].method, 11, "Wurmple's first method is Silcoon")
 eq(evos[290][2].target, 292, "and Cascoon")
 
+end
 ;(function()
 eq(BattleData.TMHM_MOVES[39], 317, "TM39 is Rock Tomb")
 eq(BattleData.TMHM_MOVES[51], 15, "HM01 is Cut")
@@ -455,11 +459,13 @@ eq(torchic.moves[3] and torchic.moves[3].name, "EMBER", "Torchic learns Ember at
 
 local fainted = field:makeMon(280, 5)
 fainted.hp = 0
+do
 local oldMax = fainted.maxHp
 field:recalcStats(fainted)
 eq(fainted.hp, 0, "recalcStats does not revive a fainted mon")
 check(fainted.maxHp >= oldMax, "max HP can still grow")
 
+end
 field.party = { field:makeMon(280, 5), field:makeMon(290, 2) }
 field.party[1].hp = 0
 check(field:startWildBattle(288, 2), "a healthy backup still starts a fight")
@@ -517,6 +523,7 @@ eq(field.playerX, 1, "and the start spawn")
 
 -- ------- evolution, nurse, field menu
 
+do
 local silk = field:makeMon(290, 6)
 silk.pid = 0
 silk.exp = Game3.expAtLevel(0, 7) - 1
@@ -524,12 +531,16 @@ field:awardExp(silk, { level = 20, expYield = 54 })
 eq(silk.species, 291, "personality high word % 10 <= 4 is Silcoon")
 eq(silk.name, "SILCOON", "name follows the species")
 
+end
+do
 local cas = field:makeMon(290, 6)
 cas.pid = 5 * 65536
 cas.exp = Game3.expAtLevel(0, 7) - 1
 field:awardExp(cas, { level = 20, expYield = 54 })
 eq(cas.species, 292, "personality high word % 10 > 4 is Cascoon")
 
+end
+do
 local chick = field:makeMon(280, 15)
 chick.exp = Game3.expAtLevel(3, 16) - 1
 field:awardExp(chick, { level = 2, expYield = 54 })
@@ -537,6 +548,7 @@ eq(chick.species, 281, "Torchic evolves at 16")
 eq(chick.name, "COMBUSKEN", "into Combusken")
 eq(chick.type2, 1, "and picks up Fighting")
 
+end
 field.phase = "play"
 field.facing = "north"
 field.playerX, field.playerY = 1, 1
@@ -602,6 +614,7 @@ eq(talker.field.queue[2], "THERE", "later lines wait in the queue")
 
 local Input = require("src.core.Input")
 Input:init()
+do
 local function pressTalk(name)
   local old = Input.wasPressed
   Input.wasPressed = function(_, key) return key == name end
@@ -611,6 +624,7 @@ end
 pressTalk("a")
 eq(talker.field.text, "THERE", "A advances the script queue")
 pressTalk("b")
+end
 eq(talker.field, nil, "the last line closes the box")
 
 talker.map.objects = { {
@@ -621,6 +635,7 @@ talker:resetNpcs(talker.map)
 eq(talker:npcsFor(talker.map)[1].script[1].text, "HELLO",
   "resetNpcs copies the extracted script")
 
+do
 local skipper = Game3.new()
 skipper.phase = "play"
 skipper.facing = "east"
@@ -648,6 +663,8 @@ skipper.field = nil
 skipper:tryTalk()
 eq(skipper.field.text, "HELLO", "the same script says HELLO when the flag is clear")
 
+end
+do
 local giver = Game3.new()
 giver.phase = "play"
 giver.facing = "east"
@@ -680,6 +697,7 @@ eq(giver:itemCount(4), 1, "so the bag does not stack forever")
 giver:resetNpcs(giver.map)
 eq(giver:npcsFor(giver.map)[1], nil, "a taken ball does not respawn")
 
+end
 local beaten = Game3.new()
 beaten.phase = "play"
 beaten.facing = "east"
@@ -713,6 +731,7 @@ chooser.phase = "play"
 chooser.facing = "east"
 chooser.playerX, chooser.playerY = 0, 0
 chooser.map = { id = "g_bag", width = 3, height = 1, grid = { 0, 0, 0 } }
+do
 local bagNpc = { x = 1, y = 0, graphicsId = Game3.GFX_BIRCHS_BAG }
 chooser.npcByMap = { g_bag = { bagNpc } }
 check(chooser:tryTalk(), "A on Birch's bag opens the starter menu")
@@ -911,6 +930,8 @@ check(van:followWarp({ warpId = 0xFF }), "MAP_DYNAMIC from the truck also exits"
 eq(van.map.id, "g0_9", "into the same town")
 end)()
 
+end
+do
 local gifted = Game3.new()
 gifted.phase = "play"
 gifted.facing = "east"
@@ -927,6 +948,8 @@ check(gifted:tryTalk(), "givemon scripts run")
 eq(gifted.party[1].species, 280, "the gift joins the party")
 check(gifted.field.text:find("TORCHIC", 1, true) ~= nil, "and names it")
 
+end
+do
 local asker = Game3.new()
 asker.phase = "play"
 asker.facing = "east"
@@ -970,6 +993,7 @@ pressAsk("a")
 eq(asker.party[1].species, 280, "YES runs givemon")
 check(asker.field.text:find("TORCHIC", 1, true) ~= nil, "and names the gift")
 
+end
 field.field = { kind = "menu", cursor = 0 }
 eq(Game3.GFX_NURSE, 58, "Ruby nurse gfx is 58")
 
@@ -1020,6 +1044,7 @@ check(not (field.field and field.field.kind == "mart"),
 eq(Game3.topIsOverlay(Game3.LAYER_NORMAL), true, "normal tops cover sprites")
 eq(Game3.topIsOverlay(Game3.LAYER_SPLIT), true, "split tops cover sprites")
 eq(Game3.topIsOverlay(Game3.LAYER_COVERED), false, "covered tops stay under sprites")
+do
 local ts = field.data.tilesets.byId.pair_0
 ts.behavior[0] = 0x02
 ts.tiles = { [0] = { 16, 17, 32, 33, 0, 0, 0, 0 } }
@@ -1052,6 +1077,7 @@ eq(Game3.metatileTopPassMode(Game3.LAYER_COVERED, "overlay", true), "skip",
   "and still skips BG1")
 ts.layerType[0] = nil
 ts.tiles[0] = nil
+end
 eq(field:layerTypeAt(field.map, 1, 1), Game3.LAYER_NORMAL, "counter is overlay")
 field.map.grid[5] = 2
 eq(field:layerTypeAt(field.map, 1, 1), Game3.LAYER_COVERED, "a chair is covered")
@@ -1261,6 +1287,7 @@ field.map = {
   width = 4, height = 1, grid = { 0, 0, 0, 0 },
 }
 field.playerX, field.playerY = 2, 0
+do
 local spotter = {
   x = 0, y = 0, facing = "east",
   trainerType = Game3.TRAINER_TYPE_NORMAL, trainerRange = 3,
@@ -1282,6 +1309,7 @@ spotter.defeated = false
 spotter.facing = "east"
 spotter.trainerType = Game3.TRAINER_TYPE_NORMAL
 field.npcByMap = { g0_17 = { spotter } }
+end
 field.phase = "play"
 field.party = { field:makeMon(280, 5) }
 check(field:tryTrainerSpot(), "LOS after a step starts the fight")
@@ -3030,6 +3058,7 @@ eq(BattleData.ITEM_POKE_BALL, 4, "POKe BALL is item 4")
 eq(Game3.START_MONEY, 3000, "Ruby starts with $3000")
 eq(Game3.GFX_ITEM_BALL, 59, "item balls use graphics 59")
 
+do
 local function padItemName(text)
   local enc = GbaText.encodeLatin(text) .. string.char(GbaText.EOS)
   if #enc < BattleData.ITEM_NAME_LENGTH then
@@ -3060,6 +3089,7 @@ eq(parsedItems.byId[1].price, 0, "Master Ball is not sold")
 eq(parsedItems.byId[4].price, 200, "Poke Ball costs 200")
 eq(parsedItems.byId[4].pocket, 2, "balls use the ball pocket")
 
+end
 local giveScript = string.char(BattleData.SETORCOPYVAR_CMD)
   .. GbaBin.packU16(BattleData.VAR_0x8000) .. GbaBin.packU16(4)
   .. string.char(BattleData.SETORCOPYVAR_CMD)
@@ -3069,6 +3099,7 @@ local give = BattleData.readItemGiveFromScript(giveScript, 0)
 eq(give.id, 4, "finditem writes the item to VAR_0x8000")
 eq(give.count, 1, "and the amount to VAR_0x8001")
 
+do
 local setvarScript = string.char(BattleData.SETVAR_CMD)
   .. GbaBin.packU16(BattleData.VAR_0x8000) .. GbaBin.packU16(13)
   .. string.char(BattleData.SETVAR_CMD)
@@ -3076,6 +3107,8 @@ local setvarScript = string.char(BattleData.SETVAR_CMD)
 eq(BattleData.readItemGiveFromScript(setvarScript, 0).id, 13,
   "setvar is accepted as a fallback")
 
+end
+do
 local martRom = string.rep("\0", 0x80)
 local martList = 0x40
 martRom = overlay(martRom, martList,
@@ -3087,17 +3120,22 @@ eq(#martItems, 2, "pokemart lists items until ITEM_NONE")
 eq(martItems[1], 4, "first stock is a Poke Ball")
 eq(martItems[2], 13, "second stock is a Potion")
 
+end
 local shopper = Game3.new()
 shopper.bag = {}
 shopper.money = 3000
+do
 local okBuy, buyMsg = shopper:buyMartItem(4)
 check(okBuy, "a Poke Ball can be bought")
 eq(shopper.money, 2800, "buying deducts 200")
 eq(shopper:itemCount(4), 1, "the ball is added to the bag")
 check(buyMsg:find("BALL", 1, true) ~= nil, "the buy line names the item")
+end
 shopper.money = 100
+do
 local tooPoor = shopper:buyMartItem(4)
 check(not tooPoor, "too little money is refused")
+end
 eq(shopper.money, 100, "a refused buy does not charge")
 eq(shopper:itemCount(4), 1, "a refused buy does not add a second ball")
 
@@ -3109,30 +3147,38 @@ check(healer:useFieldItem(13), "a Potion opens the party")
 eq(healer.field.kind, "party_use", "ItemUseOutOfBattle_Medicine")
 eq(healer.party[1].hp, 5, "picker does not auto-apply")
 eq(healer:itemCount(13), 1, "item stays until a slot is chosen")
+do
 local okHeal, healMsg = healer:useItemOnMon(healer.party[1], 13)
 check(okHeal, "a Potion can be used on the field")
 eq(healer.party[1].hp, 19, "20 HP is capped at max")
 eq(healer:itemCount(13), 0, "the Potion is consumed")
 check(healMsg:find("recovered", 1, true) ~= nil, "heal announces recovery")
+end
 healer:addItem(13, 1)
 healer.party[1].hp = 19
+do
 local noNeed = healer:useItemOnMon(healer.party[1], 13)
 check(not noNeed, "a full-HP mon does not drink")
+end
 eq(healer:itemCount(13), 1, "a wasted Potion is not consumed")
 
 healer.party[1].status = "psn"
 healer:addItem(14, 1)
+do
 local okCure, cureMsg = healer:useItemOnMon(healer.party[1], 14)
 check(okCure, "an Antidote can be used on the field")
 eq(healer.party[1].status, nil, "Antidote clears poison")
 eq(healer:itemCount(14), 0, "the Antidote is consumed")
 check(cureMsg:find("status", 1, true) ~= nil, "cure announces status")
 
+end
 healer.party[1].hp = 5
 healer.party[1].maxHp = 100
 healer:addItem(22, 1)
+do
 local okSuper = healer:useItemOnMon(healer.party[1], 22)
 check(okSuper, "a Super Potion can be used")
+end
 eq(healer.party[1].hp, 55, "Super Potion heals 50")
 eq(healer:itemCount(22), 0, "the Super Potion is consumed")
 
@@ -3143,6 +3189,7 @@ picker.phase = "play"
 picker.facing = "east"
 picker.playerX, picker.playerY = 0, 0
 picker.map = { id = "g_item", width = 3, height = 1, grid = { 0, 0, 0 } }
+do
 local ballNpc = {
   x = 1, y = 0, graphicsId = 59, itemId = 4, itemCount = 1, flagId = 0x300,
 }
@@ -3150,6 +3197,7 @@ picker.npcByMap = { g_item = { ballNpc } }
 check(picker:tryTalk(), "A picks up an item ball")
 eq(picker.flags[0x300], true, "pickup sets the object flag")
 eq(ballNpc.hidden, true, "the ball disappears")
+end
 eq(picker:itemCount(4), 1, "the item goes in the bag")
 eq(picker:npcAt(picker.map, 1, 0), nil, "a hidden ball is not talkable")
 check(picker.field.text:find("BALL", 1, true) ~= nil, "pickup names the item")
@@ -3177,6 +3225,7 @@ eq(Game3.bgFacingOk(0, "east"), true, "ANY facing is always ok")
 eq(Game3.bgFacingOk(1, "north"), true, "NORTH signs need north")
 eq(Game3.bgFacingOk(1, "east"), false, "NORTH signs refuse east")
 
+do
 local searcher = Game3.new()
 searcher.bag = {}
 searcher.flags = {}
@@ -3195,6 +3244,7 @@ searcher.field = nil
 check(not searcher:tryTalk(), "a taken hidden item does not fire again")
 eq(searcher:itemCount(13), 1, "a second A does not duplicate the item")
 
+end
 local reader = Game3.new()
 reader.phase = "play"
 reader.facing = "east"
@@ -3237,9 +3287,11 @@ local torchic = { name = "TORCHIC", hp = 19, maxHp = 19, type1 = 10, type2 = 10 
 check(not field:canStatus(torchic, "brn"), "Fire types cannot be burned")
 eq(field:applyStatus(torchic, "brn"), nil, "applyStatus refuses Fire")
 
+do
 local steel = { name = "ARON", hp = 20, maxHp = 20, type1 = 8, type2 = 5 }
 check(not field:canStatus(steel, "psn"), "Steel types cannot be poisoned")
 
+end
 local healthy = {
   name = "ZIGZAGOON", level = 5, hp = 20, maxHp = 20,
   atk = 20, def = 10, spe = 20, spa = 10, spd = 10, type1 = 0, type2 = 0,
@@ -3281,6 +3333,7 @@ end
 check(asleep, "sleep skips the wild Pokémon's turn")
 eq(field.battle.enemy.sleepTurns, 0, "a sleep turn is consumed")
 
+do
 local wave = field:copyMove(86)
 local victim = {
   name = "POOCHYENA", hp = 20, maxHp = 20, type1 = 16, type2 = 16,
@@ -3289,6 +3342,7 @@ local victim = {
 field:useMove(field.party[1], victim, wave)
 eq(victim.status, "par", "Thunder Wave paralyzes")
 
+end
 field.party[1].status = "brn"
 field:healParty()
 eq(field.party[1].status, nil, "the nurse clears status")
@@ -3375,6 +3429,7 @@ check(not balls:hasCaught(280), "direct party assignment does not mark the dex")
 balls:addToParty(balls.party[1])
 check(balls:hasCaught(280), "addToParty records the species")
 
+do
 local drinker = Game3.new()
 drinker.data.pokemon = field.data.pokemon
 drinker.data.moves = field.data.moves
@@ -3393,6 +3448,7 @@ check(#drinker.battle.queue >= 2, "the enemy still gets a turn")
 check(drinker.battle.queue[1]:find("recovered", 1, true) ~= nil,
   "heal is announced first")
 
+end
 -- ------- extra move effects
 
 eq(Game3.EFFECT_ABSORB, 3, "Absorb is effect 3")
@@ -3409,6 +3465,7 @@ fx.data.pokemon = field.data.pokemon
 fx.data.moves = field.data.moves
 fx.rng = function() return 1 end
 
+do
 local splash = {
   name = "SPLASH", effect = 85, power = 0, type = 0, accuracy = 0, pp = 40,
 }
@@ -3417,6 +3474,8 @@ local splashLines = fx:useMove(
   { name = "WURMPLE", hp = 10, maxHp = 10 }, splash)
 check(splashLines[2]:find("nothing", 1, true) ~= nil, "Splash does nothing")
 
+end
+do
 local recover = {
   name = "RECOVER", effect = 32, power = 0, type = 0, accuracy = 0, pp = 10,
 }
@@ -3424,6 +3483,8 @@ local patient = { name = "TORCHIC", hp = 5, maxHp = 20 }
 fx:useMove(patient, { name = "X", hp = 10, maxHp = 10 }, recover)
 eq(patient.hp, 15, "Recover heals half of max HP")
 
+end
+do
 local rester = { name = "TORCHIC", hp = 5, maxHp = 20 }
 fx:useMove(rester, { name = "X", hp = 10, maxHp = 10 }, {
   name = "REST", effect = 37, power = 0, type = 0, accuracy = 0, pp = 10,
@@ -3432,6 +3493,7 @@ eq(rester.hp, 20, "Rest fully heals")
 eq(rester.status, "slp", "Rest puts the user to sleep")
 eq(rester.sleepTurns, 2, "Rest sleeps for two skipped turns")
 
+end
 local grassUser = {
   name = "TREECKO", level = 5, hp = 5, maxHp = 40,
   atk = 10, def = 10, spe = 10, spa = 20, spd = 10,
@@ -3530,6 +3592,7 @@ local ray = {
   name = "CONFUSE RAY", effect = 49, power = 0, type = 7, accuracy = 100,
   pp = 10, secondary = 0,
 }
+do
 local victim = {
   name = "ZIGZAGOON", hp = 20, maxHp = 20,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3539,6 +3602,7 @@ local confuseLines = fx:useMove(
 eq(victim.confuseTurns, 2, "rng=1 sets confusion to 2 turns")
 check(confuseLines[2]:find("confused", 1, true) ~= nil, "Confuse Ray announces")
 
+end
 local biter = {
   name = "POOCHYENA", level = 5, hp = 20, maxHp = 20,
   atk = 20, def = 10, spe = 20, spa = 10, spd = 10,
@@ -3560,6 +3624,7 @@ local bite = {
 fx:useMove(biter, bitten, bite)
 eq(bitten.flinch, true, "Bite can flinch")
 
+do
 local flinchGame = Game3.new()
 flinchGame.data.pokemon = field.data.pokemon
 flinchGame.data.moves = field.data.moves
@@ -3580,6 +3645,7 @@ for i = 1, #flinchGame.battle.queue do
 end
 check(flinched, "a flinch skips the foe's move")
 
+end
 local confused = {
   name = "ZIGZAGOON", level = 5, hp = 20, maxHp = 20,
   atk = 20, def = 10, spe = 20, spa = 10, spd = 10,
@@ -3610,6 +3676,7 @@ local intim = fx:activateEnter(dog, chick)
 eq(chick.stages.atk, -1, "Intimidate drops Attack")
 check(intim[1]:find("INTIMIDATE", 1, true) ~= nil, "Intimidate is announced")
 
+do
 local cutter = {
   name = "MAKUHITA", ability = 52,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3619,6 +3686,8 @@ fx:useMove({ name = "TORCHIC", hp = 20, maxHp = 20 }, cutter, {
 })
 eq(cutter.stages.atk, 0, "Hyper Cutter blocks Growl")
 
+end
+do
 local focused = {
   name = "ABSOL", ability = 39, hp = 40, maxHp = 40, type1 = 16, type2 = 16,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3633,6 +3702,8 @@ fx:useMove({
 })
 eq(focused.flinch, nil, "Inner Focus blocks flinch")
 
+end
+do
 local headed = {
   name = "ARON", ability = 69, level = 5, hp = 30, maxHp = 30,
   atk = 20, def = 10, spe = 10, spa = 10, spd = 10,
@@ -3649,6 +3720,7 @@ fx:useMove(headed, rockPrey, {
 })
 eq(headed.hp, 30, "Rock Head skips recoil")
 
+end
 local floater = {
   name = "DUSKULL", ability = 26, hp = 40, maxHp = 40, type1 = 7, type2 = 7,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3661,6 +3733,7 @@ local quake = fx:dealDamage({
 eq(quake.mul, 0, "Levitate ignores Ground")
 eq(floater.hp, 40, "Levitate takes no Ground damage")
 
+do
 local absorber = {
   name = "CHINCHOU", ability = 10, hp = 10, maxHp = 40, type1 = 13, type2 = 11,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3671,11 +3744,15 @@ fx:useMove({ name = "MAREEP", hp = 20, maxHp = 20 }, absorber, {
 })
 eq(absorber.hp, 20, "Volt Absorb heals 1/4 max HP")
 
+end
+do
 local shed = { name = "WURMPLE", ability = 61, hp = 16, maxHp = 16, status = "psn" }
 local shedLines = fx:statusResidual(shed)
 eq(shed.status, nil, "Shed Skin can cure status")
 check(shedLines[1]:find("SHED SKIN", 1, true) ~= nil, "Shed Skin is announced")
 
+end
+do
 local tempo = {
   name = "SPOINK", ability = 20, hp = 20, maxHp = 20,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3685,6 +3762,8 @@ fx:useMove({ name = "GASTLY", hp = 20, maxHp = 20 }, tempo, {
 })
 eq(tempo.confuseTurns, nil, "Own Tempo blocks confusion")
 
+end
+do
 local dusty = {
   name = "DUSTOX", ability = 19, hp = 200, maxHp = 200, type1 = 6, type2 = 12,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
@@ -3699,6 +3778,7 @@ fx:useMove({
 })
 eq(dusty.status, nil, "Shield Dust blocks a burn chance")
 
+end
 -- ------- weather
 
 ;(function()
@@ -4174,6 +4254,7 @@ end)()
 
 -- ------- PC boxes
 
+do
 local pcUser = Game3.new()
 pcUser.data.pokemon = field.data.pokemon
 pcUser.data.moves = field.data.moves
@@ -4250,6 +4331,8 @@ eq(#pcUser.party, 6, "the party stays at 6")
 eq(pcUser.pc[2][#pcUser.pc[2]].species, 290, "the gift lands in the PC")
 check(not pcUser:giveMon(280, 5), "a starter does not overflow to the PC")
 
+end
+do
 local stuffer = Game3.new()
 stuffer.data.pokemon = field.data.pokemon
 stuffer.data.moves = field.data.moves
@@ -4273,6 +4356,7 @@ eq(stuffer.battle.caught, nil, "and does not catch")
 eq(stuffer.battle.text, "The BOX is full.",
   "gOtherText_BoxIsFull")
 
+end
 ;(function()
 local tate = string.char(0, 2, 0, 0)
   .. padTrainerName("TATE")
@@ -4951,15 +5035,14 @@ home.phase = "play"
 home.facing = "north"
 home.playerX, home.playerY = 5, 2
 home.map = brendan2f
+-- clock.c StartWallClock sets CB2_StartWallClock: the cart opens the
+-- interactive clock face rather than printing a line and setting the flags
+-- outright. These assertions encoded the old stub, which returned a message
+-- and applied every side effect at once; the flags and
+-- VAR_LITTLEROOT_INTRO_STATE are now written when the player confirms a time,
+-- so they are no longer observable at the moment the UI opens.
 check(home:tryTalk(), "A on the stopped clock")
-eq(home.field.text, "The clock started!", "sets the clock")
-eq(home.flags[Game3.FLAG_SET_WALL_CLOCK], true, "FLAG_SET_WALL_CLOCK")
-eq(home.flags[Game3.FLAG_HIDE_MACHOKE_MOVER_1], true, "hides mover 1")
-eq(home.flags[Game3.FLAG_HIDE_MACHOKE_MOVER_2], true, "hides mover 2")
-eq(home.scriptVars[Game3.VAR_LITTLEROOT_INTRO_STATE], 6, "clock sets intro 6")
-home.field = nil
-check(home:tryTalk(), "A on the clock again")
-eq(home.field.text, "It's the wall clock.", "later reads as running")
+eq(home.field.kind, "clock_set", "the cart opens the wall clock face")
 
 home:enterMap(floor, 5, 4, true)
 eq(#home:npcsFor(floor), 1, "Machoke movers leave after the clock")

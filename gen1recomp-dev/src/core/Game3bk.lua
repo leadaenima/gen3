@@ -310,7 +310,7 @@ Game3.MSG_GLYPH_PX = 8
 -- Interior of the std dialogue window: text starts at col 2 (16px).
 -- Right border ink is at tile 29. Leave 16px so FONT3's 8px cells and
 -- the continue arrow never paint over the frame or the map behind it.
-Game3.MSG_WIDTH_PX = 208
+Game3.MSG_WIDTH_PX = 192
 Game3.MSG_LINE_H = 16
 Game3.DLG_FRAME_LEFT = 0
 -- Cart-exact, and measured rather than assumed. text_window.c
@@ -331,14 +331,14 @@ Game3.DLG_FRAME_LEFT = 0
 -- Grow the frame one tile upward so two FONT3 lines sit with more air
 -- above the bottom border (bugs.txt vertical centering). Text stays near
 -- the cart's 120px start via PAD_Y.
-Game3.DLG_FRAME_TOP = 14
+Game3.DLG_FRAME_TOP = 13
 Game3.DLG_FRAME_RIGHT = 29
 Game3.DLG_FRAME_BOTTOM = 19
 Game3.DLG_TEXT_COL = 2
 -- The cart's text row, kept for the battle action menu, which sits at its
 -- own fixed y and does not follow the message text.
 Game3.DLG_TEXT_ROW = 15
-Game3.DLG_TEXT_PAD_Y = 0
+Game3.DLG_TEXT_PAD_Y = 4
 -- start_menu.c Menu_DrawStdWindowFrame(22, 0, 29, n*2+3);
 -- Menu_PrintText(..., 23, 2 + index * 2); InitMenu(..., 0x17, 2, n, ..., 6).
 Game3.START_LEFT = 22
@@ -2354,89 +2354,89 @@ Game3.GIDDY_ADJECTIVES = {
   " so desirable!", " so exciting!", " so amusing!", " so magical!",
 }
 Game3.GIDDY_QUESTIONS = {
-  "I so want to go on a vacation.\nWould you happen to know a nice place?",
-  "I bought crayons with 120 colors!\nDon't you think that's nice?",
-  "Wouldn't it be nice if we could float\naway on a cloud of bubbles?",
-  "When you write on a sandy beach,\nthey wash away. It makes me sad.",
-  "What's the bottom of the sea like?\nJust once I would so love to go!",
-  "When you see the setting sun, does it\nmake you want to go home?",
-  "Lying back in the green grass...\nOh, it's so, so nice!",
-  "SECRET BASES are so wonderful!\nCan't you feel the excitement?",
+  "I so want to go on a vacation.\r\nWould you happen to know a nice place?",
+  "I bought crayons with 120 colors!\r\nDon't you think that's nice?",
+  "Wouldn't it be nice if we could float\r\naway on a cloud of bubbles?",
+  "When you write on a sandy beach,\r\nthey wash away. It makes me sad.",
+  "What's the bottom of the sea like?\r\nJust once I would so love to go!",
+  "When you see the setting sun, does it\r\nmake you want to go home?",
+  "Lying back in the green grass...\r\nOh, it's so, so nice!",
+  "SECRET BASES are so wonderful!\r\nCan't you feel the excitement?",
 }
 
 Game3.STORYTELLER_STORIES = {
   { stat = 50, min = 1, title = "The Save-Happy TRAINER$", action = "Saved the game$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER saved the game\n{STR_VAR_1} times!\nA more cautious TRAINER than\n{STR_VAR_3} one will never find!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER saved the game\r\n{STR_VAR_1} times!\r\nA more cautious TRAINER than\r\n{STR_VAR_3} one will never find!$" },
   { stat = 2, min = 1, title = "The Trendsetter TRAINER$", action = "Started trends$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER started new trends\n{STR_VAR_1} times!\n{STR_VAR_3} is setting trends for all\nthe HOENN region!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER started new trends\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is setting trends for all\r\nthe HOENN region!$" },
   { stat = 3, min = 1, title = "The BERRY-Planting TRAINER$", action = "Planted BERRIES$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER planted BERRIES\n{STR_VAR_1} times!\n{STR_VAR_3} is a legendary lover of\nBERRIES!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER planted BERRIES\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a legendary lover of\r\nBERRIES!$" },
   { stat = 4, min = 1, title = "The BIKE-Loving TRAINER$", action = "Traded BIKES$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER swapped BIKES\n{STR_VAR_1} times!\n{STR_VAR_3} must love BIKES deeply\nand passionately!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER swapped BIKES\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must love BIKES deeply\r\nand passionately!$" },
   { stat = 6, min = 1, title = "The Interviewed TRAINER$", action = "Got interviewed$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER got interviewed\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who's\nattracting much attention!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER got interviewed\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a TRAINER who's\r\nattracting much attention!$" },
   { stat = 9, min = 1, title = "The Battle-Happy TRAINER$", action = "Battled$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER battled {STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who can\nnever refuse a chance to battle!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER battled {STR_VAR_1} times!\r\n{STR_VAR_3} must be a TRAINER who can\r\nnever refuse a chance to battle!$" },
   { stat = 11, min = 1, title = "The POKéMON-Catching TRAINER$", action = "Caught POKéMON$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER caught\n{STR_VAR_1} POKéMON!\n{STR_VAR_3} is a legendary catcher of\nwild POKéMON!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER caught\r\n{STR_VAR_1} POKéMON!\r\n{STR_VAR_3} is a legendary catcher of\r\nwild POKéMON!$" },
   { stat = 12, min = 1, title = "The Fishing TRAINER$", action = "Caught POKéMON with a ROD$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER caught\n{STR_VAR_1} POKéMON while fishing!\n{STR_VAR_3} is a legendary fishing\nexpert!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER caught\r\n{STR_VAR_1} POKéMON while fishing!\r\n{STR_VAR_3} is a legendary fishing\r\nexpert!$" },
   { stat = 13, min = 1, title = "The EGG-Warming TRAINER$", action = "Hatched EGGS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER hatched {STR_VAR_1} POKéMON\nfrom EGGS!\n{STR_VAR_3} is a legendary warmer\nof EGGS!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER hatched {STR_VAR_1} POKéMON\r\nfrom EGGS!\r\n{STR_VAR_3} is a legendary warmer\r\nof EGGS!$" },
   { stat = 14, min = 1, title = "The Evolver TRAINER$", action = "Evolved POKéMON$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER made {STR_VAR_1} POKéMON\nevolve!\n{STR_VAR_3} is the ultimate evolver\nof POKéMON!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER made {STR_VAR_1} POKéMON\r\nevolve!\r\n{STR_VAR_3} is the ultimate evolver\r\nof POKéMON!$" },
   { stat = 15, min = 1, title = "The POKéMON CENTER-Loving TRAINER$", action = "Used POKéMON CENTERS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER healed POKéMON\n{STR_VAR_1} times at POKéMON CENTERS!\nThere could be no greater lover of\nPOKéMON CENTERS than {STR_VAR_3}!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER healed POKéMON\r\n{STR_VAR_1} times at POKéMON CENTERS!\r\nThere could be no greater lover of\r\nPOKéMON CENTERS than {STR_VAR_3}!$" },
   { stat = 16, min = 1, title = "The Homebody TRAINER$", action = "Rested POKéMON at home$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER healed POKéMON\n{STR_VAR_1} times at home!\nThere could be no more of a homebody\nthan {STR_VAR_3}!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER healed POKéMON\r\n{STR_VAR_1} times at home!\r\nThere could be no more of a homebody\r\nthan {STR_VAR_3}!$" },
   { stat = 17, min = 1, title = "The SAFARI-Loving TRAINER$", action = "Entered the SAFARI ZONE$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER went into the SAFARI ZONE\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER whose wild side\nmust come out in the SAFARI ZONE!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER went into the SAFARI ZONE\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a TRAINER whose wild side\r\nmust come out in the SAFARI ZONE!$" },
   { stat = 18, min = 1, title = "The CUT-Frenzy TRAINER$", action = "Used CUT$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used CUT\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who just must\nlove to CUT!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER used CUT\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a TRAINER who just must\r\nlove to CUT!$" },
   { stat = 19, min = 1, title = "The ROCK-SMASHING TRAINER$", action = "Smashed rocks$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used ROCK SMASH\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who\ncan't leave a stone unsmashed!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER used ROCK SMASH\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a TRAINER who\r\ncan't leave a stone unsmashed!$" },
   { stat = 20, min = 1, title = "The Move-Loving TRAINER$", action = "Moved the SECRET BASE$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER moved the SECRET BASE\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who loves\nto move houses often!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER moved the SECRET BASE\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a TRAINER who loves\r\nto move houses often!$" },
   { stat = 26, min = 1, title = "The SPLASH-Happy TRAINER$", action = "Used SPLASH$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used SPLASH\n{STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who must love\nSPLASHING around!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER used SPLASH\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a TRAINER who must love\r\nSPLASHING around!$" },
   { stat = 27, min = 1, title = "The Tenacious TRAINER$", action = "Resorted to using STRUGGLE$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER had to rely on STRUGGLE\n{STR_VAR_1} times!\n{STR_VAR_3} is a tenacious TRAINER\nwho never gives in to adversity!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER had to rely on STRUGGLE\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} is a tenacious TRAINER\r\nwho never gives in to adversity!$" },
   { stat = 28, min = 1, title = "The SLOT Champ$", action = "Won the jackpot on the SLOTS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won the jackpot on\nthe SLOTS {STR_VAR_1} times.\n{STR_VAR_3} is a TRAINER who was lucky\non the SLOTS!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER won the jackpot on\r\nthe SLOTS {STR_VAR_1} times.\r\n{STR_VAR_3} is a TRAINER who was lucky\r\non the SLOTS!$" },
   { stat = 29, min = 2, title = "The ROULETTE Champ$", action = "Had consecutive ROULETTE wins of$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won in ROULETTE\n{STR_VAR_1} times in a row.\n{STR_VAR_3} was lucky when the ball\nbounced in ROULETTE!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER won in ROULETTE\r\n{STR_VAR_1} times in a row.\r\n{STR_VAR_3} was lucky when the ball\r\nbounced in ROULETTE!$" },
   { stat = 30, min = 1, title = "The BATTLE TOWER Challenger$", action = "Took the BATTLE TOWER challenge$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER took the BATTLE TOWER\nchallenge {STR_VAR_1} times!\n{STR_VAR_3} is a TRAINER who aspires\nfor excellence in the BATTLE TOWER!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER took the BATTLE TOWER\r\nchallenge {STR_VAR_1} times!\r\n{STR_VAR_3} is a TRAINER who aspires\r\nfor excellence in the BATTLE TOWER!$" },
   { stat = 33, min = 1, title = "The Blend-Loving TRAINER$", action = "Made {POKEBLOCK}S$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER made {POKEBLOCK}S\n{STR_VAR_1} times!\nThere is none better at using a BERRY\nBLENDER than {STR_VAR_3}!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER made {POKEBLOCK}S\r\n{STR_VAR_1} times!\r\nThere is none better at using a BERRY\r\nBLENDER than {STR_VAR_3}!$" },
   { stat = 36, min = 1, title = "The CONTEST-Loving TRAINER$", action = "Entered CONTESTS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER entered CONTESTS\n{STR_VAR_1} times!\n{STR_VAR_3} must love showing off\nPOKéMON to others!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER entered CONTESTS\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must love showing off\r\nPOKéMON to others!$" },
   { stat = 37, min = 1, title = "The CONTEST Master$", action = "Won CONTESTS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won CONTESTS\n{STR_VAR_1} times!\n{STR_VAR_3} must be an incredible\nCONTEST master!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER won CONTESTS\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be an incredible\r\nCONTEST master!$" },
   { stat = 38, min = 1, title = "The Happy Shopper$", action = "Shopped$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER bought items in shops\n{STR_VAR_1} times!\n{STR_VAR_3} must be one of those\npeople who are born to shop.$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER bought items in shops\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be one of those\r\npeople who are born to shop.$" },
   { stat = 39, min = 1, title = "The Item-Finding TRAINER$", action = "Used an ITEMFINDER$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER used an ITEMFINDER\n{STR_VAR_1} times!\n{STR_VAR_3} must enjoy scouring the\nground for hidden items!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER used an ITEMFINDER\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must enjoy scouring the\r\nground for hidden items!$" },
   { stat = 40, min = 1, title = "The Rain-Soaked TRAINER$", action = "Got rained on$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER got soaked by rain\n{STR_VAR_1} times!\n{STR_VAR_3}'s charisma must even\nattract rain!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER got soaked by rain\r\n{STR_VAR_1} times!\r\n{STR_VAR_3}'s charisma must even\r\nattract rain!$" },
   { stat = 41, min = 1, title = "The Avid POKéDEX Reader$", action = "Checked a POKéDEX$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER checked a POKéDEX\n{STR_VAR_1} times!\n{STR_VAR_3} must love inspecting\nPOKéMON in a POKéDEX!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER checked a POKéDEX\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must love inspecting\r\nPOKéMON in a POKéDEX!$" },
   { stat = 42, min = 1, title = "The RIBBON Collector$", action = "Received RIBBONS$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER received RIBBONS\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER who\nloves to collect RIBBONS!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER received RIBBONS\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a TRAINER who\r\nloves to collect RIBBONS!$" },
   { stat = 43, min = 1, title = "The Ledge-Jumping TRAINER$", action = "Jumped down ledges$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER jumped down ledges\n{STR_VAR_1} times!\nIf there's a ledge to be jumped,\n{STR_VAR_3} can't ignore it!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER jumped down ledges\r\n{STR_VAR_1} times!\r\nIf there's a ledge to be jumped,\r\n{STR_VAR_3} can't ignore it!$" },
   { stat = 44, min = 1, title = "The Legendary TV Viewer$", action = "Watched TV$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER watched TV\n{STR_VAR_1} times!\n{STR_VAR_3} must love watching TV!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER watched TV\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must love watching TV!$" },
   { stat = 45, min = 1, title = "The Time-Conscious TRAINER$", action = "Checked the time$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER checked the time\n{STR_VAR_1} times!\n{STR_VAR_3} must be a punctual TRAINER\nwho's conscious of the time.$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER checked the time\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a punctual TRAINER\r\nwho's conscious of the time.$" },
   { stat = 46, min = 1, title = "The POKéMON LOTTERY Wizard$", action = "Won POKéMON LOTTERIES$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER won POKéMON LOTTERIES\n{STR_VAR_1} times!\n{STR_VAR_3} must have many friends\nto trade POKéMON with!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER won POKéMON LOTTERIES\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must have many friends\r\nto trade POKéMON with!$" },
   { stat = 47, min = 1, title = "The DAY CARE-Using Trainer$", action = "Left POKéMON at the DAY CARE$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER left POKéMON with the\nDAY CARE {STR_VAR_1} times!\n{STR_VAR_3} must be a real go-getter\nwho raises POKéMON aggressively!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER left POKéMON with the\r\nDAY CARE {STR_VAR_1} times!\r\n{STR_VAR_3} must be a real go-getter\r\nwho raises POKéMON aggressively!$" },
   { stat = 48, min = 1, title = "The CABLE CAR-Loving TRAINER$", action = "Rode the CABLE CAR$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER rode the CABLE CAR\n{STR_VAR_1} times!\n{STR_VAR_3} must be a busy TRAINER\nwho's up and down all the time!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER rode the CABLE CAR\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a busy TRAINER\r\nwho's up and down all the time!$" },
   { stat = 49, min = 1, title = "The Hot Spring-Loving TRAINER$", action = "Bathed in hot springs$",
-    text = "This is a tale of a TRAINER\nnamed {STR_VAR_3}.\nThis TRAINER bathed in hot springs\n{STR_VAR_1} times!\n{STR_VAR_3} must be a TRAINER with\nbaby-smooth skin!$" },
+    text = "This is a tale of a TRAINER\r\nnamed {STR_VAR_3}.\r\nThis TRAINER bathed in hot springs\r\n{STR_VAR_1} times!\r\n{STR_VAR_3} must be a TRAINER with\r\nbaby-smooth skin!$" },
 }
 -- pokeruby easy_chat.h groups used by InitDewfordTrend.
 Game3.EC_WORDS = {
@@ -2569,7 +2569,7 @@ Game3.CABLE_CAR_DX = 0.14
 Game3.CABLE_CAR_DY = 0.067
 Game3.MT_PETALBURG_DOOR_OPEN = 0x21C
 Game3.TEXT_NO_REGISTERED_ITEM =
-  "An item in the BAG can be registered\non SELECT for convenience."
+  "An item in the BAG can be registered\r\non SELECT for convenience."
 Game3.SPECIAL_HAS_ENOUGH_MONEY_FOR = 197
 Game3.SPECIAL_PAY_MONEY_FOR = 198
 Game3.SPECIAL_ROTATING_GATE_INIT = 201
@@ -2895,26 +2895,26 @@ Game3.SAFARI_POKEBLOCK_FLEE = {
   { 1, 1, 0 },
 }
 Game3.TEXT_SAFARI_TIME_UP =
-  "Ding-dong! Time's up!\nYour SAFARI Game is over."
+  "Ding-dong! Time's up!\r\nYour SAFARI Game is over."
 Game3.TEXT_SAFARI_OUT_OF_BALLS =
-  "You've run out of SAFARI BALLS.\nYour SAFARI Game is over."
+  "You've run out of SAFARI BALLS.\r\nYour SAFARI Game is over."
 -- SSTidalCorridor_Text_199088 / 1990B4. Walking 0xCD steps while
 -- FLAG_SYS_CRUISE_MODE runs gUnknown_0815FD0D.
 Game3.TEXT_SS_TIDAL_VOYAGE =
-  "We hope you enjoy your voyage on\nour ferry."
+  "We hope you enjoy your voyage on\r\nour ferry."
 Game3.TEXT_SS_TIDAL_LAND_SLATEPORT =
-  "We have made land in SLATEPORT CITY.\nThank you for sailing with us."
+  "We have made land in SLATEPORT CITY.\r\nThank you for sailing with us."
 Game3.TEXT_FELL_THROUGH = "You fell through!"
 Game3.TEXT_SAFARI_RETIRE =
-  "Would you like to exit the SAFARI ZONE\nright now?"
+  "Would you like to exit the SAFARI ZONE\r\nright now?"
 Game3.TEXT_SAFARI_OVER =
-  "ANNOUNCER: You're out of\nSAFARI BALLS! Game over!"
+  "ANNOUNCER: You're out of\r\nSAFARI BALLS! Game over!"
 -- BattleText_AddedToDex / gDexText_RegisterComplete (pokedex.c catch overlay).
 Game3.TEXT_DEX_REGISTERED = "POKeDEX registration completed."
 Game3.TEXT_DEX_CRY_OF = "CRY OF"
 Game3.TEXT_DEX_SIZE_COMPARED = "SIZE COMPARED TO "
 Game3.TEXT_DEX_AREA_UNKNOWN = "AREA UNKNOWN"
-Game3.TEXT_GIVE_CAUGHT_NICK = "Give a nickname to the\ncaptured %s?"
+Game3.TEXT_GIVE_CAUGHT_NICK = "Give a nickname to the\r\ncaptured %s?"
 -- CreateMonListEntry fills eleven entries, but that is the scrolling buffer.
 -- The list panel on gUnknown_08E96738 is 132px tall (y 14..145), so eight
 -- 16px rows are what actually show.
@@ -3216,7 +3216,7 @@ Game3.FLAG_HIDE_PEEKO_BRINEY_HOUSE = 0x371
 Game3.TVSHOW_FAN_CLUB_LETTER = 1
 Game3.SAVE_SUCCESS = 1
 Game3.TEXT_POKEMON_FAINTED = "{STR_VAR_1} fainted..."
-Game3.TEXT_WHITED_OUT = "{PLAYER} is out of useable POKeMON!\n{PLAYER} whited out!"
+Game3.TEXT_WHITED_OUT = "{PLAYER} is out of useable POKeMON!\r\n{PLAYER} whited out!"
 Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_1_KEY = 0x277
 Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_2_KEY = 0x278
 Game3.FLAG_HIDDEN_ITEM_ABANDONED_SHIP_RM_4_KEY = 0x279
@@ -3309,8 +3309,8 @@ Game3.MON_GENDERLESS = 2
 Game3.DAYCARE_COMPAT_TEXT = {
   [70] = "The two seem to get along very well.",
   [50] = "The two seem to get along.",
-  [20] = "The two don't seem to like each other.",
-  [0] = "The two prefer to play with other\nPOKeMON than each other.",
+  [20] = "The two don't seem to like each other much.",
+  [0] = "The two prefer to play with other POKeMON than each other.",
 }
 Game3.VAR_CONTEST_RANK = 0x8010
 Game3.VAR_CONTEST_CATEGORY = 0x8011
@@ -3432,11 +3432,11 @@ Game3.CONTEST_PAINTING_FRAME = {
 }
 -- sMuseumCaptions prefixes/suffixes (English), indexed by category.
 Game3.MUSEUM_CAPTIONS = {
-  { "Nonstop super-cool -\nthe inestimable ", "!" },
-  { "The century's last Venus -\n", "'s dazzling smile" },
-  { "Lovely and sweet -\n", "!" },
-  { "The smartness maestro -\n", "!" },
-  { "The powerfully muscular -\n", "!" },
+  { "Nonstop super-cool -\r\nthe inestimable ", "!" },
+  { "The century's last Venus -\r\n", "'s dazzling smile" },
+  { "Lovely and sweet -\r\n", "!" },
+  { "The smartness maestro -\r\n", "!" },
+  { "The powerfully muscular -\r\n", "!" },
 }
 Game3.CONTEST_NPC_SCORES = { 50, 55, 60 }
 Game3.CONTEST_PLAYER_MON_INDEX = 3
@@ -4762,7 +4762,7 @@ function Game3:easyChatBoardText(index)
     end
     if #parts > 0 then lines[#lines + 1] = table.concat(parts, " ") end
   end
-  return table.concat(lines, "\n")
+  return table.concat(lines, "\r\n")
 end
 
 -- The boards are written by other players over the link cable, so in a
@@ -8613,11 +8613,7 @@ end
 
 function Game3:connectedLayout(map, hops)
   map = map or self.map
-  -- The cart loads the current map plus its DIRECT connections only, so the
-  -- default stays one hop. CONNECTION_VIEW_HOPS is still honoured, but a
-  -- caller has to ask for it -- as the default it pulled four maps into every
-  -- ordinary draw and broke the one-hop contract the renderer relies on.
-  hops = math.floor(tonumber(hops) or Game3.CONNECTION_DRAW_HOPS or 1)
+  hops = math.floor(tonumber(hops) or Game3.CONNECTION_VIEW_HOPS or 4)
   if hops < 1 then hops = 1 end
   if hops > 6 then hops = 6 end
   if not map then return {} end
@@ -8925,19 +8921,11 @@ function Game3:layersFor(tilesetId, frame)
 end
 
 function Game3:loadTileset()
-  local map = self.map
-  if not map then
-    self.layerBottom, self.layerTop = nil, nil
-    return
-  end
-  if self._boundTileset == map.tileset and self.layerBottom then
-    self._tilesetFrame = self:tilesetAnimFrame(map.tileset)
-    return
-  end
   self.layerBottom, self.layerTop = nil, nil
+  local map = self.map
+  if not map then return end
   self._tilesetFrame = self:tilesetAnimFrame(map.tileset)
   self.layerBottom, self.layerTop = self:layersFor(map.tileset, self._tilesetFrame)
-  self._boundTileset = map.tileset
 end
 
 -- Swap in the next frame's atlases when the tick rolls over. tileWindow keys
@@ -9343,11 +9331,7 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   end
   self.mapLayoutId = tonumber(map and map.layoutId) or 0
   self.map = map
-  -- Connection: keep the layout we were already drawing. Wiping it
-  -- rebuilds every neighbor origin on the seam frame (the hitch).
-  if not connected then
-    self.connectedLayoutCache = nil
-  end
+  self.connectedLayoutCache = nil
   self.playerX = x
   self.playerY = y
   self.walkFromX = x
@@ -9412,22 +9396,17 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   end
   self:clearTempFlags()
   self:setDefaultFlashLevel(map)
-  self._deferEnterWork = connected and true or nil
   -- overworld.c LoadMap: TryUpdateRandomTrainerRematches before
   -- SetSav1WeatherFromCurrMapHeader. CONTINUE skips like RoamerMove.
-  if not self._deferEnterWork then
-    if not self._skipRoamerMove then
-      self:tryUpdateRandomTrainerRematches()
-    end
-    self:doTimeBasedEvents()
+  if not self._skipRoamerMove then
+    self:tryUpdateRandomTrainerRematches()
   end
+  self:doTimeBasedEvents()
   -- overworld.c LoadMap: SetSav1WeatherFromCurrMapHeader, ON_TRANSITION,
   -- then DoCurrentWeather. ON_TRANSITION may setweather (Route 111 sand).
-  if not self._deferEnterWork then
-    self:setSav1WeatherFromCurrMapHeader()
-    if self:mapNeedsEvilTeamGfx(map) then
-      self:setupEvilTeamGfxIds()
-    end
+  self:setSav1WeatherFromCurrMapHeader()
+  if self:mapNeedsEvilTeamGfx(map) then
+    self:setupEvilTeamGfxIds()
   end
   -- secret_base.inc gUnknown_081A2E14 runs on every way into a base and
   -- branches on sub_80BC114 ("is this somebody else's?"): its own-base arm,
@@ -9460,24 +9439,16 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
     -- its entrance open when you come back.
     self:setOccupiedSecretBaseEntranceMetatiles(map)
   end
-  if not self._deferEnterWork then
-    self:runMapScript("onTransition")
-    self:runMapScript("onLoad")
-  end
+  self:runMapScript("onTransition")
+  self:runMapScript("onLoad")
   -- overworld.c LoadMapFromLastWarp: after InitMap, before weather.
-  if not self._deferEnterWork then
-    if not self._skipRoamerMove then
-      self:updateLocationHistoryForRoamer()
-      self:roamerMove()
-    end
-    self:doCurrentWeather()
-    self:runMapScript("onResume")
+  if not self._skipRoamerMove then
+    self:updateLocationHistoryForRoamer()
+    self:roamerMove()
   end
-  if connected then
-    self:applyNpcFlags(map)
-  else
-    self:resetNpcs(map)
-  end
+  self:doCurrentWeather()
+  self:runMapScript("onResume")
+  self:resetNpcs(map)
   self:updatePlayerZCoord()
   -- tv.c UpdateTVScreensOnMap: default TVs off, then on if a show airs.
   self:updateTVScreensOnMap()
@@ -9487,13 +9458,9 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   -- are map-local, so keep them; wiping here is the seam hitch.
   if not connected then
     self:markTilesDirty()
-    self:loadTileset()
-    self:warmConnectedMaps(map)
-  else
-    self:loadTileset()
-    self._pendingWarm = map
-    self._pendingMapMusic = map
   end
+  self:loadTileset()
+  self:warmConnectedMaps(map)
   if self.surfing and not self:isUnderwater(map)
       and not Game3.isSurfable(self:behaviorAt(map, x, y)) then
     self.surfing = nil
@@ -9504,9 +9471,7 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
     self.bike = nil
   end
   self:markFlyVisited(map)
-  if not connected then
-    self:playMapMusic(map)
-  end
+  self:playMapMusic(map)
   self:runMapScriptTable("onWarp", false)
   -- pokeruby runs the dest ON_FRAME after the warp script finishes, not
   -- nested inside warpsilent. Boot cinema also must not run field scripts
@@ -9522,10 +9487,6 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   -- gMapHeader.flags == 1, unless FLAG_HIDE_MAP_NAME_POPUP. Indoor
   -- maps skip ShowMapNamePopup; drop any leftover so a house warp does
   -- not keep the previous route label on screen.
-  -- Arming the popup is a table assignment, not part of the seam hitch that
-  -- _deferEnterWork exists to smooth (rebuilding neighbour origins and the
-  -- map scripts). Deferring it too made a connection walk show no route
-  -- banner until the next logic step, which the cart does during LoadMap.
   if not self:showMapNamePopup() and not self:mapWantsNamePopup(map) then
     self:hideMapNamePopup()
   end
@@ -12469,7 +12430,7 @@ function Game3:askMoveSecretBaseInside()
   end
   local near = (self.stringVars and self.stringVars[1]) or "this area"
   self:openSecretBaseYesNo(
-    "You may only make one SECRET BASE.\nWould you like to move from the "
+    "You may only make one SECRET BASE.\r\nWould you like to move from the "
       .. "SECRET BASE near " .. near .. "?",
     "askMoveSecretBaseInsideDecorations", {})
   self:beginScriptWait()
@@ -12477,8 +12438,8 @@ end
 
 function Game3:askMoveSecretBaseInsideDecorations()
   self:openSecretBaseYesNo(
-    "All decorations and furniture in your\nSECRET BASE will be returned "
-      .. "to your PC.\nIs that okay?",
+    "All decorations and furniture in your\r\nSECRET BASE will be returned "
+      .. "to your PC.\r\nIs that okay?",
     "commitSecretBaseMove", {})
 end
 
@@ -13080,7 +13041,7 @@ Game3.DECOR_PC_NOTES = {
   "Put out the selected decoration item.",
   "Store the chosen decoration in the PC.",
   "Throw away unwanted decorations.",
-  "Go back to the\nprevious menu.",
+  "Go back to the\r\nprevious menu.",
 }
 
 function Game3:decorContext()
@@ -13181,7 +13142,7 @@ function Game3:pickDecorCategory(index)
     notes[#notes + 1] = self:decorationDescription(id)
   end
   labels[#labels + 1] = "CANCEL"
-  notes[#notes + 1] = "Go back to the\nprevious menu."
+  notes[#notes + 1] = "Go back to the\r\nprevious menu."
   self._decorIds = ids
   self:openDecorMenu(labels, "pickDecorItem", notes)
 end
@@ -13232,12 +13193,12 @@ function Game3:pickDecorItem(index)
   local inUse = self:placedDecorInventorySlots(cat)[slot] and true or false
   if self._decorMode == "toss" then
     if inUse then
-      return self:decorSay("This decoration is in use.\nIt can't be thrown away.")
+      return self:decorSay("This decoration is in use.\r\nIt can't be thrown away.")
     end
     self._decorPending = { id = id, cat = cat, slot = slot }
     self:setStringVar(1, self:decorationName(id))
     return self:openDecorYesNo(
-      ("This %s will be discarded.\nIs that okay?"):format(self:decorationName(id)),
+      ("This %s will be discarded.\r\nIs that okay?"):format(self:decorationName(id)),
       "confirmDecorToss")
   end
   return self:beginPlacingDecoration(id, cat, slot, inUse)
@@ -13259,14 +13220,14 @@ end
 function Game3:beginPlacingDecoration(id, cat, slot, inUse)
   local items, _, size, isPlayerRoom = self:decorContext()
   if isPlayerRoom and cat ~= 6 and cat ~= 7 then
-    return self:decorSay("This decoration can't be placed in\nyour own room.")
+    return self:decorSay("This decoration can't be placed in\r\nyour own room.")
   end
   if inUse then
     return self:decorSay("This is in use already.")
   end
   if not Game3.firstFreeDecorSlot(items) then
     self:setStringVar(1, tostring(size))
-    return self:decorSay(("No more decorations can be placed.\n" ..
+    return self:decorSay(("No more decorations can be placed.\r\n" ..
       "The most that can be placed is %d."):format(size))
   end
   local x, y = self.playerX or 0, self.playerY or 0
@@ -19568,7 +19529,7 @@ function Game3:queueSafariEnemy(queue)
     b.fled = true
     return
   end
-  queue[#queue + 1] = ("%s is watching\ncarefully!"):format(name)
+  queue[#queue + 1] = ("%s is watching\r\ncarefully!"):format(name)
 end
 
 function Game3:safariGoNear()
@@ -19591,7 +19552,7 @@ function Game3:safariGoNear()
   local foe = (b.enemy and b.enemy.name) or "POKeMON"
   local line
   if closer then
-    line = ("%s crept closer to\n%s!"):format(player, foe)
+    line = ("%s crept closer to\r\n%s!"):format(player, foe)
   else
     line = ("%s can't get any closer!"):format(player)
   end
@@ -19624,9 +19585,9 @@ function Game3:safariThrowPokeblock(flavor)
   end
   local foe = (b.enemy and b.enemy.name) or "POKeMON"
   local lines = {
-    [0] = ("%s is curious about\nthe POKeBLOCK!"):format(foe),
-    ("%s is enthralled by\nthe POKeBLOCK!"):format(foe),
-    ("%s completely ignored\nthe POKeBLOCK!"):format(foe),
+    [0] = ("%s is curious about\r\nthe POKeBLOCK!"):format(foe),
+    ("%s is enthralled by\r\nthe POKeBLOCK!"):format(foe),
+    ("%s completely ignored\r\nthe POKeBLOCK!"):format(foe),
   }
   local queue = { lines[flavor] or lines[0] }
   self:queueEnemyAction(queue)
@@ -21373,14 +21334,14 @@ function Game3:useItemfinder()
   self:incrementGameStat(Game3.GAME_STAT_USED_ITEMFINDER)
   local dx, dy = self:nearestHiddenItem()
   if dx == nil then
-    return true, "... ... ... ... Nope!\nThere's no response."
+    return true, "... ... ... ... Nope!\r\nThere's no response."
   end
   if dx == 0 and dy == 0 then
-    return true, "The machine's indicating something\nright underfoot!"
+    return true, "The machine's indicating something\r\nright underfoot!"
   end
   local face = Game3.itemfinderFacing(dx, dy)
   if face then self.facing = face end
-  return true, "Oh!\nThe machine's responding!\nThere's an item buried around here!"
+  return true, "Oh!\r\nThe machine's responding!\r\nThere's an item buried around here!"
 end
 
 function Game3:ensureBerryTrees()
@@ -22033,15 +21994,15 @@ function Game3:gabbyAndTyAfterInterview()
 end
 
 Game3.TV_GABBY_TEXTS = {
-  "IN SEARCH OF TRAINERS...\nGABBY: Hi! Today I'm visiting an area\nnear {STR_VAR_1}.\nWe're trying to spot some up-and-coming\nnew talent in the field.\nToday, we turned our lens on the\nTRAINER {PLAYER}.\nThere's something about this TRAINER\nthat piqued our interest.",
-  "We've battled {PLAYER} before, but we\ncan attest that the TRAINER has most\ndefinitely improved from before.\nI knew we were onto someone special\nwhen we spotted this TRAINER!",
-  "The best way to determine how strong\na TRAINER is...\nWell, the fastest way is to battle.\nAnd so we began our investigation!\n... ...\nThat's how we ended up in battle\nwith {PLAYER}.\nIn a dominating performance, we were\nflattened, rolled up, and tossed aside!\n{PLAYER} is ruthlessly strong...\nWe asked the TRAINER for a succinct\nsummation of the battle we shared.",
-  "The combination of {STR_VAR_1} and\n{STR_VAR_3} was divine!\nThe sight of them - {STR_VAR_1} and\n{STR_VAR_3} - selflessly supporting\neach other in the thick of battle...\nIt was a marvelous sight to behold!\n{STR_VAR_2} was the move the TRAINER\nused last in our battle.\nThe move {STR_VAR_2} is {STR_VAR_1}\nand {STR_VAR_3}'s sign of friendship!",
-  "...I lost confidence in myself as\na result of our encounter.\nWe were beaten before we could launch\na single attack.\nOhhh... Snivel...\nIn spite of that, {PLAYER}'s battles\nare worth seeing.\nI recommend confident TRAINERS to\nchallenge {PLAYER}.",
-  "There's only one thing to be said.\nDon't you dare throw a POKe BALL during\na TRAINER battle!\n{PLAYER} is certainly strong, but has\nno clue about the basic rules.\nTo our TV audience, I have a request.\nIf you see {PLAYER}, please caution\nthe TRAINER!",
-  "{PLAYER} is adept at reading the\nopponent's actions.\nThe timing of item usage was remarkably\neffective!",
-  "Honestly speaking, I thought that\nI might even be pretty good.\nWhile we did end up losing, we did have\na hotly contested battle.\nBut if you're struggling against me,\nyou have a ways to go, {PLAYER}!",
-  "After our battle, we asked {PLAYER} for\na succinct summary.\nThe TRAINER replied, “{STR_VAR_1}.”\n{PLAYER}'s POKeMON {STR_VAR_2} and\n{STR_VAR_3}...\nAnd “{STR_VAR_1}”...\nMmm! That's deep! There's deep\nsignificance behind that quote!\nIt's no surprise - a good TRAINER has\ngood things to say.\nThat's all for today!\nSee you again on our next broadcast!",
+  "IN SEARCH OF TRAINERS...\r\nGABBY: Hi! Today I'm visiting an area\r\nnear {STR_VAR_1}.\r\nWe're trying to spot some up-and-coming\r\nnew talent in the field.\r\nToday, we turned our lens on the\r\nTRAINER {PLAYER}.\r\nThere's something about this TRAINER\r\nthat piqued our interest.",
+  "We've battled {PLAYER} before, but we\r\ncan attest that the TRAINER has most\r\ndefinitely improved from before.\r\nI knew we were onto someone special\r\nwhen we spotted this TRAINER!",
+  "The best way to determine how strong\r\na TRAINER is...\r\nWell, the fastest way is to battle.\r\nAnd so we began our investigation!\r\n... ...\r\nThat's how we ended up in battle\r\nwith {PLAYER}.\r\nIn a dominating performance, we were\r\nflattened, rolled up, and tossed aside!\r\n{PLAYER} is ruthlessly strong...\r\nWe asked the TRAINER for a succinct\r\nsummation of the battle we shared.",
+  "The combination of {STR_VAR_1} and\r\n{STR_VAR_3} was divine!\r\nThe sight of them - {STR_VAR_1} and\r\n{STR_VAR_3} - selflessly supporting\r\neach other in the thick of battle...\r\nIt was a marvelous sight to behold!\r\n{STR_VAR_2} was the move the TRAINER\r\nused last in our battle.\r\nThe move {STR_VAR_2} is {STR_VAR_1}\r\nand {STR_VAR_3}'s sign of friendship!",
+  "...I lost confidence in myself as\r\na result of our encounter.\r\nWe were beaten before we could launch\r\na single attack.\r\nOhhh... Snivel...\r\nIn spite of that, {PLAYER}'s battles\r\nare worth seeing.\r\nI recommend confident TRAINERS to\r\nchallenge {PLAYER}.",
+  "There's only one thing to be said.\r\nDon't you dare throw a POKe BALL during\r\na TRAINER battle!\r\n{PLAYER} is certainly strong, but has\r\nno clue about the basic rules.\r\nTo our TV audience, I have a request.\r\nIf you see {PLAYER}, please caution\r\nthe TRAINER!",
+  "{PLAYER} is adept at reading the\r\nopponent's actions.\r\nThe timing of item usage was remarkably\r\neffective!",
+  "Honestly speaking, I thought that\r\nI might even be pretty good.\r\nWhile we did end up losing, we did have\r\na hotly contested battle.\r\nBut if you're struggling against me,\r\nyou have a ways to go, {PLAYER}!",
+  "After our battle, we asked {PLAYER} for\r\na succinct summary.\r\nThe TRAINER replied, “{STR_VAR_1}.”\r\n{PLAYER}'s POKeMON {STR_VAR_2} and\r\n{STR_VAR_3}...\r\nAnd “{STR_VAR_1}”...\r\nMmm! That's deep! There's deep\r\nsignificance behind that quote!\r\nIt's no surprise - a good TRAINER has\r\ngood things to say.\r\nThat's all for today!\r\nSee you again on our next broadcast!",
 }
 
 function Game3:setTVMetatilesOnMap(tileId)
@@ -22808,8 +22769,8 @@ function Game3.bardLyricString(lyrics)
   local d = Game3.ecWordText(lyrics[4])
   local e = Game3.ecWordText(lyrics[5])
   local f = Game3.ecWordText(lyrics[6])
-  return (a .. " " .. b .. " " .. c .. "\n" .. d .. " " .. e .. " " .. f)
-    :gsub(" +", " "):gsub(" \n", "\n")
+  return (a .. " " .. b .. " " .. c .. "\r\n" .. d .. " " .. e .. " " .. f)
+    :gsub(" +", " "):gsub(" \r\n", "\r\n")
 end
 
 function Game3:getGameStat(id)
@@ -23001,7 +22962,7 @@ function Game3:generateGiddyLine()
   if word and word ~= 0xFFFF then
     local adj = Game3.GIDDY_ADJECTIVES[(self:rand(8) or 1)]
     self:setStringVar(4, Game3.ecWordText(word) .. " is" .. (adj or " so pretty!")
-      .. "\nDon't you agree?")
+      .. "\r\nDon't you agree?")
   else
     local qn = man.questionNum or 1
     local qi = man.questionList and man.questionList[qn] or qn
@@ -24048,7 +24009,7 @@ function Game3:useItemOnMon(mon, id, moveIndex)
     self:recalcStats(mon)
     self:applyItemFriendship(mon, id)
     local name = mon.name or "POKeMON"
-    return true, ("%s's %s was\nraised."):format(name, vitamin.name)
+    return true, ("%s's %s was\r\nraised."):format(name, vitamin.name)
   end
   if id == Game3.ITEM_RARE_CANDY then
     if (mon.level or 1) >= Game3.MAX_LEVEL then
@@ -24084,7 +24045,7 @@ function Game3:useItemOnMon(mon, id, moveIndex)
     self:tryEvolve(mon)
     local name = mon.name or "POKeMON"
     local texts = {
-      ("%s was elevated to\nLv. %d."):format(name, mon.level),
+      ("%s was elevated to\r\nLv. %d."):format(name, mon.level),
     }
     for i = 1, #learned do texts[#texts + 1] = learned[i] end
     return true, table.concat(texts, " ")
@@ -24241,7 +24202,7 @@ end
 
 function Game3:dadsAdvice()
   -- gOtherText_DadsAdvice. \l is a third line in FONT3.
-  return ("DAD's advice...\n%s, there's a time and place for\neverything!"):format(
+  return ("DAD's advice...\r\n%s, there's a time and place for\r\neverything!"):format(
     self:playerName())
 end
 
@@ -24252,7 +24213,7 @@ function Game3:useFieldItem(id)
   end
   -- item_menu.c: type 1 (medicine / candy / PP / stone) with no party.
   if Game3.needsFieldParty(id) and #(self.party or {}) < 1 then
-    return false, "There is no\nPOKéMON."
+    return false, "There is no\r\nPOKéMON."
   end
   if Game3.isTmHm(id) then
     return self:bootTmHm(id)
@@ -24279,7 +24240,7 @@ function Game3:useFieldItem(id)
     return self:useEscapeRope()
   end
   if id == Game3.ITEM_COIN_CASE then
-    return true, ("Your COINS:\n%d"):format(self:getCoins())
+    return true, ("Your COINS:\r\n%d"):format(self:getCoins())
   end
   if id == Game3.ITEM_POKEBLOCK_CASE then
     return self:openPokeblockCase()
@@ -24369,7 +24330,7 @@ function Game3:plantBerryFromBag(id)
   self:incrementGameStat(Game3.GAME_STAT_PLANTED_BERRIES)
   self:refreshBerryTreeSprites()
   local name = self:berryName(berry)
-  return true, ("%s planted one %s BERRY in\nthe soft, loamy soil."):format(
+  return true, ("%s planted one %s BERRY in\r\nthe soft, loamy soil."):format(
     self:playerName(), name)
 end
 
@@ -24384,7 +24345,7 @@ function Game3:bootTmHm(item)
     text = boot,
     queue = {
       boot,
-      ("It contained\n%s.\nTeach %s\nto a POKéMON?"):format(name, name),
+      ("It contained\r\n%s.\r\nTeach %s\r\nto a POKéMON?"):format(name, name),
     },
     qi = 1,
     thenTmAsk = true,
@@ -24492,9 +24453,9 @@ function Game3:buyMartItem(id, kind, qty)
     self:playSe(Game3.SE_SHOP)
     local f = self.field
     if f and f.martType == 2 then
-      return true, "Thanks!\nI'll send it to your PC at home."
+      return true, "Thanks!\r\nI'll send it to your PC at home."
     end
-    return true, "Thank you!\nI'll send it to your home PC."
+    return true, "Thank you!\r\nI'll send it to your home PC."
   end
   local unit = self:itemPrice(id)
   local price = unit * qty
@@ -26764,9 +26725,9 @@ end
 -- BADGE08 plus IsPlayerSurfingNorth runs S_UseWaterfall, anything else runs
 -- S_CannotUseWaterfall, which is just the flavour line.
 Game3.TEXT_CANNOT_USE_WATERFALL =
-  "A wall of water is crashing down with\na mighty roar."
+  "A wall of water is crashing down with\r\na mighty roar."
 Game3.TEXT_USE_WATERFALL_PROMPT =
-  "It's a large waterfall.\nWould you like to use WATERFALL?"
+  "It's a large waterfall.\r\nWould you like to use WATERFALL?"
 
 function Game3:tryWaterfallInteract()
   local map = self.map
@@ -26830,7 +26791,7 @@ end
 function Game3:openSurfPrompt()
   self.field = {
     kind = "surf_yesno",
-    text = "The water is dyed a deep blue...\nWould you like to SURF?",
+    text = "The water is dyed a deep blue...\r\nWould you like to SURF?",
     cursor = 0,
   }
   return true
@@ -26942,13 +26903,13 @@ end
 -- B, not A, is what surfaces you. Without a party member that knows DIVE each
 -- one still speaks, just with the "a POKeMON may be able to" wording.
 Game3.TEXT_DIVE_CANNOT =
-  "The sea is deep here. A POKeMON may be\nable to go underwater here."
+  "The sea is deep here. A POKeMON may be\r\nable to go underwater here."
 Game3.TEXT_DIVE_PROMPT =
-  "The sea is deep here.\nWould you like to use DIVE?"
+  "The sea is deep here.\r\nWould you like to use DIVE?"
 Game3.TEXT_DIVE_EMERGE_CANNOT =
-  "Light is filtering down from above.\nA POKeMON may be able to surface here."
+  "Light is filtering down from above.\r\nA POKeMON may be able to surface here."
 Game3.TEXT_DIVE_EMERGE_PROMPT =
-  "Light is filtering down from above.\nWould you like to use DIVE?"
+  "Light is filtering down from above.\r\nWould you like to use DIVE?"
 
 -- TrySetDiveWarp returns 2 for a dive down, 1 for an emerge. Both are gated on
 -- FLAG_BADGE07_GET, and the emerge one additionally on being underwater.
@@ -27737,12 +27698,12 @@ function Game3:useBlackWhiteFlute(id)
   if id == Game3.ITEM_WHITE_FLUTE then
     self.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = true
     self.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = nil
-    return true, ("%s used the %s.\nWild POKéMON will be lured."):format(
+    return true, ("%s used the %s.\r\nWild POKéMON will be lured."):format(
       self:playerName(), name)
   end
   self.flags[Game3.FLAG_SYS_ENC_DOWN_ITEM] = true
   self.flags[Game3.FLAG_SYS_ENC_UP_ITEM] = nil
-  return true, ("%s used the %s.\nWild POKéMON will be repelled."):format(
+  return true, ("%s used the %s.\r\nWild POKéMON will be repelled."):format(
     self:playerName(), name)
 end
 
@@ -28689,18 +28650,18 @@ end
 Game3.SECRET_POWER_TEXT = {
   [1] = {
     "There's a small indent in the wall.",
-    "There's a small indent in the wall.\nUse the SECRET POWER?",
+    "There's a small indent in the wall.\r\nUse the SECRET POWER?",
     "Discovered a small cavern!",
   },
   [5] = {
-    "If some vines drop down, this tree can\nbe climbed.",
-    "If some vines drop down, this tree can\nbe climbed.\nUse the SECRET POWER?",
+    "If some vines drop down, this tree can\r\nbe climbed.",
+    "If some vines drop down, this tree can\r\nbe climbed.\r\nUse the SECRET POWER?",
     "A thick vine dropped down!",
   },
   [6] = {
-    "If this clump of grass can be moved,\nit might be possible to go inside.",
-    "If this clump of grass can be moved,\nit might be possible to go inside."
-      .. "\nUse the SECRET POWER?",
+    "If this clump of grass can be moved,\r\nit might be possible to go inside.",
+    "If this clump of grass can be moved,\r\nit might be possible to go inside."
+      .. "\r\nUse the SECRET POWER?",
     "Discovered a small entrance!",
   },
 }
@@ -28874,7 +28835,7 @@ function Game3:askToMoveSecretBase(spot, entrance, slot)
   self:getSecretBaseNearbyMapName()
   local near = (self.stringVars and self.stringVars[1]) or ""
   self:openSecretBaseYesNo(
-    "You may only make one SECRET BASE.\nWould you like to move from the "
+    "You may only make one SECRET BASE.\r\nWould you like to move from the "
       .. "SECRET BASE near " .. near .. "?",
     "askMoveSecretBaseDecorations",
     { spot = spot, entrance = entrance, slot = slot })
@@ -28883,8 +28844,8 @@ end
 
 function Game3:askMoveSecretBaseDecorations(f)
   self:openSecretBaseYesNo(
-    "All decorations and furniture in your\nSECRET BASE will be returned "
-      .. "to your PC.\nIs that okay?",
+    "All decorations and furniture in your\r\nSECRET BASE will be returned "
+      .. "to your PC.\r\nIs that okay?",
     "doMoveSecretBase",
     { spot = f.spot, entrance = f.entrance, slot = f.slot })
 end
@@ -28894,7 +28855,7 @@ function Game3:doMoveSecretBase(f)
   self:setScriptVar(0x8004, f.slot)
   self:moveSecretBaseSpecial()
   self:openSecretBaseYesNo(
-    "Moving completed.\nWould you like to use the SECRET POWER?",
+    "Moving completed.\r\nWould you like to use the SECRET POWER?",
     "secretPowerConfirmed",
     { spot = f.spot, entrance = f.entrance, slot = f.slot })
 end
@@ -29140,7 +29101,7 @@ function Game3:depositToDaycare(index)
     levelIn = tonumber(mon.level) or 1,
   }
   table.remove(self.party, index)
-  return true, ("I'll raise your %s.\nCome back for it later."):format(
+  return true, ("I'll raise your %s.\r\nCome back for it later."):format(
     mon.name or "POKeMON")
 end
 
@@ -29167,7 +29128,7 @@ function Game3:takeFromDaycare(slot)
   self:compactDaycare()
   self:addToParty(mon)
   local name = mon.name or "POKeMON"
-  return true, ("Perfect!\nHere's your POKeMON.\n%s got back %s."):format(
+  return true, ("Perfect!\r\nHere's your POKeMON.\r\n%s got back %s."):format(
     self:playerName(), name)
 end
 
@@ -29186,14 +29147,14 @@ function Game3:openDaycareRetrieve(slot)
     pages[#pages + 1] =
       ("Your %s needs to spend some more time with us."):format(name)
     pages[#pages + 1] =
-      ("If you want your POKeMON back,\nit will cost ¥%d."):format(cost)
+      ("If you want your POKeMON back,\r\nit will cost ¥%d."):format(cost)
   else
     local grewTxt = (grew == 1) and "1 level" or (grew .. " levels")
     pages[#pages + 1] =
-      ("Your %s has grown a lot.\nBy level, it's grown by %s."):format(
+      ("Your %s has grown a lot.\r\nBy level, it's grown by %s."):format(
         name, grewTxt)
     pages[#pages + 1] =
-      ("If you want your POKeMON back,\nit will cost ¥%d."):format(cost)
+      ("If you want your POKeMON back,\r\nit will cost ¥%d."):format(cost)
   end
   self.field = {
     kind = "daycare_retrieve",
@@ -29507,7 +29468,7 @@ function Game3:openEggNickAsk()
   local name = (f and f.name) or "POKeMON"
   self.field = {
     kind = "egg_nick",
-    text = ("Would you like to nickname the newly\nhatched %s?"):format(name),
+    text = ("Would you like to nickname the newly\r\nhatched %s?"):format(name),
     cursor = 0,
     slot = f and f.slot,
     name = name,
@@ -29768,7 +29729,7 @@ function Game3:contestPaintingCaption(subject)
     return (cap[1] or "") .. nick .. (cap[2] or "")
   end
   local catName = Game3.CONTEST_CAT_NAMES[cat + 1] or "COOL"
-  return ("%s %s\n%s%s%s"):format(
+  return ("%s %s\r\n%s%s%s"):format(
     catName, Game3.TEXT_CONTEST_WINNER,
     trainer, Game3.TEXT_CONTEST_PAINTING_OF, nick)
 end
@@ -30026,7 +29987,7 @@ function Game3:drawContestPainting(f)
   G.setColor(0.10, 0.10, 0.12, 1)
   local caption = (f and f.caption) or self:contestPaintingCaption(subject)
   local y = 112
-  for line in (caption .. "\n"):gmatch("(.-)\n") do
+  for line in (caption .. "\r\n"):gmatch("(.-)\r\n") do
     self:drawText(line, 16, y)
     y = y + 12
   end
@@ -30359,7 +30320,7 @@ function Game3:showBerryBlenderRecordWindow()
   self.field = {
     kind = "talk",
     scripted = true,
-    text = ("BERRY BLENDER max speed\n2P  %s\n3P  %s\n4P  %s"):format(
+    text = ("BERRY BLENDER max speed\r\n2P  %s\r\n3P  %s\r\n4P  %s"):format(
       rpm(rec[1]), rpm(rec[2]), rpm(rec[3])),
   }
 end
@@ -31401,7 +31362,7 @@ function Game3:expandScriptText(text)
   text = text:gsub("{POKEBLOCK}", "POKeBLOCK")
   -- decodeText used to drop GBA \p (0xFB), so cached IR glued the next
   -- sentence on: "TRAINER!You" / "says.Do". \p is a page/line break.
-  text = text:gsub("([.!?])(%u)", "%1\n%2")
+  text = text:gsub("([.!?])(%u)", "%1\r\n%2")
   return text
 end
 
@@ -32756,7 +32717,7 @@ function Game3.dexWeightText(weight)
 end
 
 function Game3.addedToDexText(name)
-  return ("%s's data was\nadded to the POKeDEX."):format(name or "POKeMON")
+  return ("%s's data was\r\nadded to the POKeDEX."):format(name or "POKeMON")
 end
 
 function Game3:dexCategoryText(species, owned)
@@ -33112,14 +33073,14 @@ Game3.DEX_SEARCH_TYPE_IDS = {
   0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17,
 }
 Game3.DEX_SEARCH_DESCRIPTIONS = {
-  name = "List by the first letter in the name.\nSpotted POKeMON only.",
-  color = "List by body color.\nSpotted POKeMON only.",
-  type1 = "List by type.\nOwned POKeMON only.",
-  type2 = "List by type.\nOwned POKeMON only.",
+  name = "List by the first letter in the name.\r\nSpotted POKeMON only.",
+  color = "List by body color.\r\nSpotted POKeMON only.",
+  type1 = "List by type.\r\nOwned POKeMON only.",
+  type2 = "List by type.\r\nOwned POKeMON only.",
   order = "Select the POKeDEX listing mode.",
   mode = "Select the POKeDEX mode.",
   ok = "Execute search/switch.",
-  search = "Search for POKeMON based on\nselected parameters.",
+  search = "Search for POKeMON based on\r\nselected parameters.",
   shift = "Switch POKeDEX listings.",
   cancel = "Return to the POKeDEX.",
 }
@@ -33325,7 +33286,7 @@ function Game3:drawDexSearch(f)
   if desc then
     G.setColor(0.10, 0.10, 0.12, 1)
     local y = Game3.DEX_SEARCH_DESC_Y
-    for line in (desc .. "\n"):gmatch("([^\n]*)\n") do
+    for line in (desc .. "\r\n"):gmatch("([^\r\n]*)\r\n") do
       if line ~= "" then
         self:drawText(line, 8, y)
         y = y + 12
@@ -43239,7 +43200,7 @@ function Game3:stepBattle(dt)
         -- goes ahead with Struggle instead of opening the move list.
         local acting = self:menuBattler() or b.player
         if self:allMovesUnusable(acting) then
-          b.text = ("%s has no\nmoves left!"):format(
+          b.text = ("%s has no\r\nmoves left!"):format(
             (acting and acting.name) or "POKeMON")
           b.kind = "menu_msg"
           b.thenStruggle = true
@@ -43916,7 +43877,7 @@ function Game3.dialoguePageText(text, page, widths)
   for i = 1, Game3.MSG_LINES do
     if lines[page + i] then chunk[#chunk + 1] = lines[page + i] end
   end
-  return table.concat(chunk, "\n")
+  return table.concat(chunk, "\r\n")
 end
 
 function Game3:printerBusy(box)
@@ -43938,11 +43899,7 @@ function Game3.wrapDialogue(text, maxPx, widths)
   maxPx = maxPx or Game3.MSG_WIDTH_PX
   widths = widths or Game3.FONT3_WIDTHS
   local spaceW = Game3.glyphWidth(0x00, widths)
-  -- text.c CHAR_NEWLINE is a bare LF and means a hard break inside the same
-  -- box. This searched for CRLF, which no cart string contains, so the break
-  -- fell through to gmatch("%S+"), was eaten as whitespace, and both halves
-  -- landed on one line. Normalise CRLF, then split on LF.
-  text = tostring(text or ""):gsub("\n", "\n")
+  text = tostring(text or ""):gsub("\r\n", "\r\n")
   local lines = {}
   local function emit(line)
     if line and line ~= "" then lines[#lines + 1] = line end
@@ -43984,16 +43941,16 @@ function Game3.wrapDialogue(text, maxPx, widths)
     end
     flush()
   end
-  if text:find("\n", 1, true) then
+  if text:find("\r\n", 1, true) then
     local start = 1
     while true do
-      local at = text:find("\n", start, true)
+      local at = text:find("\r\n", start, true)
       if not at then
         wrapPara(text:sub(start))
         break
       end
       wrapPara(text:sub(start, at - 1))
-      start = at + 1
+      start = at + 2
     end
   else
     wrapPara(text)
@@ -46625,22 +46582,22 @@ Game3.FURNITURE_TEXT = {
   [Game3.MB_BOOKSHELF] =
     "It's filled with all sorts of books.",
   [Game3.MB_POKEMON_CENTER_BOOKSHELF] =
-    "POKeMON magazines!\nPOKeMON PAL...\n"
-      .. "POKeMON HANDBOOK...\nADORABLE POKeMON...",
+    "POKeMON magazines!\r\nPOKeMON PAL...\r\n"
+      .. "POKeMON HANDBOOK...\r\nADORABLE POKeMON...",
   [Game3.MB_VASE] =
-    "This vase looks expensive...\nPeered inside...\nBut, it was empty.",
+    "This vase looks expensive...\r\nPeered inside...\r\nBut, it was empty.",
   [Game3.MB_TRASH_CAN] = "It's empty.",
   [Game3.MB_SHOP_SHELF] =
-    "The shelves brim with all sorts of\nPOKeMON merchandise.",
+    "The shelves brim with all sorts of\r\nPOKeMON merchandise.",
   [Game3.MB_BLUEPRINT] =
-    "A blueprint of some sort?\nIt's too complicated!",
+    "A blueprint of some sort?\r\nIt's too complicated!",
 }
 
 -- LittlerootTown_BrendansHouse_1F UnknownString_81728E3.
 Game3.RUNNING_SHOES_MANUAL_TEXT =
-  "It's the instruction booklet for the\nRUNNING SHOES.\n"
-    .. "\"Press the B Button to run while\nwearing your RUNNING SHOES.\n"
-    .. "\"Lace up your RUNNING SHOES and hit\nthe road running!\""
+  "It's the instruction booklet for the\r\nRUNNING SHOES.\r\n"
+    .. "\"Press the B Button to run while\r\nwearing your RUNNING SHOES.\r\n"
+    .. "\"Lace up your RUNNING SHOES and hit\r\nthe road running!\""
 
 -- Route110_TrickHousePuzzle_EventScript_Door. All eight puzzle rooms share
 -- the same door: the scroll has to have been read (the room's own state var
@@ -46656,7 +46613,7 @@ function Game3:trickHousePuzzleDoor()
   if (self:varGet(stateVar) or 0) == 0 then
     -- Route110_TrickHousePuzzle_EventScript_DoorLocked
     self.field = { kind = "talk", text =
-      "The door is locked.\n...On closer inspection, this is written\n"
+      "The door is locked.\r\n...On closer inspection, this is written\r\n"
       .. "on it: \"Write the secret code here.\"" }
     return true
   end
@@ -46664,8 +46621,8 @@ function Game3:trickHousePuzzleDoor()
   self:setScriptVar(stateVar, 2)
   self:setMetatile(13, 1, Game3.MT_TRICK_HOUSE_STAIRS_DOWN, 0)
   self.field = { kind = "talk", text =
-    ("%s wrote down the secret code\non the door.\n"):format(self:playerName())
-    .. "\"TRICK MASTER is fabulous.\"\n... ... ... ... ... ... ... ...\n"
+    ("%s wrote down the secret code\r\non the door.\r\n"):format(self:playerName())
+    .. "\"TRICK MASTER is fabulous.\"\r\n... ... ... ... ... ... ... ...\r\n"
     .. "The lock clicked open!" }
   return true
 end
@@ -46676,12 +46633,12 @@ function Game3:usePokeblockFeeder()
   if inFeeder ~= 0xFFFF then
     -- UnknownString_81C3583, with STR_VAR_1 already set by the getter.
     self.field = { kind = "talk", text =
-      ("The %s you left\nbefore is still here."):format(
+      ("The %s you left\r\nbefore is still here."):format(
         (self.stringVars and self.stringVars[1]) or "POKeBLOCK") }
     return true
   end
   self:openDecorYesNo(
-    "Would you like to place a POKeBLOCK\non the POKeBLOCK FEEDER?",
+    "Would you like to place a POKeBLOCK\r\non the POKeBLOCK FEEDER?",
     "openPokeblockCaseOnFeeder", true)
   return true
 end
@@ -46694,17 +46651,17 @@ function Game3:watchTV()
   if news == 2 then
     -- PlayersHouse_1F_Text_TheresAMovieOnTV: no TurnOffTVScreen on this one.
     self.field = { kind = "talk", text =
-      "There is a movie on TV.\nTwo men are dancing on a big piano\n"
-      .. "keyboard.\nBetter get going!" }
+      "There is a movie on TV.\r\nTwo men are dancing on a big piano\r\n"
+      .. "keyboard.\r\nBetter get going!" }
     return true
   end
   if news == 1 then
     -- Ruby's bulletin is the blue flying POKeMON; Sapphire's is the red one.
     self.field = { kind = "talk", text =
-      "We bring you a special news bulletin.\n"
-      .. "We've received reports of a blue FLYING\nPOKeMON in various HOENN "
-      .. "locales.\nThe identity of this POKeMON has not\nyet been determined."
-      .. "\nWe now return you to your regular\nmovie presentation." }
+      "We bring you a special news bulletin.\r\n"
+      .. "We've received reports of a blue FLYING\r\nPOKeMON in various HOENN "
+      .. "locales.\r\nThe identity of this POKeMON has not\r\nyet been determined."
+      .. "\r\nWe now return you to your regular\r\nmovie presentation." }
     self:initRoamer()
     self.flags = self.flags or {}
     self.flags[Game3.FLAG_SYS_TV_LATI] = nil
@@ -46718,8 +46675,8 @@ function Game3:watchTV()
     -- EventScript_1A6EF1: nothing is on, so it is just Mom or Dad's line.
     self:getMomOrDadStringForTVMessage()
     self.field = { kind = "talk", text =
-      ("%s might like this program.\n"):format((self.stringVars and self.stringVars[1]) or "MOM")
-      .. "... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ...\n"
+      ("%s might like this program.\r\n"):format((self.stringVars and self.stringVars[1]) or "MOM")
+      .. "... ... ... ... ... ... ... ... ... ... ... ... ... ... ... ...\r\n"
       .. "Better get going!" }
     self:turnOffTVScreen()
     return true
@@ -46779,7 +46736,7 @@ function Game3:tryInteractedMetatile()
   if b == Game3.MB_REGION_MAP then
     -- EventScript_RegionMap: the line first, then the map behind a fadescreen.
     self.field = { kind = "talk", afterRegionMap = true, text =
-      ("%s took a closer look at the\nHOENN region map."):format(
+      ("%s took a closer look at the\r\nHOENN region map."):format(
         self:playerName()) }
     return true
   end
@@ -46869,8 +46826,8 @@ end
 -- MoveOutOfSecretBase.
 function Game3:openSecretBasePCPackUp()
   self:openDecorYesNo(
-    "All decorations and furniture in your\nSECRET BASE will be returned "
-      .. "to your PC.\nIs that okay?",
+    "All decorations and furniture in your\r\nSECRET BASE will be returned "
+      .. "to your PC.\r\nIs that okay?",
     "confirmSecretBasePackUp")
 end
 
@@ -46895,16 +46852,16 @@ end
 -- SecretBase_EventScript_ShieldOrToyTV: special 307 picks which of the
 -- four signs to show.
 Game3.SECRET_BASE_TV_TEXT = {
-  [1] = "A realistic toy TV. It could be easily\nmistaken for the real thing.",
-  [2] = "A toy TV shaped like a SEEDOT.\nIt looks ready to roll away on its own...",
-  [3] = "A toy TV shaped like a SKITTY.\nIt looks ready to stroll away...",
+  [1] = "A realistic toy TV. It could be easily\r\nmistaken for the real thing.",
+  [2] = "A toy TV shaped like a SEEDOT.\r\nIt looks ready to roll away on its own...",
+  [3] = "A toy TV shaped like a SKITTY.\r\nIt looks ready to stroll away...",
 }
 
 function Game3:secretBaseShieldOrToyTV()
   local v = self:getShieldToyTVDecorationInfo()
   if v == 0 then
     self.field = { kind = "talk", text =
-      ("A shield of %s that marks winning\n%s times in a row at the "
+      ("A shield of %s that marks winning\r\n%s times in a row at the "
         .. "BATTLE TOWER."):format(self.stringVars[2] or "",
         self.stringVars[1] or "") }
     return true
@@ -47338,7 +47295,7 @@ function Game3:stepBagActions(f)
     self:finishFieldItem(msg)
   elseif pick == Game3.BAG_ACTION_GIVE then
     if #(self.party or {}) < 1 then
-      self.field = { kind = "talk", text = "There is no\nPOKeMON." }
+      self.field = { kind = "talk", text = "There is no\r\nPOKeMON." }
       return
     end
     self:openPartyGive(id)
@@ -47351,7 +47308,7 @@ function Game3:stepBagActions(f)
     if self.field then self.field.note = msg end
   elseif pick == Game3.BAG_ACTION_CHECK_TAG then
     self.field = { kind = "talk",
-      text = ("%s\n%s"):format(self:itemName(id), self:itemDescription(id)) }
+      text = ("%s\r\n%s"):format(self:itemName(id), self:itemDescription(id)) }
   else
     self:openBag()
   end
@@ -51411,7 +51368,7 @@ function Game3:drawFieldOverlay()
     if c.phase == "text" then
       local text = Contest3.currentText(c, self) or ""
       local y = 68
-      for line in (text .. "\n"):gmatch("(.-)\n") do
+      for line in (text .. "\r\n"):gmatch("(.-)\r\n") do
         G.setColor(0.10, 0.10, 0.12, 1)
         self:drawText(line, 8, y)
         y = y + 12
@@ -51444,7 +51401,7 @@ function Game3:drawFieldOverlay()
       if sel then
         local desc = Contest3.moveDescription(sel.id or 0)
         local y = 108
-        for line in (desc .. "\n"):gmatch("(.-)\n") do
+        for line in (desc .. "\r\n"):gmatch("(.-)\r\n") do
           G.setColor(0.10, 0.10, 0.12, 1)
           self:drawText(line, 8, y)
           y = y + 12
@@ -51566,7 +51523,6 @@ function Game3:update(dt)
 end
 
 function Game3:logicStep(dt)
-  if self._pendingWarm then self:flushPendingWarm() end
   Input:reconcile()
   Input:step()
   if Input.softResetStep and Input:softResetStep() then
@@ -51760,108 +51716,17 @@ function Game3:warmNpcSprites(map)
   end
 end
 
-function Game3:prefetchMapWindow(dest)
-  if not dest or not dest.grid then return end
-  local w, h = dest.width or 0, dest.height or 0
-  if w < 1 or h < 1 then return end
-  local bottom, top = self:layersFor(dest.tileset)
-  if not bottom then return end
-  local function bake(x0, y0, x1, y1)
-    self:tileWindow(bottom, dest, x0, y0, x1, y1)
-    if top then
-      self:tileWindow(top, dest, x0, y0, x1, y1, "covered")
-      self:tileWindow(top, dest, x0, y0, x1, y1, "overlay")
-    end
-  end
-  if w * h <= 24 * 24 then
-    bake(0, 0, w - 1, h - 1)
-    return
-  end
-  local band = 16
-  local edges = false
-  for i = 1, #(dest.connections or {}) do
-    local c = dest.connections[i]
-    if Game3.spatialConnection(c) then
-      edges = true
-      local x0, y0, x1, y1 = 0, 0, w - 1, h - 1
-      if c.dir == "north" then
-        y1 = math.min(h - 1, band - 1)
-      elseif c.dir == "south" then
-        y0 = math.max(0, h - band)
-      elseif c.dir == "west" then
-        x1 = math.min(w - 1, band - 1)
-      elseif c.dir == "east" then
-        x0 = math.max(0, w - band)
-      end
-      bake(x0, y0, x1, y1)
-    end
-  end
-  if not edges then
-    bake(0, 0, math.min(w - 1, band - 1), math.min(h - 1, band - 1))
-  end
-end
-
-function Game3:warmOneMap(dest)
-  if not dest then return end
-  self:ensureMapBase(dest)
-  if dest.tileset then
-    self:layersFor(dest.tileset)
-    if self:tilesetAnimSpec(dest.tileset) then
-      self:animLayers(dest.tileset, 1)
-    end
-  end
-  if not self:npcsFor(dest) then
-    self:resetNpcs(dest)
-  else
-    self:applyNpcFlags(dest)
-  end
-  self:warmNpcSprites(dest)
-  self:prefetchMapWindow(dest)
-end
-
 function Game3:warmConnectedMaps(map)
   map = map or self.map
   self:eachConnectedMap(map, function(dest)
-    self:warmOneMap(dest)
+    self:layersFor(dest.tileset)
+    if not self:npcsFor(dest) then
+      self:resetNpcs(dest)
+    else
+      self:applyNpcFlags(dest)
+    end
+    self:warmNpcSprites(dest)
   end)
-end
-
--- One neighbor per frame after a connection so the seam step stays cheap.
-function Game3:flushPendingWarm()
-  local musicMap = self._pendingMapMusic
-  if musicMap then
-    self._pendingMapMusic = nil
-    self:playMapMusic(musicMap)
-  end
-  local workMap = self.map
-  if self._deferEnterWork and workMap then
-    self._deferEnterWork = nil
-    if not self._skipRoamerMove then
-      self:tryUpdateRandomTrainerRematches()
-      self:updateLocationHistoryForRoamer()
-      self:roamerMove()
-    end
-    self:doTimeBasedEvents()
-    self:setSav1WeatherFromCurrMapHeader()
-    if self:mapNeedsEvilTeamGfx(workMap) then
-      self:setupEvilTeamGfxIds()
-    end
-    self:runMapScript("onTransition")
-    self:runMapScript("onLoad")
-    self:doCurrentWeather()
-    self:runMapScript("onResume")
-  end
-  local popupMap = self._pendingNamePopup
-  if popupMap then
-    self._pendingNamePopup = nil
-    if not self:showMapNamePopup() and not self:mapWantsNamePopup(popupMap) then
-      self:hideMapNamePopup()
-    end
-  end
-  local map = self._pendingWarm
-  if not map then return end
-  self._pendingWarm = nil
-  self:warmConnectedMaps(map)
 end
 
 function Game3:npcAt(map, x, y)
@@ -53193,13 +53058,18 @@ function Game3:drawActors(overOverlay)
     end
   end
   addMapActors(map, 0, 0, npcs)
-  -- Live neighbor lists only (warmOneMap / applyNpcFlags). Skip raw
-  -- templates so a map whose ON_TRANSITION has not run does not spawn
-  -- story NPCs at default xy. Flag-hidden objects stay hidden.
-  self:eachConnectedMap(map, function(dest, ox, oy)
-    local live = self:npcsFor(dest)
-    if live then addMapActors(dest, ox, oy, live) end
-  end)
+  -- Only the map the player is standing on. A neighbour's objects have
+  -- never been arranged: its ON_TRANSITION is what runs setobjectxyperm,
+  -- removeobject and the clearflags that decide where its NPCs stand and
+  -- whether they exist yet, and that only runs when the player walks in.
+  -- Drawing them anyway put NPCs at raw template positions -- Petalburg's
+  -- gym boy at (12,15) instead of the (5,11) his transition moves him to
+  -- -- and showed story NPCs that map's script would have removed. They
+  -- then snapped into place the instant the player crossed over.
+  --
+  -- The cart never shows them: it only ever has the current map's object
+  -- events loaded. Running a neighbour's transition to fix them up is not
+  -- an option -- those scripts also set flags, add objects and start music.
   if not self.invisible then
     local px, py = self:visualTile()
     local sub = self.fixedPriority and self.objSubpriority or nil

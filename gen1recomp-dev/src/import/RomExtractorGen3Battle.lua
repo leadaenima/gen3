@@ -372,14 +372,22 @@ local function bgr555(c)
 end
 
 local function blitTile(image, x, y, raw, palette)
-  if not raw or #raw < Battle.TILE_BYTES then return end
+  if not raw or #raw < Battle.TILE_BYTES or not image then return end
+  local iw = (image.getWidth and image:getWidth()) or image.width or 240
+  local ih = (image.getHeight and image:getHeight()) or image.height or 160
   for ty = 0, 7 do
-    for tx = 0, 7 do
-      local byte = raw:byte(ty * 4 + math.floor(tx / 2) + 1)
-      local ci = (tx % 2 == 0) and (byte % 16) or math.floor(byte / 16)
-      if ci ~= 0 then
-        local col = palette[ci] or { 1, 0, 1 }
-        image:setPixel(x + tx, y + ty, col[1], col[2], col[3], 1)
+    local py = y + ty
+    if py >= 0 and py < ih then
+      for tx = 0, 7 do
+        local px = x + tx
+        if px >= 0 and px < iw then
+          local byte = raw:byte(ty * 4 + math.floor(tx / 2) + 1) or 0
+          local ci = (tx % 2 == 0) and (byte % 16) or math.floor(byte / 16)
+          if ci ~= 0 then
+            local col = palette[ci] or { 1, 0, 1 }
+            image:setPixel(px, py, col[1], col[2], col[3], 1)
+          end
+        end
       end
     end
   end
@@ -1634,39 +1642,61 @@ end
 -- Trainer card chrome lives in graphics.c as uncompressed 4bpp + 48-color
 -- star pals + 32x20 tilemaps. 0-star pal signature (first 8 GBA colors)
 -- is unique in US Ruby.
-Battle.CARD_GFX_BYTES = 0x1480
-Battle.CARD_PAL_BYTES = 96
+Battle.CARD_GFX_BYTES = 0x1400
+Battle.CARD_PAL_BYTES = 0x60
 Battle.CARD_MAP_BYTES = 0x500
+-- pokeruby.sym file offsets (addr - 0x08000000). Same on 1.0 / 1.1 / 1.2.
+Battle.CARD_GFX = 0xE8B4E0
+Battle.CARD_PAL0 = 0xE8C8E0
+Battle.CARD_FRONT_MAP = 0xE8CAC0
+Battle.CARD_BACK_MAP = 0xE8CFC0
+Battle.CARD_BADGE_GFX = 0x3B5AB8
+Battle.CARD_BADGE_PAL = 0x3B5F2C
 Battle.CARD_STAR_SIG = {
-  -- trainer_card_0star.pal first 8 RGB888 -> BGR555
   0x3991, 0x7FFF, 0x6FD3, 0x5294, 0x3DEF, 0x3D0C, 0x20E5, 0x4547,
 }
 
-local function findTrainerCardPal0(data)
-  if type(data) ~= "string" then return nil end
-  local sig = Battle.CARD_STAR_SIG
-  local needle = {}
+local function palNeedle(sig)
+  local parts = {}
   for i = 1, #sig do
     local c = sig[i]
-    needle[#needle + 1] = string.char(c % 256, math.floor(c / 256) % 256)
+    parts[#parts + 1] = string.char(c % 256, math.floor(c / 256) % 256)
   end
-  needle = table.concat(needle)
-  local at = data:find(needle, 1, true)
-  if not at then return nil end
-  return at - 1
+  return table.concat(parts)
+end
+
+local function findTrainerCardPal0(data)
+  if type(data) ~= "string" then return nil end
+  if #data > Battle.CARD_PAL0 + 16 then
+    if GbaBin.u16(data, Battle.CARD_PAL0 + 2) == 0x7FFF then
+      return Battle.CARD_PAL0
+    end
+  end
+  local at = data:find(palNeedle(Battle.CARD_STAR_SIG), 1, true)
+  if at then return at - 1 end
+  return nil
 end
 
 function Battle.extractTrainerCard(data)
+  if type(data) ~= "string" then return nil end
   local pal0 = findTrainerCardPal0(data)
-  if not pal0 then return nil end
-  local gfxOff = pal0 - Battle.CARD_GFX_BYTES
-  if gfxOff < 0 then return nil end
+  local gfxOff = Battle.CARD_GFX
+  local frontOff = Battle.CARD_FRONT_MAP
+  local backOff = Battle.CARD_BACK_MAP
+  if pal0 and pal0 ~= Battle.CARD_PAL0 then
+    gfxOff = pal0 - Battle.CARD_GFX_BYTES
+    frontOff = pal0 + 5 * Battle.CARD_PAL_BYTES
+    backOff = frontOff + Battle.CARD_MAP_BYTES
+  elseif pal0 then
+    gfxOff = Battle.CARD_GFX
+  else
+    pal0 = Battle.CARD_PAL0
+  end
+  if gfxOff < 0 or pal0 + 16 > #data then return nil end
   local tiles = data:sub(gfxOff + 1, gfxOff + Battle.CARD_GFX_BYTES)
   if #tiles ~= Battle.CARD_GFX_BYTES then return nil end
-  local mapOff = pal0 + 5 * Battle.CARD_PAL_BYTES
-  local frontMap = data:sub(mapOff + 1, mapOff + Battle.CARD_MAP_BYTES)
-  local backMap = data:sub(mapOff + Battle.CARD_MAP_BYTES + 1,
-    mapOff + 2 * Battle.CARD_MAP_BYTES)
+  local frontMap = data:sub(frontOff + 1, frontOff + Battle.CARD_MAP_BYTES)
+  local backMap = data:sub(backOff + 1, backOff + Battle.CARD_MAP_BYTES)
   if #frontMap ~= Battle.CARD_MAP_BYTES then return nil end
 
   local function palBank(star, bank)
@@ -1726,14 +1756,182 @@ function Battle.extractTrainerCard(data)
     end
   end
   if #backMap == Battle.CARD_MAP_BYTES then
-    local back = paint(backMap, 0)
-    if back then
-      ImageWriter.save(back, "assets/generated/trainer_card/ruby_back.png")
-      out.back = "assets/generated/trainer_card/ruby_back.png"
+    for star = 0, 4 do
+      local back = paint(backMap, star)
+      if back then
+        local path = ("assets/generated/trainer_card/ruby_back_%d.png"):format(star)
+        ImageWriter.save(back, path)
+        out["back" .. star] = path
+        if star == 0 then
+          ImageWriter.save(back, "assets/generated/trainer_card/ruby_back.png")
+          out.back = "assets/generated/trainer_card/ruby_back.png"
+        end
+      end
     end
   end
-  -- Tiny star mark used on the card face (8x8 from badge/star tile if present).
-  -- Game3 already draws ruby_star.png if this exists; skip if paint failed.
+  local badgeGfx = data:sub(Battle.CARD_BADGE_GFX + 1, Battle.CARD_BADGE_GFX + 0x400)
+  if #badgeGfx == 0x400 then
+    local pal = {}
+    for c = 0, 15 do
+      pal[c] = { bgr555(GbaBin.u16(data, Battle.CARD_BADGE_PAL + c * 2)) }
+    end
+    local badges = ImageWriter.blank(128, 16, 0, 0, 0, 0)
+    for t = 0, 31 do
+      blitTile(badges, (t % 16) * 8, math.floor(t / 16) * 8,
+        badgeGfx:sub(t * 32 + 1, (t + 1) * 32), pal)
+    end
+    ImageWriter.save(badges, "assets/generated/trainer_card/ruby_badges.png")
+    out.badges = "assets/generated/trainer_card/ruby_badges.png"
+  end
+  if not out.front0 then return nil end
+  return out
+end
+
+local function palBytes(data, off)
+  if type(data) ~= "string" or not off or off < 0 or off >= #data then
+    return nil
+  end
+  if GbaBin.u8(data, off) == 0x10 then
+    local raw = GbaLz77.decompress(data, off)
+    if raw and #raw >= 32 then return raw end
+  end
+  return data:sub(off + 1, math.min(#data, off + 96))
+end
+
+local function pal16(bytes, bank)
+  bank = bank or 0
+  local pal = {}
+  for c = 0, 15 do
+    pal[c] = { bgr555(GbaBin.u16(bytes, bank * 32 + c * 2)) }
+  end
+  return pal
+end
+
+function Battle.renderLzTiles(data, gfxOff, palOff, cols)
+  local raw = GbaLz77.decompress(data, gfxOff)
+  if not raw or #raw < Battle.TILE_BYTES then
+    raw = data:sub(gfxOff + 1, gfxOff + 0x3000)
+    if not raw or #raw < Battle.TILE_BYTES then return nil end
+  end
+  local pb = palBytes(data, palOff)
+  if not pb then return nil end
+  local pal = pal16(pb, 0)
+  local tiles = math.floor(#raw / Battle.TILE_BYTES)
+  cols = cols or 16
+  local rows = math.max(1, math.floor((tiles + cols - 1) / cols))
+  local image = ImageWriter.blank(cols * 8, rows * 8, 0, 0, 0, 0)
+  for t = 0, tiles - 1 do
+    blitTile(image, (t % cols) * 8, math.floor(t / cols) * 8,
+      raw:sub(t * Battle.TILE_BYTES + 1, (t + 1) * Battle.TILE_BYTES), pal)
+  end
+  return image
+end
+
+-- pokeruby.sym US Ruby (file offset = addr - 0x08000000)
+Battle.PKNAV_MENU_GFX = 0xE88358
+Battle.PKNAV_OPTIONS_GFX = 0xE884CC
+Battle.PKNAV_PAL1 = 0xE88A28
+Battle.PKNAV_PAL2 = 0xE88A48
+Battle.PKNAV_HEADER_GFX = 0xE88A88
+Battle.PKNAV_MAP_PAL = 0xE89628
+Battle.PKNAV_OUTLINE_PAL = 0x3E05D4
+Battle.PKNAV_OUTLINE_GFX = 0x3E05F4
+Battle.PKNAV_OUTLINE_MAP = 0x3E0804
+
+Battle.BAG_MALE_GFX = 0xE75024
+Battle.BAG_FEMALE_GFX = 0xE75BA0
+Battle.BAG_SPRITE_PAL = 0xE76700
+Battle.BAG_SCREEN_GFX = 0xE76728
+Battle.BAG_SCREEN_MALE_PAL = 0xE76F94
+Battle.BAG_SCREEN_FEMALE_PAL = 0xE76FCC
+Battle.BAG_SCREEN_MAP = 0xE77004
+
+local function paintLzMap(data, gfxOff, palOff, mapOff, mapBytes)
+  local raw = GbaLz77.decompress(data, gfxOff)
+  if not raw or #raw < Battle.TILE_BYTES then
+    raw = data:sub(gfxOff + 1, gfxOff + 0x4000)
+  end
+  if not raw or #raw < Battle.TILE_BYTES then return nil end
+  local map = GbaLz77.decompress(data, mapOff)
+  if not map or #map < 2 then
+    map = data:sub(mapOff + 1, mapOff + mapBytes)
+  end
+  if not map or #map < 2 then return nil end
+  local pb = palBytes(data, palOff)
+  if not pb then return nil end
+  local pals = { [0] = pal16(pb, 0), [1] = pal16(pb, 1), [2] = pal16(pb, 2) }
+  local tilesN = math.floor(#raw / Battle.TILE_BYTES)
+  local image = ImageWriter.blank(240, 160, 0, 0, 0, 1)
+  local entries = math.floor(#map / 2)
+  for i = 0, entries - 1 do
+    local col = i % 32
+    local row = math.floor(i / 32)
+    if row > 19 then break end
+    local entry = GbaBin.u16(map, i * 2)
+    local id = entry % 1024
+    if id < tilesN then
+      local palN = math.floor(entry / 4096) % 16
+      local pal = pals[palN] or pals[0]
+      blitTile(image, col * 8, row * 8,
+        raw:sub(id * Battle.TILE_BYTES + 1, (id + 1) * Battle.TILE_BYTES), pal)
+    end
+  end
+  return image
+end
+
+function Battle.extractPokenav(data)
+  if type(data) ~= "string" or #data < Battle.PKNAV_PAL1 + 32 then return nil end
+  local out = {}
+  local menu = Battle.renderLzTiles(data, Battle.PKNAV_MENU_GFX, Battle.PKNAV_PAL1, 8)
+  if menu then
+    ImageWriter.save(menu, "assets/generated/pokenav/menu.png")
+    out.menu = "assets/generated/pokenav/menu.png"
+  end
+  -- Option buttons are 32x16 sprites packed in the LZ sheet.
+  local opts = Battle.renderLzTiles(data, Battle.PKNAV_OPTIONS_GFX, Battle.PKNAV_PAL1, 4)
+  if opts then
+    ImageWriter.save(opts, "assets/generated/pokenav/options.png")
+    out.options = "assets/generated/pokenav/options.png"
+  end
+  local header = Battle.renderLzTiles(data, Battle.PKNAV_HEADER_GFX, Battle.PKNAV_MAP_PAL, 16)
+  if header then
+    ImageWriter.save(header, "assets/generated/pokenav/header.png")
+    out.header = "assets/generated/pokenav/header.png"
+  end
+  local outline = paintLzMap(data, Battle.PKNAV_OUTLINE_GFX, Battle.PKNAV_OUTLINE_PAL,
+    Battle.PKNAV_OUTLINE_MAP, 0x168)
+  if outline then
+    ImageWriter.save(outline, "assets/generated/pokenav/outline.png")
+    out.outline = "assets/generated/pokenav/outline.png"
+  end
+  if not (out.menu or out.options or out.outline) then return nil end
+  return out
+end
+
+function Battle.extractBag(data)
+  if type(data) ~= "string" or #data < Battle.BAG_SPRITE_PAL + 32 then return nil end
+  local out = {}
+  -- 64x64 object, 6 pocket frames stacked (tile 0,64,128,...).
+  local male = Battle.renderLzTiles(data, Battle.BAG_MALE_GFX, Battle.BAG_SPRITE_PAL, 8)
+  if male then
+    ImageWriter.save(male, "assets/generated/bag/bag_male.png")
+    out.male = "assets/generated/bag/bag_male.png"
+  end
+  local female = Battle.renderLzTiles(data, Battle.BAG_FEMALE_GFX, Battle.BAG_SPRITE_PAL, 8)
+  if female then
+    ImageWriter.save(female, "assets/generated/bag/bag_female.png")
+    out.female = "assets/generated/bag/bag_female.png"
+  elseif male then
+    ImageWriter.save(male, "assets/generated/bag/bag_female.png")
+    out.female = out.male
+  end
+  local screen = paintLzMap(data, Battle.BAG_SCREEN_GFX, Battle.BAG_SCREEN_MALE_PAL,
+    Battle.BAG_SCREEN_MAP, 0x800)
+  if screen then
+    ImageWriter.save(screen, "assets/generated/bag/bag_screen.png")
+    out.screen = "assets/generated/bag/bag_screen.png"
+  end
+  if not out.male then return nil end
   return out
 end
 

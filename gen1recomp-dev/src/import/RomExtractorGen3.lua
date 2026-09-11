@@ -2743,6 +2743,10 @@ function RomExtractorGen3:extractBattle()
       and BattleData.extractTrainerFronts(self.data) or {},
     trainerCard = BattleData.extractTrainerCard
       and BattleData.extractTrainerCard(self.data) or nil,
+    pokenav = BattleData.extractPokenav
+      and BattleData.extractPokenav(self.data) or nil,
+    bag = BattleData.extractBag
+      and BattleData.extractBag(self.data) or nil,
     moves = moves,
     learnsets = learnsets,
     tmhmLearnsets = tmhmLearnsets,
