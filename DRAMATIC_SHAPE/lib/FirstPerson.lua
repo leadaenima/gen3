@@ -60,7 +60,7 @@ local FirstPerson = {}
 
 -- ------- the rig's numbers
 --
--- EYE_HEIGHT stands the eye near the top of the 16px sprite -- the head,
+-- EYE_HEIGHT stands the eye near the top of the sprite -- the head,
 -- not the hat tip -- above the same ground-plus-lift the character card
 -- stands on, so surfing bobs and ledge hops carry the view with them.
 --
@@ -72,7 +72,10 @@ local FirstPerson = {}
 -- near plane from |eye - focus| (dist * 0.05), and the eye walks within
 -- 2-3 world pixels of a wall face when sliding along it -- a far focus
 -- would push the near plane through the wall and clip a hole in it.
-FirstPerson.EYE_HEIGHT = 13
+-- Emerald ships 13 (top of a 16px Gen1 card). Ruby Gen3 walkers are 16x32;
+-- tables/counters still clipped the view at 13, so raise by half a metatile
+-- (8 world px) for a clearer line of sight over furniture.
+FirstPerson.EYE_HEIGHT = 21  -- 13 + 8 (half metatile); Emerald also ships 13
 FirstPerson.FOV = math.rad(65)
 FirstPerson.FOCUS_DIST = 24
 
@@ -137,6 +140,11 @@ local FACING_ANGLE = {
   right = math.pi / 2,
   up = math.pi,
   left = -math.pi / 2,
+  -- Ruby compass aliases (Game3ModWorld stores south/north/... on the game)
+  south = 0,
+  east = math.pi / 2,
+  north = math.pi,
+  west = -math.pi / 2,
 }
 local FACING_ORDER = { "down", "right", "up", "left" }
 

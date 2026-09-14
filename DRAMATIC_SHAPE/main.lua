@@ -69,11 +69,11 @@ _G.__DRAMATIC_SHAPE_V = V
 local function chunkFor(rel)
   local source = mod:read(rel)
   if not source then
-    error(("DRAMATIC_SHAPE: %s is missing -- reinstall the mod"):format(rel), 0)
+    error(("BATTLE_ART_VOXEL_GEN2: %s is missing -- reinstall the mod"):format(rel), 0)
   end
   local chunk, err = load(source, "@" .. mod.path .. "/" .. rel)
   if not chunk then
-    error(("DRAMATIC_SHAPE: %s did not compile: %s"):format(rel, tostring(err)), 0)
+    error(("BATTLE_ART_VOXEL_GEN2: %s did not compile: %s"):format(rel, tostring(err)), 0)
   end
   return chunk
 end
@@ -201,13 +201,22 @@ local VoxelGrid = V.require("VoxelGrid")
 local WorldCurve = V.require("WorldCurve")
 local OverworldBattle = V.require("OverworldBattle")
 local BattleExit = V.require("BattleExit")
+local BattleArt = V.require("BattleArt")
+local AnimatedBattleArt = V.require("AnimatedBattleArt")
+local InterfaceSprites = V.require("InterfaceSprites")
+local WorldUnderlay = V.require("WorldUnderlay")
+local UiBackplates = V.require("UiBackplates")
+local BattleStage = V.require("BattleStage")
+local BattlePresentation = V.require("BattlePresentation")
 local DayNight = V.require("DayNight")
 local DayTint = V.require("DayTint")
 local Water = V.require("Water")
 local AntiAlias = V.require("AntiAlias")
+local WorldCanvasOrientation = V.require("WorldCanvasOrientation")
 local FirstPerson = V.require("FirstPerson")
 local FreeMove = V.require("FreeMove")
 local CamControl = V.require("CamControl")
+local ShapeStudio = V.require("ShapeStudio")
 local VR = V.require("VR")
 -- HORDE MODE: the konami code's minigame. Horde owns the state machine and
 -- every hook; the other four are the gun, the crowd, the readout and the
@@ -320,6 +329,7 @@ mod.content.render_pipelines:register("voxel", {
     -- crowd follows the player through the door) and under the GAME OVER
     -- card, which is a pushed state that stops everything below it.
     Horde.update(dt)
+    ShapeStudio.update(dt)
     -- VOID FILL picks the block the border ring is made of, and in this
     -- mode that ring is BAKED INTO THE MESH rather than drawn each frame.
     -- So the option has to reach the cache or nothing happens on screen
@@ -412,28 +422,27 @@ mod.content.render_pipelines:register("voxel", {
       -- headset never reaches this line (drawWorld returns the mirror
       -- above) -- lib/VR draws the same HUD onto each eye instead.
       HordeHud.drawFlat(rw, rh, ctx.scale * AntiAlias.factor())
+      ShapeStudio.onOverlay(rw, rh, ctx.scale * AntiAlias.factor())
       Voxel3D.endOverlay()
     end
     -- and back to the window's own size, which is what the engine composites
     -- one canvas pixel to one display pixel.  A pass-through when AA is off.
-    local out = AntiAlias.resolve(canvas, sw, sh, "world")
-    -- THE FRAME SEAM.  Perf.frame stamps one whole-frame time per RENDERED
-    -- frame and this is the only place in the mod that is reached exactly
-    -- once per rendered world frame -- Pipelines calls drawWorld from
-    -- love.draw, and a scripted run that steps the game ten times per
-    -- render still passes here once. Every one of these three calls is a
-    -- boolean test away from doing nothing while DS_PERF is unset, which
-    -- is every player's session.
+    canvas = AntiAlias.resolve(canvas, sw, sh, "world")
+    -- THE FRAME SEAM.  Perf stamps one whole-frame time per RENDERED frame,
+    -- so it belongs after the resolve and before the return -- which is where
+    -- the stashed side had it. Every call is a boolean test away from doing
+    -- nothing while DS_PERF is unset, which is every player's session.
     Perf.add("voxel.drawWorld", tFrame)
     Perf.frame()
     Perf.drawStats()
-    return out
+    return WorldCanvasOrientation.present(canvas, "overworld")
   end,
 
   invalidate = function()
     Voxel3D.invalidate()
     OverworldBattle.invalidate()
     AntiAlias.invalidate()
+    WorldCanvasOrientation.invalidate()
     ChunkMesher.invalidate()   -- no map id = every cached mesh
     VR.invalidate()            -- the mirror, and FBO ids of dead canvases
   end,
@@ -605,15 +614,115 @@ local SETTINGS = {
     "Fight on the map: the battle draws over the nearest clear ground, "
     .. "shot over the shoulder with a slow parallax drift.",
     when = function() return not VR.enabled() end, full = true },
-  -- Only offered while a fight can actually be staged on the map: with 3D-BTL
-  -- off the engine draws the classic screen, which is this row's ON already,
-  -- and a row that no longer decides anything is worse than no row.
+  -- Advanced compatibility control, kept off the in-game menu because it
+  -- pins the player pic to the UI camera and applies the world's night tint,
+  -- overriding the staged camera and SPRITE LIGHT presentation controls.
   { OverworldBattle.backSetting,
     "Keep your own Pokemon on the battle menu, seen from behind in its "
     .. "original slot, instead of standing it on the map facing the foe. "
     .. "The foe is still out there on its own tile.",
     when = function() return stagedBattles() and not VR.enabled() end,
+    full = true, managerOnly = true },
+  -- Battle Art rows (ported from the Gen1 fork). Only offered while a fight
+  -- can actually be staged on the map.
+  { BattleArt.setting,
+    "Use optional PNGs from assets/battle in fights. Missing art falls "
+    .. "back to the ROM. ANIMATED is the tested fresh-install default.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.trainerSetting,
+    "Use the ROM opponent trainers, or choose an optional static collection. "
+    .. "A class missing from that collection falls back to its ROM portrait.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() ~= "rom"
+    end, full = true, managerOnly = true },
+  { BattleArt.playerArtSetting,
+    "Choose the player trainer's static battle-intro portrait. A missing "
+    .. "named choice tries player.png, then ROM. PNG uses player.png "
+    .. "directly. BATTLE ART: ROM pins this row to ROM.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() == "static"
+    end, full = true },
+  { BattleArt.playerAnimationSetting,
+    "Choose the player trainer's battle-intro art under ANIMATED. PNG uses "
+    .. "player.png as a static portrait; named sets play their authored "
+    .. "slide poses once. Missing art and ROM retain the engine portrait.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() == "animated"
+    end, full = true },
+  { BattleArt.frontAnimationSetting,
+    "Choose the front generation used by BATTLE ART: ANIMATED. GEN 1 reads "
+    .. "single-frame PNGs; GEN 2-5 read atlases. STATIC ignores this row. "
+    .. "Missing art falls directly back to ROM.",
+    when = function()
+      return stagedBattles() and BattleArt.setting:get() == "animated"
+    end, full = true },
+  { BattleArt.backAnimationSetting,
+    "Choose the player back-art generation. STATIC reads only a PNG from "
+    .. "back-static/GEN for every choice. ANIMATED reads static GEN 1, 2, "
+    .. "and 4 PNGs, or animated GEN 3 and 5 atlases. Missing art falls "
+    .. "back to the ROM.",
+    when = function() return stagedBattles() and BattleArt.setting:get() ~= "rom"
+    end, full = true },
+  { BattleArt.duplicateSetting,
+    "Choose who owns Pokemon pictures when another sprite mod is installed. "
+    .. "BATTLE ART keeps this mod's selected front and back collections on "
+    .. "top, including its DV-routed shiny collections. MODDED installs no "
+    .. "Pokemon art and captures the pictures chosen by another sprite mod "
+    .. "or the ROM on both sides.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.viewSetting,
+    "Show the player's Pokemon from the front or back. Supplied art stays "
+    .. "world-placed; a missing selected back falls back to the ROM UI pic.",
+    when = function() return stagedBattles() end, full = true },
+  { BattleArt.frontFlipSetting,
+    "Orient the player-side FRONT SPRITES card. BATTLE ART mirrors ordinary "
+    .. "front art so it faces the opponent. DEFAULT preserves the image's "
+    .. "authored direction, for sprite mods that already supply a flipped "
+    .. "player picture such as Crystal Animated Sprites.",
+    when = function()
+      return stagedBattles() and BattleArt.playerSide() == "front"
+    end, full = true },
+  { UiBackplates.spriteLight,
+    "SHADED lets the mons receive the world's day tint and cast shadows; "
+    .. "UNLIT draws them flat and full bright. UNLIT is what the OG "
+    .. "battle's sprites look like.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.hudColor,
+    "INVERTED uses bright white HUD ink over the arena; COLOR keeps the "
+    .. "engine's black ink. HP and EXP bars retain their native colors.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.arenaFill,
+    "Choose the staged battle background: the voxel world, a flat white "
+    .. "field, or assets/battle/front-static/bosses/arena.png.",
+    when = function() return stagedBattles() end, full = true },
+  { UiBackplates.backdropOffset,
+    "Crop the selected PNG arena downward in source-image pixels.",
+    when = function()
+      return stagedBattles() and UiBackplates.arenaPng()
+    end, full = true },
+  { UiBackplates.bossBg,
+    "Allow encounter-specific boss artwork to override an illustrated arena.",
+    full = true, managerOnly = true },
+  { UiBackplates.textboxFill,
+    "Choose opaque white, translucent dark, opaque black, or paperless "
+    .. "battle text boxes.",
+    when = function() return stagedBattles() end, full = true },
+  { InterfaceSprites.setting,
+    "INTERFACE SPRITES: show BATTLE ART's regular-form FRONT outside battle. "
+    .. "Title and status support timed atlas animation; other hook-aware "
+    .. "screens use single-image sets or retain ROM art, independent of "
+    .. "DUPLICATE FIX (which owns only battle pictures). "
+    .. "MODDED leaves the interfaces to another sprite mod or the ROM.",
     full = true },
+  { WorldUnderlay.setting,
+    "Choose the solid outdoor world beneath terrain holes and beyond map edges: "
+    .. "CYAN or BLACK. OFF/KFP leaves the underlay to Kanto First Person. "
+    .. "NATURE uses a black underlay and continues each biome beyond loaded "
+    .. "ROM cells with stable random-sized tree or rock billboards. "
+    .. "Indoor horizons automatically match "
+    .. "the room's own border/void material so the finite map ring cannot reveal "
+    .. "a differently coloured infinite fill behind it.",
+    full = true, managerOnly = true },
   -- Marked `full` on the battle rows' reasoning, and then some. FULL SETS this
   -- to SYNC on arrival (applyFull) because the diorama's sky should follow the
   -- clock on the wall; it used to HOLD it there and take the row away, which
@@ -665,6 +774,13 @@ local SETTINGS = {
     .. "to make somebody ill in a headset. Turn it on if you have your sea "
     .. "legs and want the continuity.",
     when = function() return VR.enabled() end, full = true },
+  { ShapeStudio.setting,
+    "In-game voxel Shape Studio (F8 desktop / MAP EDIT on Android): pick "
+    .. "tiles, edit height/class/art/chromakey/texture. Touch toolbar on "
+    .. "phone. Edits autosave (Desktop: mod data/shape_studio/overrides.lua; "
+    .. "Android: app save dir). Export/Import merge via MOBILE_MERGE.md. "
+    .. "Presentational only.",
+    full = true },
 }
 
 local schema = {}
@@ -731,13 +847,26 @@ local prebakeMessage = nil
 
 -- Every map the game knows about, in a stable order so two runs bake the same
 -- world in the same sequence.
+-- Ruby's Game.data.maps is a Gen3MapPack `{ maps = { [id]=def }, ids=, mapCount= }`.
+-- Emerald's is a flat id->def table. Walk the flat table either way so prebake
+-- enumerates real map ids instead of pack metadata keys.
+local function flatMaps(maps)
+  if type(maps) ~= "table" then return nil end
+  if type(maps.maps) == "table" and (maps.ids ~= nil or maps.mapCount ~= nil) then
+    return maps.maps
+  end
+  return maps
+end
+
 local function allMapIds()
   local okGame, Game = pcall(require, "src.core.Game")
-  local maps = okGame and Game and Game.data and Game.data.maps
+  local maps = okGame and Game and Game.data and flatMaps(Game.data.maps)
   if type(maps) ~= "table" then return {} end
   local ids = {}
   for id, def in pairs(maps) do
-    if type(def) == "table" then ids[#ids + 1] = id end
+    if type(def) == "table" and (def.width or def.grid or def.layout) then
+      ids[#ids + 1] = id
+    end
   end
   table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
   return ids
@@ -757,13 +886,25 @@ local function bakeMapFor(id)
   if not (okGame and okMap and Game and Game.data) then
     return nil, "engine map data unavailable"
   end
+  -- Prefer the live Game3 map + modMapView: that is what VoxelScene meshes
+  -- (doorTiles, def.name, tileset primaryKey, elevation planes). A Gen1 Map.new
+  -- throwaway lacks those contracts and bakes the wall-of-last-resort look.
+  if type(Game.lookupMapById) == "function" and type(Game.modMapView) == "function" then
+    local okLive, live = pcall(Game.lookupMapById, Game, id)
+    if okLive and type(live) == "table" and live.grid then
+      local okV, view = pcall(Game.modMapView, Game, live)
+      if okV and type(view) == "table" then return view end
+      return live
+    end
+  end
   local okLoader, MapLoader = pcall(require, "src.world.MapLoader")
   if not okLoader then MapLoader = nil end
   if MapLoader and type(MapLoader.cached) == "function" then
     local okHit, hit = pcall(MapLoader.cached, id)
     if okHit and type(hit) == "table" then return hit end
   end
-  local def = Game.data.maps and Game.data.maps[id]
+  local pack = flatMaps(Game.data.maps)
+  local def = pack and pack[id]
   if not def then return nil, "no map def" end
   -- The engine's own tileset fallback chain, so a map whose tileset is only
   -- reachable through it bakes under the tileset the game will actually load.
@@ -1088,6 +1229,49 @@ local function pinEngineFx(game)
   if changed and game.writeOptions then pcall(game.writeOptions, game) end
 end
 
+-- The staged composition is authored against ADVANCED (RED++) and the original
+-- centered 160x144 furniture. Apply that presentation when a journey starts,
+-- then leave both engine rows live so the player can change either afterward.
+local function applyPresentationDefaults(game)
+  game = game or require("src.core.Game")
+  local opts = game and game.save and game.save.options
+  if not opts then return end
+  local changed = opts.colors ~= "redpp" or opts.uiLayout ~= "centered"
+  opts.colors = "redpp"
+  opts.uiLayout = "centered"
+  -- Emerald has no WorldUnderlay / world-fill props. A prior Ruby pass defaulted
+  -- the aesthetic toward cyan fill + distant silhouettes; pin OFF so matched
+  -- maps read like Emerald unless the player explicitly cycles WORLD FILL.
+  if WorldUnderlay and WorldUnderlay.setting then
+    local cur = WorldUnderlay.setting:get()
+    if cur and cur ~= "off" then
+      WorldUnderlay.setting:setIndex(1, game)  -- values[1] == "off"
+      changed = true
+    end
+  end
+  -- Pipeline quality: do NOT force VOXEL FULL (FP/orbit are intentional), but
+  -- if the player IS already on FULL and tilt-shift was left at 0 (common after
+  -- a hotkey cycle that skips FULL), re-apply the FULL preset so diorama blur /
+  -- curve / water reflections match Emerald's intended FULL look.
+  do
+    local okP, Pipelines = pcall(require, "src.render.Pipelines")
+    if okP and Pipelines and Voxel and Voxel.isFull
+       and Voxel.isFull(Pipelines.level("voxel")) then
+      local ts = (opts.pipelines and opts.pipelines.tiltshift) or 0
+      if tonumber(ts) == 0 and Pipelines.maxLevel then
+        pcall(Pipelines.setLevel, "tiltshift", Pipelines.maxLevel("tiltshift"))
+        changed = true
+      end
+      if WorldCurve and WorldCurve.setting and (WorldCurve.setting:level() or 0) == 0 then
+        WorldCurve.setting:setIndex(1, game)
+        changed = true
+      end
+    end
+  end
+  pcall(require("src.render.PaletteFX").setMode, "redpp")
+  if changed and game.writeOptions then pcall(game.writeOptions, game) end
+end
+
 -- call next() first and decorate what comes back, so every other mod's
 -- rows survive this one
 mod.hooks:wrap("ui.options.rows", function(next, game, rows)
@@ -1135,7 +1319,8 @@ mod.hooks:wrap("ui.options.rows", function(next, game, rows)
     -- And a row whose own switch is off the table this frame (BACK SPRITES,
     -- which needs a staged fight to be about) is left off with it. The mod
     -- manager's page carries every one of them either way.
-    local offered = (entry.full or not full)
+    local offered = not entry.managerOnly
+                    and (entry.full or not full)
                     and (not entry.when or entry.when())
     if offered then extra[#extra + 1] = entry[1]:row() end
   end
@@ -1198,14 +1383,30 @@ end)
 -- it already held (the door code guards for this, the regrowth does not)
 -- is not a change and must not throw the mesh away.
 do
-  local Map = require("src.world.Map")
-  if not Map.dramaticShapeBlockHook then
+  local okMap, Map = pcall(require, "src.world.Map")
+  if okMap and type(Map) == "table" and not Map.dramaticShapeBlockHook then
     local setBlock = Map.setBlock
-    Map.setBlock = function(self, bx, by, block)
-      local before = self:blockAt(bx, by)
-      setBlock(self, bx, by, block)
-      if self.id and self:blockAt(bx, by) ~= before then
-        ChunkMesher.refresh(self.id)
+    -- Ruby used to hand back nil here (no Gen 1 block table) and warn.
+    -- Gen3Compat now shims setBlock onto metatiles; wrap that. If the
+    -- facade is still a no-op, keep the marker so we do not warn again.
+    if type(setBlock) == "function" then
+      Map.setBlock = function(self, bx, by, block, impassable)
+        local before
+        if type(self) == "table" and type(self.blockAt) == "function" then
+          local ok, id = pcall(self.blockAt, self, bx, by)
+          if ok then before = id end
+        end
+        local okSet = pcall(setBlock, self, bx, by, block, impassable)
+        if not okSet then return end
+        local after = before
+        if type(self) == "table" and type(self.blockAt) == "function" then
+          local ok, id = pcall(self.blockAt, self, bx, by)
+          if ok then after = id end
+        end
+        local mapId = type(self) == "table" and self.id
+        if mapId and after ~= nil and after ~= before then
+          ChunkMesher.refresh(mapId)
+        end
       end
     end
     Map.dramaticShapeBlockHook = true
@@ -1244,7 +1445,7 @@ end)
 -- and a player who stepped off FULL could not see the rows come back.
 --
 -- Rebuilt in place, and only on a step that changes the LIST: crossing FULL,
--- or toggling 3D-BTL, which is the other row that owns one (BATTLE LAYOUT).
+-- toggling 3D-BTL, or switching the player's selected sprite side.
 -- Every other rung returns the same list, and rebuilding on all of them would
 -- rerun every mod's ui.options.rows hook once per keypress. The cursor is
 -- clamped rather than reset, so it stays on the row it was just used on
@@ -1266,13 +1467,15 @@ do
       -- the VR row hides the two battle rows while it is on, so stepping
       -- it changes the LIST exactly the way 3D-BTL does
       local hadVR = VR.enabled()
+      local hadPlayerSide = BattleArt.playerSide()
       local wasOn = idAt(self, self.index)
       inner(self, dt)
       local after = Pipelines.level("voxel")
       local crossedFull = after ~= before
                           and (Voxel.isFull(before) or Voxel.isFull(after))
       if crossedFull or OverworldBattle.enabled() ~= hadBattles
-         or VR.enabled() ~= hadVR then
+         or VR.enabled() ~= hadVR
+         or BattleArt.playerSide() ~= hadPlayerSide then
         local rebuilt = OptionsMenu.new(self.game)
         self.rows = rebuilt.rows
         -- Follow the row the cursor was ON rather than the slot it was in:
@@ -1336,6 +1539,7 @@ FreeMove.install()
 -- the mouse and the fingers, which is right, because while one is staged
 -- the free-roam look is not driving.
 CamControl.install()
+ShapeStudio.install()
 
 -- ------- SELECT walks the angle ladder
 --
@@ -1445,6 +1649,7 @@ mod.hooks:wrap("pokemon.sprite", function(next, path, ctx)
   if not (ctx and ctx.kind == "battle" and ctx.side == "back") then
     return out
   end
+  if BattleArt.playerSide() ~= "front" then return out end
   if not OverworldBattle.wantsFront() then return out end
   local def = ctx.data and ctx.data.pokemon and ctx.data.pokemon[ctx.species]
   return (def and def.spriteFront) or out
@@ -1502,11 +1707,13 @@ mod.events:on("save.loaded", function()
   -- pinEngineFx). Answered here rather than only when the menu opens, so a
   -- player who never opens it is not left playing under one.
   pinEngineFx()
+  applyPresentationDefaults()
 end)
 
 mod.events:on("save.created", function()
   DayNight.restore()
   pinEngineFx()
+  applyPresentationDefaults()
 end)
 
 -- The engine's own time-of-day seam. OverworldState:timeOfDay() is an
@@ -1520,7 +1727,15 @@ mod.hooks:wrap("world.tod", function(next, tod, ctx)
   return DayNight.tod()
 end)
 
-mod.exports.version = "1.5.5"
+mod.exports.version = "2.0.2"
+mod.exports.battleStage = BattleStage.export(OverworldBattle)
+mod.exports.battlePresentation = BattlePresentation.export()
+-- Species art ownership + metrics, so companion mods (Stadium 2 importer,
+-- effects mods) read the same battler identity Battle Art staged.
+mod.exports.battleArt = BattleArt
+-- Hook-aware screens (title, summary, dex entry) pick up BATTLE ART fronts
+-- outside battle; every hook pcalls its screen module and skips on mismatch.
+InterfaceSprites.install()
 -- exposed so a companion mod can pin its own tiles' shapes or read the
 -- camera without reaching into this mod's file layout
 mod.exports.lib = V

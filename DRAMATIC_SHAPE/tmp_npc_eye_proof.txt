@@ -1,0 +1,19 @@
+﻿NPC DRAW FILTER PROOF (filesystem, no LOVE)
+date: 2026-09-14 15:46:02 ET
+
+1) Unprefixed path Assets.image would try (source tree):
+   C:\Users\Feces\Desktop\backup pkmn\97 - Copy\gen1recomp-dev\assets\generated\sprites\ow_1.png
+   exists=False
+
+2) Prefixed path Game3:grabImage / loadSheet tries (save cache):
+   C:\Users\Feces\AppData\Roaming\love\pokemon-love2d\ruby\assets\generated\sprites\ow_1.png
+   exists=True
+
+3) Code path that dropped MOST NPCs:
+   posesOf -> usableSprite(PASS: def.image string set) -> posed[]
+   drawCast -> drawEntity -> SpriteBillboards.mesh -> buildCard
+   OLD buildCard: Assets.image(def.image) ONLY -> nil mesh -> return false
+   NOT castHides, NOT GHOST_MAX_PX=12*16 (ghosts only), NOT FP self-cull
+
+4) Fix: SpriteBillboards.loadSheet tries path, then cachePrefix..path, then grabImage
+5) FP eye: FirstPerson.EYE_HEIGHT 13 -> 21 (+8 half metatile); Emerald also 13

@@ -86,27 +86,45 @@ end
 
 function BattleExit.new(game, battle, onMidpoint)
   return setmetatable({ game = game, battle = battle, onMidpoint = onMidpoint,
-                        frames = framesFor(game), t = 0, phase = "out" },
+                        frames = framesFor(game), t = 0, phase = "out",
+                        _voxelBattleExit = true },
                       BattleExit)
 end
 
+local function stackPush(stack)
+  return stack and type(stack.push) == "function" and type(stack.pop) == "function"
+end
+
 -- Push the fade over the battle it is closing.
+-- On Ruby, Game3.stack used to be a stub with only :top -- :push was nil and
+-- finishBattle crashed here. Guard: if the host has no push, close immediately
+-- rather than taking the process down. Game3ModWorld now supplies push/pop.
 function BattleExit.start(battle, onMidpoint)
-  local game = battle.game
+  local game = battle and battle.game
   local self = BattleExit.new(game, battle, onMidpoint)
+  if not stackPush(game and game.stack) then
+    if onMidpoint then onMidpoint() end
+    return nil
+  end
   live = self
   game.stack:push(self)
   return self
 end
 
 function BattleExit:update()
+  local stack = self.game and self.game.stack
+  if not stackPush(stack) then
+    live = nil
+    if self.onMidpoint then self.onMidpoint() end
+    return
+  end
   self.t = self.t + 1
   if self.t < self.frames then return end
   self.t = 0
 
   if self.phase == "in" then
     live = nil
-    self.game.stack:pop()
+    stack:pop()
     return
   end
 
@@ -118,9 +136,14 @@ function BattleExit:update()
   -- still on the stack. Popping ourselves hands the top back to the battle so
   -- its pop lands on itself.
   self.phase = "in"
-  local stack = self.game.stack
   stack:pop()
   if self.onMidpoint then self.onMidpoint() end
+  -- endBattle / finishBattle just ran: drop the staged arena camera and
+  -- worldOverride immediately so the fade-in reveals a following diorama,
+  -- not the tele seat. Idempotent with OverworldBattle.update's own check.
+  pcall(function()
+    V.require("OverworldBattle").finish()
+  end)
   if stack:top() == self.game.overworld then
     stack:push(self)                       -- and the map comes up out of it
     return
@@ -148,7 +171,7 @@ end
 -- Whether this ending gets the fade.
 function BattleExit.wanted(battle)
   local game = battle and battle.game
-  if not (game and game.stack) then return false end
+  if not stackPush(game and game.stack) then return false end
   -- finish() is not always the end: an unpaid PAY DAY prints its takings and
   -- comes back through here a moment later (BattleState:finish's first branch).
   -- Mirrored read-only, so the fade starts on the call that really leaves rather
@@ -160,6 +183,54 @@ end
 -- ------- engine seams
 --
 -- Two wraps, each idempotent so a hot reload cannot stack them.
+local function installGame3Seam()
+  local ok, Game3 = pcall(require, "src.core.Game3")
+  if not (ok and type(Game3) == "table") then return end
+  if Game3.dramaticShapeExitHook then return end
+  -- Ruby never calls Renderer:endFrame or StateStack:update. Pump the fade
+  -- from Game3:logicStep and paint the veil after Game3:draw, matching the
+  -- Gen 1 wrap around Renderer:endFrame.
+  local innerStep = Game3.logicStep
+  if type(innerStep) == "function" then
+    function Game3:logicStep(dt)
+      local stack = rawget(self, "stack")
+      local overlay = stack and stack._overlay
+      if type(overlay) == "table" and #overlay > 0 then
+        local top = overlay[#overlay]
+        if top and top._voxelBattleExit and type(top.update) == "function" then
+          pcall(top.update, top, dt)
+          -- Once endBattle has handed the map back, keep the follow camera
+          -- alive under the fade. Skipping syncWorldView/clampCamera for the
+          -- whole veil left the first uncovered frame on the last arena seat.
+          if self.phase == "play" and self.map then
+            if type(self.syncWorldView) == "function" then
+              pcall(self.syncWorldView, self)
+            end
+            if type(self.clampCamera) == "function" then
+              pcall(self.clampCamera, self)
+            end
+          end
+          return
+        end
+      end
+      return innerStep(self, dt)
+    end
+  end
+  local innerDraw = Game3.draw
+  if type(innerDraw) == "function" then
+    function Game3:draw()
+      innerDraw(self)
+      local a = BattleExit.veil()
+      if not a or a <= 0 then return end
+      local w, h = love.graphics.getDimensions()
+      love.graphics.setColor(0, 0, 0, a)
+      love.graphics.rectangle("fill", 0, 0, w, h)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+  end
+  Game3.dramaticShapeExitHook = true
+end
+
 function BattleExit.install()
   local BattleState = require("src.battle.BattleState")
   if not BattleState.dramaticShapeExitHook then
@@ -177,8 +248,8 @@ function BattleExit.install()
     BattleState.dramaticShapeExitHook = true
   end
 
-  local Renderer = require("src.render.Renderer")
-  if not Renderer.dramaticShapeExitHook then
+  local okR, Renderer = pcall(require, "src.render.Renderer")
+  if okR and Renderer and not Renderer.dramaticShapeExitHook then
     local inner = Renderer.endFrame
     function Renderer:endFrame(zones, worldZones)
       inner(self, zones, worldZones)
@@ -196,6 +267,8 @@ function BattleExit.install()
     end
     Renderer.dramaticShapeExitHook = true
   end
+
+  installGame3Seam()
 end
 
 return BattleExit

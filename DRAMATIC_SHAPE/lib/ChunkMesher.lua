@@ -2606,7 +2606,18 @@ end
 -- the mesh outright, and until the async rebuild landed the scene fell
 -- to the flat 2D path, a whole-world blink for a one-block edit.
 function ChunkMesher.refresh(mapId)
-  if not mapId then return ChunkMesher.invalidate() end
+  -- nil = every live/cached map, in place (stale keeps drawing). Used by
+  -- Shape Studio type-wide edits. invalidate() would flash the whole world
+  -- to flat 2D until async rebuilds landed.
+  if not mapId then
+    local ids = {}
+    for id, c in pairs(cache) do
+      if c and (c.full or c.body) then ids[#ids + 1] = id end
+    end
+    if #ids == 0 then return ChunkMesher.invalidate() end
+    for _, id in ipairs(ids) do ChunkMesher.refresh(id) end
+    return
+  end
   local c = cache[mapId]
   -- nothing drawable cached: the plain drop costs nothing visible
   if not (c and (c.full or c.body)) then

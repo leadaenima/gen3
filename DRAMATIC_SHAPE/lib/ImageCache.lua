@@ -41,6 +41,25 @@ local cache = {}
 -- `false` is cached for an unreadable path, so a missing or corrupt asset
 -- costs one failed decode for the session rather than one per frame -- the
 -- same sticky-failure shape the rest of this mod uses for GPU objects.
+local function punchStudioChroma(data, path)
+  if not (data and data.mapPixel) then return data end
+  local okSO, SO = pcall(V.require, "ShapeOverrides")
+  if not (okSO and SO and SO.matchesChroma) then return data end
+  if not SO.chromakeysFor or #(SO.chromakeysFor(path) or {}) == 0 then
+    return data
+  end
+  data:mapPixel(function(_, _, r, g, b, a)
+    local rn, gn, bn, an = r, g, b, a or 0
+    if rn > 1 or gn > 1 or bn > 1 or an > 1 then
+      rn, gn, bn, an = rn / 255, gn / 255, bn / 255, an / 255
+    end
+    if an <= 0 then return 0, 0, 0, 0 end
+    if SO.matchesChroma(rn, gn, bn, path) then return 0, 0, 0, 0 end
+    return r, g, b, a
+  end)
+  return data
+end
+
 function ImageCache.get(path)
   if not path then return nil end
   local hit = cache[path]
@@ -52,6 +71,7 @@ function ImageCache.get(path)
   local ok, data = pcall(Assets.imageData, path)
   Perf.add("ImageCache.decode", t0)
   Perf.count("imageCache.miss")
+  if ok and data then data = punchStudioChroma(data, path) end
   cache[path] = (ok and data) or false
   return cache[path] or nil
 end

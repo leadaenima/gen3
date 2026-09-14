@@ -119,9 +119,42 @@ local function buildCardStated(img, frame, fw, fh)
   return Voxel3D.newMesh(verts, indices)
 end
 
+-- Gen3 / Ruby OW sheets live under GameVersion.cachePrefix (e.g. ruby/assets/...).
+-- Assets.image alone only sees the unprefixed source tree (Gen1 named PNGs), so
+-- every ow_*.png failed here, SpriteBillboards.mesh returned nil, and drawEntity
+-- dropped the card AFTER posesOf had already accepted usableSprite. Flat OW
+-- drawing uses Game3:grabImage, which tries prefix + CacheFs; billboards must
+-- match that resolution or the voxel cast is empty while 2D still shows people.
+local function loadSheet(path)
+  if type(path) ~= "string" or path == "" then return nil end
+  local ok, img = pcall(Assets.image, path)
+  if ok and img then return img end
+  local prefix = ""
+  do
+    local okGV, GameVersion = pcall(require, "src.core.GameVersion")
+    if okGV and GameVersion and GameVersion.cachePrefix then
+      prefix = GameVersion.cachePrefix() or ""
+    end
+  end
+  if prefix ~= "" then
+    ok, img = pcall(Assets.image, prefix .. path)
+    if ok and img then return img end
+  end
+  -- Last resort: same CacheFs / absolute fallback Game3:grabImage uses when
+  -- PhysFS has not mounted the prefixed path yet.
+  do
+    local okG3, Game3 = pcall(require, "src.core.Game3")
+    if okG3 and Game3 and type(Game3.grabImage) == "function" then
+      local okI, got = pcall(Game3.grabImage, Game3, path)
+      if okI and got then return got end
+    end
+  end
+  return nil
+end
+
 local function buildCard(def, frame)
-  local ok, img = pcall(Assets.image, def.image)
-  if not (ok and img) then return nil end
+  local img = loadSheet(def.image)
+  if not img then return nil end
   local iw, ih = img:getDimensions()
 
   -- a sheet that states its frame box answers first, whatever its width
@@ -140,7 +173,16 @@ local function buildCard(def, frame)
 end
 
 function SpriteBillboards.mesh(def, frame)
-  local big = isBigDef(def)
+  if type(def) ~= "table" or type(def.image) ~= "string" or def.image == "" then
+    return nil
+  end
+  -- Gen3 OW sheets state frameWidth/Height (16x32 walkers). Those are
+  -- MULTI-FRAME tall strips: collapsing them under isBigDef/def.big to a
+  -- single "#big" mesh froze every card on whatever frame was first built
+  -- (almost always 0 = south stand). Billboard yaw still faces the eye, so
+  -- the world read as every NPC staring at the player while floating.
+  local stated = statedFrame(def)
+  local big = (not stated) and isBigDef(def)
   local key = def.image .. "#" .. (big and "big" or tostring(frame))
   if meshes[key] == nil then
     local ok, m = pcall(buildCard, def, frame)

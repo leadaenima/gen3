@@ -1,4 +1,4 @@
-﻿-- Voxel world mode: assemble and draw one frame of the 3D scene.
+-- Voxel world mode: assemble and draw one frame of the 3D scene.
 --
 -- World space is world pixels and shares its origin with the 2D paths, so
 -- the terrain mesh needs no transform at all and a connected map just
@@ -35,6 +35,8 @@ local DayNight = V.require("DayNight")
 local FirstPerson = V.require("FirstPerson")
 local BattleBillboard = V.require("BattleBillboard")
 local Pokedex = V.require("Pokedex")
+local WorldUnderlay = V.require("WorldUnderlay")
+local WorldFillProps = V.require("WorldFillProps")
 local PaletteFX = require("src.render.PaletteFX")
 local Map = require("src.world.Map")
 
@@ -133,7 +135,12 @@ end
 -- void to wants -- the overworld battle's arena shot is one of those. The
 -- gradient is added on top of this by skyFor, for the free-roam camera alone.
 function VoxelScene.skyColor(map, t)
-  if not (map and map.def and Map.isOutdoor(map.def)) then return nil end
+  local outdoor = false
+  if map and map.def then
+    local okO, v = pcall(Map.isOutdoor, map.def)
+    outdoor = okO and v == true
+  end
+  if not outdoor then return nil end
   if not t or t <= 0 then return nil end
   local sky = VoxelScene.skyShade(SKY_SHADE, t)
   -- outdoors the flat fill follows the CLOCK: it becomes the hour's haze --
@@ -535,6 +542,22 @@ local function frameFor(def, facing, phase, flip, stated)
   if def.monIcon then
     return math.floor((love.timer and love.timer.getTime() or 0) * 4) % 2, false
   end
+  -- Gen 3 / Ruby OW sheets: face+walk tables from the extractor. Same path
+  -- as Game3.drawOwSprite -- never Gen 1's single WALK row (wrong layout).
+  -- `facing` is already viewFacing (pad names); pose() put walk progress in
+  -- phase when moving (0 = stand).
+  if def.face or def.walk then
+    local COMPASS = {
+      down = "south", up = "north", left = "west", right = "east",
+      south = "south", north = "north", west = "west", east = "east",
+    }
+    local dir = COMPASS[facing] or "south"
+    local moving = type(phase) == "number" and phase > 0
+    local t = moving and phase or 1
+    local Game3 = require("src.core.Game3")
+    local pose = Game3.poseFor(def, dir, moving, t)
+    return pose.frame or 0, pose.flip and true or false
+  end
   if (def.frames or 1) > 1 then
     frame = (def.walker and phase == 1) and SR.WALK[facing]
             or SR.STAND[facing]
@@ -559,11 +582,14 @@ end
 -- against the compass point instead flicks the card to a profile for a
 -- frame or two when the camera is spun fast (see playerFacing).
 local function viewFacing(p)
-  if FirstPerson.cardBlend() > 0.5 then
-    if p.isPlayer then
-      return FirstPerson.playerFacing(p.facing, p.px + 8, p.py + 8)
-    end
-    return FirstPerson.apparentFacing(p.facing, p.px + 8, p.py + 8)
+  -- Frame selection is the character's own facing (the direction they walk /
+  -- stand), not a look-at-camera remap. Cylindrical billboarding still yaws
+  -- the *card* toward the eye in billboardMatrix; remapping the sheet row
+  -- on top of that made every NPC wear their front (south) frame at the
+  -- player. The player's own card still uses playerFacing so spinning the
+  -- free-cam does not flick them to a profile for a frame.
+  if FirstPerson.cardBlend() > 0.5 and p.isPlayer then
+    return FirstPerson.playerFacing(p.facing, p.px + 8, p.py + 8)
   end
   return p.facing
 end
@@ -575,15 +601,25 @@ end
 -- consulted for its alpha, so no palette work is needed.
 local function drawShadow(sprite, px, py, facing, phase, flip, gh, lift,
                           stated)
+  -- Inline nil-check: this sits above usableSprite in the file.
+  if not (sprite and type(sprite) == "table" and sprite.def and sprite.def.image) then
+    return
+  end
   local def = sprite.def
   local frame, mirror = frameFor(def, facing, phase, flip, stated)
   local mesh = SpriteBillboards.shadowQuad(def, frame)
   if not mesh then return end
+  local tex = nil
+  if type(sprite.resolveImage) == "function" then
+    local okT, img = pcall(sprite.resolveImage, sprite)
+    if okT then tex = img end
+  end
+  if not tex then return end
   -- the decal is the card squashed onto the ground, so it is anchored like
   -- the card (see drawEntity); nil anchor leaves it exactly as it was
   local half = (SpriteBillboards.halfWidth and SpriteBillboards.halfWidth(def)) or 8
   local anchor = SpriteBillboards.footAnchor and SpriteBillboards.footAnchor(def)
-  Voxel3D.draw(mesh, sprite:resolveImage(),
+  Voxel3D.draw(mesh, tex,
                Voxel3D.shadowMatrix(px, py, gh, lift, mirror,
                                     anchor and half, anchor))
 end
@@ -682,6 +718,34 @@ local function eachFigure(map, offX, offZ, draw)
   end
 end
 
+-- A posed card is only drawable when it carries a Gen1-shaped sprite with a
+-- .def. Ruby's ModWorld can hand back nil (or a stub whose Image is missing)
+-- for sheets the extract never wrote -- Mauville's bard is GFX_BARD and is
+-- absent from sprites.byId. Skipping the card matches the flat path's
+-- "no img -> don't blit" and keeps one bad actor from retiring the pipeline.
+local function usableSprite(sp)
+  return type(sp) == "table" and type(sp.def) == "table"
+     and type(sp.def.image) == "string" and sp.def.image ~= ""
+end
+
+-- Pose one cast entry. Ruby ghosts may be the actor itself (actor.npc = actor)
+-- or Emerald's {npc=, map=, ox=, oy=} wrapper. A throw or a missing :pose
+-- becomes a skipped card -- never a pipeline retirement.
+local function poseEntry(entry)
+  if type(entry) ~= "table" then return nil end
+  local actor = entry
+  if type(entry.pose) ~= "function" then
+    actor = entry.npc
+  end
+  if type(actor) ~= "table" or type(actor.pose) ~= "function" then
+    return nil
+  end
+  local ok, sprite, vx, vy, facing, phase, flip = pcall(actor.pose, actor)
+  if not ok then
+    return actor, nil, actor.px, actor.py, actor.facing, 0, false
+  end
+  return actor, sprite, vx, vy, facing, phase, flip
+end
 -- Draw one posed entity. Returns true if 3D geometry carried it, false
 -- when nothing could be built and the caller should fall back.
 -- `colors` is the 4-color world palette the entity stands under in the SGB
@@ -692,8 +756,18 @@ end
 -- where the 2D path could only slide the sprite north).
 local function drawEntity(sprite, px, py, facing, phase, flip, gh, colors,
                           lift, stated)
+  if not usableSprite(sprite) then return false end
   local def = sprite.def
-  local tex = sprite:resolveImage()
+  local tex = nil
+  if type(sprite.resolveImage) == "function" then
+    local okT, img = pcall(sprite.resolveImage, sprite)
+    if okT then tex = img end
+  end
+  if not tex then return false end
+  -- FILTER (Ruby): usableSprite can pass while SpriteBillboards.mesh still
+  -- returns nil when the sheet only exists under GameVersion.cachePrefix
+  -- (ruby/assets/...). That dropped MOST NPC cards here -- see
+  -- SpriteBillboards.loadSheet. Mesh nil => no draw (not castHides / ghost cull).
   if colors and not def.trueColor then
     tex = TerrainAtlas.forSprite(def.image, colors) or tex
   end
@@ -753,11 +827,17 @@ VoxelScene.drawEntity = drawEntity
 -- patch either. A silhouette is an outline, so an outline is the right
 -- mesh for it.
 local function drawGhost(p)
+  if not (p and usableSprite(p.sprite)) then return end
   local def = p.sprite.def
   local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip, p.frame)
   local mesh = SpriteBillboards.shadowQuad(def, frame)
   if not mesh then return end
-  local tex = p.sprite:resolveImage()
+  local tex = nil
+  if type(p.sprite.resolveImage) == "function" then
+    local okT, img = pcall(p.sprite.resolveImage, p.sprite)
+    if okT then tex = img end
+  end
+  if not tex then return end
   if p.colors and not def.trueColor then
     tex = TerrainAtlas.forSprite(def.image, p.colors) or tex
   end
@@ -852,12 +932,20 @@ local maskMaps, maskCompute = nil, nil
 -- been loaded behind the menu.  A miss is never memoised: the world may
 -- simply not be up yet.
 local function maskEngine(state)
-  if maskMaps and maskCompute then return maskMaps, maskCompute end
   local okG, G = pcall(require, "src.core.Game")
   G = okG and G or nil
   if not state then state = G and G.overworld or nil end
+  -- A live host seam outranks any memoised Gen1/Gen2 fallback: Ruby publishes
+  -- computeNeighbors + mapsForMasks on the overworld proxy, and those must win
+  -- even if a settings-menu prebake cached OverworldController first.
+  local hostCompute = state and state.computeNeighbors
+  local hostMaps = state and state.mapsForMasks
+  if type(hostCompute) == "function" and hostMaps then
+    return hostMaps, hostCompute
+  end
+  if maskMaps and maskCompute then return maskMaps, maskCompute end
   local data = (state and state.game and state.game.data) or (G and G.data)
-  local compute = state and state.computeNeighbors
+  local compute = hostCompute
   if type(compute) ~= "function" then
     -- NO OVERWORLD IS NOT NO ANSWER.  `computeNeighbors` is a pure function
     -- of the map table hanging off OverworldState, not a method of a live
@@ -869,8 +957,19 @@ local function maskEngine(state)
     local okO, OS = pcall(require, "src.world.OverworldController")
     compute = okO and type(OS) == "table" and OS.computeNeighbors or nil
   end
-  if data and data.maps and type(compute) == "function" then
-    maskMaps, maskCompute = data.maps, compute
+  -- Prefer a host-published flat maps table (Ruby Gen3MapPack cannot be
+  -- indexed by map id directly).  Fall back to data.maps, unwrapping a
+  -- pack-shaped `{ maps = { [id]=def } }` when that is what the host has.
+  local maps = hostMaps
+  if not maps then
+    maps = data and data.maps or nil
+    if type(maps) == "table" and type(maps.maps) == "table"
+       and (maps.ids ~= nil or maps.mapCount ~= nil) then
+      maps = maps.maps
+    end
+  end
+  if maps and type(compute) == "function" then
+    maskMaps, maskCompute = maps, compute
   end
   return maskMaps, maskCompute
 end
@@ -910,7 +1009,7 @@ function VoxelScene.masksFor(map, state)
   for _, n in ipairs(list) do
     local d = maps[n.id]
     if d and tonumber(d.width) and tonumber(d.height) then
-      local px = tonumber(d.blockPx) or 32
+      local px = tonumber(d.blockPx) or ((tonumber(d.blockTiles) or 0) == 2 and 16) or 32
       masks[#masks + 1] = { n.ox, n.oy,
                             n.ox + d.width * px, n.oy + d.height * px }
     end
@@ -1410,48 +1509,132 @@ end
 -- below). Only that one entry gets the see-through treatment: NPCs and the
 -- ghosts standing on a neighbour map are left to honest occlusion, because
 -- it is only your own character you cannot afford to lose behind a roof.
+-- True when this cast entry is the local player. Emerald marks by table
+-- identity alone (`e == state.player`). Ruby's Game3ModWorld publishes a
+-- writeThrough proxy that is rebuilt with the view signature, so two field
+-- reads can mint two different tables for the same person -- identity then
+-- fails and the FP self-cull never fires (huge Brendan in the lens). Also
+-- accept the host's `isPlayer` stamp and actorView's `id == "player"`.
+local function entryIsPlayer(e, actor, player)
+  if player ~= nil then
+    if e == player or actor == player then return true end
+  end
+  if (actor and actor.isPlayer) or (e and e.isPlayer) then return true end
+  local id = (actor and actor.id) or (e and e.id)
+  return id == "player"
+end
+
 local function posesOf(state, spriteColors)
   local colors = spriteColors(state.map)
   local posed = {}
   local me = nil
+  -- Snapshot once: Ruby's modOverworld proxy rebuilds fields when the
+  -- signature moves; reading `state.player` again inside the entity loop
+  -- can return a different proxy than the one sitting in `entities`.
+  local player = state.player
+  local entities = state.entities or {}
+  -- Distant ghosts (NPCs on maps many cells away) read as floating people
+  -- on the horizon under the orbit camera. Cull hard by player distance so
+  -- Oldale / Route 101 no longer show every neighbour map's cast.
+  local GHOST_MAX_PX = 12 * 16  -- 12 metatiles
+  local px0 = (player and (player.px or ((player.cellX or 0) * 16))) or 0
+  local py0 = (player and (player.py or ((player.cellY or 0) * 16))) or 0
   for _, g in ipairs(state.ghosts or {}) do
     -- pose() ADVANCES the hop / surf-bob / spinner timers, and the contract
     -- above is that it runs exactly once per entity per frame -- so a hidden
     -- actor is still POSED and only its card is dropped.  Posing it
     -- conditionally would leave it a frame behind every time it reappeared.
-    local sprite, vx, vy, facing, phase, flip = g.npc:pose()
-    if not castHides(g.npc) then
+    local actor, sprite, vx, vy, facing, phase, flip = poseEntry(g)
+    if not actor then
+      -- no poseable ghost (nil npc / missing method): skip, stay on
+    else
+      local ghostNear = true
+      do
+        local ox = tonumber(g.ox) or 0
+        local oy = tonumber(g.oy) or 0
+        local gx = (tonumber(vx) or 0) + ox
+        local gy = (tonumber(actor.py) or tonumber(vy) or 0) + oy
+        local dx, dy = gx - px0, gy - py0
+        if dx * dx + dy * dy > GHOST_MAX_PX * GHOST_MAX_PX then
+          ghostNear = false
+        end
+      end
+      if ghostNear then
+    if not usableSprite(sprite) then
+      sprite = actor.sprite
+    end
+    if not castHides(actor) and usableSprite(sprite) then
       local gmap = g.map or state.map
+      local ox, oy = tonumber(g.ox) or 0, tonumber(g.oy) or 0
+      local py = tonumber(actor.py) or tonumber(vy) or 0
+      local gh = 0
+      do
+        local okH, h = pcall(groundAt, gmap, actor.cellX, actor.cellY,
+                             actor.elevation, (vx or 0) + ox, py + oy)
+        if okH and type(h) == "number" then
+          local okP, planted = pcall(plantedOn, gmap, actor, h)
+          if okP and type(planted) == "number" then gh = planted else gh = h end
+        end
+      end
+      local studioLift = 0
+      do
+        local okSO, SO = pcall(V.require, 'ShapeOverrides')
+        local def = sprite and sprite.def
+        if okSO and SO and SO.spriteLift and def then
+          studioLift = SO.spriteLift(gmap, actor, def) or 0
+        end
+      end
       posed[#posed + 1] = {
-        sprite = sprite, px = vx + g.ox, py = g.npc.py + g.oy,
+        sprite = sprite, px = (vx or 0) + ox, py = py + oy,
         facing = facing, phase = phase, flip = flip,
-        -- ...on the drawing its cell became, where that is a berry plot (see
-        -- plantedOn).  A ghost stands on ITS OWN map, so the question goes to
-        -- that map exactly as the ground lookup beside it does.
-        gh = plantedOn(gmap, g.npc,
-                       groundAt(gmap, g.npc.cellX, g.npc.cellY,
-                                g.npc.elevation, vx + g.ox, g.npc.py + g.oy)),
-        -- the frame this entity's drawing states, when it states one; nil
-        -- leaves frameFor answering exactly the facing table it always did
-        frame = statedFrame(gmap, g.npc),
-        lift = g.npc.py - vy, colors = spriteColors(gmap),
+        gh = gh,
+        frame = statedFrame(gmap, actor),
+        lift = (py - (vy or py)) + studioLift, colors = spriteColors(gmap),
+        actor = actor, map = gmap,
       }
     end
+      end  -- ghostNear
+    end  -- actor
   end
-  for _, e in ipairs(state.entities or {}) do
-    if not (state.flyAnim and e == state.player) then
-      local sprite, vx, vy, facing, phase, flip = e:pose()
-      if not castHides(e, e == state.player) then
+  for _, e in ipairs(entities) do
+    local isMe = entryIsPlayer(e, nil, player)
+    if not (state.flyAnim and isMe) then
+      local actor, sprite, vx, vy, facing, phase, flip = poseEntry(e)
+      if not actor then
+        actor, sprite, vx, vy, facing, phase, flip = e, nil, e.px, e.py, e.facing, 0, false
+      end
+      isMe = entryIsPlayer(e, actor, player)
+      if not usableSprite(sprite) then
+        sprite = actor and actor.sprite
+      end
+      if actor and not castHides(actor, isMe) and usableSprite(sprite) then
+        local py = tonumber(actor.py) or tonumber(vy) or 0
+        local gh = 0
+        do
+          local okH, h = pcall(groundAt, state.map, actor.cellX, actor.cellY,
+                               actor.elevation, vx, py)
+          if okH and type(h) == "number" then
+            local okP, planted = pcall(plantedOn, state.map, actor, h)
+            if okP and type(planted) == "number" then gh = planted else gh = h end
+          end
+        end
+        local studioLift = 0
+        do
+          local okSO, SO = pcall(V.require, 'ShapeOverrides')
+          local def = sprite and sprite.def
+          if okSO and SO and SO.spriteLift and def then
+            studioLift = SO.spriteLift(state.map, actor, def) or 0
+          end
+        end
         posed[#posed + 1] = {
-          sprite = sprite, px = vx, py = e.py,
+          sprite = sprite, px = vx, py = py,
           facing = facing, phase = phase, flip = flip,
-          gh = plantedOn(state.map, e,
-                         groundAt(state.map, e.cellX, e.cellY, e.elevation,
-                                  vx, e.py)),
-          frame = statedFrame(state.map, e),
-          lift = e.py - vy, colors = colors,
+          gh = gh,
+          frame = statedFrame(state.map, actor),
+          lift = (py - (vy or py)) + studioLift, colors = colors,
+          actor = actor, map = state.map,
         }
-        if e == state.player then
+        if isMe then
           me = posed[#posed]
           -- marked so the camera draw can leave the card out in first
           -- person, where it would fill the lens from inside; the SUN pass
@@ -1460,6 +1643,10 @@ local function posesOf(state, spriteColors)
         end
       end
     end
+  end
+  do
+    local okS, Studio = pcall(V.require, 'ShapeStudio')
+    if okS and Studio and Studio.notePoses then Studio.notePoses(posed) end
   end
   return posed, me
 end
@@ -1522,7 +1709,45 @@ local glint = {}
 -- Sprite sheets until the figure pass: their texture coordinates mean
 -- nothing to the tileset-shaped glass mask, so the glass is off or the
 -- panes' atlas positions stripe the cast with lamplight at night.
+
+-- Offline proof helper: once/sec log nearest non-player NPC facing/phase/frame.
+-- Enable with env NPC_VOXEL_ANIM_TRACE=1 or leave true below for one verify restart.
+local NPC_VOXEL_ANIM_TRACE = false
+local _npcAnimLogT = 0
+local function npcAnimTrace(posed)
+  if not NPC_VOXEL_ANIM_TRACE then return end
+  local now = (love and love.timer and love.timer.getTime and love.timer.getTime()) or 0
+  if now - _npcAnimLogT < 1 then return end
+  _npcAnimLogT = now
+  local me
+  for _, p in ipairs(posed or {}) do
+    if p.isPlayer then me = p; break end
+  end
+  local best, bestD
+  for _, p in ipairs(posed or {}) do
+    if not p.isPlayer and p.sprite and p.sprite.def then
+      local dx = (p.px or 0) - ((me and me.px) or 0)
+      local dy = (p.py or 0) - ((me and me.py) or 0)
+      local d = dx * dx + dy * dy
+      if not bestD or d < bestD then best, bestD = p, d end
+    end
+  end
+  if not best then return end
+  local vf = viewFacing(best)
+  local fr, mir = frameFor(best.sprite.def, vf, best.phase, best.flip, best.frame)
+  local line = string.format(
+    "[NPC_VOXEL_ANIM] t=%.1f facing=%s phase=%s frame=%s mirror=%s img=%s dist2=%.0f",
+    now, tostring(vf), tostring(best.phase), tostring(fr), tostring(mir),
+    tostring(best.sprite.def.image), bestD or -1)
+  print(line)
+  pcall(function()
+    if love and love.filesystem and love.filesystem.append then
+      love.filesystem.append("npc-voxel-anim.log", os.date("%H:%M:%S ") .. line .. "\n")
+    end
+  end)
+end
 local function drawCast(state, posed, atlasFor)
+  npcAnimTrace(posed)
   Voxel3D.glass(false)
   Voxel3D.seams(false)
   -- Characters, normally depth-tested: the camera-ward pull inside
@@ -1537,7 +1762,7 @@ local function drawCast(state, posed, atlasFor)
   -- by this same function -- agrees with the frame to the pixel.
   local hideMe = FirstPerson.hidePlayer()
   for _, p in ipairs(posed) do
-    if not (p.isPlayer and hideMe) then
+    if not (p.isPlayer and hideMe) and usableSprite(p.sprite) then
       drawEntity(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
                  p.colors, p.lift, p.frame)
     end
@@ -1752,9 +1977,11 @@ local function shadowSignature(terrain, nbMesh, posed, cx, cy, vw, vh)
   shadowStaticTerms(terrain, nbMesh, cx, cy, vw, vh)
   local put = sigPut
   for _, p in ipairs(posed) do
-    put(p.sprite.def.image)
-    put(p.px); put(p.py); put(p.gh); put(p.lift or 0)
-    put(p.facing); put(p.phase); put(p.flip and 1 or 0)
+    if p and usableSprite(p.sprite) then
+      put(p.sprite.def.image)
+      put(p.px); put(p.py); put(p.gh); put(p.lift or 0)
+      put(p.facing); put(p.phase); put(p.flip and 1 or 0)
+    end
   end
   for i = sigN + 1, #sigBuf do sigBuf[i] = nil end
   return table.concat(sigBuf, ",")
@@ -1857,6 +2084,9 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
     end)
   end
   for _, p in ipairs(posed) do
+    if not (p and usableSprite(p.sprite)) then
+      -- skip: missing sheet (Ruby bard) must not take the sun pass down
+    else
     local def = p.sprite.def
     -- viewFacing, exactly as the camera draw picks it (see viewFacing for
     -- why the two passes must agree): in first person the sun's card
@@ -1865,7 +2095,12 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
     -- fringing against a mirror-flipped record of itself
     local frame, mirror = frameFor(def, viewFacing(p), p.phase, p.flip, p.frame)
     local mesh = SpriteBillboards.shadowQuad(def, frame)
-    if mesh then
+    local tex = nil
+  if type(p.sprite.resolveImage) == "function" then
+    local okT, img = pcall(p.sprite.resolveImage, p.sprite)
+    if okT then tex = img end
+  end
+    if mesh and tex then
       -- the same pair the camera draw uses, or the sun files a wide card
       -- half a width away from where the lit one asks about it (see
       -- drawEntity, and SpriteBillboards.footAnchor for the rule)
@@ -1873,11 +2108,12 @@ local function castShadows(state, terrain, nbMesh, posed, cx, cy, vw, vh,
                      and SpriteBillboards.halfWidth(def)) or 8
       local sAnchor = SpriteBillboards.footAnchor
                       and SpriteBillboards.footAnchor(def)
-      ShadowMap.draw(mesh, p.sprite:resolveImage(),
+      ShadowMap.draw(mesh, tex,
                      ShadowMap.snug(
                        Voxel3D.casterMatrix(p.px, p.py, p.gh + (p.lift or 0),
                                             mirror, sAnchor and sHalf,
                                             sAnchor)))
+    end
     end
   end
   -- a staged fight's mons (VR frames only): the same cards the eye pass
@@ -1946,7 +2182,11 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- every surface by. A CANOPY map (Viridian Forest) is the case between:
   -- the rig stays at noon and no sky is painted, but the hour's tint still
   -- falls through the leaves -- night reaches a forest floor.
-  local outdoor = state.map.def and Map.isOutdoor(state.map.def) or false
+  local outdoor = false
+  if state.map and state.map.def then
+    local okO, v = pcall(Map.isOutdoor, state.map.def)
+    outdoor = okO and v == true
+  end
   DayNight.applyRig(outdoor)
   Voxel3D.tint = DayNight.tint(outdoor or DayNight.isCanopy(state.map))
   -- and the window glass: the tileset's own panes (found in its art --
@@ -1970,7 +2210,11 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
     return modeColors(paletteFor, map)
   end
 
-  local posed, me = posesOf(state, spriteColors)
+  local posed, me = {}, nil
+  do
+    local okP, a, b = pcall(posesOf, state, spriteColors)
+    if okP then posed, me = a or {}, b end
+  end
 
   -- THE CAMERA RIDES WITH THE PLAYER, IN Y AS WELL AS IN X AND Z.
   --
@@ -2056,10 +2300,23 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- about anything but their viewpoint.
   local function drawScene()
 
+  -- The world beyond the authored maps: a flat fill (CYAN/BLACK), nothing
+  -- (OFF/KFP hands the horizon to another mod), or NATURE's biome billboards.
+  -- Resolved before the terrain so a color fill covers everything drawn after.
+  local underlayColor = WorldUnderlay.resolve(state, modeColors(paletteFor, state.map))
+
   Voxel3D.draw(terrain, atlasFor(state.map), nil)
   for i, nb in ipairs(state.neighbors or {}) do
     Voxel3D.draw(nbMesh[i], atlasFor(nb.map),
                  Mat4.translate(nb.ox, 0, nb.oy))
+  end
+
+  -- Trees or rocks continue the authored route beyond its finite mesh. They
+  -- stand only on world cells outside the root/connected-map rectangles,
+  -- so no billboard can poke through valid terrain or block the player.
+  WorldFillProps.draw(state, cx, cy, vw, vh)
+  if underlayColor then
+    WorldUnderlay.draw(state, cx, cy, underlayColor)
   end
 
   -- Without a shadow map (headless, or a driver that could not make the
@@ -2076,8 +2333,10 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
       -- SAME frame the lit card and the sun's record use (see statedFrame);
       -- `stated` rides after `lift` and is nil for every card that names no
       -- row of its own
-      drawShadow(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
-                 p.lift, p.frame)
+      if usableSprite(p.sprite) then
+        drawShadow(p.sprite, p.px, p.py, viewFacing(p), p.phase, p.flip, p.gh,
+                   p.lift, p.frame)
+      end
     end
     Voxel3D.endShadows()
   end
@@ -2307,3 +2566,5 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
 end
 
 return VoxelScene
+
+

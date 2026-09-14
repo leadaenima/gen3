@@ -122,10 +122,16 @@ local function blockedCell(state, p, cx, cy)
   if cx == p.cellX and cy == p.cellY then return nil end
   local map = state.map
   if not map:inBounds(cx, cy) then return "bounds" end
+  -- Prefer the live engine surfing flag: Ruby's player proxy used to
+  -- snapshot surfing at view-build time, so FreeMove kept refusing water
+  -- after useSurf mounted. game.surfing is authoritative.
+  local surfing = p.surfing
+    or (state.game and state.game.surfing)
+    or false
   if not map:isWalkableCell(cx, cy) then
-    if not (p.surfing and map:isWaterCell(cx, cy)) then return "tile" end
+    if not (surfing and map:isWaterCell(cx, cy)) then return "tile" end
   end
-  if pairBlocked(map, p.surfing, p.cellX, p.cellY, cx, cy) then
+  if pairBlocked(map, surfing, p.cellX, p.cellY, cx, cy) then
     return "tile"
   end
   local Collision = require("src.world.Collision")
@@ -208,6 +214,13 @@ local function pushSpecials(state, dir, why)
   if why == "bounds" and state:checkEdgeExit(dir) then return true end
   if state:checkLedgeHop(dir) then return true end
   if state:checkBoulderPush(dir) then return true end
+  -- A GEN 3 DOOR IS A WARP ON A COLLISION TILE, so none of the verbs above
+  -- can open one: the step is refused, and the engine fires the warp from
+  -- that refusal rather than from a carpet the walk stepped onto. Asked
+  -- under its own name, and only where the host answers it -- Gen 1 and
+  -- Gen 2 have no such method, so this line is skipped there and those
+  -- engines keep the carpet path below unchanged.
+  if state.checkDoorWarp and state:checkDoorWarp(dir) then return true end
   if why ~= "entity" and state:canCollisionWarp() then
     local Game = require("src.core.Game")
     local Warp = require("src.world.Warp")

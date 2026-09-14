@@ -887,6 +887,31 @@ end
 -- `shapes` is the table forMap returned for this map; `tile` is
 -- the tile id at (tx, ty), passed in because every caller already has it.
 function TileShape.at(map, shapes, tile, tx, ty)
+  -- Shape Studio overrides (data/shape_studio/overrides.lua) outrank shipped
+  -- profiles and sit beside the map-editor voxel edits below. Presentational
+  -- only: class / height / art fold for how the mesher LOOKS.
+  do
+    local okSO, SO = pcall(V.require, "ShapeOverrides")
+    if okSO and SO and SO.shapeFor then
+      local o = SO.shapeFor(map, tile, tx, ty)
+      if o and (o.class or o.h or o.art) then
+        local base = (o.class and shapes.classes and shapes.classes[o.class])
+          or (o.class and shapes.condShape and shapes.condShape[o.class])
+          or shapes[tile]
+        local class = o.class or (base and base.class) or "wall"
+        local art = o.art or (base and base.art) or "upright"
+        return {
+          class = class,
+          h = o.h or (base and base.h) or 0,
+          art = art,
+          flat = (art == "flat"),
+          authored = true,
+          override = true,
+        }
+      end
+    end
+  end
+
   -- A PLAYER'S OWN OVERRIDE OUTRANKS EVERYTHING, including the authored
   -- conditional pins below. Those are this mod's opinion about what a drawing
   -- means; an override is someone pointing at one tile and saying what it is.

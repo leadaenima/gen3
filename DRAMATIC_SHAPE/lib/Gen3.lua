@@ -84,6 +84,88 @@ local Gen3 = {}
 -- engine when it will answer and pinned here so a headless test needs no host.
 local SHEET_COLS = 16
 local CELL = 16          -- a metatile edge, in world pixels
+
+-- Ruby host publishes gTileset_* ; Emerald role owners need header hex.
+local EMERALD_TILESET_HEX = {
+  ["gTileset_BattleArena"] = "03DFD04",
+  ["gTileset_BattleDome"] = "03DFCBC",
+  ["gTileset_BattleFactory"] = "03DFCD4",
+  ["gTileset_BattleFrontier"] = "03DFC94",
+  ["gTileset_BattleFrontierOutsideEast"] = "03DF86C",
+  ["gTileset_BattleFrontierOutsideWest"] = "03DF854",
+  ["gTileset_BattleFrontierRankingHall"] = "03DFDAC",
+  ["gTileset_BattlePalace"] = "03DFCA4",
+  ["gTileset_BattlePike"] = "03DFCEC",
+  ["gTileset_BattlePyramid"] = "03DFD1C",
+  ["gTileset_BattleTent"] = "03DFDC4",
+  ["gTileset_BattleTower"] = "03DFC94",
+  ["gTileset_BikeShop"] = "03DF9D4",
+  ["gTileset_BrendansMaysHouse"] = "03DFAF4",
+  ["gTileset_Building"] = "03DF884",
+  ["gTileset_CableClub"] = "03DF95C",
+  ["gTileset_Cave"] = "03DF8CC",
+  ["gTileset_Contest"] = "03DFAC4",
+  ["gTileset_Dewford"] = "03DF74C",
+  ["gTileset_DewfordGym"] = "03DFBB4",
+  ["gTileset_EliteFour"] = "03DFC7C",
+  ["gTileset_EverGrande"] = "03DF80C",
+  ["gTileset_Facility"] = "03DF9BC",
+  ["gTileset_Fallarbor"] = "03DF7AC",
+  ["gTileset_Fortree"] = "03DF7C4",
+  ["gTileset_FortreeGym"] = "03DFC14",
+  ["gTileset_General"] = "03DF704",
+  ["gTileset_GenericBuilding"] = "03DFB6C",
+  ["gTileset_InsideOfTruck"] = "03DFA94",
+  ["gTileset_InsideShip"] = "03DFC44",
+  ["gTileset_IslandHarbor"] = "03DFD64",
+  ["gTileset_Lab"] = "03DFB0C",
+  ["gTileset_Lavaridge"] = "03DF794",
+  ["gTileset_LavaridgeGym"] = "03DFBE4",
+  ["gTileset_Lilycove"] = "03DF7DC",
+  ["gTileset_LilycoveMuseum"] = "03DFADC",
+  ["gTileset_Mauville"] = "03DF77C",
+  ["gTileset_MauvilleGameCorner"] = "03DFB84",
+  ["gTileset_MauvilleGym"] = "03DFBCC",
+  ["gTileset_MeteorFalls"] = "03DF92C",
+  ["gTileset_MirageTower"] = "03DFD34",
+  ["gTileset_Mossdeep"] = "03DF7F4",
+  ["gTileset_MossdeepGameCorner"] = "03DFD4C",
+  ["gTileset_MossdeepGym"] = "03DFC2C",
+  ["gTileset_MysteryEventsHouse"] = "03DFDDC",
+  ["gTileset_NavelRock"] = "03DFD94",
+  ["gTileset_OceanicMuseum"] = "03DF944",
+  ["gTileset_Pacifidlog"] = "03DF824",
+  ["gTileset_Petalburg"] = "03DF71C",
+  ["gTileset_PetalburgGym"] = "03DFB3C",
+  ["gTileset_PokemonCenter"] = "03DF8B4",
+  ["gTileset_PokemonDayCare"] = "03DF9A4",
+  ["gTileset_PokemonFanClub"] = "03DF8FC",
+  ["gTileset_PokemonSchool"] = "03DF8E4",
+  ["gTileset_PrettyPetalFlowerShop"] = "03DF98C",
+  ["gTileset_Rustboro"] = "03DF734",
+  ["gTileset_RustboroGym"] = "03DFB9C",
+  ["gTileset_RusturfTunnel"] = "03DF9EC",
+  ["gTileset_SeashoreHouse"] = "03DF974",
+  ["gTileset_SecretBase"] = "03DFC5C",
+  ["gTileset_SecretBaseBlueCave"] = "03DFA4C",
+  ["gTileset_SecretBaseBrownCave"] = "03DFA04",
+  ["gTileset_SecretBaseRedCave"] = "03DFA7C",
+  ["gTileset_SecretBaseShrub"] = "03DFA34",
+  ["gTileset_SecretBaseTree"] = "03DFA1C",
+  ["gTileset_SecretBaseYellowCave"] = "03DFA64",
+  ["gTileset_Ship"] = "03DFC44",
+  ["gTileset_Shop"] = "03DF89C",
+  ["gTileset_Slateport"] = "03DF764",
+  ["gTileset_Sootopolis"] = "03DF83C",
+  ["gTileset_SootopolisGym"] = "03DFB54",
+  ["gTileset_TrainerHill"] = "03DFD7C",
+  ["gTileset_TrickHousePuzzle"] = "03DFBFC",
+  ["gTileset_Underwater"] = "03DFB24",
+  ["gTileset_UnionRoom"] = "03DFDF4",
+  ["gTileset_Unused1"] = "03DF914",
+  ["gTileset_Unused2"] = "03DFAAC",
+}
+
 local TILE = 8           -- the mesher's own quad edge
 local COURSE = 16        -- one elevation step, in world pixels
 
@@ -388,9 +470,14 @@ local function buildElevationRanks(cells)
     rank[e] = i
     if e == ELEV_DEFAULT then datum = i end
   end
-  -- No cell on this map is at the default level (an all-terrace interior, or
-  -- Pacifidlog, which is water and rafts).  Pin the datum to the LOWEST level
-  -- present rather than to nothing, so the map still lands on the world floor.
+  -- Emerald consecutive-rank contract: neighbouring present land elevs are
+  -- one COURSE apart (art draws one step between elev 3 and 5, not two).
+  -- Elev 3 is the world datum WHEN PRESENT. When absent, pin to the lowest
+  -- present level -- do NOT invent elev-3 (that floated elev-4-only
+  -- neighbours). Cross-map continuity for the same elev band is NOT this
+  -- table's job when present sets differ: Structures.smoothGen3Seams (with
+  -- gen3ConnectionsByDir so Ruby list connections resolve) meets adjoining
+  -- outdoor maps halfway for residual <=1-course steps at the border.
   if not datum then datum = 1 end
   local height = {}
   for e, i in pairs(rank) do height[e] = (i - datum) * COURSE end
@@ -607,10 +694,105 @@ function Gen3.forMap(map)
   ctxCache[map] = false
 
   local def = map.def or {}
-  local width = tonumber(def.width) or 0
-  local height = tonumber(def.height) or 0
-  local elevationCells = def.elevationCells
-  local collisionCells = def.collisionCells
+  -- Dimensions: Emerald stamps these on the map def from the layout extract.
+  -- Ruby's modMapView does too, but a thin caller (or a view that only set
+  -- top-level width/height) must still index elevationCells correctly --
+  -- otherwise ranks log "1 level" from the array while elevationAt always
+  -- returns nil and roofs/terraces stay flat.
+  local width = tonumber(def.width) or tonumber(map.width)
+              or tonumber(map.widthCells) or 0
+  local height = tonumber(def.height) or tonumber(map.height)
+               or tonumber(map.heightCells) or 0
+  local elevationCells = (type(def) == "table" and def.elevationCells) or nil
+  local collisionCells = (type(def) == "table" and def.collisionCells) or nil
+  if type(elevationCells) ~= "table" then elevationCells = nil end
+  if type(collisionCells) ~= "table" then collisionCells = nil end
+
+  -- Emerald's gen3WorldFor exposes elevationAt over the same planes. Prefer
+  -- planes already hanging on the world record when the def is thin.
+  if not elevationCells and type(world) == "table"
+     and type(world.elevationCells) == "table" then
+    elevationCells = world.elevationCells
+  end
+  if not collisionCells and type(world) == "table"
+     and type(world.collisionCells) == "table" then
+    collisionCells = world.collisionCells
+  end
+
+  local function planeComplete(cells, n)
+    if not cells or n < 1 then return false end
+    -- Require the last cell too: a truncated rebuild must not rank a partial.
+    return cells[1] ~= nil and cells[n] ~= nil
+  end
+
+  local cellsNeeded = (width > 0 and height > 0) and (width * height) or 0
+  if cellsNeeded > 0 and not planeComplete(elevationCells, cellsNeeded) then
+    elevationCells = nil
+  end
+  if cellsNeeded > 0 and not planeComplete(collisionCells, cellsNeeded) then
+    collisionCells = nil
+  end
+
+  -- Synthesize per-cell planes the way Emerald's layout extract does, from
+  -- the live elevationAt/collisionAt the host (or world seam) already has.
+  local function synthesizePlane(reader)
+    if cellsNeeded < 1 or type(reader) ~= "function" then return nil end
+    local out = {}
+    for cy = 0, height - 1 do
+      for cx = 0, width - 1 do
+        local ok, v = pcall(reader, cx, cy)
+        out[cy * width + cx + 1] = (ok and v) or 0
+      end
+    end
+    return out
+  end
+
+  if not elevationCells then
+    local function readElev(cx, cy)
+      if type(map.elevationAt) == "function" then
+        local ok, v = pcall(map.elevationAt, map, cx, cy)
+        if ok and v ~= nil then return v end
+      end
+      if type(world) == "table" and type(world.elevationAt) == "function" then
+        local ok, v = pcall(world.elevationAt, cx, cy)
+        if ok and v ~= nil then return v end
+      end
+      return nil
+    end
+    elevationCells = synthesizePlane(readElev)
+  end
+  if not collisionCells then
+    local function readColl(cx, cy)
+      if type(map.collisionAt) == "function" then
+        local ok, v = pcall(map.collisionAt, map, cx, cy)
+        if ok and v ~= nil then return v end
+      end
+      if type(world) == "table" and type(world.collisionAt) == "function" then
+        local ok, v = pcall(world.collisionAt, cx, cy)
+        if ok and v ~= nil then return v end
+      end
+      return nil
+    end
+    collisionCells = synthesizePlane(readColl)
+  end
+
+  -- Keep the def's own planes in sync when we had to rebuild them, so later
+  -- readers of map.def (Structures, VoxelScene) see the same elevation Emerald
+  -- publishes on the layout.
+  if type(def) == "table" then
+    if elevationCells and def.elevationCells ~= elevationCells then
+      def.elevationCells = elevationCells
+    end
+    if collisionCells and def.collisionCells ~= collisionCells then
+      def.collisionCells = collisionCells
+    end
+    if (not tonumber(def.width) or tonumber(def.width) == 0) and width > 0 then
+      def.width = width
+    end
+    if (not tonumber(def.height) or tonumber(def.height) == 0) and height > 0 then
+      def.height = height
+    end
+  end
 
   local elevHeight, levels = nil, 0
   if elevationCells then
@@ -625,7 +807,15 @@ function Gen3.forMap(map)
     -- which is precisely the fact the diagnostic existed to establish.
     seam = seam,
     map = map,
-    tileset = map.tileset,
+    -- Prefer the world seam's tileset VIEW (emeraldId / behavior / pair keys).
+    -- Live engine maps still carry map.tileset as pair_N string; gen3WorldFor
+    -- publishes the table on world.tileset. Feeding the string here starved
+    -- owner/palings readers that only looked at ctx.tileset.
+    tileset = (type(world) == "table" and type(world.tileset) == "table"
+               and world.tileset)
+           or (type(world) == "table" and type(world.pair) == "table"
+               and world.pair)
+           or map.tileset,
     cols = world.cols or SHEET_COLS,
     cell = CELL,
     metatiles = world.metatiles or 0,
@@ -723,6 +913,13 @@ function Gen3.forMap(map)
   end
 
   function ctx.elevationAt(cx, cy)
+    -- Live host readers outrank the snapshot: Ruby's modMapView closes over
+    -- the grid, and Emerald's Map:cellElevation does the same. A scripted
+    -- metatile write then stays in sync with what the walker sees.
+    if type(map.elevationAt) == "function" then
+      local ok, v = pcall(map.elevationAt, map, cx, cy)
+      if ok and v ~= nil then return v end
+    end
     if not elevationCells then return nil end
     local i = indexOf(cx, cy)
     return i and elevationCells[i] or nil
@@ -2615,10 +2812,68 @@ function Gen3.forMap(map)
     if okMaps and type(m) == "table" then maps = m end
   end
   local entry = maps and maps.maps and maps.maps[tostring(map.id)] or nil
+  -- Ruby keys maps as g<group>_<num>; Emerald's table is MAP_G<gg>_N<nn>.
+  -- Prefer a structural alias ONLY when group/number parse cleanly -- that is
+  -- the same identity Emerald uses -- then fall back to DIRECTORY NAME
+  -- (def.name / MapNames) for fan maps / renumbers where indices disagree.
+  if not entry and maps and type(maps.maps) == "table" then
+    local id = tostring(map.id or "")
+    local g, n = id:match("^g(%d+)_(%d+)$")
+    if g and n then
+      local alias = string.format("MAP_G%02d_N%02d", tonumber(g), tonumber(n))
+      entry = maps.maps[alias]
+    end
+  end
+  if not entry and maps and type(maps.maps) == "table" then
+    local want = type(def) == "table" and def.name or nil
+    if type(want) == "string" and want ~= "" then
+      for _, row in pairs(maps.maps) do
+        if type(row) == "table" and row.name == want then
+          entry = row
+          break
+        end
+      end
+    end
+  end
   ctx.mapName = entry and entry.name or nil
   ctx.primaryName = entry and entry.primary or nil
   ctx.secondaryName = entry and entry.secondary or nil
   ctx.kind = entry and entry.kind or nil
+
+  -- A HOST THAT KNOWS ITS OWN CARTRIDGE OUTRANKS THE TABLE.
+  --
+  -- gen3_maps.lua is generated from pokeemerald and keyed by MAP_G<g>_N<n>,
+  -- which is exactly right for an engine whose map ids are spelled that way
+  -- and answers NOTHING for one whose ids are not -- every field above comes
+  -- back nil and every cell falls to the profile of last resort. That is the
+  -- whole difference between a world with shaped grass, supported bike paths
+  -- and massed buildings, and a flat one.
+  --
+  -- An engine may state these itself: the tileset view's primaryKey and
+  -- secondaryKey are the pair's own gTileset_* symbols, and the map def's
+  -- `name` is its directory name. Where a host supplies them they are the
+  -- better answer -- they describe the cartridge actually running, not a
+  -- sibling game whose map indices only agree four times in five.
+  --
+  -- Every field is a plain `or` over what the table already produced, so a
+  -- host that supplies none of them (Emerald, which needs none) is left with
+  -- exactly the values it had before this block.
+  do
+    -- Prefer the world seam's tileset view: gen3WorldFor always publishes
+    -- primaryKey/secondaryKey on it, even when map.tileset is still a bare id.
+    local ts = map.tileset
+    if type(ts) ~= "table" and type(world) == "table" then
+      ts = world.tileset or world.pair
+    end
+    if type(ts) == "table" then
+      ctx.primaryName = ts.primaryKey or ts.primary or ctx.primaryName
+      ctx.secondaryName = ts.secondaryKey or ts.secondary or ctx.secondaryName
+    end
+    local def = map.def
+    if type(def) == "table" and type(def.name) == "string" and def.name ~= "" then
+      ctx.mapName = def.name
+    end
+  end
   -- IS THIS MAP OUTDOORS? Emerald states it in the map's MAP_TYPE, which
   -- data/gen3_maps.lua carries -- and a great deal hangs on the answer: the
   -- pitched-roof rule, the object carver's background aprons, grass, flowers,
@@ -2628,6 +2883,10 @@ function Gen3.forMap(map)
   -- silently becoming an interior.
   if entry and entry.outdoor ~= nil then
     ctx.outdoor = entry.outdoor and true or false
+  elseif type(def) == "table" and def.outdoor ~= nil then
+    -- Ruby publishes MAP_TYPE outdoor on the map def; prefer it over the
+    -- Gen1 tileset-name fallback inside Map.isOutdoor.
+    ctx.outdoor = def.outdoor and true or false
   else
     local okM, MapMod = pcall(require, "src.world.Map")
     if okM and MapMod and type(MapMod.isOutdoor) == "function" then
@@ -2769,9 +3028,13 @@ function Gen3.forMap(map)
     end
     return false
   end
-  if entry and ctx.outdoor == false and not elevationIsReal() then
+  if ctx.outdoor == false and not elevationIsReal() then
     elevHeight, levels = nil, 0
   end
+  -- Keep the context fields in sync with the locals groundHeight closes over.
+  -- Structures.buildGen3SynthLevels reads g3c.levels to decide tiered maps.
+  ctx.elevHeight = elevHeight
+  ctx.levels = levels
   -- what the rest of the build should ask, instead of re-reading the flag
   ctx.usesElevation = (elevHeight ~= nil)
 
@@ -2851,18 +3114,42 @@ function Gen3.forMap(map)
     -- and they do not always all exist: the def's key string, the pair's own
     -- `id`, and the two `primaryKey`/`secondaryKey` halves.  Read them in
     -- that order rather than assuming any one is present.
+    -- Same world.tileset fallback as the profile block above: when the caller
+    -- handed a raw engine map, map.tileset is still "pair_N" and never matches
+    -- TILESET_(%x+). gen3WorldFor always publishes emeraldId on world.tileset.
     local ts = map.tileset
-    local key = (type(ts) == "table" and tostring(ts.id or ""))
-                or (type(ts) == "string" and ts) or ""
+    if type(ts) ~= "table" and type(world) == "table" then
+      ts = world.tileset or world.pair
+    end
+    if type(ts) ~= "table" and type(ctx.tileset) == "table" then
+      ts = ctx.tileset
+    end
+    -- Prefer emeraldId (TILESET_<p>_<s>) for owner parse; tileset.id is the
+    -- Ruby sheet key (pair_N) and must NOT be required for roles.
+    local key = ""
+    if type(ts) == "table" then
+      key = tostring(ts.emeraldId or ts.id or "")
+    elseif type(ts) == "string" then
+      key = ts
+    end
     if key == "" and type(map.def) == "table" then
       key = tostring(map.def.tileset or "")
     end
     local p1, s1 = key:match("TILESET_(%x+)_(%x+)")
     if not p1 and type(ts) == "table" then
-      p1 = tostring(ts.primaryKey or ""):match("TILESET_(%x+)")
-      s1 = tostring(ts.secondaryKey or ""):match("TILESET_(%x+)")
+      p1 = tostring(ts.primaryId or ts.primaryKey or ""):match("TILESET_(%x+)")
+      s1 = tostring(ts.secondaryId or ts.secondaryKey or ""):match("TILESET_(%x+)")
+      -- owner from gTileset_* names (Ruby host / pair_N id)
+      if not p1 then
+        local pk = tostring(ts.primaryKey or ts.primary or "")
+        local sk = tostring(ts.secondaryKey or ts.secondary or "")
+        p1 = EMERALD_TILESET_HEX[pk]
+        s1 = EMERALD_TILESET_HEX[sk]
+      end
     end
     if not p1 then p1 = key:match("TILESET_(%x+)") end
+    if p1 then p1 = tostring(p1):upper() end
+    if s1 then s1 = tostring(s1):upper() end
     ctx.ownerPrimary = p1 and ("P" .. p1) or nil
     ctx.ownerSecondary = s1 and ("S" .. s1) or nil
 
@@ -4298,9 +4585,30 @@ function Gen3.forMap(map)
 
   ctxCache[map] = ctx
 
-  say("map", "%s (%s): %d metatiles, %d elevation level(s)%s",
-      tostring(map.id or "?"), ctx.mapName or "unnamed", ctx.metatiles, levels,
-      collisionCells and "" or " (no per-cell collision)")
+  do
+    local elevHint = ""
+    if elevationCells and cellsNeeded and cellsNeeded > 0 then
+      local hist, parts = {}, {}
+      for i = 1, cellsNeeded do
+        local e = elevationCells[i]
+        if e ~= nil then hist[e] = (hist[e] or 0) + 1 end
+      end
+      local keys = {}
+      for e in pairs(hist) do keys[#keys + 1] = e end
+      table.sort(keys)
+      for _, e in ipairs(keys) do
+        parts[#parts + 1] = string.format("%d:%d", e, hist[e])
+      end
+      if #parts > 0 then
+        elevHint = " [" .. table.concat(parts, " ") .. "]"
+      end
+    end
+    say("map", "%s (%s): %d metatiles, %d elevation level(s)%s%s outdoor=%s usesElev=%s seam=%s",
+        tostring(map.id or "?"), ctx.mapName or "unnamed", ctx.metatiles, levels,
+        collisionCells and "" or " (no per-cell collision)", elevHint,
+        tostring(ctx.outdoor == true), tostring(ctx.usesElevation == true),
+        tostring(seam))
+  end
 
   return ctx
 end
@@ -4750,7 +5058,22 @@ local function bakeLinear(tileset)
       local dx = (t % LINEAR_COLS) * TILE + (x % TILE)
       local dy = math.floor(t / LINEAR_COLS) * TILE + (y % TILE)
       if dx >= 0 and dy >= 0 and dx < W and dy < H then
-        surface:setPixel(dx, dy, r / 255, g / 255, b / 255, 1)
+        local rn, gn, bn = r / 255, g / 255, b / 255
+        -- Shape Studio chromakey + classic GBA lime: leave a hole.
+        local keyed = (gn > 0.62 and rn < 0.22 and bn < 0.22
+                       and gn >= rn * 2.2 and gn >= bn * 2.2)
+        if not keyed then
+          local okSO, SO = pcall(V.require, "ShapeOverrides")
+          if okSO and SO and SO.matchesChroma
+             and SO.matchesChroma(rn, gn, bn, key) then
+            keyed = true
+          end
+        end
+        if keyed then
+          surface:setPixel(dx, dy, 0, 0, 0, 0)
+        else
+          surface:setPixel(dx, dy, rn, gn, bn, 1)
+        end
       end
     end
     tiles:bakeLayer(1, plot)
@@ -5634,3 +5957,5 @@ function Gen3.isBuildingCell(map, cx, cy)
 end
 
 return Gen3
+
+

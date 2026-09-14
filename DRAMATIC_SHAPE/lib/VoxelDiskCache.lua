@@ -51,7 +51,21 @@ local Cache = {
 -- r2: the Gen 3 atlas was relaid from 16x16 metatile cells to 8px tiles, which
 -- changes the meaning of every stored UV. Bumped so the r1 directory is
 -- ignored outright rather than half-trusted; it can be deleted at leisure.
-local GEOM_REV = "dsvx-160-r3"
+-- r9: Gen3 pair atlases punch palette index 0 to alpha on BOTH layers (Emerald
+-- parity); Gen3Sheets also keys classic lime/magenta importer chromas.
+-- r10: bottom sheets lose skip0 alpha on PNG encode (paletted, no tRNS) and
+-- come back as opaque black; Gen3Sheets punches that fill. Elevation ranks
+-- wrongly invented elev-3 (floating neighbour shelf).
+-- r11: install RGBA pair PNGs with real alpha (rebake skip0); revert elev
+-- ranks to Emerald-probe contract (no invent elev-3; lowest-present datum).
+-- r12: gen3ConnectionsByDir adapter (list->byDir) — did not fire live:
+-- defView omitted connections; engineData used pack[id] not pack.maps[id].
+-- r13: publish Emerald byDir connections on Ruby defView; fix pack path;
+-- prefer map.def.connections so smoothGen3Seams can meet Oldale/R101.
+-- r14: Shape Studio overrides (class/height/art/zOff/chromakey) hash into
+-- rulesTag; bump so pre-studio caches cannot shadow baked visuals.
+-- r15: Shape Studio per-cell/type texture swap (tex={tileset,metatile}).
+local GEOM_REV = "dsvx-160-r15"
 local DIR = "dramatic_shape_voxel_cache/" .. GEOM_REV
 local FLOATS_PER_VERTEX = 6
 local BYTES_PER_VERTEX = FLOATS_PER_VERTEX * 4
@@ -128,20 +142,46 @@ local function bodySignature(map)
   local memo = signatureMemo[map]
   if memo then return memo end
   local def = map and map.def or {}
-  local tw = math.max(0, (tonumber(def.width) or 0) * 4)
-  local th = math.max(0, (tonumber(def.height) or 0) * 4)
+  -- Gen 3 metatiles are 16px = 2x2 of 8px tiles. Gen 1/2 blocks are 32px = 4x4.
+  -- Using *4 on Hoenn maps walked past the body into border-clamped cells and
+  -- under-weighted real layout changes in the signature.
+  local ts = map and map.tileset or {}
+  local tileFactor = 4
+  if (ts and tonumber(ts.blockTiles) == 2)
+     or (def and def.elevationCells)
+     or (map and map.generation == 3) then
+    tileFactor = 2
+  end
+  local tw = math.max(0, (tonumber(def.width) or tonumber(map and map.width) or 0) * tileFactor)
+  local th = math.max(0, (tonumber(def.height) or tonumber(map and map.height) or 0) * tileFactor)
   local h = 146959
   h = hashAdd(h, GEOM_REV)
   h = hashAdd(h, map and map.id or "")
   h = hashAdd(h, def.tileset or (map and map.tileset and map.tileset.id) or "")
+  h = hashAdd(h, ts.primaryKey or ts.primary or "")
+  h = hashAdd(h, ts.secondaryKey or ts.secondary or "")
   h = hashAdd(h, def.width or 0)
   h = hashAdd(h, def.height or 0)
   h = hashAdd(h, def.borderBlock or def.border or 0)
+  -- Elevation / collision planes feed Structures ranks and role extrusion.
+  -- Hash a stride sample so host plane wiring fixes remesh without a full wipe.
+  do
+    local elev = def.elevationCells
+    local coll = def.collisionCells
+    local cells = (tonumber(def.width) or 0) * (tonumber(def.height) or 0)
+    if type(elev) == "table" and cells > 0 then
+      local step = math.max(1, math.floor(cells / 64))
+      for i = 1, cells, step do
+        h = hashAdd(h, elev[i] or -1)
+        if type(coll) == "table" then h = hashAdd(h, coll[i] or -1) end
+      end
+      h = hashAdd(h, elev[cells] or -1)
+    end
+  end
   -- UVs are baked into the cached vertex stream, so atlas layout belongs in
   -- the signature too. This prevents a valid-position mesh from sampling the
   -- wrong tiles after an extracted-cache/tileset layout change -- a failure
   -- that looks exactly like collision paths becoming invisible under grass.
-  local ts = map and map.tileset or {}
   h = hashAdd(h, ts.tilesPerRow or 16)
   h = hashAdd(h, ts.imageWidth or 0)
   h = hashAdd(h, ts.imageHeight or 0)
@@ -212,6 +252,14 @@ end
 -- global. Several of them (ceiling heights, fastchunks, flora density) change
 -- geometry, so the whole table hashes in rather than a chosen few -- a config
 -- key this module has not heard of must still miss rather than hit stale.
+local function studioSignature()
+  local ok, SO = pcall(V.require, "ShapeOverrides")
+  if ok and type(SO) == "table" and SO.signature then
+    return tostring(SO.signature())
+  end
+  return "0"
+end
+
 local function configSignature()
   local get = rawget(_G, "__ds_ceiling_config")
   if type(get) ~= "function" then return "0" end
@@ -244,7 +292,7 @@ end
 
 local function rulesSignature(map)
   return table.concat({ pinsSignature(map), configSignature(),
-    Cache.rulesTag or "", shapeSignature() }, ",")
+    Cache.rulesTag or "", shapeSignature(), studioSignature() }, ",")
 end
 
 -- Which slots are worth persisting, and how each one is keyed.
@@ -330,6 +378,7 @@ local function loadRawMesh(path, count)
   end
   local okOpen, opened = pcall(file.open, file, "r")
   if not okOpen or opened == false then
+    pcall(file.close, file)
     if mesh.release then pcall(mesh.release, mesh) end
     return nil, false, "could not read cached mesh"
   end

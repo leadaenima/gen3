@@ -8193,6 +8193,70 @@ Structures.gen3EdgeZ = Structures.gen3EdgeZ or {}
 -- WHEN each map's edge was recorded, and the neighbours that still owe one a
 -- second look.  See "THE MAP THAT WAS BUILT FIRST NEVER SAW US" below.
 Structures.gen3EdgeSeq = Structures.gen3EdgeSeq or {}
+
+-- EMERALD / RUBY CONNECTION NORMALIZER.
+--
+-- Emerald's RomExtractorGen3 writes direction-keyed connections:
+--   connections.north = { map = "g0_18", offset = 0, also = { ... } }
+-- Ruby's Gen3MapPack persists the ROM list:
+--   connections = { { dir = "north", mapGroup = 0, mapNum = 18, offset = 0 }, ... }
+--
+-- `smoothGen3Seams` and `openGen3Seams` need the Emerald shape. Without this
+-- adapter Ruby never resolves a neighbour, never meets halfway, and outdoor
+-- map edges keep an inferred terrace shelf (Oldale/Route 101, Lilycove/121).
+local function gen3ConnectionsByDir(map)
+  local okD, data = pcall(Gen3.engineData)
+  local me = nil
+  if okD and data and type(data.maps) == "table" and map and map.id then
+    -- Emerald: Game.data.maps[id] is the def. Ruby Gen3MapPack nests under
+    -- .maps; data.maps[id] was always nil so engineData never supplied conns.
+    local pack = data.maps
+    me = (type(pack.maps) == "table" and pack.maps[map.id]) or pack[map.id]
+  end
+  local conns = (map and map.def and map.def.connections)
+    or (map and map.connections)
+    or (me and me.connections)
+  if type(conns) ~= "table" then return nil end
+
+  -- Already Emerald byDir (any compass key present).
+  if conns.north or conns.south or conns.east or conns.west
+     or conns.dive or conns.emerge then
+    return conns
+  end
+
+  -- Ruby numeric list -> Emerald byDir (+ also for multi-neighbour sides).
+  local rows = {}
+  for _, c in ipairs(conns) do
+    if type(c) == "table" and type(c.dir) == "string" then
+      local id = c.map
+      if not id and c.mapGroup ~= nil and c.mapNum ~= nil then
+        id = string.format("g%d_%d",
+                           tonumber(c.mapGroup) or 0,
+                           tonumber(c.mapNum) or 0)
+      end
+      if id then
+        local dir = c.dir
+        local list = rows[dir]
+        if not list then list = {} rows[dir] = list end
+        list[#list + 1] = { map = id, offset = tonumber(c.offset) or 0 }
+      end
+    end
+  end
+  local byDir = {}
+  for dir, list in pairs(rows) do
+    local rec = { map = list[1].map, offset = list[1].offset, list = list }
+    if #list > 1 then
+      local also = {}
+      for i = 2, #list do also[#also + 1] = list[i] end
+      rec.also = also
+    end
+    byDir[dir] = rec
+  end
+  return byDir
+end
+
+Structures.gen3ConnectionsByDir = gen3ConnectionsByDir
+
 Structures.gen3EdgeSeqN = Structures.gen3EdgeSeqN or 0
 Structures.gen3SeamDirty = Structures.gen3SeamDirty or {}
 Structures.gen3SeamPaired = Structures.gen3SeamPaired or {}
@@ -8225,9 +8289,7 @@ function Structures.smoothGen3Seams(S, map)
   Structures.gen3EdgeSeqN = (Structures.gen3EdgeSeqN or 0) + 1
   Structures.gen3EdgeSeq[tostring(map.id)] = Structures.gen3EdgeSeqN
 
-  local okD, data = pcall(Gen3.engineData)
-  local me = okD and data and data.maps and data.maps[map.id] or nil
-  local conns = me and me.connections
+  local conns = gen3ConnectionsByDir(map)
   if type(conns) ~= "table" then return end
 
   local HALF = COURSE / 2
@@ -8731,9 +8793,7 @@ function Structures.openGen3Seams(S, map)
   local H = math.floor(tonumber(map.def and map.def.height) or 0)
   if W <= 0 or H <= 0 then return end
   local tw, th = W * blockTiles, H * blockTiles
-  local okD, data = pcall(Gen3.engineData)
-  local me = okD and data and data.maps and data.maps[map.id] or nil
-  local conns = me and me.connections
+  local conns = gen3ConnectionsByDir(map)
   if type(conns) ~= "table" then return end
 
   local open, n = {}, 0
@@ -18184,7 +18244,7 @@ end
 
 function Structures.buildGen3Hulls(S, map, x0, x1, y0, y1, phase)
   if not S.isGen3 then return end
-  local list = hullsFor(map.tileset and map.tileset.id)
+  local list = hullsFor(map.tileset and (map.tileset.emeraldId or map.tileset.id))
   if not list then return end
   local okC, g3c = pcall(Gen3.forMap, map)
   if not (okC and g3c and type(g3c.metatileAt) == "function"
@@ -18426,7 +18486,7 @@ end
 function Structures.buildGen3Palings(S, map, x0, x1, y0, y1, phase)
   -- (a hull block has already been claimed above and never reaches here)
   if not S.isGen3 then return end
-  local list = palingsFor(map.tileset and map.tileset.id)
+  local list = palingsFor(map.tileset and (map.tileset.emeraldId or map.tileset.id))
   if not list then return end
   local okC, g3c = pcall(Gen3.forMap, map)
   if not (okC and g3c and type(g3c.metatileAt) == "function"

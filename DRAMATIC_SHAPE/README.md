@@ -24,6 +24,28 @@ menu.
 | the **AA** options row | OFF / 2X / 4X — smooth the stair-stepped edges of the 3D world by rendering the diorama larger than the window and folding it back down. The ladder is samples per display pixel: 2X is a canvas root-two wider and taller, 4X one exactly twice the size. Every edge in the projected picture softens with the silhouettes — the tileset's own texels are quads in a perspective view and cross the pixel grid at the same arbitrary angles — so the diorama reads smoother rather than sharper. The most expensive row in the mod, so it is OFF by default and **FULL** leaves it alone |
 | the **DAYTIME** options row | SYNC / DAY / NIGHT / DUSK / DAWN / CYCLE — what time it is outdoors, on the diorama *and* on the flat 2D world; held at SYNC (and off the menu) while VOXEL is FULL |
 
+## Shape Studio (F8)
+
+In-game voxel shape editor while **VOXEL** mode is on. Open with **F8**. The right panel always shows **H help**.
+
+| control | does |
+| --- | --- |
+| `F8` / `Esc` | open / close Shape Studio (`Esc` closes help first, then eyedroppers, then Studio) |
+| click | select a ground cell |
+| drag | level rect to player height |
+| Tab | sprite pick mode (not Shift-click) |
+| `[` `]` / `Q` `E` | nudge height |
+| `-` `=` | nudge zOff (Shift: layer offset) |
+| arrows | cycle class / art |
+| `T` | texture eyedropper — click another cell to copy its metatile art |
+| `C` | chromakey eyedropper — **click the green you see in the 3D world** (fence gaps). A loupe follows the mouse; click samples that RGB and punches it (global for lime). Autosaved. |
+| `1` / `2` / `3` | save this instance / all instances / force-save now (edits also **autosave** to `data/shape_studio/overrides.lua`) |
+| `R` | revert selected |
+| `Ctrl+Z` | undo |
+| `H` | toggle the in-studio cheat sheet |
+
+The panel preview shows a **2–3× nearest-neighbor zoom of the selected metatile** (the same atlas pixels the mesher uses), not the whole 512×512 sheet. If preview still fails, the panel shows **NO PREVIEW** plus the tileset id — use world-click chromakey while `C` is on.
+
 ## Free-roam cameras (1ST / 3RD)
 
 The last two rungs of the **VOXEL** ladder are experimental, and they are
