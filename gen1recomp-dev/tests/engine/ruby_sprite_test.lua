@@ -177,8 +177,8 @@ eq(pals.byTag[0x1103], PAL, "tag 0x1103 is present")
 local ids = RomExtractorGen3.collectGraphicsIds({
   g0_0 = { objects = { { graphicsId = 17 }, { graphicsId = 9 } } },
 })
--- 36 always-extracted (see below) plus the two NPCs this fixture places.
-eq(#ids, 38, "player forms, berry stages, evil-team gfx, hideout ships, plus two NPCs")
+-- 41 always-extracted (see below) plus the two NPCs this fixture places.
+eq(#ids, 43, "player forms, berry stages, evil-team gfx, hideout ships, Mauville man, plus two NPCs")
 eq(ids[1], 0, "gid 0 is always extracted")
 local used = {}
 for i = 1, #ids do used[ids[i]] = true end
@@ -190,15 +190,17 @@ eq(RomExtractorGen3.collectGraphicsIds(nil)[1], 0,
   "empty maps still extract Brendan")
 -- 26 player-form sheets (Brendan 8, May 8, rival Brendan/May 100-109),
 -- 2 berry stages, 6 evil-team (Magma/Aqua grunts plus ARCHIE 195 /
--- MAXIE 196, which SetupEvilTeamGfxIds writes into GFX_VAR slots), and
--- the 2 hideout ships.
-eq(#RomExtractorGen3.collectGraphicsIds(nil), 36,
-  "player-form sheets, berry stages, Magma/Aqua, and hideout ships")
+-- MAXIE 196, which SetupEvilTeamGfxIds writes into GFX_VAR slots),
+-- the 2 hideout ships, and 5 Mauville old-man sheets (Bard..Giddy).
+eq(#RomExtractorGen3.collectGraphicsIds(nil), 41,
+  "player-form sheets, berry stages, Magma/Aqua, hideout ships, Mauville man")
 check(used[100] and used[109], "rival Brendan/May form sheets")
 check(used[195] and used[196], "ARCHIE and MAXIE for VAR gfx")
 check(used[61] and used[62], "early and late berry sheets")
 check(used[119] and used[117], "Magma M and Aqua M for VAR gfx")
 check(used[140] and used[141], "SS Tidal and submarine shadow")
+check(used[69] and used[70] and used[71] and used[72] and used[73],
+  "Mauville Bard..Giddy sheets (special SetMauvilleOldManObjEventGfx)")
 eq(RomExtractorGen3.spritePath(0), "assets/generated/sprites/ow_0.png",
   "player PNG path is the cache sentinel")
 

@@ -59,6 +59,17 @@ local COL_X = {
 
 local SIDE_Y = { 0, 1, 2 } -- maps to PAGE / BACK / OK
 
+-- The twelve OBJ sheets come out of the cart now: naming_screen.c's
+-- gUnknown_083CE6A0 table, each laid out at its own sprite width with the
+-- palette its template asks for. They used to be PNGs baked from pokeruby
+-- into assets/naming, which shipped inside the APK because pack_love.sh
+-- only excludes assets/generated. Two of them were also wrong: the change-
+-- keyboard button had its transparency inverted (a hole in a white block
+-- instead of a rounded chip) and several were tinted off the wrong palette.
+--
+-- Still baked, still to do: bg_stripes, the three keyboard grids and menu
+-- (BG tilemaps at 0x3CE748 / 0x3CEBF8 / 0x3CF0A8 and 0xE86258) and the two
+-- pc_icon frames.
 local ASSET = {
   menu = "assets/naming/menu.png",
   -- Pret tilemaps painted offline (naming_screen.c BG3 + BG1/BG2 maps).
@@ -66,18 +77,18 @@ local ASSET = {
   kbUpper = "assets/naming/keyboard_upper.png",
   kbLower = "assets/naming/keyboard_lower.png",
   kbOthers = "assets/naming/keyboard_others.png",
-  ok = "assets/naming/ok_button.png",
-  back = "assets/naming/back_button.png",
-  pageBox = "assets/naming/change_keyboard_box.png",
-  pageBtn = "assets/naming/change_keyboard_button.png",
-  pageUpper = "assets/naming/upper_text.png",
-  pageLower = "assets/naming/lower_text.png",
-  pageOthers = "assets/naming/others_text.png",
-  cursor = "assets/naming/cursor.png",
-  cursorSmall = "assets/naming/active_cursor_small.png",
-  cursorBig = "assets/naming/active_cursor_big.png",
-  caret = "assets/naming/right_pointing_triangle.png",
-  under = "assets/naming/underscore.png",
+  ok = "assets/generated/naming/ok_button.png",
+  back = "assets/generated/naming/back_button.png",
+  pageBox = "assets/generated/naming/change_keyboard_box.png",
+  pageBtn = "assets/generated/naming/change_keyboard_button.png",
+  pageUpper = "assets/generated/naming/upper_text.png",
+  pageLower = "assets/generated/naming/lower_text.png",
+  pageOthers = "assets/generated/naming/others_text.png",
+  cursor = "assets/generated/naming/cursor.png",
+  cursorSmall = "assets/generated/naming/active_cursor_small.png",
+  cursorBig = "assets/generated/naming/active_cursor_big.png",
+  caret = "assets/generated/naming/right_pointing_triangle.png",
+  under = "assets/generated/naming/underscore.png",
   pc0 = "assets/naming/pc_icon/0.png",
   pc1 = "assets/naming/pc_icon/1.png",
 }

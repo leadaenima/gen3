@@ -6080,6 +6080,19 @@ local fills = {}
 g.drawWrapTileFill = function(_, _, _, cells, key)
   fills[#fills + 1] = { cells = table.concat(cells, ","), key = key }
 end
+-- READING A FILL THAT WAS NEVER PAINTED IS A FAILURE, NOT AN ABORT.
+--
+-- This block indexed `fills` directly. When the void fill stopped painting,
+-- `fills[1]` was nil, indexing it raised, and the error took the WHOLE FILE
+-- down at line 6091 of 6410 -- so roughly six thousand assertions after this
+-- point reported nothing at all, for as long as the stub was in place. A
+-- suite that goes silent when one thing breaks is worse than the break.
+--
+-- The stand-in cannot be mistaken for a real fill: no border block, no void
+-- mode and no map key is ever spelled this way, so every assertion that
+-- reaches it fails and says what it wanted instead.
+local MISSING = { cells = "<nothing was painted>", key = "<no key>" }
+local function fill(i) return fills[i] or MISSING end
 g.layersFor = function() return "img" end
 g.viewSize = function() return 240, 160 end
 g.borderFillRects = function() return { { 0, 0, 240, 160 } } end
@@ -6088,17 +6101,18 @@ g.mapPlacements = function(self) return { { map = self.map, ox = 0, oy = 0 } } e
 g.map = town; g:drawVoidFill("bottom")
 g.map = shore; g:drawVoidFill("bottom")
 eq(#fills, 2, "each map paints the void in one quad")
-eq(fills[1].cells, fills[2].cells,
+eq(fill(1).cells, fill(2).cells,
   "and paints the same thing on both -- the void does not change when the"
   .. " player walks from one map into the next")
-eq(fills[1].cells, "368,368,368,368",
+eq(fill(1).cells, "368,368,368,368",
   "which is gTileset_General's open sea, not either map's own border")
 
 -- Two maps whose borders differ wildly still agree on the void, so nothing
 -- from a map's edge art can end up tiled across a neighbour's water.
 check(town.border[1] ~= shore.border[1], "the fixture borders really do differ")
+check(#fills > 0, "there is at least one fill to check the ring against")
 for i = 1, #fills do
-  check(fills[i].cells ~= table.concat(town.border, ","),
+  check(fill(i).cells ~= table.concat(town.border, ","),
     "the tree ring never becomes the fill")
 end
 
@@ -6115,13 +6129,14 @@ g:drawBorderFill("img", town)
 eq(#fills, before + 2, "every map in the layout paints its own ring")
 local sawTown, sawShore
 for i = before + 1, #fills do
-  if fills[i].key:find("g_town") then
+  local got = fill(i)
+  if tostring(got.key):find("g_town") then
     sawTown = true
-    eq(fills[i].cells, table.concat(town.border, ","),
+    eq(got.cells, table.concat(town.border, ","),
       "each ring is that map's OWN authored border block")
-  elseif fills[i].key:find("g_shore") then
+  elseif tostring(got.key):find("g_shore") then
     sawShore = true
-    eq(fills[i].cells, table.concat(shore.border, ","),
+    eq(got.cells, table.concat(shore.border, ","),
       "including the neighbour's, which is its own block and not the"
       .. " current map's")
   end

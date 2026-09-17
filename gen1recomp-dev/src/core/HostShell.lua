@@ -145,20 +145,22 @@ function HostShell.pclose(pipe)
   withPopenLock(function() pcall(function() pipe:close() end) end)
 end
 
--- Restart the whole app. The obvious love.event.quit("restart") re-runs LÖVE's
--- boot in-process, which calls love.filesystem.init a second time -- and inside
--- an AppImage physfs is already initialized, so that second init throws
+-- Restart the whole app. The obvious love.event.quit("restart") re-runs LOVE's
+-- boot in-process, which calls love.filesystem.init a second time -- and when
+-- PHYSFS_deinit of the prior Filesystem module fails (AppImage; Android #575
+-- "files still open"; Windows after a long DRAMATIC_SHAPE mesh session that
+-- left physfs handles alive), the second PHYSFS_init throws
 -- ("Failed to initialize filesystem: already initialized") and the relaunch
--- crashes. So on an AppImage we relaunch the executable; the fresh process's
--- Boot step mounts any downloaded update exactly as a manual relaunch would.
--- Android hits the same wall (#575): the vendored love.cpp loops runlove()
--- in-process on "restart", and PHYSFS_deinit in the old Filesystem module's
--- destructor fails ("files still open") whenever any physfs handle survives
--- lua_close, so the second PHYSFS_init throws the same "already initialized"
--- and the app dies. There we relaunch through the GameActivity.restartApp
--- JNI bridge (love.system.restartApp), which schedules our launch intent
--- and kills the process so no native state can leak into the fresh run.
--- On every other platform the in-process restart works, so keep it.
+-- crashes. So:
+--   * AppImage: execv the executable (keeps the PID for SteamOS launchers);
+--     the fresh process's Boot step mounts any downloaded update.
+--   * Android (#575): GameActivity.restartApp JNI bridge schedules our launch
+--     intent and kills the process so no native state leaks into the fresh run.
+--   * Other process-capable desktops (Windows / macOS / Linux): spawn a
+--     detached sibling via spawnSelfDetached, then clean quit() -- never
+--     quit("restart"). Same failure class as #575; in-process restart is not
+--     safe once any physfs handle survives lua_close.
+--   * Last resort (no spawn): in-process quit("restart").
 function HostShell.restart()
   if not (love and love.event and love.event.quit) then return end
 
@@ -176,22 +178,30 @@ function HostShell.restart()
   end
 
   local appimage = os.getenv("APPIMAGE")
-  if not appimage then
-    love.event.quit("restart")
+  if appimage then
+    -- We have to restart the process with this cursed execv call to prevent the
+    -- PID from changing, which might cause SteamOS and other Linux launchers to
+    -- think the app has crashed.
+    local ffi = require("ffi")
+    pcall(ffi.cdef, [[
+      int execv(const char *path, char *const argv[]);
+      int unsetenv(const char *name);
+    ]])
+    ffi.C.unsetenv("LD_LIBRARY_PATH")
+    local argv = ffi.new("const char *[2]", appimage, nil)
+    ffi.C.execv(appimage, ffi.cast("char *const *", argv))
     return
   end
 
-  -- We have to restart the process with this cursed execv call to prevent the
-  -- PID from changing, which might cause SteamOS and other Linux launchers to
-  -- think the app has crashed.
-  local ffi = require("ffi")
-  pcall(ffi.cdef, [[
-    int execv(const char *path, char *const argv[]);
-    int unsetenv(const char *name);
-  ]])
-  ffi.C.unsetenv("LD_LIBRARY_PATH")
-  local argv = ffi.new("const char *[2]", appimage, nil)
-  ffi.C.execv(appimage, ffi.cast("char *const *", argv))
+  -- Process-capable desktop: relaunch out-of-process so boot.lua never sees a
+  -- live PHYSFS. spawnSelfDetached already knows fused vs source checkouts.
+  if require("src.core.Platform").canSpawnProcess()
+      and HostShell.spawnSelfDetached() then
+    love.event.quit()
+    return
+  end
+
+  love.event.quit("restart")
 end
 
 -- ------- HTTP transport ----------------------------------------------------

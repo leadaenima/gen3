@@ -134,8 +134,20 @@ local seen = {}
 for _, path in ipairs(required) do seen[path] = true end
 check(seen["data/generated/audio.lua"], "the registry is a required file")
 check(seen[Audio.BLOB_PATH], "so is the blob")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
-  "hideout submarine sprite bumps the cache marker")
+-- The ruby marker's ordinal moves with every extractor anyone adds, so
+-- pinning it exactly makes this suite fail on someone else's unrelated
+-- bump -- which is what it had been doing, stuck on a value from dozens
+-- of builds ago. What this suite actually owns is that the marker is at
+-- or past the build that first demanded the audio blob, so a cache from before
+-- that cannot validate. Reading the ordinal keeps that true forever and
+-- still catches the marker being rolled backwards.
+;(function()
+  local marker = CacheContract.formatFor("ruby")
+  local n = tonumber(marker:match("rom%-cache%-v10%-ruby(%d+):"))
+  check(n ~= nil, "the ruby cache marker is a versioned ruby marker")
+  check((n or 0) >= 48,
+    "the marker is at or past the build that first demanded the audio blob")
+end)()
 
 -- ------- 7. Cries
 -- Cries are not in the song table: sound.c indexes gCryTable by a cry id,

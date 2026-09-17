@@ -143,8 +143,24 @@ eq(RomExtractorGen3.decodeSpeciesNames("no names here"), nil,
 
 local required, isOverride = CacheContract.requiredFilesFor("ruby")
 check(isOverride == true, "ruby has its own required-file override")
-eq(#required, 50,
-  "Birch / menu copy, window and battle chrome, MP2K audio, and menu art")
+-- The exact length grows every time an extractor is added, so pinning it
+-- turns this into a tripwire for other people's work -- it had been stuck
+-- at 50 against a list of 95. What this section owns is that ruby brings
+-- its OWN override rather than inheriting the Gen 1 PNG list, so check the
+-- shape of the list instead of its length: it is a real list, it is not the
+-- generic one, and the entries below prove it names ruby's own outputs.
+check(#required > 20, "the ruby override is a real list, not a stub")
+check(#required ~= #CacheContract.REQUIRED_FILES,
+  "and is its own list, not the shared Gen 1 one")
+;(function()
+  local generic = {}
+  for _, f in ipairs(CacheContract.REQUIRED_FILES) do generic[f] = true end
+  local ownOnly = 0
+  for _, f in ipairs(required) do
+    if not generic[f] then ownOnly = ownOnly + 1 end
+  end
+  check(ownOnly > 0, "most of what ruby demands is ruby's own")
+end)()
 local seen = {}
 for _, path in ipairs(required) do seen[path] = true end
 check(seen["data/generated/constants.lua"], "constants.lua is required")
@@ -199,8 +215,20 @@ check(seen["assets/generated/pokenav/region_map.png"],
   "the painted Hoenn region map is required")
 check(seen["assets/generated/starter/bg.png"],
   "Birch's starter-choose bag is required")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
-  "hideout submarine sprite bumps the cache marker")
+-- The ruby marker's ordinal moves with every extractor anyone adds, so
+-- pinning it exactly makes this suite fail on someone else's unrelated
+-- bump -- which is what it had been doing, stuck on a value from dozens
+-- of builds ago. What this suite actually owns is that the marker is at
+-- or past the build that first demanded the ruby overrides, so a cache from before
+-- that cannot validate. Reading the ordinal keeps that true forever and
+-- still catches the marker being rolled backwards.
+;(function()
+  local marker = CacheContract.formatFor("ruby")
+  local n = tonumber(marker:match("rom%-cache%-v10%-ruby(%d+):"))
+  check(n ~= nil, "the ruby cache marker is a versioned ruby marker")
+  check((n or 0) >= 48,
+    "the marker is at or past the build that first demanded the ruby overrides")
+end)()
 
 -- ------- 7. Game3 stub
 

@@ -22,10 +22,29 @@ local SAMPLES_PER_FRAME = SAMPLE_RATE / FRAMES_PER_SECOND
 
 Mp2kSynth.SAMPLE_RATE = SAMPLE_RATE
 Mp2kSynth.FRAMES_PER_SECOND = FRAMES_PER_SECOND
--- Smaller buffers than ChipSynth's 8192: this engine renders on the main
--- thread, so the prebuffer has to be cheap enough not to hitch the frame.
-Mp2kSynth.MUSIC_BUFFER_SAMPLES = 2048
+-- Smaller buffers than ChipSynth's 8192, because a voice that renders on the
+-- main thread (every voice but the music, which streams from mp2k_worker)
+-- has to keep each prebuffer cheap enough not to hitch the frame.
+--
+-- Synthesis is the whole cost here -- ~1.8us per stereo sample, all of it in
+-- the channel mixer; the SoundData writes around it measure as nothing.  So
+-- the only lever on a song change is how much audio gets rendered, and that
+-- is buffer size times queue depth.  At 2048 x 32 a song change rendered
+-- 2.09s of audio (45 buffers, ~170ms of CPU on a desktop): 6 buffers inside
+-- the map load itself and the rest as a ~40-frame stutter tail behind it,
+-- which is what made a Gen 3 map change lag.
+Mp2kSynth.MUSIC_BUFFER_SAMPLES = 1024
+-- Queue depth for a voice the worker feeds: deep is free off the main thread,
+-- and the depth is what buys tolerance of a long render stall (~0.74s here).
 Mp2kSynth.MUSIC_BUFFER_COUNT = 32
+-- Queue depth for a voice rendered on the main thread.  Every buffer in it is
+-- synthesized inline, so this is the one that has to stay small: 8 x 1024 is
+-- ~186ms of cushion for ~15ms of synthesis, spread over the first few frames.
+Mp2kSynth.SYNC_BUFFER_COUNT = 8
+-- A streamed voice hands each finished buffer to the main thread down a
+-- love.thread Channel, and that hand-off is not free, so it renders in larger
+-- chunks than the inline voices: same queued seconds, a quarter of the traffic.
+Mp2kSynth.STREAM_BUFFER_SAMPLES = 4096
 
 local MAX_DIRECTSOUND = 12
 local VOICE_BYTES = 12
@@ -101,6 +120,13 @@ local function readBlob(audio)
   if not raw then return nil end
   blobCache, blobCacheKey = raw, key
   return raw
+end
+
+-- The program bytes a song is sequenced out of.  Exported so mp2k_worker can
+-- build its engine from the same slim { blob, base, programPrefix } table the
+-- main thread sends it, rather than shipping the blob down a channel.
+function Mp2kSynth.blobFor(audio)
+  return readBlob(audio)
 end
 
 function Mp2kSynth.invalidate()
@@ -529,10 +555,22 @@ function Engine:runTrack(track, index)
 end
 
 function Engine:tick()
-  for index, track in ipairs(self.tracks) do
-    if track.wait > 0 then track.wait = track.wait - 1 end
-    if track.wait == 0 then self:runTrack(track, index) end
-  end
+  -- Note lengths come down BEFORE the tracks run, not after.
+  --
+  -- MPlayMain walks each track's channel chain and decrements that channel's
+  -- note-length counter (setting SOUND_CHANNEL_SF_STOP when it hits zero)
+  -- ahead of processing the same track's command stream: pokeruby
+  -- src/libs/m4a_1.s, the `ldrb r0, [r4, 0x10] / subs r0, 0x1` block at
+  -- _081DD892 runs before _081DD938 decrements track->wait and falls into the
+  -- ply_note dispatch at _081DD8E0.  So a note always sounds for the whole
+  -- tick it starts on -- nothing can decrement a counter written this tick.
+  --
+  -- Running the two the other way round took a tick off every note at birth,
+  -- which released a one-tick note in the very tick that began it: the CGB
+  -- envelope had not stepped once, so it went straight to release with the
+  -- level still at 0 and the note was never audible at all.  That is why
+  -- SE_DEX_SCROLL and SE_DEX_PAGE rendered pure silence.  Longer notes
+  -- survived it but each ended one tick early.
   local function step(ch)
     if ch and not ch.dead and ch.gate and ch.gate > 0 then
       ch.gate = ch.gate - 1
@@ -541,6 +579,10 @@ function Engine:tick()
   end
   for _, ch in ipairs(self.dsChannels) do step(ch) end
   for _, ch in pairs(self.cgbChannels) do step(ch) end
+  for index, track in ipairs(self.tracks) do
+    if track.wait > 0 then track.wait = track.wait - 1 end
+    if track.wait == 0 then self:runTrack(track, index) end
+  end
 end
 
 local function stepDirectSoundEnvelope(ch)

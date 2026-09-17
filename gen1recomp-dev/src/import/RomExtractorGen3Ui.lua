@@ -7,7 +7,6 @@
 local GbaBin = require("src.import.GbaBin")
 local GbaLz77 = require("src.import.GbaLz77")
 local ImageWriter = require("src.import.ImageWriter")
-require("src.import.EnsureGeneratedFs")
 
 local Ui = {}
 
@@ -565,6 +564,99 @@ function Ui.renderRouletteBoard(data)
   return image
 end
 
+-- naming_screen.c gUnknown_083CE6A0: twelve OBJ sheets as {ptr, size, tag},
+-- verified against the cart -- every size and tag matches the decomp. The
+-- palette each one wants comes from its sprite template's paletteTag, which
+-- gUnknown_083CE708 maps onto gNamingScreenPalettes (note tag 6 reuses
+-- palette 4). Do NOT infer these from the baked PNGs that used to live in
+-- assets/naming: several of them are tinted wrong, and
+-- change_keyboard_button was stored with its transparency inverted, so it
+-- rendered as a hole in a white block instead of a rounded chip.
+--
+--   tileTag 0 back / 1 ok      -> template 83CE610 / 83CE628, palTag 6 -> 4
+--   tileTag 2 keyboard box     -> template 83CE5C8,           palTag 4
+--   tileTag 3 keyboard button  -> template 83CE5E0,           palTag 1
+--   tileTag 4/5/6 page labels  -> template 83CE5F8,           palTag 4
+--   tileTag 7/8/9 cursors      -> template 83CE640,           palTag 5
+--   tileTag 10/11 caret+under  -> template 83CE658 / 83CE670, palTag 3
+-- menu_helpers.c CreateVerticalScrollIndicators. One sprite template
+-- (gSpriteTemplate_83E59D0) covers both vertical arrows -- anim frame 0 is
+-- the up arrow and frame 1 the down -- laid out H_RECTANGLE, so its two
+-- tiles sit side by side for 16x8. The horizontal pair is V_RECTANGLE, so
+-- those two tiles STACK for 8x16; read side by side they come out as
+-- meaningless diagonal shards.
+Ui.SCROLL_ARROW_PAL = 0x3E5948          -- Palette_3E5948
+Ui.SCROLL_ARROWS = {
+  { name = 'up', off = 0x3E5808, w = 2, h = 1 },
+  { name = 'down', off = 0x3E5848, w = 2, h = 1 },
+  { name = 'left', off = 0x3E5888, w = 1, h = 2 },
+  { name = 'right', off = 0x3E58C8, w = 1, h = 2 },
+}
+
+-- All four on one 16x32 sheet: up at (0,0,16,8), down at (0,8,16,8),
+-- left at (0,16,8,16), right at (8,16,8,16).
+function Ui.renderScrollArrows(data)
+  local pal = readPal(data, Ui.SCROLL_ARROW_PAL, 16)
+  if not pal then return nil end
+  local image = ImageWriter.blank(16, 32, 0, 0, 0, 0)
+  local place = { up = { 0, 0 }, down = { 0, 8 }, left = { 0, 16 },
+    right = { 8, 16 } }
+  for _, spec in ipairs(Ui.SCROLL_ARROWS) do
+    local at = place[spec.name]
+    local bytes = spec.w * spec.h * Ui.TILE_BYTES
+    local tiles = data:sub(spec.off + 1, spec.off + bytes)
+    if #tiles < bytes then return nil end
+    for t = 0, spec.w * spec.h - 1 do
+      blitTile(image, at[1] + (t % spec.w) * Ui.TILE,
+        at[2] + math.floor(t / spec.w) * Ui.TILE, tiles, t, pal,
+        false, false, true)
+    end
+  end
+  return image
+end
+
+Ui.NAMING_SHEET_TABLE = 0x3CE6A0
+Ui.NAMING_PAL_TABLE = 0x3CE708
+Ui.NAMING_SHEETS = {
+  { name = 'back_button', cols = 5, pal = 4 },
+  { name = 'ok_button', cols = 5, pal = 4 },
+  { name = 'change_keyboard_box', cols = 5, pal = 4 },
+  { name = 'change_keyboard_button', cols = 4, pal = 1 },
+  { name = 'lower_text', cols = 3, pal = 4 },
+  { name = 'upper_text', cols = 3, pal = 4 },
+  { name = 'others_text', cols = 3, pal = 4 },
+  { name = 'cursor', cols = 2, pal = 5 },
+  { name = 'active_cursor_small', cols = 2, pal = 5 },
+  { name = 'active_cursor_big', cols = 2, pal = 5 },
+  { name = 'right_pointing_triangle', cols = 1, pal = 3 },
+  { name = 'underscore', cols = 1, pal = 3 },
+}
+
+-- One naming-screen OBJ sheet. Tiles are 1D: row-major at the sprite's own
+-- width, which is why `cols` is part of the table rather than guessed.
+function Ui.renderNamingSheet(data, index)
+  local spec = Ui.NAMING_SHEETS[index]
+  if not spec then return nil end
+  local at = Ui.NAMING_SHEET_TABLE + (index - 1) * 8
+  local ptr = GbaBin.u32(data, at)
+  local size = GbaBin.u16(data, at + 4)
+  if not GbaBin.isRomPtr(ptr, #data) or size < 32 then return nil end
+  local off = ptr - GbaBin.ROM_BASE
+  local tiles = data:sub(off + 1, off + size)
+  if #tiles < size then return nil end
+  local pal = readPal(data, Ui.RUBY_US.namingPal0 + spec.pal * 32, 16)
+  if not pal then return nil end
+  local n = math.floor(size / 32)
+  local cols = spec.cols
+  local rows = math.ceil(n / cols)
+  local image = ImageWriter.blank(cols * Ui.TILE, rows * Ui.TILE, 0, 0, 0, 0)
+  for t = 0, n - 1 do
+    blitTile(image, (t % cols) * Ui.TILE, math.floor(t / cols) * Ui.TILE,
+      tiles, t, pal, false, false, true)
+  end
+  return image
+end
+
 function Ui.renderNamingButtons(data)
   local u = Ui.RUBY_US
   local pal = readPal(data, u.namingPal0, 16)
@@ -660,6 +752,16 @@ function Ui.extract(data)
     braille = save(safe(Ui.renderBraille, data), "assets/generated/ui/braille.png"),
     brailleCols = Ui.BRAILLE_COLS,
     brailleGlyphs = Ui.BRAILLE_GLYPHS,
+    scrollArrows = save(safe(Ui.renderScrollArrows, data),
+      "assets/generated/ui/scroll_arrows.png"),
+    namingSheets = (function()
+      local paths = {}
+      for i, spec in ipairs(Ui.NAMING_SHEETS) do
+        paths[spec.name] = save(safe(Ui.renderNamingSheet, data, i),
+          'assets/generated/naming/' .. spec.name .. '.png')
+      end
+      return paths
+    end)(),
     namingButtons = save(safe(Ui.renderNamingButtons, data),
       "assets/generated/ui/naming_buttons.png"),
     namingBg = save(safe(Ui.renderMapped, data, Ui.RUBY_US.namingMenuGfx,

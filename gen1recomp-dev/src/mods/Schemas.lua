@@ -638,12 +638,67 @@ Schemas.GEN1 = {
   apricorns = false, landmarks = false, radio_channels = false,
 }
 
+-- ------- Gen 3
+--
+-- Ruby's tables are the GBA cartridge's own layout and are read through
+-- src/core/Game3.lua, which is a separate game object from Gen 1's -- main.lua
+-- says so in as many words: "The three never branch into each other."  So a
+-- registry's Gen 1 target is NOT automatically a Gen 3 target, and until a
+-- registry's Gen 3 record shape has actually been checked, routing it would
+-- merge a Red-shaped record into a Hoenn table and call it a success.
+--
+-- This table is therefore the conservative direction, and deliberately starts
+-- nearly empty: everything is gated (`false`) except what this engine has been
+-- verified to read at the shared path.  A gated registry REPORTS -- the
+-- manager shows "no Gen 3 target" -- which is the outcome the rest of this
+-- file already prefers over a silent drop or a silent wrong merge.
+--
+--   render_pipelines  NOT gated.  src/core/Game3.lua:load calls
+--                     Pipelines.install(self.data) after the merge, exactly
+--                     as Gen 1 and Gen 2 do, so data.render_pipelines is the
+--                     merged table a pipeline mod registered into, and
+--                     Game3:drawWorldBody hands the world pass to
+--                     Pipelines.drawWorld.  Verified by construction: the
+--                     install call and the draw hook land in the same change
+--                     as this row.
+--
+-- Every other registry is gated for one of two reasons, and both are honest
+-- "not yet" rather than "never":
+--
+--   * the system exists on Ruby but is not driven by the registry -- battle
+--     transitions are src/core/Game3BattleTransition.lua, not data.transitions;
+--     text is a cartridge pointer space; maps come from Gen3MapPack;
+--   * or the record shape is a Gen 3 shape nobody has written a gen3Fields
+--     layer for yet, so validating a mod's record would judge it against
+--     Red's schema.
+--
+-- Ungating a row means: confirm Game3 reads that Data path, add a gen3* shape
+-- beside the Gen 1 one if the records differ, and pin it with a test.  One row
+-- at a time, each with its own evidence -- which is how Schemas.GEN2 above got
+-- to be as short as it is.
+-- Built on first use rather than here: the catalog (Schemas.REGISTRIES) is
+-- assembled further down this file, so an eager loop would see an empty one
+-- and gate nothing at all -- which is the exact silent-wrong-merge this table
+-- exists to prevent.  Lazy also means a registry added later is gated by
+-- default without anyone having to remember this list.
+local GEN3_UNGATED = { render_pipelines = true }
+local gen3Routing
+
+function Schemas.gen3Routing()
+  if gen3Routing then return gen3Routing end
+  gen3Routing = {}
+  for name in pairs(Schemas.REGISTRIES) do
+    if not GEN3_UNGATED[name] then gen3Routing[name] = false end
+  end
+  return gen3Routing
+end
 -- The routing table for a generation: which one is consulted is the only
--- difference between the two directions.  An unknown generation routes
+-- difference between the three directions.  An unknown generation routes
 -- nothing, so every registry keeps its catalog target.
 local NO_ROUTING = {}
 
 function Schemas.routing(generation)
+  if generation == 3 then return Schemas.gen3Routing() end
   if generation == 2 then return Schemas.GEN2 end
   if generation == 1 then return Schemas.GEN1 end
   return NO_ROUTING

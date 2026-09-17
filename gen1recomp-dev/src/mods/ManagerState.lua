@@ -229,11 +229,18 @@ function ManagerState:refresh()
   end
 end
 
-function ManagerState:optionsTable()
-  local save = self.game.save
-  return (save and save.options) or {}
-end
 
+function ManagerState:optionsTable()
+  local save = self.game and self.game.save
+  if save and save.options then return save.options end
+  -- Game3 keeps live settings on game.options and only aliases
+  -- save.options after modOptionsStore; don't return a fresh {} that
+  -- drops every toggle.
+  if self.game and type(self.game.options) == "table" then
+    return self.game.options
+  end
+  return {}
+end
 -- Per-mod option values as persisted (options.modOptions; setOption below is
 -- the only writer).  A profile captures this alongside the enable set.
 function ManagerState:modOptionsTable()
@@ -473,7 +480,8 @@ function ManagerState:goBack()
     self.scroll = prev.scroll
     self:refresh()
   else
-    self.game.stack:pop()
+    local stack = self.game and self.game.stack
+    if stack and stack.pop then stack:pop() end
   end
 end
 
@@ -794,8 +802,8 @@ end
 function ManagerState:restartGame()
   if self.game.restartWithMods then
     self.game:restartWithMods()
-  elseif love.event and love.event.quit then
-    love.event.quit("restart")
+  else
+    require("src.core.HostShell").restart()
   end
 end
 

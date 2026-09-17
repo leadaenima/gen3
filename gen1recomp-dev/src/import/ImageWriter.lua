@@ -146,6 +146,11 @@ function ImageWriter.deinterleave(raw, width, bytesPerTile)
 end
 
 function ImageWriter.save(image, path)
+  -- NOTE: LOVE may still emit paletted PNGs without tRNS for mostly-opaque
+  -- sheets. Gen3Sheets.punchChromaKey restores skip0 holes (opaque black) at
+  -- load time; do not rely on encode to preserve alpha for bottom atlases.
+  -- r11: after a ROM re-import, reinstall RGBA rebakes (tmp/r11_rebaked_pairs.tar.gz
+  -- or chroma_cmp/rebake_pairs.py) so bottoms keep index-0 clear on disk.
   local ok, fileData = pcall(image.encode, image, "png")
   if not ok then error("could not encode " .. path .. ": " .. tostring(fileData)) end
   local bytes

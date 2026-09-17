@@ -352,7 +352,7 @@ check(not Game3.isLandGrass(field:behaviorAt(field.map, 1, 0)),
   "metatile 0 is not grass")
 
 check(field:tryWildEncounter(), "rate 255 always rolls a battle")
-eq(field.phase, "battle", "phase is battle")
+check(field:inBattlePhase(), "phase is battle")
 eq(field.battle.enemy.species, 290, "wild Wurmple")
 eq(field.battle.kind, "intro", "starts on the appear text")
 eq(field.battle.enemy.moves[1].name, "TACKLE", "Wurmple knows Tackle")
@@ -523,11 +523,16 @@ eq(field.playerX, 1, "and the start spawn")
 
 -- ------- evolution, nurse, field menu
 
+-- battle_main.c TryEvolvePokemon runs AFTER the battle, not when the level
+-- is gained: awardExp queues, and the post-battle drain applies. These
+-- blocks used to assert the species changed inside awardExp itself.
+
 do
 local silk = field:makeMon(290, 6)
 silk.pid = 0
 silk.exp = Game3.expAtLevel(0, 7) - 1
 field:awardExp(silk, { level = 20, expYield = 54 })
+field:resolvePendingEvolve()
 eq(silk.species, 291, "personality high word % 10 <= 4 is Silcoon")
 eq(silk.name, "SILCOON", "name follows the species")
 
@@ -537,6 +542,7 @@ local cas = field:makeMon(290, 6)
 cas.pid = 5 * 65536
 cas.exp = Game3.expAtLevel(0, 7) - 1
 field:awardExp(cas, { level = 20, expYield = 54 })
+field:resolvePendingEvolve()
 eq(cas.species, 292, "personality high word % 10 > 4 is Cascoon")
 
 end
@@ -544,6 +550,7 @@ do
 local chick = field:makeMon(280, 15)
 chick.exp = Game3.expAtLevel(3, 16) - 1
 field:awardExp(chick, { level = 2, expYield = 54 })
+field:resolvePendingEvolve()
 eq(chick.species, 281, "Torchic evolves at 16")
 eq(chick.name, "COMBUSKEN", "into Combusken")
 eq(chick.type2, 1, "and picks up Fighting")
@@ -883,7 +890,7 @@ eq(chaser.scriptVars[Game3.VAR_ROUTE101_STATE], 3, "and VAR_ROUTE101_STATE 3")
 chaser.field = { kind = "talk", text = "Got TORCHIC!", chase = true }
 chaser.pendingChase = nil
 chaser:closeField()
-eq(chaser.phase, "battle", "closing Got it! starts the chase")
+check(chaser:inBattlePhase(), "closing Got it! starts the chase")
 eq(chaser.battle.enemy.species, 286, "vs Poochyena")
 eq(chaser.battle.enemy.level, 2, "level 2")
 check(chaser.battle.chase, "the fight is marked chase")
@@ -1233,7 +1240,7 @@ pressA()
 eq(field.battle.kind, "menu_msg", "RUN stays in the fight")
 eq(field.battle.text, "No! There's no running from a TRAINER battle!",
   "no-run line")
-eq(field.phase, "battle", "RUN does not end a trainer fight")
+check(field:inBattlePhase(), "RUN does not end a trainer fight")
 
 field.battle.kind = "menu"
 field.battle.cursor = 1
@@ -1313,7 +1320,7 @@ end
 field.phase = "play"
 field.party = { field:makeMon(280, 5) }
 check(field:tryTrainerSpot(), "LOS after a step starts the fight")
-eq(field.phase, "battle", "spotting opens a trainer battle")
+check(field:inBattlePhase(), "spotting opens a trainer battle")
 
 chaser = Game3.new()
 chaser.phase = "play"
@@ -1376,7 +1383,7 @@ scripted._scriptNpc = {
 check(scripted:scriptTrainerBattle({
   trainerId = 1, intro = "Go!", defeat = "Arrgh, I lost...",
 }), "trainerbattle starts a scripted fight")
-eq(scripted.phase, "battle", "rival and team scripts enter battle")
+check(scripted:inBattlePhase(), "rival and team scripts enter battle")
 eq(scripted.battle.text, "Go!", "intro text is kept")
 eq(scripted.battle.defeat, "Arrgh, I lost...",
   "trainerbattle keeps the ROM lose text")
@@ -1422,7 +1429,7 @@ scripted.party = { scripted:makeMon(280, 5) }
 check(scripted:scriptTrainerBattle({
   kind = Game3.TRAINER_BATTLE_NO_INTRO, trainerId = 1,
 }), "no_intro battles a trainer whose flag is already set")
-eq(scripted.phase, "battle", "and it really enters the battle")
+check(scripted:inBattlePhase(), "and it really enters the battle")
 scripted.phase = "play"
 scripted.battle = nil
 scripted._scriptNpc.defeated = true
@@ -4248,7 +4255,7 @@ local lines = fx:useMove(slashAtk, {
   name = "WURMPLE", hp = 80, maxHp = 80, def = 10, type1 = 6, type2 = 6,
   stages = stages(),
 }, { name = "SLASH", effect = 43, power = 70, type = 0, accuracy = 100, pp = 20 })
-check(lines[2]:find("critical", 1, true) ~= nil, "and useMove announces it")
+check(lines[2] and lines[2]:find("critical", 1, true) ~= nil, "and useMove announces it")
 fx.rng = function() return 1 end
 end)()
 
@@ -4563,7 +4570,7 @@ local lines = misser:useMove({
   type1 = 10, type2 = 10, ability = 0,
   stages = { atk = 0, def = 0, spa = 0, spd = 0, spe = 0 },
 }, sanded, scratch)
-check(lines[2]:find("missed", 1, true) ~= nil,
+check(lines[2] and lines[2]:find("missed", 1, true) ~= nil,
   "Sand Veil makes a 100% move miss on roll 81")
 
 local fx = Game3.new()
@@ -4879,7 +4886,7 @@ check(route.field.text:find("POKeMON", 1, true) ~= nil, "May asks for a POKeMON"
 check(route:giveStarter(280), "Torchic joins")
 route.field = nil
 check(route:tryTalk(), "talking on Route 103 starts the rival fight")
-eq(route.phase, "battle", "phase is battle")
+check(route:inBattlePhase(), "phase is battle")
 eq(route.battle.rivalRoute103, true, "it is the Route 103 fight")
 eq(route.battle.enemy.species, 283, "May sends Mudkip")
 eq(route.battle.text, "MAY would like to battle!", "intro names May")
@@ -5043,6 +5050,13 @@ home.map = brendan2f
 -- so they are no longer observable at the moment the UI opens.
 check(home:tryTalk(), "A on the stopped clock")
 eq(home.field.kind, "clock_set", "the cart opens the wall clock face")
+-- wallclock.c Task_SetClock3: A opens the confirm menu, which starts on NO;
+-- the flags and VAR_LITTLEROOT_INTRO_STATE land only once YES is taken.
+home:confirmWallClock()
+eq(home.flags[Game3.FLAG_SET_WALL_CLOCK], true, "FLAG_SET_WALL_CLOCK")
+eq(home.flags[Game3.FLAG_HIDE_MACHOKE_MOVER_1], true, "hides mover 1")
+eq(home.flags[Game3.FLAG_HIDE_MACHOKE_MOVER_2], true, "hides mover 2")
+eq(home.scriptVars[Game3.VAR_LITTLEROOT_INTRO_STATE], 6, "clock writes intro 6")
 
 home:enterMap(floor, 5, 4, true)
 eq(#home:npcsFor(floor), 1, "Machoke movers leave after the clock")
@@ -6684,7 +6698,7 @@ check(g:npcByLocalId(Game3.LOCALID_ROUTE101_POOCHYENA).hidden,
 pressA(g)
 eq(g.field.kind, "starter_yesno", "A asks to confirm")
 pressA(g)
-eq(g.phase, "battle", "YES starts the first battle")
+check(g:inBattlePhase(), "YES starts the first battle")
 eq(g.party[1].species, 280, "Torchic joins before the fight")
 eq(g.scriptVars[0x800D], 1, "VAR_RESULT is the 0-based ball (Torchic = 1)")
 eq(g.scriptVars[Game3.VAR_STARTER_MON], 1, "VAR_STARTER_MON matches")
@@ -6729,7 +6743,7 @@ check(faint:tryTalk(), "the bag still opens ChooseStarter")
 runScene(faint)
 pressA(faint)
 pressA(faint)
-eq(faint.phase, "battle", "the first fight started")
+check(faint:inBattlePhase(), "the first fight started")
 faint.battle.player.hp = 0
 faint:blackout()
 eq(faint.phase, "play", "a faint still continues the script")
@@ -8223,9 +8237,9 @@ eq(later:npcByLocalId(boyId).y, 15, "and gym Y")
 first.facing = "west"
 check(first:tryWalk(-1, 0), "step onto (8,11)")
 local lines = runScene(first)
-check(lines[1]:find("rookie TRAINER", 1, true) ~= nil, "Are you a rookie TRAINER?")
-check(lines[2]:find("PETALBURG CITY's GYM", 1, true) ~= nil, "this is the gym")
-check(lines[3]:find("GYM's sign", 1, true) ~= nil, "this is the gym sign")
+check(lines[1] and lines[1]:find("rookie TRAINER", 1, true) ~= nil, "Are you a rookie TRAINER?")
+check(lines[2] and lines[2]:find("PETALBURG CITY's GYM", 1, true) ~= nil, "this is the gym")
+check(lines[3] and lines[3]:find("GYM's sign", 1, true) ~= nil, "this is the gym sign")
 eq(first.playerX, 15, "player finishes at the gym")
 eq(first.playerY, 10, "on the gym path")
 eq(first:npcByLocalId(boyId).x, 5, "boy walks away west")
@@ -8545,16 +8559,16 @@ first.facing = "north"
 first.field = nil
 check(first:tryTalk(), "talking to Dad from the door")
 local lines = runScene(first)
-check(lines[1]:find("with your POKeMON", 1, true) ~= nil, "You're with your POKeMON")
-check(lines[2]:find("like to get a POKeMON", 1, true) ~= nil, "Wally wants a POKeMON")
-check(lines[3]:find("You're WALLY, right", 1, true) ~= nil, "You're WALLY, right?")
-check(lines[4]:find("never caught", 1, true) ~= nil, "never caught a POKeMON")
-check(lines[5]:find("Hm. I see", 1, true) ~= nil, "Hm. I see.")
-check(lines[6]:find("Go with WALLY", 1, true) ~= nil, "go with Wally")
-check(lines[7]:find("ZIGZAGOON", 1, true) ~= nil, "loan Zigzagoon")
-check(lines[8]:find("POKe BALL", 1, true) ~= nil, "and a POKe BALL")
-check(lines[9]:find("Thank you", 1, true) ~= nil, "Wally thanks Dad")
-check(lines[10]:find("come with me", 1, true) ~= nil, "Would you really come with me?")
+check(lines[1] and lines[1]:find("with your POKeMON", 1, true) ~= nil, "You're with your POKeMON")
+check(lines[2] and lines[2]:find("like to get a POKeMON", 1, true) ~= nil, "Wally wants a POKeMON")
+check(lines[3] and lines[3]:find("You're WALLY, right", 1, true) ~= nil, "You're WALLY, right?")
+check(lines[4] and lines[4]:find("never caught", 1, true) ~= nil, "never caught a POKeMON")
+check(lines[5] and lines[5]:find("Hm. I see", 1, true) ~= nil, "Hm. I see.")
+check(lines[6] and lines[6]:find("Go with WALLY", 1, true) ~= nil, "go with Wally")
+check(lines[7] and lines[7]:find("ZIGZAGOON", 1, true) ~= nil, "loan Zigzagoon")
+check(lines[8] and lines[8]:find("POKe BALL", 1, true) ~= nil, "and a POKe BALL")
+check(lines[9] and lines[9]:find("Thank you", 1, true) ~= nil, "Wally thanks Dad")
+check(lines[10] and lines[10]:find("come with me", 1, true) ~= nil, "Would you really come with me?")
 eq(first.map.id, "g0_0", "warp is MAP_PETALBURG_CITY")
 eq(first.playerX, 15, "outside the gym door X")
 eq(first.playerY, 8, "outside the gym door Y")
@@ -8611,7 +8625,7 @@ eq(loan.party[1].moves[1].id, 33, "only TACKLE")
 eq(loan.party[1].ability, 0, "alt ability is none")
 check(loan:runSpecial(Game3.SPECIAL_START_WALLY_TUTORIAL_BATTLE) or loan.phase == "battle",
   "tutorial battle starts")
-eq(loan.phase, "battle", "phase is battle")
+check(loan:inBattlePhase(), "phase is battle")
 eq(loan.battle.enemy.species, Game3.SPECIES_RALTS, "vs Ralts")
 eq(loan.battle.enemy.level, 5, "level 5")
 check(loan.battle.wallyTutorial, "BATTLE_TYPE_WALLY_TUTORIAL")
@@ -8692,7 +8706,7 @@ local function press(g, name)
   Input:init()
   local old = Input.wasPressed
   Input.wasPressed = function(_, key) return key == name end
-  if g.phase == "battle" then g:stepBattle() else g:stepField() end
+  if g:inBattlePhase() then g:stepBattle() else g:stepField() end
   Input.wasPressed = old
 end
 local function runScene(g)
@@ -8701,7 +8715,7 @@ local function runScene(g)
   local last
   while n < 1500 do
     n = n + 1
-    if g.phase == "battle" then
+    if g:inBattlePhase() then
       press(g, "a")
     else
       local f = g.field
@@ -8749,9 +8763,9 @@ local gym = {
 g.data.maps = { start = "g0_0", maps = { g0_0 = city, g8_1 = gym } }
 g:enterMap(city, Game3.PETALBURG_GYM_EXIT_X, Game3.PETALBURG_GYM_EXIT_Y, true)
 local lines = runScene(g)
-check(lines[1]:find("tall grass", 1, true) ~= nil, "Watch me catch POKeMON")
-check(lines[2]:find("I did it", 1, true) ~= nil, "I did it... It's my POKeMON")
-check(lines[3]:find("back to the GYM", 1, true) ~= nil, "Let's go back to the GYM")
+check(lines[1] and lines[1]:find("tall grass", 1, true) ~= nil, "Watch me catch POKeMON")
+check(lines[2] and lines[2]:find("I did it", 1, true) ~= nil, "I did it... It's my POKeMON")
+check(lines[3] and lines[3]:find("back to the GYM", 1, true) ~= nil, "Let's go back to the GYM")
 eq(g.map.id, "g8_1", "warp is MAP_PETALBURG_CITY_GYM")
 eq(g.playerX, 4, "gym door X")
 eq(g.playerY, 108, "gym door Y")
@@ -9642,7 +9656,7 @@ g:enterMap({
   id = "g_cave", width = 2, height = 1, tileset = "cave", grid = { 1, 2 },
 }, 0, 0, true)
 check(g:tryWildEncounter(), "cave floor rolls a land fight")
-eq(g.phase, "battle", "into battle")
+check(g:inBattlePhase(), "into battle")
 eq(g.battle.enemy.species, 290, "from the land table")
 g.phase = "play"
 g.battle = nil
@@ -10324,7 +10338,7 @@ local hit = g:useRod(Game3.ITEM_OLD_ROD)
 check(hit, "a bite starts the minigame")
 eq(g.phase, "play", "not in battle yet")
 g:driveFishingHook()
-eq(g.phase, "battle", "fishing battle")
+check(g:inBattlePhase(), "fishing battle")
 eq(g.battle.enemy.species, 129, "Old Rod slot 0")
 eq(g.battle.enemy.level, 5, "level 5 Magikarp")
 g.phase = "play"
@@ -10347,7 +10361,7 @@ g.party[1].moves = { { id = Game3.MOVE_ROCK_SMASH } }
 g.rng = function() return 1 end
 local smash = g:useRockSmash()
 check(smash, "Rock Smash still breaks the rock")
-eq(g.phase, "battle", "and can start a rock fight")
+check(g:inBattlePhase(), "and can start a rock fight")
 eq(g.battle.enemy.species, 74, "Geodude from the rock table")
 end)()
 
@@ -10636,7 +10650,7 @@ g.rng = function() return 1 end
 local bite = g:useRod(Game3.ITEM_OLD_ROD)
 check(bite, "fishing ignores Repel")
 g:driveFishingHook()
-eq(g.phase, "battle", "rod still starts a fight")
+check(g:inBattlePhase(), "rod still starts a fight")
 g.phase = "play"
 g.battle = nil
 g.repelSteps = 50
@@ -10884,7 +10898,7 @@ check(not g:tryWildEncounter(), "rate 0 never walks")
 local ok, msg = g:useSweetScent()
 check(ok, "Sweet Scent uses")
 eq(msg, "Used SWEET SCENT!", "use line")
-eq(g.phase, "battle", "forces a fight")
+check(g:inBattlePhase(), "forces a fight")
 eq(g.battle.enemy.species, 290, "land slot 0")
 eq(g.repelSteps, 100, "Repel is still up")
 
@@ -10902,7 +10916,7 @@ g.rng = function() return 1 end
 local water, waterMsg = g:useSweetScent()
 check(water, "Sweet Scent on water")
 eq(waterMsg, "Used SWEET SCENT!", "water use line")
-eq(g.phase, "battle", "water fight")
+check(g:inBattlePhase(), "water fight")
 eq(g.battle.enemy.species, 72, "water slot 0")
 
 g.phase = "play"
@@ -10926,7 +10940,7 @@ eq(g.field.kind, "party_action", "A opens Sweet Scent commands")
 g.field.cursor = 3
 g:stepField()
 Input.wasPressed = old
-eq(g.phase, "battle", "party A Sweet Scent fights")
+check(g:inBattlePhase(), "party A Sweet Scent fights")
 eq(g.battle.enemy.species, 290, "party A land slot")
 end)()
 
@@ -12817,7 +12831,7 @@ check(g:scriptTrainerBattle({
   trainerId = Game3.TRAINER_PETALBURG_WOODS_GRUNT,
   defeat = "You're kidding me! You're tough!",
 }), "no-intro looks up the woods grunt")
-eq(g.phase, "battle", "and starts the fight")
+check(g:inBattlePhase(), "and starts the fight")
 eq(g.battle.kind, "menu", "skips the intro wait")
 eq(g.battle.text, nil, "no would-like-to-battle line")
 eq(g.battle.enemy.species, 286, "lv9 Poochyena")
@@ -12891,7 +12905,7 @@ local ops = {
   { op = "end" },
 }
 g:runNpcScript(ops)
-eq(g.phase, "battle", "kind 1 starts the gym fight")
+check(g:inBattlePhase(), "kind 1 starts the gym fight")
 eq(g._scriptPause.ops[1].op, "setflag", "pause is RoxanneDefeated")
 eq(g.flags[Game3.FLAG_BADGE01_GET], nil, "badge waits for the win")
 
@@ -12953,7 +12967,7 @@ local ops = {
   { op = "end" },
 }
 g:runNpcScript(ops)
-eq(g.phase, "battle", "kind 1 starts the gym fight")
+check(g:inBattlePhase(), "kind 1 starts the gym fight")
 g.pendingEvo = {
   {
     mon = g.party[1], from = 280, fromName = "TORCHIC", target = 281,
@@ -13193,9 +13207,9 @@ g:openPokeNav()
 eq(g.field.kind, "pokenav_menu", "A on POKeNAV opens its menu")
 -- the cart's own order, which its menu blurbs spell out: the map, POKeMON in
 -- detail, TRAINER information, then obtained RIBBONS
-eq(g.field.items[1], "MAP", "MAP leads")
+eq(g.field.items[1], "HOENN MAP", "HOENN MAP leads, as the card art reads")
 eq(g.field.items[2], "CONDITION", "then CONDITION")
-eq(g.field.items[3], "TRAINER'S EYE", "then TRAINER'S EYE")
+eq(g.field.items[3], "TRAINER'S EYES", "then TRAINER'S EYES, plural")
 eq(g.field.items[4], "RIBBONS", "then RIBBONS")
 local Input = require("src.core.Input")
 Input:init()
@@ -13670,7 +13684,7 @@ check(g:scriptTrainerBattle({
   defeat = "We lost...",
   cannot = cannot,
 }), "two mons start Gina")
-eq(g.phase, "battle", "the fight begins")
+check(g:inBattlePhase(), "the fight begins")
 check(g.battle.doubles, "as a doubles battle")
 eq(g.battle.enemy2.species, 290, "both twins send a mon")
 eq(g.battle.player2.species, 290, "and you send both")
@@ -14069,7 +14083,7 @@ local scratch = {
 }
 g.rng = function() return 76 end
 local lines = g:useMove(defn, atk, scratch)
-check(lines[2]:find("missed", 1, true) ~= nil,
+check(lines[2] and lines[2]:find("missed", 1, true) ~= nil,
   "the Sand-Attacked mon misses on roll 76")
 g.rng = function() return 75 end
 lines = g:useMove(defn, atk, scratch)
@@ -14981,7 +14995,7 @@ chick.stages.spd = 0
 chick.ability = Game3.ABILITY_CLEAR_BODY
 lines = g:useMove(mawile, chick, tears)
 eq(chick.stages.spd, 0, "Clear Body blocks Fake Tears")
-check(lines[2]:find("cannot be lowered", 1, true) ~= nil,
+check(lines[2] and lines[2]:find("cannot be lowered", 1, true) ~= nil,
   "AbilityNoStatLoss")
 
 chick.ability = Game3.ABILITY_HYPER_CUTTER
@@ -14993,7 +15007,7 @@ chick.stages.spd = 0
 chick.protected = true
 lines = g:useMove(mawile, chick, tears)
 eq(chick.stages.spd, 0, "Protect stops Fake Tears")
-check(lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
+check(lines[2] and lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
 end)()
 
 ;(function()
@@ -15126,7 +15140,7 @@ carv.rage = true
 chick.protected = true
 lines = g:useMove(carv, chick, rage)
 eq(carv.rage, nil, "Protect is BattleScript_RageMiss")
-check(lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
+check(lines[2] and lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
 
 chick.protected = nil
 rage.accuracy = 50
@@ -15146,7 +15160,7 @@ g.rng = function() return 1 end
 rage.accuracy = 100
 lines = g:useMove(carv, ghost, rage)
 eq(carv.rage, true, "type immunity still seteffectprimary")
-check(lines[2]:find("doesn't affect", 1, true) ~= nil, "no HP damage")
+check(lines[2] and lines[2]:find("doesn't affect", 1, true) ~= nil, "no HP damage")
 end)()
 
 ;(function()
@@ -15290,28 +15304,28 @@ local chick = {
 local lines = g:useMove(shroom, chick, seed)
 eq(chick.leechSeed, true, "STATUS3_LEECHSEED")
 eq(chick.leechSeedFrom, shroom, "stores the sower")
-check(lines[2]:find("was seeded", 1, true) ~= nil, "BattleText_WasSeeded")
+check(lines[2] and lines[2]:find("was seeded", 1, true) ~= nil, "BattleText_WasSeeded")
 
 lines = g:useMove(shroom, chick, seed)
-check(lines[2]:find("evaded", 1, true) ~= nil, "already seeded is EvadedAttack")
+check(lines[2] and lines[2]:find("evaded", 1, true) ~= nil, "already seeded is EvadedAttack")
 
 local treecko = { name = "TREECKO", hp = 40, maxHp = 40, type1 = 12, type2 = 12 }
 lines = g:useMove(shroom, treecko, seed)
 eq(treecko.leechSeed, nil, "Grass fails setseeded")
-check(lines[2]:find("doesn't affect", 1, true) ~= nil, "chooser 2")
+check(lines[2] and lines[2]:find("doesn't affect", 1, true) ~= nil, "chooser 2")
 
 seed.accuracy = 90
 g.rng = function() return 100 end
 local zig = { name = "ZIGZAGOON", hp = 30, maxHp = 30, type1 = 0, type2 = 0 }
 lines = g:useMove(shroom, zig, seed)
 eq(zig.leechSeed, nil, "accuracy miss")
-check(lines[2]:find("evaded", 1, true) ~= nil, "miss is still EvadedAttack")
+check(lines[2] and lines[2]:find("evaded", 1, true) ~= nil, "miss is still EvadedAttack")
 
 g.rng = function() return 1 end
 zig.protected = true
 lines = g:useMove(shroom, zig, seed)
 eq(zig.leechSeed, nil, "Protect")
-check(lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
+check(lines[2] and lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
 
 local drain = g:leechSeedResidual(chick)
 eq(chick.hp, 30, "maxHP/8")
@@ -15378,20 +15392,20 @@ local tackle = {
   name = "TACKLE", effect = 0, power = 35, type = 0, accuracy = 100, pp = 35,
 }
 local lines = g:useMove(marsh, ghost, tackle)
-check(lines[2]:find("doesn't affect", 1, true) ~= nil, "Ghost immune to Normal")
+check(lines[2] and lines[2]:find("doesn't affect", 1, true) ~= nil, "Ghost immune to Normal")
 eq(ghost.hp, 40, "no damage yet")
 
 eq(g:moveHitChance(marsh, ghost, tackle, 0), 75, "Double Team is 75%")
 lines = g:useMove(marsh, ghost, foresight)
 eq(ghost.foresight, true, "STATUS2_FORESIGHT")
-check(lines[2]:find("identified", 1, true) ~= nil, "BattleText_IdentifiedPoke")
+check(lines[2] and lines[2]:find("identified", 1, true) ~= nil, "BattleText_IdentifiedPoke")
 eq(g:moveHitChance(marsh, ghost, tackle, 0), 100, "evasion stage is ignored")
 marsh.stages.acc = -1
 eq(g:moveHitChance(marsh, ghost, tackle, 0), 75, "accuracy stage still counts")
 marsh.stages.acc = 0
 
 lines = g:useMove(marsh, ghost, foresight)
-check(lines[2]:find("identified", 1, true) ~= nil, "second use still identifies")
+check(lines[2] and lines[2]:find("identified", 1, true) ~= nil, "second use still identifies")
 
 lines = g:useMove(marsh, ghost, tackle)
 check(ghost.hp < 40, "Normal hits Ghost")
@@ -15400,7 +15414,7 @@ check(not (lines[2] and lines[2]:find("doesn't affect", 1, true)), "no immunity 
 ghost.hp = 40
 ghost.protected = true
 lines = g:useMove(marsh, ghost, foresight)
-check(lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
+check(lines[2] and lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
 
 ghost.protected = nil
 foresight.accuracy = 50
@@ -15457,7 +15471,7 @@ eq(hp.type, 0, "type stays Normal after the hit")
 torchic.hp = 50
 torchic.protected = true
 lines = g:useMove(abra, torchic, hp)
-check(lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
+check(lines[2] and lines[2]:find("protected", 1, true) ~= nil, "F_AFFECTED_BY_PROTECT")
 eq(torchic.hp, 50, "Protect blocks Hidden Power")
 torchic.protected = nil
 
@@ -16482,6 +16496,11 @@ eq(g.coinsBox.x, 1, "showcoinsbox stores x")
 g:hideCoinsBox()
 eq(g.coinsBox, nil, "hidecoinsbox clears it")
 
+-- StartWallClock is only ever reached from the bedroom clock script, and the
+-- engine guards against the rival bedroom running the setter during the
+-- intro. Give the call its real context: Brendan clock BG sits at x >= 4.
+g.map = { id = "g1_1", bgEvents = { { x = 5, y = 1,
+  text = "The clock is stopped... Set the clock?" } } }
 g:startWallClock()
 eq(g.field.kind, "clock_set", "StartWallClock opens the setter")
 eq(g.field.hours, 10, "default 10:00")
@@ -16784,7 +16803,10 @@ eq(g.field.minBet, 1, "left table min 1")
 check(g:scriptWaiting(), "and waitstate holds")
 g.rng = function() return 1 end
 g.field.cursor = 6
+-- roulette.c: the ball travels, and the square, payout and streak are
+-- recorded when it stops. spinRoulette only starts it.
 check(g:spinRoulette(), "a 12x bet on the first pocket")
+g:resolveRoulette()
 eq(g.field.won, true, "is a hit")
 eq(g.field.payout, 12, "pays minBet * 12")
 eq(g:getCoins(), 61, "50-1+12")
@@ -16797,6 +16819,7 @@ eq(g:getGameStat(Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS), 1,
 eq(g:spinRoulette(), false, "cannot bet a dead square")
 g.field.cursor = 5
 check(g:spinRoulette(), "ORANGE misses the next pocket")
+g:resolveRoulette()
 eq(g.field.won, false, "nothing doing")
 eq(g.field.streak, 0, "streak resets")
 eq(g:getGameStat(Game3.GAME_STAT_CONSECUTIVE_ROULETTE_WINS), 1,
@@ -16838,7 +16861,7 @@ g.party = { g:makeMon(280, 5) }
 g:setWildBattle(Game3.SPECIES_VOLTORB, 25, Game3.ITEM_NONE)
 eq(g.scriptedWild.species, 100, "CreateScriptedWildMon stores")
 check(g:doWildBattle(), "dowildbattle starts the fight")
-eq(g.phase, "battle", "phase is battle")
+check(g:inBattlePhase(), "phase is battle")
 eq(g.battle.enemy.species, 100, "against Voltorb")
 eq(g.battle.enemy.level, 25, "lv25")
 eq(g.battle.enemy.item, nil, "ITEM_NONE holds nothing")
@@ -16947,7 +16970,7 @@ g:enterMap({ id = "g_rock", width = 3, height = 3, grid = {
 } }, 1, 1, true)
 g.rng = function() return 1 end
 eq(g:runSpecial(Game3.SPECIAL_ROCK_SMASH_WILD_ENCOUNTER), 1, "smash wild")
-eq(g.phase, "battle", "starts a fight")
+check(g:inBattlePhase(), "starts a fight")
 eq(g.battle.enemy.species, 74, "Geodude")
 check(g:scriptWaiting(), "ScriptContext_Stop")
 eq(g:getGameStat(Game3.GAME_STAT_WILD_BATTLES), 1, "stat 8")
@@ -17260,7 +17283,7 @@ check(msgs[2]:find("immobilized", 1, true), "love lock")
 hero.infatuatedBy = nil
 hero.ability = Game3.ABILITY_OBLIVIOUS
 local lines = g:useAttract(slug, hero)
-check(lines[1]:find("OBLIVIOUS", 1, true), "Oblivious blocks")
+check(lines[1] and lines[1]:find("OBLIVIOUS", 1, true), "Oblivious blocks")
 hero.ability = nil
 g:useAttract(slug, slug)
 eq(slug.infatuatedBy, nil, "same gender fails")
@@ -17800,7 +17823,7 @@ g:walkHeld(Game3.WAIT_WEATHER_FRAMES / 60)
 check(not g:scriptWaiting(), "no song is already stopped")
 g:setWildBattle(Game3.SPECIES_GROUDON, 45, Game3.ITEM_NONE)
 g:runSpecial(Game3.SPECIAL_START_GROUDON_KYOGRE_BATTLE)
-eq(g.phase, "battle", "phase is battle")
+check(g:inBattlePhase(), "phase is battle")
 eq(g.battle.enemy.species, 405, "against Groudon")
 eq(g.battle.enemy.level, 45, "lv45")
 check(g.battle.scriptedWild, "scripted wild")
@@ -20814,7 +20837,7 @@ eq(g:dexListNumber(280), 4, "the printed number is Hoenn 4")
 local function press(game, key)
   local old = Input.wasPressed
   Input.wasPressed = function(_, name) return name == key end
-  if game.phase == "battle" then
+  if game:inBattlePhase() then
     game:stepBattle(0)
   else
     game:stepField()
@@ -21007,9 +21030,9 @@ check(joined:find("POKeDEX", 1, true) == nil, "no AddedToDex line")
 drain(again)
 eq(again.battle.kind, "catch_nick", "recatch still asks for a nickname")
 press(again, "a")
-eq(again.field.kind, "nickname", "YES opens DoNamingScreen")
-eq(again.field.name, "WURMPLE", "buffer starts as the species name")
-again.field.name = "WURM"
+eq(again.field and again.field.kind, "nickname", "YES opens DoNamingScreen")
+eq(again.field and again.field.name, "WURMPLE", "buffer starts as the species name")
+if again.field then again.field.name = "WURM" end
 press(again, "start")
 eq(again.party[2].name, "WURM", "SetMonData nickname")
 check(not again.field, "naming screen closed")

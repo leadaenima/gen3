@@ -11,7 +11,7 @@ local CacheContract = {}
 CacheContract.FORMAT = "rom-cache-v10:"
 CacheContract.VERSION_FORMAT = {
   crystal = "rom-cache-v10-crystal2:",
-  ruby = "rom-cache-v10-ruby80:",
+  ruby = "rom-cache-v10-ruby101:",
 }
 CacheContract.MARKER_PATH = "rom-cache.complete"
 
@@ -154,11 +154,79 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
   "assets/generated/battle/front_shiny/280.png",
   "assets/generated/battle/back_shiny/280.png",
   "assets/generated/battle/gold_stars.png",
+  -- Previously baked into assets/generated (excluded from game.love) or read
+  -- from the decomp tree at runtime; both vanish on device. Required here so
+  -- a cache without them is rebuilt rather than validating half-empty.
+  "assets/generated/trainer_card/ruby_front_0.png",
+  "assets/generated/trainer_card/ruby_badges.png",
+  "assets/generated/battle_anims/135.png",
+  "assets/generated/battle_anims/115.png",
+  "assets/generated/battle/ruby_balls/poke.png",
+  "assets/generated/battle/ruby_balls/poke_closed.png",
+  "assets/generated/battle/ruby_balls/trade_ball.png",
+  "assets/generated/battle/transitions/mugshot_bg_steven_240.png",
+  "assets/generated/battle/transitions/steven_mugshot.png",
+  -- Pokenav art: the screens were flat rectangles and nothing was extracted.
+  "assets/generated/pokenav/outline.png",
+  "assets/generated/pokenav/background.png",
+  "assets/generated/pokenav/screen.png",
+  "assets/generated/pokenav/pokeball.png",
+  -- The screen headers are composed from two OBJ anim frames at extraction
+  -- (renderHeader); requiring them keeps a pre-ruby89 cache from surviving
+  -- with the old scrambled single-blit versions.
+  -- the POKeMON NAVIGATOR title bar (BG1) and the root menu message box
+  -- (BG0); without them the menu opens with a bare field at top and bottom
+  -- the bag pocket name is cart art, not text
+  "assets/generated/bag/bag_labels.png",
+  "assets/generated/bag/bag_dots.png",
+  -- menu_helpers.c scroll indicators: the bag and every scrolling list
+  -- fall back to typed carets without them
+  "assets/generated/ui/scroll_arrows.png",
+  "assets/generated/pokenav/banner.png",
+  "assets/generated/pokenav/misc_layer.png",
+  "assets/generated/pokenav/condition_screen.png",
+  -- the pokenav data pack: the radius curve plus all three help tables.
+  -- v97 wrote a four-entry search table (TOUGH and CANCEL missing) and a
+  -- condition screen with its interlace flood-filled away, so a v97 cache
+  -- must not be reused.
+  "data/generated/pokenav.lua",
+  -- data/generated/tilesets.lua gained primaryKey / secondaryKey in v100 --
+  -- the cartridge's own names for a pair's two halves. A v99 cache has the
+  -- art but not the names, and a renderer mod keys its per-tileset shape
+  -- profiles by exactly those strings, so without them every lookup misses
+  -- and every cell falls to the wall profile.
+  "data/generated/tilesets.lua",
+  -- the CONDITION menu and the condition search. The search needs both
+  -- sheets: sub_80F1BC8 repoints its last three rows to sprite palette tag
+  -- 1 (condition7), so one sheet renders SMART, TOUGH and CANCEL wrong.
+  "assets/generated/pokenav/condition_menu.png",
+  "assets/generated/pokenav/condition_search.png",
+  "assets/generated/pokenav/condition_search_alt.png",
+  "assets/generated/pokenav/ribbon_icons.png",
+  "assets/generated/pokenav/menu_options_alt.png",
+  "assets/generated/pokenav/main_menu_header.png",
+  "assets/generated/pokenav/condition_header.png",
+  "assets/generated/pokenav/ribbons_header.png",
+  "assets/generated/pokenav/trainer_eyes_header.png",
+  "assets/generated/pokenav/map_header.png",
+  "assets/generated/pokenav/map_header_zoom.png",
   "data/generated/font.lua",
   "assets/generated/fonts/font.png",
   "data/generated/title.lua",
   "data/generated/ui.lua",
   "assets/generated/ui/window_frames.png",
+  -- the message and move bars are drawn now too, not just actions
+  -- the naming screen reads these straight out of the cart now, so a cache
+  -- without them would leave the keyboard chrome blank
+  "assets/generated/naming/back_button.png",
+  "assets/generated/naming/ok_button.png",
+  "assets/generated/naming/change_keyboard_button.png",
+  "assets/generated/naming/cursor.png",
+  "assets/generated/ui/battle_message.png",
+  "assets/generated/ui/battle_moves.png",
+  -- the HP bar needs the hpbar-palette element sheet, the EXP bar the
+  -- window-palette one; both are blitted per tile now
+  "assets/generated/ui/healthbox_hp.png",
   "assets/generated/ui/battle_actions.png",
   "assets/generated/ui/healthbox_player.png",
   "assets/generated/ui/battle_status_pills.png",
@@ -180,6 +248,12 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
     "assets/generated/sprites/ow_62.png",
     "assets/generated/sprites/ow_191.png",
     "assets/generated/sprites/ow_141.png",
+    -- Mauville PC VAR_0 -> Bard..Giddy (special SetMauvilleOldManObjEventGfx)
+    "assets/generated/sprites/ow_69.png",
+    "assets/generated/sprites/ow_70.png",
+    "assets/generated/sprites/ow_71.png",
+    "assets/generated/sprites/ow_72.png",
+    "assets/generated/sprites/ow_73.png",
     "assets/generated/field/pokeball_glow.png",
     "assets/generated/weather/rain.png",
     "assets/generated/weather/sand.png",

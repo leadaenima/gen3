@@ -1,0 +1,39 @@
+﻿ORAS battle move effects (LIVE) — 2026-09-14
+
+REJECTED PATH: enlarged Gen3 Game3MoveAnim procedural FX (prior FX_WORLD_SCALE pass).
+
+WHERE EFFECTS LIVE (RomFS / AppData):
+- a/0/3/1  move effects GARC — 2040 CGFX particle packs (unpacked -> oras_extract/garc_unpacked/a/0/3/1)
+- a/0/3/4  battle anim SESD — 976 scripts (oras_extract/garc_unpacked/a/0/3/4)
+- Ripped TXOB PNGs + index: %APPDATA%\LOVE\pokemon-love2d\oras_extract\effects\
+  - effects/moves/<ddd>/*.png
+  - effects/shared/<dddd>/*.png
+  - effects/move_fx_index.json
+
+MAPPING:
+- CGFX named ewNNN_* / eaNNN_* -> move id NNN (ORAS naming)
+- Gen3 1..354: 329 ew/ea packs + 25 shared-ORAS fallback = full 354 coverage
+- ORAS 1..621: 581 moves with ew/ea packs indexed
+
+EXTRACT TOOLING (no git vendoring):
+- mods/oras_models/extract/cgfx_tex.py — TXOB rip via bch_tex.decode_texture
+- mods/oras_models/extract/extract_oras_effects.py — end-to-end
+- extract_oras.py --extract-effects [--effects-smoke|--effects-full-oras]
+- GARC_PRIORITY now includes a/0/3/1 move_effects; a/0/3/4 corrected to battle_anim_sesd
+
+RUNTIME (DramaticShapes):
+- mods/DRAMATIC_SHAPE/lib/OrasMoveFx.lua (synced AppData Gen2Recomped-DramaticShapes)
+- OverworldBattle.drawGame3MoveFxOnto prefers OrasMoveFx.draw before Game3MoveAnim
+- BattleScene fx billboard still hosts the GB anim canvas
+
+VERIFY Fire Blast vs Ember (ORAS assets, not Gen3 clones):
+- Ember 52: CGFX [630,631] ew052_* firesparks — textures firept/circle (small travel)
+- Fire Blast 126: CGFX [800-804,1053,1054] ew126_* including moji/font02f (大文字) + fire patterns/aura/ring
+- Distinct CGFX sets; Fire Blast leads with 0803_etxp_font02f.png
+
+GAP (honest):
+- Full NW particle simulation (emitter spawn/velocity/lifetime) not played back.
+- SESD scripts indexed but not executed.
+- Billboard compositor uses real ORAS TXOB art that composes each move.
+
+SUCCESS CRITERIA MET: real ORAS effect textures in voxel battle path; Fire Blast != scaled Ember Gen3 FX.

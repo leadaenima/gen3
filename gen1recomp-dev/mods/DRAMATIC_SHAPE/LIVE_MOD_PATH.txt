@@ -1,0 +1,30 @@
+﻿LIVE MOD PATH (developer launch)
+================================
+Love identity: pokemon-love2d
+Discovery lists every mods/<folder> with a valid manifest. First id wins.
+
+Launch: Play-Developer.bat (or scripts\run.ps1) from:
+  ...\97 - Copy\gen1recomp-dev\
+
+That puts the game SOURCE on PhysFS, so this folder is what loads:
+  mods/DRAMATIC_SHAPE/   (manifest id Gen2Recomped-DramaticShapes)
+
+The AppData copy mods/Gen2Recomped-DramaticShapes was a SAME-ID duplicate and
+was ignored whenever DRAMATIC_SHAPE appeared first alphabetically. It has been
+renamed to mods/_ignored_duplicate_Gen2Recomped-DramaticShapes.bak so only
+this tree copy can load.
+
+VERIFY after restart (VOXEL on):
+  %APPDATA%\love\pokemon-love2d\npc-voxel-anim.log
+should print once/sec: facing / phase / frame for nearest NPC.
+West stand must be frame 2 (not 0). Walking west must leave frame 0.
+Set NPC_VOXEL_ANIM_TRACE = false in lib/VoxelScene.lua when done verifying.
+
+WAIT POSE (2026-09-14 safe selective)
+=====================================
+AppData oras_extract/meshes: phase 3_wait_posed — 608 nationals with wait_pose.safe
+(MAX_SPAN_RATIO=2.5). 114 rejected (Rayquaza 384 always aabb_explode Z~10x).
+No wait_loop_xyz. ENABLE_SKINNING=false; ENABLE_WAIT_POSE_DISPLAY=true;
+ENABLE_WAIT_LOOP=false. Rejects keep bind + elong_tip_horiz + procedural idle.
+Live mod path remains mods/DRAMATIC_SHAPE in gen1recomp-dev (AppData bak ignored).
+

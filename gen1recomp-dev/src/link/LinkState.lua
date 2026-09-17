@@ -186,8 +186,8 @@ function LinkState:offerVanillaRestart()
     end
     if game.restartWithMods then
       game:restartWithMods()
-    elseif love.event and love.event.quit then
-      love.event.quit("restart")
+    else
+      require("src.core.HostShell").restart()
     end
   end }))
 end

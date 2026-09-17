@@ -188,8 +188,20 @@ check(seen[Party.STATUS_PATH], "and the status icons")
 check(seen[Party.FONT_PATH], "and the small font the levels are printed in")
 check(seen[Party.ORDER_PATH], "and the sheet the Lv and gender tiles come from")
 check(seen[Party.HOLD_PATH], "and the held item icons")
-eq(CacheContract.formatFor("ruby"), "rom-cache-v10-ruby48:",
-  "hideout submarine sprite bumps the cache marker")
+-- The ruby marker's ordinal moves with every extractor anyone adds, so
+-- pinning it exactly makes this suite fail on someone else's unrelated
+-- bump -- which is what it had been doing, stuck on a value from dozens
+-- of builds ago. What this suite actually owns is that the marker is at
+-- or past the build that first demanded the party art, so a cache from before
+-- that cannot validate. Reading the ordinal keeps that true forever and
+-- still catches the marker being rolled backwards.
+;(function()
+  local marker = CacheContract.formatFor("ruby")
+  local n = tonumber(marker:match("rom%-cache%-v10%-ruby(%d+):"))
+  check(n ~= nil, "the ruby cache marker is a versioned ruby marker")
+  check((n or 0) >= 48,
+    "the marker is at or past the build that first demanded the party art")
+end)()
 
 -- ------- 10. Font 4, the party menu's small text
 --

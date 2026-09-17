@@ -1863,9 +1863,9 @@ eq(g:ribbonDescription(99), nil, "and an unknown index reads back nothing")
 
 -- The PokeNav offers all four of the cart's entries.
 local items = g:pokenavMenuItems()
-eq(items[1], "MAP", "MAP")
+eq(items[1], "HOENN MAP", "the cart's menu_options card reads HOENN MAP")
 eq(items[2], "CONDITION", "CONDITION")
-eq(items[3], "TRAINER'S EYE", "TRAINER'S EYE")
+eq(items[3], "TRAINER'S EYES", "and TRAINER'S EYES, plural")
 eq(items[4], "RIBBONS", "RIBBONS")
 
 -- RIBBONS opens on the lead mon and follows it across the party.

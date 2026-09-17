@@ -35,6 +35,15 @@ local levels = {}
 -- ids whose callbacks have already thrown, so a pipeline that fails every
 -- frame reports once instead of filling the log at 60Hz
 local broken = {}
+-- retired pipelines already told they are off (see Pipelines.update)
+local standDown = {}
+
+-- id -> consecutive failures.  Emerald does not retire on the FIRST throw:
+-- a 3D renderer misses a frame for canvas residency / resize / streaming, and
+-- one-strike retirement took VOXEL away until restart (flat world, FP walk
+-- still hooked). Ten in a row is actually broken; a good frame clears the count.
+local failures = {}
+local MAX_FAILURES = 10
 
 Pipelines.DEFAULT_LEVELS = { "OFF", "ON" }
 
@@ -89,6 +98,13 @@ function Pipelines.get(id)
   return type(def) == "table" and def or nil
 end
 
+-- A DRIVER, not a display mode: registered only to get a per-frame callback,
+-- with no options row and no persisted level.
+function Pipelines.isInternal(id)
+  local def = Pipelines.get(id)
+  return (def and def.internal) == true
+end
+
 -- the mod that registered a pipeline, so a runtime failure lands in the
 -- feed the mod manager shows instead of only in the console
 local function ownerOf(id)
@@ -98,17 +114,42 @@ local function ownerOf(id)
 end
 
 -- Run one of a pipeline's callbacks under pcall.  A mod that throws mid-
--- frame must not take the frame with it: the pipeline is marked broken,
--- attributed once, and treated as absent from then on -- which degrades to
--- the vanilla 2D path rather than a black screen.
+-- frame must not take the frame with it. Emerald counts consecutive failures
+-- before retiring; Ruby used to retire on the first throw and permanently
+-- flatten VOXEL for the session after a one-frame hiccup.
+local function retire(id, reason)
+  if broken[id] then return end
+  broken[id] = true
+  Logger.error("render pipeline %s: %s -- disabled for this session",
+               id, tostring(reason))
+  Runtime.reportError(ownerOf(id), "render pipeline disabled: " .. tostring(reason))
+  -- AND TO A FILE THE PLAYER CAN REACH. On a phone the Logger goes to stdout
+  -- and stdout goes to logcat, so the one line that says WHY a display mode
+  -- died is the one line nobody testing on a device can read.
+  pcall(function()
+    if not (love and love.filesystem and love.filesystem.append) then return end
+    love.filesystem.append("world-pass.log",
+      os.date("%H:%M:%S ") .. "render pipeline " .. tostring(id)
+      .. " RETIRED: " .. tostring(reason) .. string.char(10))
+  end)
+end
+Pipelines.retire = retire
+
 local function guard(id, fn, ...)
   if broken[id] then return nil end
   local ok, result = pcall(fn, ...)
-  if ok then return result end
-  broken[id] = true
-  Logger.error("render pipeline %s failed: %s -- disabled for this session",
-               id, tostring(result))
-  Runtime.reportError(ownerOf(id), "render pipeline failed: " .. tostring(result))
+  if ok then
+    failures[id] = nil
+    return result
+  end
+  local n = (failures[id] or 0) + 1
+  failures[id] = n
+  if n == 1 then
+    Logger.warn("render pipeline %s failed: %s", id, tostring(result))
+  end
+  if n >= MAX_FAILURES then
+    retire(id, ("failed %d frames running (last: %s)"):format(n, tostring(result)))
+  end
   return nil
 end
 
@@ -134,11 +175,36 @@ end
 -- the engine composite that follows.  guard() catches a callback that throws;
 -- this catches one that dirties state.  A pipeline already retired skips the
 -- push/pop entirely, so the stack stays balanced.
+--
+-- Also survives a callback that leaks pushes (Emerald guardRender): LOVE's
+-- graphics stack is shallow, and an unpcall'd Maximum stack depth crash names
+-- Pipelines.lua rather than the leaky mod.
 local function guardRender(id, fn, ...)
   if broken[id] then return nil end
-  love.graphics.push("all")
+  local g = love.graphics
+  if not pcall(g.push, "all") then
+    retire(id, "the graphics stack was already full when this pipeline ran "
+             .. "(some callback is pushing without popping)")
+    return nil
+  end
+
+  local depth = 0
+  local realPush, realPop = g.push, g.pop
+  g.push = function(...) depth = depth + 1 return realPush(...) end
+  g.pop = function(...) depth = depth - 1 return realPop(...) end
   local out = guard(id, fn, ...)
-  love.graphics.pop()
+  g.push, g.pop = realPush, realPop
+
+  if depth > 0 then
+    for _ = 1, depth do
+      if not pcall(realPop) then break end
+    end
+    retire(id, ("left %d graphics push(es) unpopped"):format(depth))
+  elseif depth < 0 then
+    retire(id, ("popped %d more graphics state(s) than it pushed"):format(-depth))
+    return out
+  end
+  realPop()
   return out
 end
 
@@ -231,6 +297,7 @@ function Pipelines.applyOptions(opts)
   local bucket = type(opts) == "table" and opts.pipelines or nil
   levels = {}
   broken = {}
+  standDown = {}
   local world = nil
   for _, entry in ipairs(Pipelines.list()) do
     local stored = type(bucket) == "table" and bucket[entry.id] or 0
@@ -254,6 +321,8 @@ end
 function Pipelines.reset()
   levels = {}
   broken = {}
+  standDown = {}
+  failures = {}
 end
 
 -- ------- per-frame
@@ -261,10 +330,47 @@ end
 -- Presentational tweens run on real frame time, like Tilt's.  Every
 -- pipeline ticks, not just the active ones: a mode easing back OUT still
 -- has an angle to retire.
+-- A RETIRED PIPELINE IS TOLD IT IS OFF, ONCE.
+--
+-- guard() marks a throwing pipeline broken and every callback is refused from
+-- then on, which is right for DRAWING: the world degrades to the vanilla 2D
+-- path instead of a black screen. But a render pipeline may have taken over
+-- more than the picture. The voxel mod also replaces the WALK while its
+-- first-person rungs are selected, and it decides whether it is driving from
+-- the level the engine last handed it in `update`.
+--
+-- So a pipeline that threw stopped hearing anything -- including the player
+-- switching it off. The mod went on believing it owned the walk over a world
+-- it was no longer drawing: the player slid around the flat 2D map
+-- continuously, across water, with no way to hand control back. Entering a
+-- Pokemon Center did it.
+--
+-- One final update at level 0 -- which is the truth, a retired pipeline is
+-- not running -- gives it the chance to release what it holds. Once, and
+-- then never again: the pipeline threw, and calling it forever is what the
+-- retirement exists to prevent. It goes through pcall directly rather than
+-- guard(), because guard() refuses a broken id by design.
+local function tellStandDown(entry, dt)
+  if standDown[entry.id] or not broken[entry.id] then return end
+  standDown[entry.id] = true
+  local ok, err = pcall(entry.def.update, dt, 0)
+  if not ok then
+    Logger.warn("render pipeline %s also threw while standing down: %s",
+                entry.id, tostring(err))
+  end
+end
+
 function Pipelines.update(dt)
   for _, entry in ipairs(Pipelines.list()) do
     if entry.def.update then
-      guardRender(entry.id, entry.def.update, dt, Pipelines.level(entry.id))
+      if broken[entry.id] then
+        tellStandDown(entry, dt)
+      else
+        guardRender(entry.id, entry.def.update, dt, Pipelines.level(entry.id))
+        -- it may have broken on THIS call; tell it now rather than leaving a
+        -- frame in which it still believes it is driving
+        tellStandDown(entry, dt)
+      end
     end
   end
 end
@@ -300,13 +406,40 @@ end
 -- The pipeline that owns the world pass right now, or nil for the vanilla
 -- flat/tilt draw.  Highest priority wins; the exclusion rules above mean
 -- there is normally only one candidate anyway.
-function Pipelines.worldPipeline()
+local lastWorldReport = nil
+
+local function reportWorldPass(chosen)
+  local parts = {}
   for _, entry in ipairs(Pipelines.list()) do
-    if entry.def.drawWorld and Pipelines.eligible(entry.id) then
-      return entry.id, entry.def
+    if entry.def.drawWorld then
+      local id = entry.id
+      local avail = "n/a"
+      if entry.def.available then
+        avail = tostring(guard(id, entry.def.available) == true)
+      end
+      parts[#parts + 1] = ("%s(level=%d available=%s%s)"):format(
+        id, Pipelines.level(id), avail, broken[id] and " RETIRED" or "")
     end
   end
-  return nil
+  if not parts[1] then return end
+  Logger.warn("world pass: %s -- candidates: %s",
+    chosen or "NOBODY (flat/tilt draw)", table.concat(parts, " "))
+end
+
+function Pipelines.worldPipeline()
+  local chosen, chosenDef
+  for _, entry in ipairs(Pipelines.list()) do
+    if entry.def.drawWorld and Pipelines.eligible(entry.id) then
+      chosen, chosenDef = entry.id, entry.def
+      break
+    end
+  end
+  local key = chosen or "\0none"
+  if key ~= lastWorldReport then
+    lastWorldReport = key
+    reportWorldPass(chosen)
+  end
+  return chosen, chosenDef
 end
 
 -- Render the world through `id`.  Returns the canvas to composite, or nil
@@ -399,6 +532,12 @@ function Pipelines.rows(game)
       value = function() return Pipelines.levelLabel(id) end,
       step = function(g, dir)
         Pipelines.cycle(id, dir)
+        -- FULL / any rung must land in save.options.pipelines or applyFull
+        -- (and the next persist) see nothing to write. Ruby publishes that
+        -- table lazily via modOptionsStore.
+        if g and type(g.modOptionsStore) == "function" then
+          pcall(g.modOptionsStore, g)
+        end
         local opts = g and g.save and g.save.options
         if opts then
           Pipelines.syncOptions(opts)

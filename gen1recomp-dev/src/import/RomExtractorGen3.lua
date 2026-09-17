@@ -13,6 +13,12 @@ local BattleData = require("src.import.RomExtractorGen3Battle")
 local Gen3Script = require("src.import.Gen3Script")
 local BootData = require("src.import.RomExtractorGen3Boot")
 local Gen3Ui = require("src.import.RomExtractorGen3Ui")
+local Gen3Card = require("src.import.RomExtractorGen3Card")
+local Gen3Cinema = require("src.import.RomExtractorGen3Cinema")
+local Gen3Anim = require("src.import.RomExtractorGen3Anim")
+local Gen3Balls = require("src.import.RomExtractorGen3Balls")
+local Gen3Transition = require("src.import.RomExtractorGen3Transition")
+local Gen3Pokenav = require("src.import.RomExtractorGen3Pokenav")
 local Gen3Audio = require("src.import.RomExtractorGen3Audio")
 local Gen3Icons = require("src.import.RomExtractorGen3Icons")
 local Gen3Party = require("src.import.RomExtractorGen3Party")
@@ -1208,6 +1214,11 @@ local EVIL_TEAM_GFX = { 117, 118, 119, 120, 195, 196 }
 -- OBJ_EVENT_GFX_SS_TIDAL 140 (96x40) and SUBMARINE_SHADOW 141 (88x32).
 -- MagmaHideout_B2F stamps 141; parseGraphicsInfo used to reject those sizes.
 local HIDEOUT_GFX = { 140, 141 }
+-- Mauville PC stamps OBJ_EVENT_GFX_VAR_0; special SetMauvilleOldManObjEventGfx
+-- writes VAR_OBJ_GFX_ID_0 = GFX_BARD + GetCurrentMauvilleOldMan() from C, so
+-- script setvar scanning never sees Bard/Hipster/Trader/Storyteller/Giddy
+-- (69..73). Without these the man is a blank square in 2D and voxel.
+local MAUVILLE_OLD_MAN_GFX = { 69, 70, 71, 72, 73 }
 
 -- EventScript_ResetAllMapFlags: setflag FLAG_LINK_CONTEST_ROOM_POKEBALL
 -- (0x56) then FLAG_HIDE_VICTORIA_WINSTRATE (0x301), then ~130 more setflags,
@@ -1657,6 +1668,9 @@ function RomExtractorGen3.collectGraphicsIds(maps, decorations)
   for i = 1, #HIDEOUT_GFX do
     used[HIDEOUT_GFX[i]] = true
   end
+  for i = 1, #MAUVILLE_OLD_MAN_GFX do
+    used[MAUVILLE_OLD_MAN_GFX[i]] = true
+  end
   if type(maps) == "table" then
     for _, map in pairs(maps) do
       local objects = map and map.objects
@@ -1860,7 +1874,7 @@ local function drawMetatile(image, data, primary, secondary, pals, mx, my, mid, 
       my * METATILE_PX + math.floor(i / 2) * 8,
       tileBytes(src, tid),
       pals[pal] or pals[0],
-      hflip, vflip, top)
+      hflip, vflip, true)  -- Emerald: index 0 clear on BOTH layers
   end
 end
 
@@ -1939,7 +1953,7 @@ function RomExtractorGen3.renderTilesetPair(data, primaryOff, secondaryOff, used
   local pals = loadPalettes(data, primary, secondary)
   local w = ATLAS_COLS * METATILE_PX
   local h = ATLAS_ROWS * METATILE_PX
-  local bottom = ImageWriter.blank(w, h, 0, 0, 0, 1)
+  local bottom = ImageWriter.blank(w, h, 0, 0, 0, 0)  -- transparent; index 0 stays clear
   local top = ImageWriter.blank(w, h, 0, 0, 0, 0)
   -- Paint every readable metatile, not only those on a map. onLoad
   -- setmetatile (moving boxes, books, doors) writes IDs that never
@@ -2110,6 +2124,116 @@ end
 function RomExtractorGen3.doorAtlasPath(pairId)
   local n = tostring(pairId):gsub("^pair_", "")
   return ("assets/generated/tilesets/pair_%s_doors.png"):format(n)
+end
+
+-- WHICH TILESET A PAIR IS, BY NAME.
+--
+-- A pair is identified here by the ROM offsets of its two halves, and `id` is
+-- an ordinal -- pair_0, pair_1 -- because nothing in the engine needs more.
+-- A MOD does: renderer mods carry per-tileset profiles (tree hulls, roof
+-- massing, counter pins) keyed by the cartridge's own symbol names, and with
+-- only an ordinal to match on, every lookup misses and every cell falls to
+-- the profile of last resort -- a full-height wall. That is what turned
+-- Littleroot's border trees into a comb of black monoliths.
+--
+-- The addresses come from pokeruby's data/tilesets/headers.inc, where each
+-- header carries its own address in a comment: `gTileset_General:: @ 8286CF4`.
+-- Read out of the decomp rather than typed, so all 58 are here and none is a
+-- transcription slip.
+RomExtractorGen3.TILESET_NAMES = {
+  [0x8286CF4] = "gTileset_General",
+  [0x8286D0C] = "gTileset_Petalburg",
+  [0x8286D24] = "gTileset_Rustboro",
+  [0x8286D3C] = "gTileset_Dewford",
+  [0x8286D54] = "gTileset_Slateport",
+  [0x8286D6C] = "gTileset_Mauville",
+  [0x8286D84] = "gTileset_Lavaridge",
+  [0x8286D9C] = "gTileset_Fallarbor",
+  [0x8286DB4] = "gTileset_Fortree",
+  [0x8286DCC] = "gTileset_Lilycove",
+  [0x8286DE4] = "gTileset_Mossdeep",
+  [0x8286DFC] = "gTileset_EverGrande",
+  [0x8286E14] = "gTileset_Pacifidlog",
+  [0x8286E2C] = "gTileset_Sootopolis",
+  [0x8286E44] = "gTileset_Building",
+  [0x8286E5C] = "gTileset_Shop",
+  [0x8286E74] = "gTileset_PokemonCenter",
+  [0x8286E8C] = "gTileset_Cave",
+  [0x8286EA4] = "gTileset_PokemonSchool",
+  [0x8286EBC] = "gTileset_PokemonFanClub",
+  [0x8286ED4] = "gTileset_Unused1",
+  [0x8286EEC] = "gTileset_MeteorFalls",
+  [0x8286F04] = "gTileset_OceanicMuseum",
+  [0x8286F1C] = "gTileset_CableClub",
+  [0x8286F34] = "gTileset_SeashoreHouse",
+  [0x8286F4C] = "gTileset_PrettyPetalFlowerShop",
+  [0x8286F64] = "gTileset_PokemonDayCare",
+  [0x8286F7C] = "gTileset_Facility",
+  [0x8286F94] = "gTileset_BikeShop",
+  [0x8286FAC] = "gTileset_RusturfTunnel",
+  [0x8286FC4] = "gTileset_SecretBaseBrownCave",
+  [0x8286FDC] = "gTileset_SecretBaseTree",
+  [0x8286FF4] = "gTileset_SecretBaseShrub",
+  [0x828700C] = "gTileset_SecretBaseBlueCave",
+  [0x8287024] = "gTileset_SecretBaseYellowCave",
+  [0x828703C] = "gTileset_SecretBaseRedCave",
+  [0x8287054] = "gTileset_InsideOfTruck",
+  [0x828706C] = "gTileset_Unused2",
+  [0x8287084] = "gTileset_Contest",
+  [0x828709C] = "gTileset_LilycoveMuseum",
+  [0x82870B4] = "gTileset_BrendansMaysHouse",
+  [0x82870CC] = "gTileset_Lab",
+  [0x82870E4] = "gTileset_Underwater",
+  [0x82870FC] = "gTileset_PetalburgGym",
+  [0x8287114] = "gTileset_SootopolisGym",
+  [0x828712C] = "gTileset_GenericBuilding",
+  [0x8287144] = "gTileset_MauvilleGameCorner",
+  [0x828715C] = "gTileset_RustboroGym",
+  [0x8287174] = "gTileset_DewfordGym",
+  [0x828718C] = "gTileset_MauvilleGym",
+  [0x82871A4] = "gTileset_LavaridgeGym",
+  [0x82871BC] = "gTileset_TrickHousePuzzle",
+  [0x82871D4] = "gTileset_FortreeGym",
+  [0x82871EC] = "gTileset_MossdeepGym",
+  [0x8287204] = "gTileset_Ship",
+  [0x828721C] = "gTileset_SecretBase",
+  [0x8287234] = "gTileset_EliteFour",
+  [0x828724C] = "gTileset_BattleTower",
+}
+
+-- The header address is the START of the 24-byte struct, and parseTileset is
+-- handed that same offset, so a lookup is exact rather than a search.
+function RomExtractorGen3.tilesetName(off)
+  if off == nil then return nil end
+  return RomExtractorGen3.TILESET_NAMES[off + 0x8000000]
+end
+-- One tileset pair's record, as the pack ships it.
+--
+-- A named function rather than a table literal inside the extract loop so the
+-- naming below can be tested without running an import: dropping the two key
+-- fields used to pass every test in the suite, because they all built a pack
+-- by hand.
+function RomExtractorGen3.tilesetRecord(id, parts, pair)
+  parts = parts or {}
+  pair = pair or {}
+  return {
+    id = id,
+    bottom = parts.bottom,
+    top = parts.top,
+    doorAtlas = parts.doorAtlas,
+    behavior = parts.behavior,
+    layerType = parts.layerType,
+    tiles = parts.tiles,
+    -- The cartridge's own names for the two halves, so a mod's per-tileset
+    -- profiles have something to match on. nil when an offset is not a known
+    -- header -- better a missed profile than a wrong one.
+    primaryKey = RomExtractorGen3.tilesetName(pair.primaryOff),
+    secondaryKey = RomExtractorGen3.tilesetName(pair.secondaryOff),
+    primaryOff = pair.primaryOff,
+    secondaryOff = pair.secondaryOff,
+    overworldAnim = parts.overworldAnim or nil,
+    anim = parts.anim,
+  }
 end
 
 local function pairKey(primOff, secOff)
@@ -2413,17 +2537,11 @@ function RomExtractorGen3:extractMaps()
     end
     local behavior, layerType, tiles, overworldAnim = loadBehaviors(
       self.data, pair.primaryOff, pair.secondaryOff, pair.used)
-    tilesets.byId[id] = {
-      id = id,
-      bottom = bottomPath,
-      top = topPath,
-      doorAtlas = doorPath,
-      behavior = behavior,
-      layerType = layerType,
-      tiles = tiles,
-      overworldAnim = overworldAnim or nil,
-      anim = animFrames,
-    }
+    tilesets.byId[id] = RomExtractorGen3.tilesetRecord(id, {
+      bottom = bottomPath, top = topPath, doorAtlas = doorPath,
+      behavior = behavior, layerType = layerType, tiles = tiles,
+      overworldAnim = overworldAnim, anim = animFrames,
+    }, pair)
     done = done + 1
     self:tick("Maps", done, total)
   end
@@ -2575,6 +2693,12 @@ function RomExtractorGen3:extractSprites(maps, decorations)
   if not byId[141] then
     error("submarine shadow (ow_141) was not extracted")
   end
+  for i = 1, #MAUVILLE_OLD_MAN_GFX do
+    local gid = MAUVILLE_OLD_MAN_GFX[i]
+    if not byId[gid] then
+      error(("Mauville old man sprite (ow_%d) was not extracted"):format(gid))
+    end
+  end
   self:tick("Sprites", #ids, #ids)
   return {
     playerGraphicsId = PLAYER_GFX_ID,
@@ -2599,6 +2723,13 @@ function RomExtractorGen3:extractUi()
   -- Menu/battle window chrome shares this stage: it is the same "draw text
   -- somewhere" surface and costs one more pass over the cart.
   local ui = Gen3Ui.extract(self.data)
+  -- Art that used to be baked into assets/generated (never packed) or read
+  -- live from the decomp checkout. All of it is in the cart.
+  Gen3Card.extract(self.data, Gen3Cinema)
+  Gen3Anim.extract(self.data)
+  Gen3Balls.extract(self.data)
+  Gen3Transition.extract(self.data)
+  Gen3Pokenav.extract(self.data)
   self:tick("Fonts", 2, 2)
   return {
     image = path,

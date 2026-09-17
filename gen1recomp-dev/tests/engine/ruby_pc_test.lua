@@ -169,4 +169,42 @@ eq(#mailer.party, 2, "the mailed mon stayed in the party")
 
 eq(Game3.PC_HAND_DY, -12, "hand sits 12px above the icon")
 
+
+-- ------------------------------------------- cart art stays out of git
+--
+-- scripts/pack_love.sh excludes assets/generated/*, so anything cart-derived
+-- that lives ANYWHERE ELSE under assets/ is baked into the repo and ships in
+-- every APK. tools/bake_pc_graphics.py had left 28 PNGs in assets/pc that
+-- way -- 12 chrome pieces and 16 wallpapers, all of them superseded by
+-- RomExtractorGen3Pc, and three (box_selection_popup_center, _sides,
+-- waveform) referenced by nothing at all. The screen never read them: every
+-- entry in PC_ASSET points at assets/generated/pc.
+;(function()
+  local baked = 0
+  for _, name in ipairs(Game3.PC_WALLPAPER_FILES or {}) do
+    local f = io.open("assets/pc/wallpapers/" .. name .. ".png", "r")
+    if f then f:close(); baked = baked + 1 end
+  end
+  for _, name in ipairs({ "scrolling_bg", "header", "party_panel",
+      "hand_cursor", "arrow", "btn_close", "waveform",
+      "box_selection_popup_center" }) do
+    local f = io.open("assets/pc/" .. name .. ".png", "r")
+    if f then f:close(); baked = baked + 1 end
+  end
+  eq(baked, 0, "no PC art is baked outside assets/generated, where it ships")
+end)()
+
+-- and the screen must keep sourcing every piece from the extractor's output,
+-- so re-pointing one at a baked path fails here rather than in an APK
+;(function()
+  local bad = nil
+  for key, path in pairs(Game3.PC_ASSET or {}) do
+    if not tostring(path):match("^assets/generated/pc/") then
+      bad = bad or (key .. " -> " .. tostring(path))
+    end
+  end
+  check(bad == nil, "every PC_ASSET path is an extractor output: " .. tostring(bad))
+  check(next(Game3.PC_ASSET or {}) ~= nil, "and PC_ASSET is populated")
+end)()
+
 S.finish()

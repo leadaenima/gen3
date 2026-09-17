@@ -1,0 +1,22 @@
+﻿ORAS-scale move VFX pass (2026-09-14)
+
+SOURCE (honest):
+- Primary: enlarged Gen3 procedural FX in Game3MoveAnim + Game3 typed burst.
+- DramaticShapes billboard: FX_WORLD_SCALE 1.85 -> 3.75 (LIVE mod + AppData sync).
+- ORAS RomFS extract present (~25k textures under a/0/0/8, a/0/1/4, a/1/6/0) but these are
+  Pokemon/model textures — battle particle/waza effect packs are NOT mapped into LOVE yet.
+  No ORAS particle BCH playback this pass.
+
+CHANGES:
+1. mods/DRAMATIC_SHAPE/lib/BattleScene.lua — FX_WORLD_SCALE=3.75
+2. AppData LOVE/pokemon-love2d/mods/Gen2Recomped-DramaticShapes/lib/BattleScene.lua — same
+3. mods/DRAMATIC_SHAPE/lib/OverworldBattle.lua — ANIM_SCALE_MAX 2.0->2.6 (+AppData sync)
+4. src/core/Game3MoveAnim.lua — rewritten large FX: fire_blast, surf, hydro_pump,
+   thunderbolt, thunder, earthquake, blizzard, psychic, hyper_beam, flamethrower,
+   overheat, eruption; MA.DRAMATIC_SCALE mid-tier boost; ember left small.
+5. src/core/Game3.lua — drawMoveAnimBurst radii ~2.5x + sheet scale 2.2+
+
+SUCCESS CRITERIA:
+- Fire Blast: huge multi-layer star + screen wash; Ember: small 3-orb travel (unchanged).
+- Surf/Thunderbolt/Earthquake etc. similarly substantial; national coverage via
+  dedicated scripts + typeFallback families (not one Fire Blast clone).

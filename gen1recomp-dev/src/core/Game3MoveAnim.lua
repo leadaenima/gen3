@@ -40,6 +40,9 @@ MA.MOVE_POISON_STING = 40
 MA.MOVE_LEER = 43
 MA.MOVE_BITE = 44
 MA.MOVE_FLAMETHROWER = 53
+MA.MOVE_FIRE_BLAST = 126
+MA.MOVE_HEAT_WAVE = 257
+MA.MOVE_FIRE_PUNCH = 7
 MA.MOVE_SURF = 57
 MA.MOVE_PSYBEAM = 60
 MA.MOVE_BUBBLE_BEAM = 61
@@ -160,7 +163,7 @@ MA.MOVE_BOUNCE = 340
 
 -- Optional runtime load of pokeruby anim sheets (indexed PNGs, tinted).
 -- Never copied into assets/ — load from the local pokeruby tree if present.
-MA.SPRITE_DIR = "misc/pokeruby-master/pokeruby-master/graphics/battle_anims/sprites/"
+MA.SPRITE_DIR = "assets/generated/battle_anims/"
 MA.TAG = {
   IMPACT = 135,       -- ANIM_TAG_IMPACT
   SCRATCH = 137,      -- ANIM_TAG_SCRATCH
@@ -645,6 +648,39 @@ addScript({ MA.MOVE_FLAMETHROWER }, { "FLAMETHROWER" }, {
   -- panse_1B after delay 6
   seChain = { { f = 6, id = 146 } },
 })
+
+-- Move_FIRE_BLAST @ pokeruby: multi-ember star burst on target (not a stream).
+addScript({ MA.MOVE_FIRE_BLAST }, { "FIRE BLAST", "FIREBLAST" }, {
+  frames = 64,
+  rom = "Move_FIRE_BLAST (ported elemental burst)",
+  fx = "fire_blast",
+  se = "SE_M_FIRE_BLAST / SE_M_FLAME_WHEEL",
+  seId = 151,
+  seChain = {
+    { f = 0, id = 151 },
+    { f = 8, id = 144 },
+    { f = 24, id = 151 },
+    { f = 40, id = 144 },
+  },
+})
+
+addScript({ MA.MOVE_HEAT_WAVE }, { "HEAT WAVE", "HEATWAVE" }, {
+  frames = 56,
+  rom = "Move_HEAT_WAVE (family: flamethrower stream)",
+  fx = "flamethrower",
+  se = "SE_M_FLAME_WHEEL",
+  seId = 144,
+  seChain = { { f = 6, id = 144 } },
+})
+
+addScript({ MA.MOVE_FIRE_PUNCH }, { "FIRE PUNCH", "FIREPUNCH" }, {
+  frames = 28,
+  rom = "Move_FIRE_PUNCH (fist + ember)",
+  fx = "fire_punch",
+  se = "SE_M_FIRE_PUNCH",
+  seId = 151,
+})
+
 
 -- Move_CONFUSION @ 81CDC69: psychic bg + shake attacker/target
 addScript({ MA.MOVE_CONFUSION }, { "CONFUSION" }, {
@@ -1687,6 +1723,56 @@ function MA.resolve(move)
   return nil
 end
 
+-- National coverage for moves without a dedicated script: map Gen3 type to an
+-- existing elemental FX family (beams, powders, punches, status clouds) so the
+-- whole move list shows correct-class effects, not a single Fire Blast clone. DramaticShapes 3D-BTL uses BattleScene.FX_WORLD_SCALE + rewritten Gen3 procedural FX (ORAS particle packs not yet wired).
+function MA.typeFallback(move, kind, typeId)
+  if type(move) ~= "table" and typeId == nil then return nil end
+  local t = tonumber(typeId)
+  if not t and type(move) == "table" then
+    t = tonumber(move.type or move.moveType or move.attackType)
+  end
+  if not t then return nil end
+  -- Status / self-buffs: soft rings (not offensive beams).
+  if kind == "status" then
+    return {
+      frames = 36,
+      rom = "type_fallback_status",
+      fx = "calm_mind",
+      seId = 184,
+      _typeFallback = true,
+    }
+  end
+  local byType = {
+    [0]  = { frames = 22, fx = "tackle", seId = 139 },       -- NORMAL
+    [1]  = { frames = 36, fx = "brick_break", seId = 139 },  -- FIGHTING
+    [2]  = { frames = 46, fx = "gust", seId = 163 },         -- FLYING
+    [3]  = { frames = 40, fx = "poison_sting", seId = 151 }, -- POISON
+    [4]  = { frames = 36, fx = "mud_slap", seId = 141 },     -- GROUND
+    [5]  = { frames = 40, fx = "rock_throw", seId = 141 },   -- ROCK
+    [6]  = { frames = 40, fx = "string_shot", seId = 151 },  -- BUG
+    [7]  = { frames = 50, fx = "shadow_ball", seId = 184 },  -- GHOST
+    [8]  = { frames = 36, fx = "metal_claw", seId = 155 },   -- STEEL
+    [10] = { frames = 60, fx = "fire_blast", seId = 151 },   -- FIRE
+    [11] = { frames = 70, fx = "hydro_pump", seId = 124 },   -- WATER
+    [12] = { frames = 50, fx = "razor_leaf", seId = 151 },   -- GRASS
+    [13] = { frames = 55, fx = "thunderbolt", seId = 118 },  -- ELECTRIC
+    [14] = { frames = 50, fx = "psychic", seId = 184 },      -- PSYCHIC
+    [15] = { frames = 55, fx = "ice_beam", seId = 154 },     -- ICE
+    [16] = { frames = 40, fx = "dragon_claw", seId = 155 },  -- DRAGON
+    [17] = { frames = 40, fx = "crunch", seId = 155 },       -- DARK
+  }
+  local spec = byType[t]
+  if not spec then return nil end
+  return {
+    frames = spec.frames,
+    rom = "type_fallback_" .. tostring(t),
+    fx = spec.fx,
+    seId = spec.seId,
+    _typeFallback = true,
+  }
+end
+
 function MA.listImplemented()
   local out = {}
   local seen = {}
@@ -2567,24 +2653,122 @@ function FX.fire_spin(G, frame, ctx)
   end
 end
 
-function FX.flamethrower(G, frame, ctx)
+function FX.fire_blast(G, frame, ctx)
+  -- ORAS-scale Fire Blast (enlarged Gen3 procedural): charge at attacker, then
+  -- a screen-filling star inferno on the target. Must read MUCH larger than Ember.
   local img = loadTagImage(MA.TAG.SMALL_EMBER)
-  for i = 0, 28 do
-    local start = 6 + i * 2
-    local age = frame - start
-    if age >= 0 and age <= 16 then
-      local u = age / 16
-      local wob = math.sin(i * 0.9) * 6
-      local x = lerp(ctx.ax + 8, ctx.tx, u)
-      local y = lerp(ctx.ay, ctx.ty, u) + wob
-      local a = ctx.fade * (1 - u * 0.2)
-      if not (img and drawTinted(img, x, y, 0.8, 1, 0.45, 0.1, a)) then
-        G.setColor(1, 0.35 + (i % 3) * 0.1, 0.08, a)
-        circle(G, x, y, 4 - u * 1.5)
+  local W, H = 240, 160
+  if frame < 14 then
+    -- dark heat haze
+    G.setColor(0.35, 0.05, 0.0, ctx.fade * 0.22 * (frame / 14))
+    G.rectangle("fill", 0, 0, W, H)
+    for i = 0, 9 do
+      local ang = i * (math.pi / 5) + frame * 0.4
+      local rad = 14 + frame * 1.6
+      local x = ctx.ax + math.cos(ang) * rad
+      local y = ctx.ay + math.sin(ang) * rad * 0.7
+      local a = ctx.fade * (0.6 + 0.35 * math.sin(frame * 0.55 + i))
+      if not (img and drawTinted(img, x, y, 1.1, 1, 0.35, 0.05, a)) then
+        G.setColor(1, 0.35, 0.05, a)
+        circle(G, x, y, 5)
+      end
+    end
+  end
+  if frame >= 10 and frame < 68 then
+    local u = (frame - 10) / 58
+    local pulse = math.sin(u * math.pi)
+    local a = ctx.fade * (0.4 + 0.55 * pulse)
+    -- full-field warm wash at peak
+    G.setColor(1, 0.2, 0.02, a * 0.28 * pulse)
+    G.rectangle("fill", 0, 0, W, H)
+    -- huge outer plasma
+    G.setColor(1, 0.18, 0.0, a * 0.5)
+    circle(G, ctx.tx, ctx.ty, 28 + pulse * 52)
+    G.setColor(1, 0.4, 0.05, a * 0.75)
+    circle(G, ctx.tx, ctx.ty, 18 + pulse * 38)
+    G.setColor(1, 0.7, 0.12, a)
+    circle(G, ctx.tx, ctx.ty, 10 + pulse * 24)
+    G.setColor(1, 0.95, 0.45, a * 0.9)
+    circle(G, ctx.tx, ctx.ty, 5 + pulse * 12)
+    -- 12-point fire star reaching ~half the GB frame
+    for i = 0, 11 do
+      local ang = i * (math.pi / 6) + u * 2.8
+      local dist = 22 + pulse * 58
+      local x = ctx.tx + math.cos(ang) * dist
+      local y = ctx.ty + math.sin(ang) * dist * 0.78
+      local ea = a * (1 - u * 0.35)
+      if not (img and drawTinted(img, x, y, 1.35, 1, 0.4, 0.05, ea)) then
+        G.setColor(1, 0.3 + (i % 3) * 0.15, 0.04, ea)
+        circle(G, x, y, 7 - u * 2.5)
+      end
+      -- trailing sparks
+      local x2 = ctx.tx + math.cos(ang) * (dist * 0.55)
+      local y2 = ctx.ty + math.sin(ang) * (dist * 0.55) * 0.78
+      G.setColor(1, 0.85, 0.25, ea * 0.7)
+      circle(G, x2, y2, 3)
+    end
+    -- secondary ember ring
+    for i = 0, 15 do
+      local ang = i * (math.pi / 8) - u * 1.5
+      local dist = 40 + pulse * 30 + (i % 3) * 6
+      local x = ctx.tx + math.cos(ang) * dist
+      local y = ctx.ty + math.sin(ang) * dist * 0.72 - 4
+      G.setColor(1, 0.45, 0.08, a * 0.55 * (1 - u))
+      circle(G, x, y, 3.5)
+    end
+  end
+  if frame >= 16 and frame < 48 then
+    hitSplat(G, ctx.tx, ctx.ty, (frame - 16) / 32, ctx.fade * 0.85, false)
+  end
+end
+
+
+function FX.fire_punch(G, frame, ctx)
+  fistBurst(G, frame, ctx, { 4 })
+  local img = loadTagImage(MA.TAG.SMALL_EMBER)
+  if frame >= 6 and frame < 24 then
+    for i = 0, 5 do
+      local u = (frame - 6) / 18
+      local ang = i * 1.1
+      local x = ctx.tx + math.cos(ang) * (6 + u * 14)
+      local y = ctx.ty + math.sin(ang) * (5 + u * 10) - u * 6
+      local a = ctx.fade * (1 - u)
+      if not (img and drawTinted(img, x, y, 0.7, 1, 0.4, 0.1, a)) then
+        G.setColor(1, 0.4, 0.08, a)
+        circle(G, x, y, 3)
       end
     end
   end
 end
+
+function FX.flamethrower(G, frame, ctx)
+  -- Mid-tier stream: clearly larger than Ember, smaller than Fire Blast.
+  local img = loadTagImage(MA.TAG.SMALL_EMBER)
+  for i = 0, 36 do
+    local start = 4 + i * 2
+    local age = frame - start
+    if age >= 0 and age <= 18 then
+      local u = age / 18
+      local wob = math.sin(i * 0.85 + frame * 0.15) * 10
+      local x = lerp(ctx.ax + 8, ctx.tx, u)
+      local y = lerp(ctx.ay, ctx.ty, u) + wob
+      local a = ctx.fade * (1 - u * 0.15)
+      local rad = 5 + (1 - u) * 4
+      if not (img and drawTinted(img, x, y, 1.05, 1, 0.4, 0.08, a)) then
+        G.setColor(1, 0.3 + (i % 3) * 0.12, 0.05, a)
+        circle(G, x, y, rad)
+      end
+      G.setColor(1, 0.85, 0.25, a * 0.55)
+      circle(G, x, y - 1, rad * 0.45)
+    end
+  end
+  if frame >= 20 and frame < 50 then
+    local u = (frame - 20) / 30
+    G.setColor(1, 0.35, 0.05, ctx.fade * 0.25 * (1 - u))
+    circle(G, ctx.tx, ctx.ty, 12 + u * 10)
+  end
+end
+
 
 function FX.confusion(G, frame, ctx)
   if frame < 20 then
@@ -2885,73 +3069,99 @@ function FX.dig(G, frame, ctx)
 end
 
 function FX.surf(G, frame, ctx)
+  -- Screen-filling surf wall (enlarged Gen3 procedural / ORAS-scale presentation).
   local t = frame / 60
-  -- rising wave across battlefield toward target
-  local waveX = lerp(20, 220, t)
-  local a = ctx.fade * (0.55 + 0.2 * math.sin(frame / 4))
-  G.setColor(0.25, 0.55, 0.95, a * 0.55)
-  G.rectangle("fill", 0, 90 - math.sin(t * math.pi) * 25, 240, 70)
-  G.setColor(0.55, 0.85, 1, a * 0.4)
-  for i = 0, 6 do
-    local x = (waveX + i * 18) % 240
-    circle(G, x, 100 - math.sin((frame + i * 5) / 6) * 8, 8)
+  local W, H = 240, 160
+  local waveY = 130 - math.sin(t * math.pi) * 70
+  local a = ctx.fade * (0.6 + 0.25 * math.sin(frame / 3.5))
+  -- deep ocean wash covering most of the frame
+  G.setColor(0.08, 0.28, 0.7, a * 0.55)
+  G.rectangle("fill", 0, waveY - 10, W, H - (waveY - 10))
+  G.setColor(0.2, 0.55, 0.95, a * 0.5)
+  G.rectangle("fill", 0, waveY, W, H - waveY)
+  -- foam crest
+  G.setColor(0.75, 0.92, 1, a * 0.65)
+  for i = 0, 14 do
+    local x = (i * 18 + frame * 2.2) % (W + 20) - 10
+    local y = waveY - 6 + math.sin((frame + i * 7) / 5) * 10
+    circle(G, x, y, 10 + (i % 3) * 3)
   end
-  if frame >= 24 and frame < 50 then
-    G.setColor(0.6, 0.85, 1, ctx.fade * 0.25)
-    circle(G, ctx.tx, ctx.ty, 18)
+  -- crashing spray on target
+  if frame >= 18 and frame < 55 then
+    local u = (frame - 18) / 37
+    local pulse = math.sin(u * math.pi)
+    G.setColor(0.55, 0.85, 1, ctx.fade * 0.45 * pulse)
+    circle(G, ctx.tx, ctx.ty, 22 + pulse * 36)
+    G.setColor(0.85, 0.95, 1, ctx.fade * 0.55 * pulse)
+    circle(G, ctx.tx, ctx.ty - 8, 12 + pulse * 20)
+    for i = 0, 10 do
+      local ang = i * 0.57 + frame * 0.1
+      local x = ctx.tx + math.cos(ang) * (18 + pulse * 28)
+      local y = ctx.ty + math.sin(ang) * (14 + pulse * 22) - pulse * 10
+      G.setColor(0.7, 0.9, 1, ctx.fade * (1 - u) * 0.7)
+      circle(G, x, y, 5)
+    end
   end
 end
 
+
 function FX.hyper_beam(G, frame, ctx)
+  local W, H = 240, 160
   if frame < 40 then
     local u = frame / 40
-    G.setColor(0, 0, 0, ctx.fade * 0.45 * u)
-    G.rectangle("fill", 0, 0, 240, 160)
-    -- charge orbs at attacker
+    G.setColor(0, 0, 0, ctx.fade * 0.55 * u)
+    G.rectangle("fill", 0, 0, W, H)
     local img = loadTagImage(MA.TAG.ORBS)
-    for i = 0, 5 do
-      local ang = frame * 0.3 + i
-      local rad = 16 - u * 8
+    for i = 0, 8 do
+      local ang = frame * 0.35 + i
+      local rad = 22 - u * 10
       local x = ctx.ax + math.cos(ang) * rad
       local y = ctx.ay + math.sin(ang) * rad
       local a = ctx.fade
-      if not (img and drawTinted(img, x, y, 0.7, 1, 0.35, 0.35, a)) then
-        G.setColor(1, 0.35, 0.35, a)
-        circle(G, x, y, 3)
+      if not (img and drawTinted(img, x, y, 1.0, 1, 0.3, 0.3, a)) then
+        G.setColor(1, 0.3, 0.3, a)
+        circle(G, x, y, 5)
       end
     end
   else
-    -- beam
     local img = loadTagImage(MA.TAG.ORBS)
     local beamFrame = frame - 40
-    for i = 0, 24 do
-      local start = i
-      local age = beamFrame - start
-      if age >= 0 and age < 8 then
-        local u = (i / 24)
-        local x = lerp(ctx.ax, ctx.tx, u)
-        local y = lerp(ctx.ay, ctx.ty, u)
-        local a = ctx.fade * 0.9
-        if not (img and drawTinted(img, x, y, 0.85, 1, 0.4, 0.35, a)) then
-          G.setColor(1, 0.3, 0.3, a)
-          circle(G, x, y, 4)
-        end
-      end
-    end
-    G.setColor(1, 0.45, 0.35, ctx.fade * 0.2)
-    -- thick beam body
-    local steps = 12
+    -- thick beam core
+    local steps = 16
     for s = 0, steps do
       local u = s / steps
       local x = lerp(ctx.ax, ctx.tx, u)
       local y = lerp(ctx.ay, ctx.ty, u)
-      circle(G, x, y, 6)
+      G.setColor(1, 0.25, 0.25, ctx.fade * 0.35)
+      circle(G, x, y, 14)
+      G.setColor(1, 0.55, 0.35, ctx.fade * 0.7)
+      circle(G, x, y, 8)
+      G.setColor(1, 0.95, 0.7, ctx.fade)
+      circle(G, x, y, 4)
     end
-    if beamFrame > 10 then
-      hitSplat(G, ctx.tx, ctx.ty, ((beamFrame - 10) % 16) / 16, ctx.fade * 0.6, true)
+    for i = 0, 28 do
+      local start = i
+      local age = beamFrame - start
+      if age >= 0 and age < 10 then
+        local u = (i / 28)
+        local x = lerp(ctx.ax, ctx.tx, u)
+        local y = lerp(ctx.ay, ctx.ty, u)
+        local a = ctx.fade * 0.9
+        if not (img and drawTinted(img, x, y, 1.2, 1, 0.35, 0.3, a)) then
+          G.setColor(1, 0.3, 0.25, a)
+          circle(G, x, y, 6)
+        end
+      end
+    end
+    if beamFrame > 8 then
+      local pulse = math.sin(((beamFrame - 8) % 20) / 20 * math.pi)
+      G.setColor(1, 0.4, 0.2, ctx.fade * 0.35 * pulse)
+      circle(G, ctx.tx, ctx.ty, 20 + pulse * 30)
+      hitSplat(G, ctx.tx, ctx.ty, ((beamFrame - 8) % 16) / 16, ctx.fade * 0.75, true)
     end
   end
 end
+
 
 function FX.double_team(G, frame, ctx)
   -- afterimage clones flanking attacker
@@ -2999,10 +3209,41 @@ function FX.magnitude(G, frame, ctx)
 end
 
 function FX.earthquake(G, frame, ctx)
-  screenShakeFlash(G, frame, ctx, 4)
-  G.setColor(0.6, 0.45, 0.25, ctx.fade * 0.15 * math.sin(frame / 50 * math.pi))
-  G.rectangle("fill", 0, 110, 240, 50)
+  -- Full-field ground rupture (screen-filling shock + debris).
+  local W, H = 240, 160
+  screenShakeFlash(G, frame, ctx, 3)
+  local pulse = math.sin(frame / 55 * math.pi)
+  G.setColor(0.55, 0.35, 0.12, ctx.fade * 0.28 * pulse)
+  G.rectangle("fill", 0, 0, W, H)
+  G.setColor(0.7, 0.5, 0.25, ctx.fade * 0.35 * pulse)
+  G.rectangle("fill", 0, 95, W, H - 95)
+  -- crack lines across floor
+  G.setColor(0.25, 0.15, 0.05, ctx.fade * 0.7)
+  for i = 0, 6 do
+    local y = 105 + i * 8 + (frame % 3)
+    G.rectangle("fill", 10 + (i % 3) * 20, y, 200 - i * 15, 2)
+  end
+  local dirt = loadTagImage(MA.TAG.MUD_SAND) or loadTagImage(MA.TAG.ROCKS)
+  for i = 0, 18 do
+    local age = frame - (8 + i * 2)
+    if age >= 0 and age < 28 then
+      local u = age / 28
+      local x = 16 + (i * 13) % 210
+      local y = 130 - u * (30 + (i % 5) * 10)
+      local a = ctx.fade * (1 - u)
+      if not (dirt and drawTinted(dirt, x, y, 0.85, 0.55, 0.4, 0.2, a)) then
+        G.setColor(0.55, 0.4, 0.2, a)
+        circle(G, x, y, 4)
+      end
+    end
+  end
+  if frame >= 12 and frame < 40 then
+    G.setColor(1, 0.85, 0.4, ctx.fade * 0.25 * math.sin((frame - 12) / 28 * math.pi))
+    circle(G, ctx.tx, ctx.ty + 20, 30)
+    circle(G, ctx.ax, ctx.ay + 20, 26)
+  end
 end
+
 
 function FX.brick_break(G, frame, ctx)
   -- Move_BRICK_BREAK: no-screen path always; shatter shards if ctx.shatter (screens were up)
@@ -3115,36 +3356,56 @@ function FX.shadow_ball(G, frame, ctx)
 end
 
 function FX.hydro_pump(G, frame, ctx)
+  -- Thick pressurized column — much larger than Water Gun.
   local img = loadTagImage(MA.TAG.WATER_ORB) or loadTagImage(MA.TAG.SMALL_BUBBLES)
-  for i = 0, 40 do
-    local start = 6 + i * 2
+  local W, H = 240, 160
+  if frame < 70 then
+    G.setColor(0.15, 0.35, 0.7, ctx.fade * 0.18)
+    G.rectangle("fill", 0, 0, W, H)
+  end
+  -- wide beam body
+  local steps = 18
+  for s = 0, steps do
+    local u = s / steps
+    local x = lerp(ctx.ax + 6, ctx.tx, u)
+    local y = lerp(ctx.ay, ctx.ty, u)
+    local wiggle = math.sin(frame * 0.4 + s) * 4
+    G.setColor(0.25, 0.55, 1, ctx.fade * 0.35)
+    circle(G, x, y + wiggle, 10)
+    G.setColor(0.55, 0.85, 1, ctx.fade * 0.55)
+    circle(G, x, y + wiggle * 0.5, 6)
+  end
+  for i = 0, 48 do
+    local start = 4 + i * 1.5
     local age = frame - start
-    if age >= 0 and age <= 14 then
-      local u = age / 14
-      local side = ((i % 2) * 2 - 1) * 10
-      local x = lerp(ctx.ax + 6, ctx.tx + side * 0.4, u)
-      local y = lerp(ctx.ay, ctx.ty, u)
+    if age >= 0 and age <= 16 then
+      local u = age / 16
+      local side = ((i % 3) - 1) * 14
+      local x = lerp(ctx.ax + 6, ctx.tx + side * 0.35, u)
+      local y = lerp(ctx.ay, ctx.ty, u) + math.sin(i) * 3
       local a = ctx.fade
-      if not (img and drawTinted(img, x, y, 0.75, 0.45, 0.75, 1, a)) then
-        G.setColor(0.35, 0.65, 1, a)
-        circle(G, x, y, 4)
+      if not (img and drawTinted(img, x, y, 1.15, 0.4, 0.75, 1, a)) then
+        G.setColor(0.35, 0.7, 1, a)
+        circle(G, x, y, 6)
       end
     end
   end
   local splash = loadTagImage(MA.TAG.WATER_IMPACT)
-  local impacts = { 30, 42, 54, 66, 78 }
+  local impacts = { 22, 32, 42, 52, 62, 72 }
   for i = 1, #impacts do
     local age = frame - impacts[i]
-    if age >= 0 and age < 10 then
-      local oy = ((i % 2) * 2 - 1) * 12
-      local a = ctx.fade * (1 - age / 10)
-      if not (splash and drawTinted(splash, ctx.tx, ctx.ty + oy, 0.8, 0.5, 0.8, 1, a)) then
-        G.setColor(0.4, 0.75, 1, a)
-        circle(G, ctx.tx, ctx.ty + oy, 6)
+    if age >= 0 and age < 14 then
+      local oy = ((i % 3) - 1) * 16
+      local a = ctx.fade * (1 - age / 14)
+      local rad = 10 + age * 1.2
+      if not (splash and drawTinted(splash, ctx.tx, ctx.ty + oy, 1.4, 0.5, 0.85, 1, a)) then
+        G.setColor(0.45, 0.8, 1, a)
+        circle(G, ctx.tx, ctx.ty + oy, rad)
       end
     end
   end
 end
+
 
 function FX.ice_beam(G, frame, ctx)
   if frame < 12 then
@@ -3155,119 +3416,155 @@ function FX.ice_beam(G, frame, ctx)
 end
 
 function FX.thunderbolt(G, frame, ctx)
+  -- Tall, thick bolts + wide spark bloom (>> Thunder Shock).
+  local W, H = 240, 160
   if frame < 20 then
-    G.setColor(0, 0, 0, ctx.fade * 0.3 * (frame / 20))
-    G.rectangle("fill", 0, 0, 240, 160)
-  elseif frame < 90 then
-    G.setColor(0, 0, 0, ctx.fade * 0.25)
-    G.rectangle("fill", 0, 0, 240, 160)
+    G.setColor(0, 0, 0, ctx.fade * 0.4 * (frame / 20))
+    G.rectangle("fill", 0, 0, W, H)
+  elseif frame < 95 then
+    G.setColor(0, 0, 0, ctx.fade * 0.32)
+    G.rectangle("fill", 0, 0, W, H)
   end
-  local bolts = { {16, 24}, {30, -24}, {44, 0} }
+  local bolts = { {12, 28}, {24, -30}, {36, 4}, {48, -14}, {60, 20} }
   local shock = loadTagImage(MA.TAG.SHOCK_3) or loadTagImage(MA.TAG.SHOCK)
   for i = 1, #bolts do
     local start, ox = bolts[i][1], bolts[i][2]
     local age = frame - start
-    if age >= 0 and age < 14 then
-      local a = ctx.fade * (1 - age / 14)
-      G.setColor(1, 1, 0.55, a)
-      G.rectangle("fill", ctx.tx + ox - 1, 0, 3, ctx.ty)
-      if shock then drawTinted(shock, ctx.tx + ox, ctx.ty - 8, 0.9, 1, 1, 0.5, a) end
+    if age >= 0 and age < 16 then
+      local a = ctx.fade * (1 - age / 16)
+      -- thick vertical bolt from sky
+      G.setColor(1, 1, 0.7, a * 0.85)
+      G.rectangle("fill", ctx.tx + ox - 3, 0, 7, ctx.ty + 8)
+      G.setColor(1, 1, 0.95, a)
+      G.rectangle("fill", ctx.tx + ox - 1, 0, 3, ctx.ty + 8)
+      if shock then drawTinted(shock, ctx.tx + ox, ctx.ty - 6, 1.5, 1, 1, 0.45, a) end
+      G.setColor(1, 1, 0.5, a * 0.5)
+      circle(G, ctx.tx + ox, ctx.ty, 14)
     end
   end
-  if frame >= 70 and frame < 110 then
+  if frame >= 55 and frame < 110 then
     local sparks = loadTagImage(MA.TAG.SPARK)
-    for i = 0, 7 do
-      local start = 70 + i * 2
+    local pulse = math.sin((frame - 55) / 55 * math.pi)
+    G.setColor(1, 1, 0.4, ctx.fade * 0.2 * pulse)
+    circle(G, ctx.tx, ctx.ty, 20 + pulse * 40)
+    for i = 0, 14 do
+      local start = 55 + i * 2
       local age = frame - start
-      if age >= 0 and age < 12 then
-        local ang = i * 0.8
-        local x = ctx.tx + math.cos(ang) * (12 + age)
-        local y = ctx.ty + math.sin(ang) * (10 + age * 0.5)
-        local a = ctx.fade * (1 - age / 12)
-        if not (sparks and drawTinted(sparks, x, y, 0.65, 1, 1, 0.4, a)) then
-          G.setColor(1, 0.95, 0.35, a)
-          G.rectangle("fill", x - 1, y - 4, 2, 8)
+      if age >= 0 and age < 16 then
+        local ang = i * 0.45 + frame * 0.05
+        local x = ctx.tx + math.cos(ang) * (16 + age * 2.2)
+        local y = ctx.ty + math.sin(ang) * (12 + age * 1.4)
+        local a = ctx.fade * (1 - age / 16)
+        if not (sparks and drawTinted(sparks, x, y, 1.0, 1, 1, 0.35, a)) then
+          G.setColor(1, 0.95, 0.3, a)
+          G.rectangle("fill", x - 2, y - 7, 4, 14)
         end
       end
     end
   end
 end
+
 
 function FX.thunder(G, frame, ctx)
+  local W, H = 240, 160
   if frame < 100 then
-    G.setColor(0.05, 0.05, 0.15, ctx.fade * 0.4)
-    G.rectangle("fill", 0, 0, 240, 160)
+    G.setColor(0.02, 0.02, 0.12, ctx.fade * 0.5)
+    G.rectangle("fill", 0, 0, W, H)
   end
   local img = loadTagImage(MA.TAG.LIGHTNING)
-  local cols = { {18, 16}, {40, -16}, {70, 24}, {95, 0} }
+  local cols = { {14, 22}, {32, -26}, {50, 10}, {68, -12}, {86, 28}, {104, 0} }
   for i = 1, #cols do
     local start, ox = cols[i][1], cols[i][2]
-    for seg = 0, 2 do
+    for seg = 0, 4 do
       local age = frame - (start + seg)
-      if age >= 0 and age < 10 then
-        local y = ctx.ty - 36 + seg * 16
-        local a = ctx.fade * (1 - age / 10)
-        if not (img and drawTinted(img, ctx.tx + ox, y, 1.0, 1, 1, 0.55, a)) then
-          G.setColor(1, 1, 0.6, a)
-          G.rectangle("fill", ctx.tx + ox - 2, y - 8, 4, 16)
+      if age >= 0 and age < 12 then
+        local y = 8 + seg * 22
+        local a = ctx.fade * (1 - age / 12)
+        if not (img and drawTinted(img, ctx.tx + ox, y, 1.35, 1, 1, 0.5, a)) then
+          G.setColor(1, 1, 0.55, a)
+          G.rectangle("fill", ctx.tx + ox - 3, y - 10, 6, 22)
         end
       end
     end
   end
-  if frame >= 100 and frame < 115 then
-    local a = ctx.fade * 0.45 * math.sin((frame - 100) / 15 * math.pi)
+  if frame >= 40 and frame < 90 then
+    local pulse = math.sin((frame - 40) / 50 * math.pi)
+    G.setColor(1, 1, 0.6, ctx.fade * 0.25 * pulse)
+    circle(G, ctx.tx, ctx.ty, 22 + pulse * 40)
+  end
+  if frame >= 100 and frame < 118 then
+    local a = ctx.fade * 0.55 * math.sin((frame - 100) / 18 * math.pi)
     G.setColor(1, 1, 1, a)
-    G.rectangle("fill", 0, 0, 240, 160)
+    G.rectangle("fill", 0, 0, W, H)
   end
 end
 
+
 function FX.blizzard(G, frame, ctx)
-  if frame < 80 then
-    G.setColor(0.55, 0.7, 0.9, ctx.fade * 0.18)
-    G.rectangle("fill", 0, 0, 240, 160)
+  local W, H = 240, 160
+  if frame < 90 then
+    G.setColor(0.55, 0.72, 0.95, ctx.fade * 0.28)
+    G.rectangle("fill", 0, 0, W, H)
   end
   local img = loadTagImage(MA.TAG.ICE_CRYSTALS)
-  for i = 0, 28 do
-    local start = 8 + i * 3
+  for i = 0, 42 do
+    local start = 4 + i * 2
     local age = frame - start
-    if age >= 0 and age <= 28 then
-      local u = age / 28
-      local side = ((i % 5) - 2) * 10
-      local x = lerp(ctx.ax, ctx.tx + side, u)
-      local y = lerp(ctx.ay - 8, ctx.ty + side * 0.4, u)
-      local a = ctx.fade * (1 - u * 0.2)
-      local s = (i % 2 == 0) and 0.7 or 0.45
+    if age >= 0 and age <= 32 then
+      local u = age / 32
+      local side = ((i % 7) - 3) * 14
+      local x = lerp(ctx.ax - 10, ctx.tx + side, u)
+      local y = lerp(ctx.ay - 20, ctx.ty + side * 0.35 + 10, u)
+      local a = ctx.fade * (1 - u * 0.15)
+      local s = (i % 3 == 0) and 1.15 or 0.7
       if not (img and drawTinted(img, x, y, s, 0.85, 0.95, 1, a)) then
-        G.setColor(0.9, 0.95, 1, a)
-        circle(G, x, y, (i % 2 == 0) and 4 or 2)
+        G.setColor(0.9, 0.96, 1, a)
+        circle(G, x, y, (i % 3 == 0) and 6 or 3)
       end
     end
   end
-  if frame >= 70 and frame < 95 then
-    local t = (frame - 70) / 25
-    G.setColor(0.7, 0.9, 1, ctx.fade * 0.25 * (1 - t))
-    circle(G, ctx.tx, ctx.ty, 12 + t * 16)
+  if frame >= 50 and frame < 95 then
+    local t = (frame - 50) / 45
+    local pulse = math.sin(t * math.pi)
+    G.setColor(0.75, 0.9, 1, ctx.fade * 0.35 * pulse)
+    circle(G, ctx.tx, ctx.ty, 18 + pulse * 42)
+    G.setColor(1, 1, 1, ctx.fade * 0.25 * pulse)
+    circle(G, ctx.tx, ctx.ty, 10 + pulse * 22)
   end
 end
 
+
 function FX.psychic(G, frame, ctx)
-  if frame < 50 then
-    G.setColor(0.55, 0.25, 0.75, ctx.fade * 0.18)
-    G.rectangle("fill", 0, 0, 240, 160)
+  local W, H = 240, 160
+  if frame < 55 then
+    G.setColor(0.5, 0.15, 0.7, ctx.fade * 0.28)
+    G.rectangle("fill", 0, 0, W, H)
   end
   local t = frame / 60
-  for i = 0, 5 do
-    local ang = t * 8 + i * 1.05
-    local rad = 10 + math.sin(frame / 4 + i) * 6
-    G.setColor(0.95, 0.55, 1, ctx.fade * 0.5 * (1 - t * 0.4))
-    circle(G, ctx.tx + math.cos(ang) * rad, ctx.ty + math.sin(ang) * rad * 0.7, 3)
+  -- large concentric warps
+  for ring = 1, 4 do
+    local u = (frame - ring * 6) / 40
+    if u >= 0 and u < 1 then
+      local a = ctx.fade * (1 - u) * 0.45
+      G.setColor(0.95, 0.55, 1, a)
+      circle(G, ctx.tx, ctx.ty, 12 + ring * 14 + u * 28)
+    end
   end
-  if frame >= 16 and frame < 45 then
-    local a = ctx.fade * 0.3 * math.sin((frame - 16) / 29 * math.pi)
+  for i = 0, 10 do
+    local ang = t * 10 + i * 0.57
+    local rad = 18 + math.sin(frame / 3.5 + i) * 16
+    G.setColor(1, 0.7, 1, ctx.fade * 0.6 * (1 - t * 0.35))
+    circle(G, ctx.tx + math.cos(ang) * rad, ctx.ty + math.sin(ang) * rad * 0.75, 5)
+  end
+  if frame >= 14 and frame < 50 then
+    local a = ctx.fade * 0.4 * math.sin((frame - 14) / 36 * math.pi)
     G.setColor(1, 1, 1, a)
-    circle(G, ctx.tx, ctx.ty, 16)
+    circle(G, ctx.tx, ctx.ty, 28)
+    G.setColor(0.9, 0.5, 1, a * 0.7)
+    circle(G, ctx.tx, ctx.ty, 48)
   end
 end
+
 
 function FX.crunch(G, frame, ctx)
   if frame < 60 then
@@ -3446,63 +3743,71 @@ function FX.hidden_power(G, frame, ctx)
 end
 
 function FX.overheat(G, frame, ctx)
-  if frame < 80 then
-    local u = math.min(1, frame / 20)
-    G.setColor(0.9, 0.1, 0.05, ctx.fade * 0.3 * u)
-    G.rectangle("fill", 0, 0, 240, 160)
+  -- Outward inferno bloom, screen-tinting.
+  local W, H = 240, 160
+  local img = loadTagImage(MA.TAG.SMALL_EMBER)
+  if frame < 70 then
+    local pulse = math.sin(frame / 70 * math.pi)
+    G.setColor(0.5, 0.05, 0.0, ctx.fade * 0.3 * pulse)
+    G.rectangle("fill", 0, 0, W, H)
   end
-  local ember = loadTagImage(MA.TAG.SMALL_EMBER)
-  if frame >= 30 then
-    for i = 0, 17 do
-      local start = 30 + (i % 6) * 2
-      local age = frame - start
-      if age >= 0 and age < 28 then
-        local u = age / 28
-        local ang = i * 0.35
-        local x = ctx.ax + math.cos(ang) * (8 + u * 50)
-        local y = ctx.ay + math.sin(ang) * (6 + u * 36) - u * 10
-        local a = ctx.fade * (1 - u)
-        if not (ember and drawTinted(ember, x, y, 0.8, 1, 0.4, 0.1, a)) then
-          G.setColor(1, 0.35, 0.08, a)
-          circle(G, x, y, 4 - u * 2)
-        end
-      end
+  for i = 0, 20 do
+    local ang = i * (math.pi / 10) + frame * 0.08
+    local u = math.min(1, frame / 50)
+    local dist = 8 + u * (48 + (i % 4) * 8)
+    local x = ctx.ax + math.cos(ang) * dist
+    local y = ctx.ay + math.sin(ang) * dist * 0.75
+    local a = ctx.fade * (1 - u * 0.4)
+    if not (img and drawTinted(img, x, y, 1.2, 1, 0.35, 0.05, a)) then
+      G.setColor(1, 0.3, 0.05, a)
+      circle(G, x, y, 6)
     end
   end
-  if frame >= 55 and frame < 80 then
-    hitSplat(G, ctx.tx, ctx.ty, (frame - 55) / 16, ctx.fade * 0.7, true)
+  if frame >= 20 and frame < 60 then
+    local u = (frame - 20) / 40
+    local pulse = math.sin(u * math.pi)
+    G.setColor(1, 0.45, 0.05, ctx.fade * 0.4 * pulse)
+    circle(G, ctx.ax, ctx.ay, 20 + pulse * 35)
+    G.setColor(1, 0.85, 0.3, ctx.fade * 0.5 * pulse)
+    circle(G, ctx.ax, ctx.ay, 10 + pulse * 18)
   end
 end
 
+
 function FX.eruption(G, frame, ctx)
-  if frame < 40 then
-    G.setColor(0.9, 0.15, 0.05, ctx.fade * 0.25 * (frame / 40))
-    G.rectangle("fill", 0, 0, 240, 160)
+  local W, H = 240, 160
+  local img = loadTagImage(MA.TAG.SMALL_EMBER)
+  if frame < 60 then
+    G.setColor(0.4, 0.05, 0.0, ctx.fade * 0.25)
+    G.rectangle("fill", 0, 0, W, H)
   end
-  local rock = loadTagImage(MA.TAG.ROCKS) or loadTagImage(MA.TAG.SMALL_EMBER)
-  if frame >= 50 then
-    local rocks = {
-      {50, 0}, {54, 30}, {58, -40}, {62, 20}, {66, -20}, {70, 40},
-    }
-    for i = 1, #rocks do
-      local start, ox = rocks[i][1], rocks[i][2]
-      local age = frame - start
-      if age >= 0 and age < 40 then
-        local u = age / 40
-        local x = ctx.tx + ox
-        local y = lerp(-20, ctx.ty + 10, u)
-        local a = ctx.fade * (1 - u * 0.2)
-        if not (rock and drawTinted(rock, x, y, 0.85, 1, 0.45, 0.2, a)) then
-          G.setColor(0.9, 0.35, 0.15, a)
-          G.rectangle("fill", x - 4, y - 4, 8, 8)
-        end
+  -- columns of magma rising then raining on target
+  for i = 0, 16 do
+    local start = 4 + i * 3
+    local age = frame - start
+    if age >= 0 and age < 40 then
+      local u = age / 40
+      local x = ctx.ax + ((i % 5) - 2) * 10
+      local y = lerp(ctx.ay + 10, 10, math.min(1, u * 1.4))
+      if u > 0.45 then
+        local u2 = (u - 0.45) / 0.55
+        x = lerp(x, ctx.tx + ((i % 5) - 2) * 12, u2)
+        y = lerp(10, ctx.ty, u2)
+      end
+      local a = ctx.fade * (1 - u * 0.2)
+      if not (img and drawTinted(img, x, y, 1.1, 1, 0.3, 0.05, a)) then
+        G.setColor(1, 0.25, 0.02, a)
+        circle(G, x, y, 5)
       end
     end
   end
-  if frame >= 80 then
-    screenShakeFlash(G, frame, ctx, 6)
+  if frame >= 28 and frame < 55 then
+    local pulse = math.sin((frame - 28) / 27 * math.pi)
+    G.setColor(1, 0.3, 0.02, ctx.fade * 0.4 * pulse)
+    circle(G, ctx.tx, ctx.ty, 24 + pulse * 36)
   end
 end
+
 
 function FX.focus_punch(G, frame, ctx)
   -- Compressed charge (BG darken + fist windup) then multi-splat hit (Move_FOCUS_PUNCH)
@@ -5044,6 +5349,32 @@ function MA.offsetsFor(ma)
   return atkX, atkY, tgtX, tgtY
 end
 
+
+-- Per-FX canvas drama multiplier (1.0 = Gen3 ROM-ish size). Powerful moves
+-- push toward ORAS-scale / half-screen fill when combined with DramaticShapes
+-- BattleScene.FX_WORLD_SCALE. Source: enlarged Gen3 procedural (not ORAS
+-- particle BCH packs — those are not mapped into LOVE yet).
+MA.DRAMATIC_SCALE = {
+  -- keep weak / early moves small
+  ember = 1.0, water_gun = 1.0, bubble = 1.0, tackle = 1.0, pound = 1.0,
+  scratch = 1.0, grow = 1.0, growl = 1.0, tail_whip = 1.0, leer = 1.0,
+  harden = 1.0, poison_sting = 1.0, absorb = 1.05, thunder_shock = 1.15,
+  -- mid
+  flamethrower = 1.55, fire_spin = 1.35, fire_punch = 1.25, heat_wave = 1.55,
+  psybeam = 1.4, bubblebeam = 1.35, ice_beam = 1.55, shadow_ball = 1.45,
+  razor_leaf = 1.3, gust = 1.35, rock_throw = 1.25, mud_slap = 1.1,
+  -- ORAS-scale / screen-filling tier
+  fire_blast = 1.0,  -- rewritten with absolute large radii below
+  overheat = 1.0, eruption = 1.0,
+  surf = 1.0, hydro_pump = 1.0,
+  thunderbolt = 1.0, thunder = 1.0,
+  earthquake = 1.0, magnitude = 1.15, blizzard = 1.0, psychic = 1.0,
+  hyper_beam = 1.0, solar_beam_hit = 1.65, explosion = 1.5,
+  self_destruct = 1.4, dragon_claw = 1.35, crunch = 1.3,
+  brick_break = 1.25, focus_punch = 1.3, superpower = 1.4,
+  ancient_power = 1.35, hidden_power = 1.3, will_o_wisp = 1.2,
+}
+
 function MA.drawScript(ma, hitLeft, dur)
   if not (ma and ma.ruby and ma.fx) then return end
   local G = love.graphics
@@ -5073,7 +5404,19 @@ function MA.drawScript(ma, hitLeft, dur)
     pcall(G.setBlendMode, "alpha")
   end
   local drawer = FX[ma.fx]
+  local S = (MA.DRAMATIC_SCALE and MA.DRAMATIC_SCALE[ma.fx]) or 1
+  ctx.S = S
+  local scaled = S and S ~= 1
+  if scaled and G.push and G.scale and G.translate then
+    local mx = (ctx.ax + ctx.tx) * 0.5
+    local my = (ctx.ay + ctx.ty) * 0.5
+    G.push()
+    G.translate(mx, my)
+    G.scale(S, S)
+    G.translate(-mx, -my)
+  end
   if drawer then drawer(G, frame, ctx) end
+  if scaled and G.pop then G.pop() end
   if G.setBlendMode and prevMode then
     if prevAlphaMode ~= nil then
       pcall(G.setBlendMode, prevMode, prevAlphaMode)
@@ -5128,12 +5471,15 @@ function MA.attach(Game3)
     local opt = self.options
     if opt and opt.battleScene == false then return end
 
+    local moveType = self:attackType(attacker, move)
     local spec = MA.resolve(move)
+    if not spec then
+      -- Full move-list coverage: elemental/type FX families, then generic burst.
+      spec = MA.typeFallback(move, kind, moveType)
+    end
     if not spec then
       return origArm(self, attacker, defender, move, kind)
     end
-
-    local moveType = self:attackType(attacker, move)
     local onEnemy = self:isPlayerBattler(attacker)
     local ax, ay, tx, ty = battlerCenters(self, onEnemy)
     local phase = (kind == "charge") and "charge" or "hit"

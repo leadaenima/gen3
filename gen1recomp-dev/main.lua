@@ -1111,9 +1111,9 @@ function love.textinput(text)
 end
 
 -- #785: set once love.quit has routed a window close into HostShell.restart,
--- so the follow-up quit event the restart itself raises (quit("restart") on
--- desktop; AppImage and Android relaunch the process instead, #575) falls
--- through to the normal shutdown below instead of restarting forever.
+-- so the follow-up quit event the restart itself raises (clean quit() after
+-- spawnSelfDetached on desktop; AppImage execv / Android restartApp, #575)
+-- falls through to the normal shutdown below instead of restarting forever.
 local quitToLauncher = false
 
 function love.quit()

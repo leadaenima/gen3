@@ -1,0 +1,29 @@
+-- Sharing metadata (docs/modding.md). Read by tooling / manager detail pane;
+-- never by the loader's merge.
+return {
+  summary = "Bridge user-owned Omega Ruby (3DS) assets into Ruby (Game3): extract locally, swap what we can, stub an ORAS 3D pipeline until meshes load.",
+  author = "Raymond Blanchard",
+  contact = "",
+  tags = { "visual", "graphics", "oras", "omega-ruby", "gen3", "ruby", "3ds", "models", "textures" },
+  differences = {
+    changed = {
+      "optional battle/overworld texture overrides when an extract cache is present",
+    },
+    added = {
+      "ORAS 3D render_pipelines stub (available=false until extract succeeds)",
+      "mod options: ENABLED, APPLY TEXTURES, source path to the user ORAS dump",
+      "extract/extract_oras.py companion that writes under %%APPDATA%%/LOVE/pokemon-love2d/oras_extract/",
+    },
+    known = {
+      "the Desktop zip is a Deflate64-wrapped decrypted .3ds (NCSD), not a RomFS PNG tree",
+      "RomFS / BCH mesh extract needs ctrtool (or equivalent); this release only probes + indexes what is already a file tree",
+      "Game3 does not yet install src.render.Pipelines; the pipeline registers for when that lands",
+      "no Nintendo images or models are vendored into the mod or git",
+    },
+  },
+  credits = {
+    { who = "user-owned Pokemon Omega Ruby (3DS) dump", for_ = "all texture/model source bytes" },
+    { who = "gen1recomp Game3 / mod API", for_ = "content registries and render_pipelines" },
+  },
+  compat = { engine = ">=0.0.0-0 <2.0.0", modApi = 2 },
+}

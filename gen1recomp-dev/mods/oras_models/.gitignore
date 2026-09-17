@@ -1,0 +1,8 @@
+# Local extract state and any user-owned dumps. Never commit Nintendo assets.
+.local/
+baseroms/
+*.3ds
+*.cxi
+*.cia
+*.bin
+extract_cache/

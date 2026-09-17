@@ -364,14 +364,16 @@ function Battle.findPicCoords(data)
   return nil
 end
 
+-- 5 bits per channel: 31 is full brightness, so the scale is /31, not *8.
+-- Multiplying by 8 caps every channel at 248/255 and quietly darkens all
+-- of it -- the bag's yellow came out F8C058 where the cart is FFC55A.
 local function bgr555(c)
-  local r = (c % 32) * 8
-  local g = (math.floor(c / 32) % 32) * 8
-  local b = (math.floor(c / 1024) % 32) * 8
-  return r / 255, g / 255, b / 255
+  return (c % 32) / 31,
+    (math.floor(c / 32) % 32) / 31,
+    (math.floor(c / 1024) % 32) / 31
 end
 
-local function blitTile(image, x, y, raw, palette)
+local function blitTile(image, x, y, raw, palette, hflip, vflip)
   if not raw or #raw < Battle.TILE_BYTES or not image then return end
   local iw = (image.getWidth and image:getWidth()) or image.width or 240
   local ih = (image.getHeight and image:getHeight()) or image.height or 160
@@ -381,8 +383,10 @@ local function blitTile(image, x, y, raw, palette)
       for tx = 0, 7 do
         local px = x + tx
         if px >= 0 and px < iw then
-          local byte = raw:byte(ty * 4 + math.floor(tx / 2) + 1) or 0
-          local ci = (tx % 2 == 0) and (byte % 16) or math.floor(byte / 16)
+          local sx = hflip and (7 - tx) or tx
+          local sy = vflip and (7 - ty) or ty
+          local byte = raw:byte(sy * 4 + math.floor(sx / 2) + 1) or 0
+          local ci = (sx % 2 == 0) and (byte % 16) or math.floor(byte / 16)
           if ci ~= 0 then
             local col = palette[ci] or { 1, 0, 1 }
             image:setPixel(px, py, col[1], col[2], col[3], 1)
@@ -1845,6 +1849,19 @@ Battle.BAG_SCREEN_GFX = 0xE76728
 Battle.BAG_SCREEN_MALE_PAL = 0xE76F94
 Battle.BAG_SCREEN_FEMALE_PAL = 0xE76FCC
 Battle.BAG_SCREEN_MAP = 0xE77004
+-- item_menu.c sub_80A39B8: sub_809D104(dest, 4, 10, gBagScreenLabels_Tilemap,
+-- 0, pocket * 2, 8, 2) -- an 8x2 tile block per pocket, blitted to tile
+-- (4, 10), i.e. pixels (32, 80). The pocket name is cart art, not text.
+Battle.BAG_SCREEN_LABELS = 0xE96EC8
+Battle.BAG_LABEL_COLS = 8
+Battle.BAG_LABEL_ROWS = 2
+Battle.BAG_LABEL_POCKETS = 6
+-- item_menu.c DrawPocketIndicatorDots: tileMapBuffer[0x125 + i] is 0x107D
+-- for the selected pocket and 0x107C otherwise -- tiles 0x7C/0x7D on
+-- palette bank 1, at tilemap index 0x125 = row 9, col 5.
+Battle.BAG_DOT_TILE_OFF = 0x7C
+Battle.BAG_DOT_TILE_ON = 0x7D
+Battle.BAG_DOT_PAL = 1
 
 local function paintLzMap(data, gfxOff, palOff, mapOff, mapBytes)
   local raw = GbaLz77.decompress(data, gfxOff)
@@ -1872,8 +1889,13 @@ local function paintLzMap(data, gfxOff, palOff, mapOff, mapBytes)
     if id < tilesN then
       local palN = math.floor(entry / 4096) % 16
       local pal = pals[palN] or pals[0]
+      -- bits 10 and 11 are hflip/vflip. Ignoring them mirrored the bag's
+      -- panel border: its left edge came out yellow-then-dark instead of
+      -- dark-then-yellow, and the corner tile was unreadable.
       blitTile(image, col * 8, row * 8,
-        raw:sub(id * Battle.TILE_BYTES + 1, (id + 1) * Battle.TILE_BYTES), pal)
+        raw:sub(id * Battle.TILE_BYTES + 1, (id + 1) * Battle.TILE_BYTES), pal,
+        math.floor(entry / 0x400) % 2 == 1,
+        math.floor(entry / 0x800) % 2 == 1)
     end
   end
   return image
@@ -1908,6 +1930,56 @@ function Battle.extractPokenav(data)
   return out
 end
 
+-- The six pocket labels as one 64x96 strip, pocket p at y = p * 16, so the
+-- bag screen can blit whichever one it is showing.
+function Battle.renderBagLabels(data)
+  local raw = GbaLz77.decompress(data, Battle.BAG_SCREEN_GFX)
+  if not raw or #raw < Battle.TILE_BYTES then return nil end
+  local pb = palBytes(data, Battle.BAG_SCREEN_MALE_PAL)
+  if not pb then return nil end
+  local pals = { [0] = pal16(pb, 0), [1] = pal16(pb, 1), [2] = pal16(pb, 2) }
+  local cols, rows = Battle.BAG_LABEL_COLS, Battle.BAG_LABEL_ROWS
+  local pockets = Battle.BAG_LABEL_POCKETS
+  local mapOff = Battle.BAG_SCREEN_LABELS
+  local map = data:sub(mapOff + 1, mapOff + 2048)
+  if #map < 2048 then return nil end
+  local tilesN = math.floor(#raw / Battle.TILE_BYTES)
+  local image = ImageWriter.blank(cols * 8, pockets * rows * 8, 0, 0, 0, 0)
+  for p = 0, pockets - 1 do
+    for r = 0, rows - 1 do
+      for c = 0, cols - 1 do
+        local i = (p * rows + r) * 32 + c
+        local entry = GbaBin.u16(map, i * 2)
+        local id = entry % 1024
+        if id < tilesN then
+          local pal = pals[math.floor(entry / 4096) % 16] or pals[0]
+          blitTile(image, c * 8, (p * rows + r) * 8,
+            raw:sub(id * Battle.TILE_BYTES + 1, (id + 1) * Battle.TILE_BYTES), pal)
+        end
+      end
+    end
+  end
+  return image
+end
+
+-- The two pocket dots side by side: unselected at x 0, selected at x 8.
+function Battle.renderBagDots(data)
+  local raw = GbaLz77.decompress(data, Battle.BAG_SCREEN_GFX)
+  if not raw or #raw < Battle.TILE_BYTES then return nil end
+  local pb = palBytes(data, Battle.BAG_SCREEN_MALE_PAL)
+  if not pb then return nil end
+  local pal = pal16(pb, Battle.BAG_DOT_PAL)
+  local image = ImageWriter.blank(16, 8, 0, 0, 0, 0)
+  local ids = { Battle.BAG_DOT_TILE_OFF, Battle.BAG_DOT_TILE_ON }
+  for i, id in ipairs(ids) do
+    local at = id * Battle.TILE_BYTES
+    if at + Battle.TILE_BYTES > #raw then return nil end
+    blitTile(image, (i - 1) * 8, 0,
+      raw:sub(at + 1, at + Battle.TILE_BYTES), pal)
+  end
+  return image
+end
+
 function Battle.extractBag(data)
   if type(data) ~= "string" or #data < Battle.BAG_SPRITE_PAL + 32 then return nil end
   local out = {}
@@ -1930,6 +2002,16 @@ function Battle.extractBag(data)
   if screen then
     ImageWriter.save(screen, "assets/generated/bag/bag_screen.png")
     out.screen = "assets/generated/bag/bag_screen.png"
+  end
+  local dots = Battle.renderBagDots(data)
+  if dots then
+    ImageWriter.save(dots, "assets/generated/bag/bag_dots.png")
+    out.dots = "assets/generated/bag/bag_dots.png"
+  end
+  local labels = Battle.renderBagLabels(data)
+  if labels then
+    ImageWriter.save(labels, "assets/generated/bag/bag_labels.png")
+    out.labels = "assets/generated/bag/bag_labels.png"
   end
   if not out.male then return nil end
   return out

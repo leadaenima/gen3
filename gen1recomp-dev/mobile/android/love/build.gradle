@@ -67,8 +67,11 @@ android {
         }
         debug {
             ndk {
+                // x86_64 is emulator-only and adds ~5.5MB a phone cannot
+                // use. Restore this line to run a debug build on an
+                // Android emulator.
                 // noinspection ChromeOsAbiSupport
-                abiFilters += 'x86_64'
+                // abiFilters += 'x86_64'
             }
         }
     }

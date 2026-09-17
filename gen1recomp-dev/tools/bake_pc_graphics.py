@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-"""Bake Ruby PSS chrome from pokeruby graphics/pokemon_storage into assets/pc/."""
+"""SUPERSEDED -- do not run.
+
+Baked Ruby PSS chrome from pokeruby graphics/pokemon_storage into
+assets/pc/. That output is Nintendo's art sitting outside
+assets/generated/, which is the one tree scripts/pack_love.sh excludes,
+so every file this wrote shipped inside the APK.
+
+src/import/RomExtractorGen3Pc.lua now produces all of it from the
+player's own cart at runtime -- the nine chrome pieces Game3.PC_ASSET
+reads plus all sixteen wallpapers. ruby_pc_test fails if anything lands
+in assets/pc again, or if PC_ASSET is re-pointed away from the
+extractor's output. Kept only as a reference for the tile layouts.
+"""
 from __future__ import annotations
 
 import struct

@@ -466,7 +466,22 @@ bat.battle = {
 bat:armMoveAnim(bat.battle.player, bat.battle.enemy,
   { name = "EMBER", type = Game3.TYPE_FIRE, power = 40 }, "damage")
 check(bat.battle.moveAnim ~= nil, "armMoveAnim stores moveAnim")
-eq(bat.battle.moveAnim.kind, "special", "Fire is special in Gen 3")
+-- Gen 3 splits physical/special BY TYPE, and Fire is on the special side --
+-- which is what this has always been about. It used to assert it through
+-- moveAnim.kind, and that stopped being the right field: once a move has a
+-- ROM-scripted animation, src/core/Game3MoveAnim.lua takes the call and pins
+-- kind to "status" on purpose -- "status amp is smallest generic lunge;
+-- scripted offsets do the real motion", because the generic lunge would
+-- fight the scripted ones.
+--
+-- `physical` is the field that still carries the split on BOTH paths, so the
+-- question this test asks is asked of the field that answers it.
+eq(bat.battle.moveAnim.physical, false,
+  "Fire is on the special side of the Gen 3 split")
+check(Game3.isPhysical(Game3.TYPE_FIRE) == false,
+  "which is the type-level rule the whole split rests on")
+check(Game3.isPhysical(Game3.TYPE_ROCK) == true,
+  "and Rock is on the physical side of it")
 eq(bat.battle.moveAnim.type, Game3.TYPE_FIRE, "and keeps the type")
 check((bat.battle.animT or 0) > 0.3, "animT matches damage dur")
 bat.options = { battleScene = false }
@@ -566,5 +581,253 @@ ow:drawOwCinema()
 ow:beginSurfMountCinema()
 ow:drawOwCinema()
 check(true, "Surf blob + Fly/Surf overlays draw without error")
+
+
+-- ------------------------------------------------- bag pocket label
+--
+-- item_menu.c sub_80A39B8: sub_809D104(dest, 4, 10, gBagScreenLabels_Tilemap,
+-- 0, pocket * 2, 8, 2). The pocket name is an 8x2 tile block of cart art
+-- blitted to tile (4, 10) -- pixels (32, 80), sitting on the yellow bar --
+-- not a string. It used to be drawn as text at (8, 74), which put it over the
+-- bag sprite's shadow instead.
+eq(Game3.BAG_LABEL_X, 32, "tile 4 across in pixels")
+eq(Game3.BAG_LABEL_Y, 80, "tile 10 down")
+eq(Game3.BAG_LABEL_W, 64, "eight tiles wide")
+eq(Game3.BAG_LABEL_H, 16, "two tiles tall")
+;(function()
+  local drawn = {}
+  local g = Game3.new()
+  g.bagImage = function(_, n)
+    if n ~= "bag_labels.png" then return nil end
+    return { getDimensions = function() return 64, 96 end }
+  end
+  local realDraw = love.graphics.draw
+  love.graphics.draw = function(img, quad, x, y)
+    drawn[#drawn + 1] = { quad = quad, x = x, y = y }
+  end
+  local ok = g:drawBagPocketLabel(Game3.POCKET_ITEMS, 0)
+  love.graphics.draw = realDraw
+  check(ok, "the pocket label blits from the cart strip")
+  eq(#drawn, 1, "exactly one blit")
+  eq(drawn[1].x, 32, "at x 32")
+  eq(drawn[1].y, 80, "and y 80")
+end)()
+;(function()
+  local g = Game3.new()
+  g.bagImage = function() return nil end
+  check(not g:drawBagPocketLabel(1, 0),
+    "and reports failure without the art so the text fallback runs")
+end)()
+-- row 0 of the strip is blank, so pockets index from 1 straight into it
+eq(Game3.POCKET_ITEMS, 1, "the first pocket is 1, matching the strip row")
+
+
+-- ------------------------------------------------ bag screen geometry
+--
+-- gBagScreen_Tilemap already draws the item list panel and the description
+-- panel, so the engine painting standard window frames over them replaced
+-- the cart's yellow and white borders with the generic grey one. Every
+-- position below comes from item_menu.c:
+--   Menu_PrintText(gStringVar1, 14, itemPos * 2 + 2)   -> (112, 16i + 16)
+--   Menu_PrintTextPixelCoords(description, 4, 104 + 16b)
+--   CreateVerticalScrollIndicators(TOP_ARROW, 172, 12) / (BOTTOM, 172, 148)
+--   CreateVerticalScrollIndicators(LEFT_ARROW, 28, 88) / (RIGHT, 100, 88)
+eq(Game3.BAG_LIST_X, 112, "tile 14, flush with the panel interior")
+eq(Game3.BAG_LIST_Y, 16, "first row at tile row 2")
+eq(Game3.BAG_LIST_ROW, 16, "two tiles a row")
+eq(Game3.BAG_DESC_X, 4, "description x is pixel 4, not 12")
+eq(Game3.BAG_DESC_Y, 104, "and y 104, not 112")
+eq(Game3.BAG_DESC_ROW, 16, "16px a line")
+eq(Game3.BAG_ARROW_X, 172, "scroll arrows at x 172, not off at 220")
+eq(Game3.BAG_ARROW_TOP_Y, 12, "top arrow")
+eq(Game3.BAG_ARROW_BOTTOM_Y, 148, "bottom arrow")
+eq(Game3.BAG_POCKET_LEFT_X, 28, "pocket switch arrows flank the bar")
+eq(Game3.BAG_POCKET_RIGHT_X, 100, "at 28 and 100")
+eq(Game3.BAG_POCKET_ARROW_Y, 88, "on row 88")
+
+-- and the two redundant frames are gone: the bag must not paint a standard
+-- window anywhere, because the screen art already has both panels
+;(function()
+  local windows = 0
+  local g = Game3.new()
+  g.drawWindow = function() windows = windows + 1 end
+  g.bagImage = function() return nil end
+  g.bagSlotsIn = function() return {} end
+  g.pocketName = function() return "ITEMS" end
+  g.bagCloseDestination = function() return "the field" end
+  g.drawText = function() end
+  g.drawCursor = function() end
+  g:drawBag({ pocket = Game3.POCKET_ITEMS, cursor = 0 })
+  -- the only drawWindow left is the BAG placeholder when the sprite is
+  -- missing, which this fixture triggers by returning no art at all
+  check(windows <= 1,
+    ("no standard frame over the cart's panels (drew %d)"):format(windows))
+end)()
+
+
+-- --------------------------------------------- bag rows and scroll arrows
+--
+-- item_menu.c prints a row as two aligned pieces, not one string:
+--   AlignStringInMenuWindow(buf, ItemId_GetName(..), 0x66, 0)
+--   AlignInt1InMenuWindow(buf, quantity, 0x78, 1)
+-- so quantities form a column ending 0x78 past the row origin instead of
+-- trailing each name wherever it happens to end. Key items and HMs have no
+-- quantity at all.
+eq(Game3.BAG_LIST_NAME_W, 0x66, "the name field")
+eq(Game3.BAG_LIST_QTY_RIGHT, 112 + 0x78, "and the quantity column's right edge")
+;(function()
+  local g = Game3.new()
+  g.itemName = function(_, id) return "POTION" end
+  g.itemPocket = function() return Game3.POCKET_ITEMS end
+  local name, qty = g:bagListParts({ id = 13, count = 5 }, Game3.POCKET_ITEMS)
+  eq(name, "POTION", "the name comes back on its own")
+  eq(qty, "x5", "with the quantity separate")
+  local kname, kqty = g:bagListParts({ id = 260, count = 1 }, Game3.POCKET_KEY)
+  eq(kqty, nil, "key items carry no quantity")
+end)()
+
+-- menu_helpers.c: one template covers both vertical arrows (anim 0 up, 1
+-- down) as H_RECTANGLE 16x8; the horizontal pair is V_RECTANGLE 8x16, whose
+-- two tiles STACK -- read side by side they are diagonal shards.
+;(function()
+  local q = Game3.SCROLL_ARROW_QUADS
+  eq(q.up[3] .. "x" .. q.up[4], "16x8", "the up arrow is 16x8")
+  eq(q.down[3] .. "x" .. q.down[4], "16x8", "so is the down")
+  eq(q.left[3] .. "x" .. q.left[4], "8x16", "the left arrow is 8x16")
+  eq(q.right[3] .. "x" .. q.right[4], "8x16", "and the right")
+end)()
+;(function()
+  local at = {}
+  local g = Game3.new()
+  g.uiPic = function() return { getDimensions = function() return 16, 32 end } end
+  local realDraw = love.graphics.draw
+  love.graphics.draw = function(_, _, x, y) at[#at + 1] = { x, y } end
+  g:drawScrollArrow("up", 172, 12)
+  love.graphics.draw = realDraw
+  eq(#at, 1, "the arrow blits once")
+  -- CreateVerticalScrollIndicators takes the CENTRE, so 16x8 at (172,12)
+  -- has its corner at (164, 8)
+  eq(at[1][1], 164, "centred horizontally")
+  eq(at[1][2], 8, "and vertically")
+end)()
+
+
+-- ------------------------------------------------ pocket indicator dots
+--
+-- item_menu.c DrawPocketIndicatorDots: tileMapBuffer[0x125 + i] is 0x107D
+-- for the selected pocket and 0x107C otherwise. Index 0x125 is row 9 col 5,
+-- so the dots run from (40, 72) in 8px steps. The cart has BOTH these and
+-- the left/right switch arrows -- dropping the dots for the arrows was wrong.
+eq(Game3.BAG_DOT_X, 40, "col 5")
+eq(Game3.BAG_DOT_Y, 72, "row 9")
+eq(Game3.BAG_DOT_STEP, 8, "one tile apart")
+;(function()
+  local at = {}
+  local g = Game3.new()
+  g.bagImage = function(_, n)
+    if n ~= "bag_dots.png" then return nil end
+    return { getDimensions = function() return 16, 8 end }
+  end
+  local realDraw = love.graphics.draw
+  love.graphics.draw = function(_, quad, x, y) at[#at + 1] = { x, y } end
+  local ok = g:drawBagPocketDots(2, 0)
+  love.graphics.draw = realDraw
+  check(ok, "the dots draw from the cart sheet")
+  eq(#at, Game3.POCKET_COUNT, "one per pocket")
+  eq(at[1][1], 40, "first dot at x 40")
+  eq(at[1][2], 72, "and y 72")
+  eq(at[2][1], 48, "second a tile along")
+end)()
+
+-- ...and drawBag must actually call it. Asserting only the helper let the
+-- draw site be deleted silently, which is exactly how the dots went missing.
+;(function()
+  local calls = { dots = 0, label = 0 }
+  local g = Game3.new()
+  g.drawBagPocketDots = function() calls.dots = calls.dots + 1; return true end
+  g.drawBagPocketLabel = function() calls.label = calls.label + 1; return true end
+  g.bagImage = function() return nil end
+  g.bagSlotsIn = function() return {} end
+  g.bagCloseDestination = function() return "the field" end
+  g.drawText = function() end
+  g.drawCursor = function() end
+  g.drawWindow = function() end
+  g:drawBag({ pocket = Game3.POCKET_ITEMS, cursor = 0 })
+  eq(calls.dots, 1, "drawBag paints the pocket dots")
+  eq(calls.label, 1, "and the pocket label")
+end)()
+
+
+-- ------------------------------------ bag screen, checked off hardware
+--
+-- A capture of the real bag settled three things a ROM-data read could not.
+--
+-- 1. Tilemap entries carry hflip/vflip in bits 10 and 11. paintLzMap read
+--    the id and palette but not the flips, so the list panel's left border
+--    came out yellow-then-dark where the cart has dark-then-yellow, and the
+--    corner tile was unreadable. 27 of the 640 visible entries are flipped.
+-- 2. BGR555 is 5 bits per channel where 31 is FULL brightness. Scaling by 8
+--    caps at 248/255 and darkens everything: the bag's yellow read F8C058
+--    against the cart's FFC55A.
+-- 3. The list selection is the wide red outline (sub_814A958), not the field
+--    triangle. Measured at x 111..232, 16 tall.
+eq(Game3.BAG_CURSOR_X, 111, "measured off the capture")
+eq(Game3.BAG_CURSOR_W, 122, "111..232 inclusive")
+eq(Game3.BAG_CURSOR_H, 16, "one row")
+eq(Game3.BAG_DESC_W, 102, "descriptions stay in their own panel")
+;(function()
+  local boxes, tris = 0, 0
+  local g = Game3.new()
+  g.drawBattleCursor = function(_, x, y, w, h) boxes = boxes + 1
+    eq(x, Game3.BAG_CURSOR_X, "the outline starts at 111")
+    eq(w, Game3.BAG_CURSOR_W, "and is 122 wide") end
+  g.drawCursor = function() tris = tris + 1 end
+  g.bagImage = function() return nil end
+  g.bagSlotsIn = function() return { { id = 13, count = 1 } } end
+  g.itemName = function() return "POTION" end
+  g.itemPocket = function() return Game3.POCKET_ITEMS end
+  g.itemDescription = function() return "A useful item." end
+  g.bagCloseDestination = function() return "the field" end
+  g.drawText = function() end
+  g.drawWindow = function() end
+  g.drawBagPocketDots = function() end
+  g.drawBagPocketLabel = function() return true end
+  g:drawBag({ pocket = Game3.POCKET_ITEMS, cursor = 0 })
+  eq(boxes, 1, "the bag list marks its selection with the wide outline")
+  eq(tris, 0, "and never the field triangle")
+end)()
+
+
+-- --------------------------------------------- item description layout
+--
+-- The cart authors its own line breaks: parseOneItem decodes descriptions
+-- with GbaText.decodePages, which keeps 0xFE as a newline. (decodeText, the
+-- other decoder, turns 0xFE into a space and collapses runs -- descriptions
+-- must not go through it or they arrive as one unbreakable line.)
+--
+-- So drawBagLines does not word-wrap; it honours the cart's breaks, which is
+-- what the cart does. maxW is only a backstop, and it has to be wide enough
+-- never to fire: the extracted panel's white interior runs x 3..105 and the
+-- cart prints from x 4, so 102px is usable. At 100 the widest real line
+-- (TINYMUSHROOM, 102px) would have been horizontally squashed.
+eq(Game3.BAG_DESC_W, 102, "the usable width of the description panel")
+;(function()
+  local drawn = {}
+  local g = Game3.new()
+  g.drawText = function(_, t, x, y, maxW) drawn[#drawn + 1] = { t, x, y, maxW } end
+  g:drawBagLines("one\ntwo\nthree", 4, 104, 16, 3)
+  eq(#drawn, 3, "the cart's newlines become three lines")
+  eq(drawn[1][3], 104, "first line at y 104")
+  eq(drawn[2][3], 120, "second 16px below")
+  eq(drawn[3][3], 136, "third below")
+  eq(drawn[1][4], Game3.BAG_DESC_W, "and each is held to the panel width")
+end)()
+;(function()
+  local g = Game3.new()
+  local drawn = 0
+  g.drawText = function() drawn = drawn + 1 end
+  g:drawBagLines("a\nb\nc\nd", 4, 104, 16, 3)
+  eq(drawn, 3, "and never more lines than the panel holds")
+end)()
 
 S.finish()

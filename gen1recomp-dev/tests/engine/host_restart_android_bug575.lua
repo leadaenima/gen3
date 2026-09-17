@@ -4,7 +4,8 @@
 -- The fix prefers the love.system.restartApp JNI bridge (which kills the
 -- process, so a true return is never observed live) and, on an old APK
 -- whose liblove lacks the bridge, falls back to a CLEAN quit with no
--- argument.  Desktop keeps the in-process quit("restart").
+-- argument.  Process-capable desktops prefer spawnSelfDetached + quit();
+-- this file only pins the Android branch (see host_restart_desktop_physfs.lua).
 --   luajit tests/engine/host_restart_android_bug575.lua
 
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -48,12 +49,14 @@ HostShell.restart()
 eq(#quits, 2, "a bridge-less APK quits cleanly instead of crashing")
 eq(quits[2].n, 0, "again with no restart argument")
 
--- desktop (no AppImage in a test environment) keeps the in-process restart
+-- desktop without a working spawn falls back to in-process restart
 if not os.getenv("APPIMAGE") then
   osName = "OS X"
+  -- Platform.canSpawnProcess is true for OS X, but love.filesystem has no
+  -- getExecutablePath here, so spawnSelfDetached fails and we last-resort.
   HostShell.restart()
   eq(quits[3] and quits[3].arg, "restart",
-     "non-Android still restarts in-process")
+     "desktop last-resort is still quit(\"restart\") when spawn fails")
 end
 
 T.finish("host_restart_android_bug575")

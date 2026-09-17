@@ -277,6 +277,7 @@ local SaveData = require("src.core.SaveData")
 local Gen3Script = require("src.import.Gen3Script")
 local Game3Boot = require("src.core.Game3Boot")
 local Game3Pc = require("src.core.Game3Pc")
+local Game3ModWorld = require("src.core.Game3ModWorld")
 local Game3PlayerPc = require("src.core.Game3PlayerPc")
 local Game3WeatherFx = require("src.core.Game3WeatherFx")
 local Game3Tv = require("src.core.Game3Tv")
@@ -358,6 +359,19 @@ Game3.WINDOW_FRAME_STYLES = 20
 Game3.BATTLE_BAR_Y = 112
 Game3.BATTLE_BAR_H = 48
 -- FIGHT / BAG over POKeMON / RUN, inside the right-hand action panel.
+-- battle_controller_player.c sub_802E3E4/sub_802E39C: the cursor is a
+-- subsprite run sub_814A958 builds, 0x2A = 42px wide for the action menu
+-- and 0x48 = 72px for the moves, 16 tall (shape 2 size 0 = 8x16 pieces).
+-- Positions are the pixel pairs at gUnknown_081FAE91 and gUnknown_081FAE89.
+Game3.BATTLE_CURSOR_H = 16
+Game3.BATTLE_ACTION_CURSOR_W = 0x2A
+Game3.BATTLE_MOVE_CURSOR_W = 0x48
+Game3.BATTLE_ACTION_SLOTS = {   -- gUnknown_081FAE91
+  { 144, 120 }, { 190, 120 }, { 144, 136 }, { 190, 136 },
+}
+Game3.BATTLE_MOVE_SLOTS = {     -- gUnknown_081FAE89
+  { 8, 120 }, { 88, 120 }, { 8, 136 }, { 88, 136 },
+}
 Game3.BATTLE_ACTION_X = 142
 Game3.BATTLE_ACTION_COL = 50
 Game3.BATTLE_ACTION_Y = 120
@@ -374,8 +388,17 @@ Game3.BATTLE_MOVE_INFO_X = 182
 -- palette slot, not RGB white — white glyphs on that bar are unreadable.
 -- ApplyColors_ShadowedFont: glyph 0xF = fg, 0xE = shadow. The extracted
 -- sheet stores those as black and gray; the shader recolors them.
-Game3.TEXT_INK = { 0.10, 0.10, 0.12, 1 }
-Game3.TEXT_SHADOW = { 0.38, 0.38, 0.42, 1 }
+-- The cart's menu text colours, not an approximation to near-black. The
+-- window templates ask for foreground 1 and shadow 8 of their palette, and
+-- ApplyColors_ShadowedFont writes those two as 0x2529 and 0x675A --
+-- confirmed against a hardware capture of the bag, whose list text uses
+-- exactly three colours: 4A494A ink, D6D2CE shadow, panel behind.
+--
+-- The shadow is LIGHTER than the ink. Ours was a darker grey than the ink
+-- it sat under, which doubled every glyph's apparent weight and made menu
+-- text read as blobby and over-bold.
+Game3.TEXT_INK = { 0x4A / 255, 0x49 / 255, 0x4A / 255, 1 }    -- 0x2529
+Game3.TEXT_SHADOW = { 0xD6 / 255, 0xD2 / 255, 0xCE / 255, 1 } -- 0x675A
 Game3.BATTLE_TEXT_INK = Game3.TEXT_INK
 Game3.BATTLE_TEXT_SHADOW = { 65 / 255, 74 / 255, 123 / 255, 1 }
 -- menu.pal index 3 = frame, index 7 = interior. Index 15 is the template
@@ -4775,7 +4798,7 @@ function Game3:showEasyChatBoard()
   -- ShowFieldAutoScrollMessage puts the board on screen and the script carries
   -- on, so this queues the line the way every other printing special does.
   if text and text ~= "" then self:sayScript(text) end
-  return 1
+  return 1 + (Game3.POKENAV_ROWS_MAX - 1) * Game3.POKENAV_ROW_STAGGER
 end
 
 function Game3:setDynamicWarp(group, num, warpId, x, y)
@@ -6018,6 +6041,20 @@ function Game3:persistDisplayOptions()
   options.zoom = require("src.render.Zoom").offset
   options.tilt = require("src.render.Tilt").level
   self.options = options
+  -- Pipeline ladders (VOXEL FULL, T-SHIFT, ...) live in save.options.pipelines.
+  -- Without folding them in here, stepping VOXEL on the OPTION screen changed
+  -- the live level but the next partial write restored the on-disk rung -- so
+  -- FULL appeared to take and then snap back.
+  if type(self.modOptionsStore) == "function" then
+    pcall(self.modOptionsStore, self)
+  end
+  local pipelines = nil
+  local okP, Pipelines = pcall(require, "src.render.Pipelines")
+  if okP and Pipelines and Pipelines.syncOptions and self.save and self.save.options then
+    pcall(Pipelines.syncOptions, self.save.options)
+    pipelines = self.save.options.pipelines
+    options.pipelines = pipelines
+  end
   pcall(function()
     require("src.core.SaveData").saveOptions({
       zoom = options.zoom, tilt = options.tilt,
@@ -6025,6 +6062,7 @@ function Game3:persistDisplayOptions()
       speedBattle = options.speedBattle,
       speedMenu = options.speedMenu,
       voidFill = options.voidFill,
+      pipelines = pipelines,
     })
   end)
 end
@@ -6034,30 +6072,131 @@ end
 -- then ZOOM / TILT in the unused BUTTON MODE / FRAME slots.
 Game3.OPTION_VISIBLE = 7
 
-function Game3:optionMenuSpec()
+-- Cart + port rows as descriptors (Gen 1 OptionRows shape).
+function Game3:optionCartDescriptors()
   local opt = self.options or {}
   local Zoom = require("src.render.Zoom")
   local Tilt = require("src.render.Tilt")
   return {
-    { "TEXT SPEED", ({ "SLOW", "MID", "FAST" })[opt.textSpeed or 2] or "FAST",
-      "textSpeed" },
-    { "BATTLE SCENE", opt.battleScene == false and "OFF" or "ON", "battleScene" },
-    { "BATTLE STYLE", opt.battleStyle == "set" and "SET" or "SHIFT", "battleStyle" },
-    { "SOUND", opt.stereo == false and "MONO" or "STEREO", "sound" },
-    { "OVERWORLD SPEED", GameSpeed.levelLabel(opt.speedOverworld), "speedOverworld" },
-    { "BATTLE SPEED", GameSpeed.levelLabel(opt.speedBattle), "speedBattle" },
-    { "MENU SPEED", GameSpeed.levelLabel(opt.speedMenu), "speedMenu" },
-    { "ZOOM", Zoom.offsetLabel(opt.zoom or Zoom.offset or 0), "zoom" },
-    { "TILT", Tilt.levelLabel(opt.tilt or Tilt.level or 0), "tilt" },
-    { "VOID FILL", Game3.voidFillLabel(opt.voidFill), "voidFill" },
-    { "CANCEL", "", "cancel" },
+    { id = "textSpeed", label = "TEXT SPEED",
+      value = ({ "SLOW", "MID", "FAST" })[opt.textSpeed or 2] or "FAST" },
+    { id = "battleScene", label = "BATTLE SCENE",
+      value = opt.battleScene == false and "OFF" or "ON" },
+    { id = "battleStyle", label = "BATTLE STYLE",
+      value = opt.battleStyle == "set" and "SET" or "SHIFT" },
+    { id = "sound", label = "SOUND",
+      value = opt.stereo == false and "MONO" or "STEREO" },
+    { id = "speedOverworld", label = "OVERWORLD SPEED",
+      value = GameSpeed.levelLabel(opt.speedOverworld) },
+    { id = "speedBattle", label = "BATTLE SPEED",
+      value = GameSpeed.levelLabel(opt.speedBattle) },
+    { id = "speedMenu", label = "MENU SPEED",
+      value = GameSpeed.levelLabel(opt.speedMenu) },
+    { id = "zoom", label = "ZOOM",
+      value = Zoom.offsetLabel(opt.zoom or Zoom.offset or 0) },
+    { id = "tilt", label = "TILT",
+      value = Tilt.levelLabel(opt.tilt or Tilt.level or 0) },
+    { id = "voidFill", label = "VOID FILL",
+      value = Game3.voidFillLabel(opt.voidFill) },
+    -- START also lists MODS; OPTION keeps the Gen1/2 row so players who
+    -- open settings from the cart path can reach the manager (and F10).
+    { id = "mods", label = "MODS",
+      value = (function()
+        local n = #((self.modStatus or {}).available or {})
+        return tostring(n) .. " INSTALLED"
+      end)() },
   }
+end
+
+-- Full descriptor list OPTION draws: cart + pipelines, then ui.options.rows
+-- over the COMBINED list so dropRow("tilt") and VOXEL FULL's row surgery
+-- reach the cart rows (previously the hook only saw pipeline extras).
+--
+-- Every part is pcall'd. A mod that throws while describing a row must not
+-- cost the player the OPTION screen -- it costs that row instead.
+function Game3:optionAllDescriptors()
+  local out = {}
+  local okC, cart = pcall(function() return self:optionCartDescriptors() end)
+  if okC and type(cart) == "table" then
+    for _, row in ipairs(cart) do out[#out + 1] = row end
+  end
+  local okP, Pipelines = pcall(require, "src.render.Pipelines")
+  if okP and Pipelines and Pipelines.rows then
+    local got, rows = pcall(Pipelines.rows, self)
+    if got and type(rows) == "table" then
+      for _, row in ipairs(rows) do out[#out + 1] = row end
+    end
+  end
+  local okR, Runtime = pcall(require, "src.mods.Runtime")
+  if okR and Runtime and Runtime.call then
+    local got, hooked = pcall(Runtime.call, "ui.options.rows",
+      function(_, rows) return rows end, self, out)
+    if got and type(hooked) == "table" then out = hooked end
+  end
+  return out
+end
+
+function Game3:optionMenuSpec()
+  -- A mod's render pipelines are display modes like TILT, so their rows sit
+  -- WITH it rather than after CANCEL -- Gen 1 splices them at the same anchor
+  -- (src/ui/OptionsMenu.lua). CANCEL is always last and never handed to the
+  -- hook (a mod must not be able to delete the way out).
+  local rows = {}
+  for _, row in ipairs(self:optionAllDescriptors()) do
+    local value = row.value
+    if type(value) == "function" then
+      local ok, got = pcall(value, self)
+      value = ok and got or ""
+    end
+    local key = row.id
+    if type(row.step) == "function" then
+      key = "extra:" .. tostring(row.id)
+    end
+    rows[#rows + 1] = { row.label or row.id, tostring(value or ""),
+      tostring(key or ""), row }
+  end
+  rows[#rows + 1] = { "CANCEL", "", "cancel" }
+  return rows
+end
+
+-- The rows a mod contributes on top of the cartridge list: pipelines first,
+-- then whatever ui.options.rows adds when handed ONLY those (Gen 1's extras
+-- path). Kept separate from optionAllDescriptors so callers that assert
+-- "one registered pipeline => one extra row" stay honest; OPTION itself
+-- goes through optionAllDescriptors so the same hook can also drop cart
+-- rows like TILT.
+function Game3:optionExtraRows()
+  local out = {}
+  local okP, Pipelines = pcall(require, "src.render.Pipelines")
+  if okP and Pipelines and Pipelines.rows then
+    local got, rows = pcall(Pipelines.rows, self)
+    if got and type(rows) == "table" then
+      for _, row in ipairs(rows) do out[#out + 1] = row end
+    end
+  end
+  local okR, Runtime = pcall(require, "src.mods.Runtime")
+  if okR and Runtime and Runtime.call then
+    -- the fallback takes (game, rows) and returns the ROWS, the way Gen 1's
+    -- sameRows does. Returning the first argument instead hands back the
+    -- GAME, which is a table, passes the type check below and wipes the list.
+    local got, hooked = pcall(Runtime.call, "ui.options.rows",
+      function(_, rows) return rows end, self, out)
+    if got and type(hooked) == "table" then out = hooked end
+  end
+  return out
 end
 
 -- Gen 1 stack walk: a battle is battle, the overworld (including START /
 -- talk overlays) is overworld, boot/title is menu.
+-- battle_setup.c runs the transition before the battle proper, so both
+-- phases mean "a battle is on screen". Two sites already open-coded this;
+-- one predicate keeps them from drifting apart.
+function Game3:inBattlePhase()
+  return self.phase == "battle" or self.phase == "battle_transition"
+end
+
 function Game3:speedCategory()
-  if self.phase == "battle" or self.phase == "battle_transition" then return "battle" end
+  if self:inBattlePhase() then return "battle" end
   if self.phase == "play" then return "overworld" end
   return "menu"
 end
@@ -7928,7 +8067,7 @@ function Game3:readSave()
 end
 
 function Game3:writeSave()
-  if self.phase == "battle" or self.phase == "battle_transition" then return false, "Can't save now." end
+  if self:inBattlePhase() then return false, "Can't save now." end
   if self:inSafariMode() then return false, "Can't save now." end
   local fs = self:saveFs()
   if not (fs and fs.write) then return false, "Save failed." end
@@ -8834,6 +8973,23 @@ function Game3:grabImage(path)
     if img and img.setFilter then img:setFilter("nearest", "nearest") end
     return img
   end
+  -- Absolute host paths (e.g. ORAS extract under AppData) are not PhysFS
+  -- identities. love.graphics.newImage / Assets.image only see the game
+  -- source + save directory. Rewrite save-dir absolutes to relative form,
+  -- and fall back to io.open for other absolute PNGs.
+  local absHost = path:match("^[A-Za-z]:[\\/]") or path:sub(1, 1) == "/"
+  if absHost and love and love.filesystem and love.filesystem.getSaveDirectory then
+    local saveDir = love.filesystem.getSaveDirectory()
+    if type(saveDir) == "string" and saveDir ~= "" then
+      local normPath = path:gsub("\\", "/")
+      local normSave = saveDir:gsub("\\", "/")
+      if normSave:sub(-1) ~= "/" then normSave = normSave .. "/" end
+      if normPath:lower():sub(1, #normSave) == normSave:lower() then
+        path = normPath:sub(#normSave + 1)
+        absHost = false
+      end
+    end
+  end
   local prefix = ""
   local okGV, GameVersion = pcall(require, "src.core.GameVersion")
   if okGV and GameVersion.cachePrefix then
@@ -8856,6 +9012,26 @@ function Game3:grabImage(path)
         if okD and data then
           local okI, img = pcall(love.graphics.newImage, data)
           if okI and img then return finish(img) end
+        end
+      end
+    end
+  end
+  -- Last resort: absolute OS path via io (desktop). Used when the file sits
+  -- outside the save directory but the caller still passed a full path.
+  if absHost and io and io.open and love and love.image then
+    local f = io.open(path, "rb")
+    if f then
+      local bytes = f:read("*a")
+      f:close()
+      if type(bytes) == "string" and #bytes > 8 then
+        local name = path:match("[^\\/]+$") or "abs.png"
+        local okFd, fd = pcall(love.filesystem.newFileData, bytes, name)
+        if okFd and fd then
+          local okD, data = pcall(love.image.newImageData, fd)
+          if okD and data then
+            local okI, img = pcall(love.graphics.newImage, data)
+            if okI and img then return finish(img) end
+          end
         end
       end
     end
@@ -9004,7 +9180,11 @@ function Game3:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior
     and map and self.data.tilesets.byId[map.tileset]
   local tiles = spec and spec.overworldAnim and spec.tiles and spec.tiles[mid]
   if not tiles then return end
-  if not self:tileAnimFlip() then return end
+  -- No tileAnimFlip() test here: the CALLER decides.  A cached tile window
+  -- bakes these corners into their own batch once, whatever the flip happens
+  -- to be at build time, and draws that batch only on the frames the flip is
+  -- on (see tileWindow / drawLayer).  The immediate paths still gate on the
+  -- live flip themselves.
   local start = topPass and 5 or 1
   local i0, i1 = 0, 3
   if mode == "top8" then i1 = 1 elseif mode == "bottom8" then i0 = 2 end
@@ -9342,6 +9522,25 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
     self:restoreMapLayout(map)
   end
   self.mapLayoutId = tonumber(map and map.layoutId) or 0
+  -- A FREE WALK'S POSITION DOES NOT SURVIVE A MAP CHANGE.
+  --
+  -- freeWalkPx/Py are world pixels on the map the walk was standing on. The
+  -- new map has its own origin, so carrying them across points the camera at
+  -- whatever cell those pixels happen to name HERE -- crossing Route 117's
+  -- east edge into Mauville left the view forty cells east of the player,
+  -- outside the body, looking at nothing but the void fill. That is the sea
+  -- of water at a seam, and the stall with it: the mesher was asked to build
+  -- border ring over a vast empty region.
+  --
+  -- It also stranded the walk permanently. A continuous walk re-adopts when
+  -- the position it reads back is not the one it wrote -- which is how it
+  -- notices a warp moved the player -- and a stale freeWalkPx reads back as
+  -- exactly what it wrote, so it never noticed at all.
+  --
+  -- Cleared here rather than in the callers: this is the one place self.map
+  -- is assigned, so every connection, warp, fall and script teleport passes
+  -- through it.
+  self.freeWalkPx, self.freeWalkPy = nil, nil
   self.map = map
   -- Connection: keep the layout we were already drawing. Wiping it
   -- rebuilds every neighbor origin on the seam frame (the hitch).
@@ -9406,6 +9605,7 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
     if map and map.dirtyTiles then
       for i, orig in pairs(map.dirtyTiles) do
         map.grid[i] = orig
+        Game3.noteGridWrite(map)
       end
       map.dirtyTiles = nil
     end
@@ -9492,6 +9692,7 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   else
     self:loadTileset()
     self._pendingWarm = map
+    self._warmQueue = nil -- a fresh crossing re-queues from the new map
     self._pendingMapMusic = map
   end
   if self.surfing and not self:isUnderwater(map)
@@ -9528,6 +9729,17 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   -- banner until the next logic step, which the cart does during LoadMap.
   if not self:showMapNamePopup() and not self:mapWantsNamePopup(map) then
     self:hideMapNamePopup()
+  end
+  -- Same catch-up drop the seam crossing does (see tryWalk), for every OTHER
+  -- way a map changes: door warps, stair warps, fly, teleport, escape rope.
+  -- A connection crossing arms it itself, after it has set the player's
+  -- in-progress step up, so it is skipped here.
+  --
+  -- Without this the oversized dt that follows a warp's map load is paid back
+  -- as a burst of logic steps before the next draw, which slides the door
+  -- walk-out instead of animating it.
+  if not connected then
+    require("src.core.FixedStep"):discardCatchup()
   end
 end
 
@@ -9660,6 +9872,67 @@ function Game3:load()
   self.data.audio = loadGenerated("data/generated/audio.lua") or {}
   self.data.menus = loadGenerated("data/generated/menus.lua") or {}
   self.data.decorations = loadGenerated("data/generated/decorations.lua") or {}
+
+  -- MODS.  Discovery and the manager are generation-agnostic -- they read
+  -- manifests and the enable/disable state, not game data -- so Ruby gets the
+  -- same MODS row Red and Gold carry.  Three things this has to get right,
+  -- and Gen 2 learned each of them the hard way (src/core/Game2.lua:load):
+  --
+  --   * AFTER the generated tables are in self.data and BEFORE anything reads
+  --     them, so a merge lands in the table the game actually walks;
+  --   * `mods.game = self`, or the mod facade's world/input resolve against
+  --     the Gen 1 src/core/Game.lua singleton -- which a Ruby boot never
+  --     loads, main.lua having branched to Game3 instead;
+  --   * behind a pcall, so a broken mod cannot cost Ruby its boot -- but NOT
+  --     silently, because a swallowed throw takes out discovery, the manager
+  --     and the merge at once, and the only symptom is that mods quietly do
+  --     nothing, which looks exactly like having none installed.
+  --
+  -- What actually runs is narrower than what is listed: Loader:_gateGeneration
+  -- skips any mod whose manifest does not claim a Gen 3 game (`games` holding
+  -- "ruby" or "gen3"), and Schemas.gen3Routing gates every registry except
+  -- render_pipelines, so a content mod reports "no Gen 3 target" rather than
+  -- merging a Red-shaped record into a Hoenn table.
+  -- BEFORE the loader runs, not after. A mod's entry chunk executes inside
+  -- mods:load and may capture Game.stack and Game.overworld as it goes --
+  -- DRAMATIC_SHAPE's hotkey wrapper reads both every press. Publishing them
+  -- after the loader returns hands that chunk nil and the mod's free-roam
+  -- gate then refuses every press for the rest of the session.
+  self:publishModWorld()
+
+  local ok, loader = pcall(function()
+    local mods = require("src.mods.Loader").new()
+    mods.game = self
+    mods:load(self.data)
+    return mods
+  end)
+  if ok and loader then
+    self.mods = loader
+    self.modStatus = loader:status()
+  else
+    require("src.core.Logger").error(
+      "mods failed to load, continuing without them: %s", tostring(loader))
+    self.modStatus = self.modStatus or { available = {}, errors = {} }
+  end
+
+  -- Same handshake Game1/Game2 use after the merge: content mods (oras_models)
+  -- apply texture hooks from the game.ready listener. Without this emit Ruby
+  -- discovered mods but never told them the world was live.
+  pcall(function()
+    require("src.mods.Runtime").emit("game.ready", { game = self })
+  end)
+
+  -- The engine half of the render_pipelines registry.  install() points it at
+  -- RUBY's merged dataset -- Gen 1 points it at the src/core/Data.lua
+  -- singleton, which a Ruby boot never loads -- and applyOptions restores the
+  -- ladder the player left in options.pipelines.  Both after the merge, so a
+  -- mod's pipeline record is already in data.render_pipelines when either
+  -- reads it.  Unlike Gold, Ruby composites the `drawWorld` half too:
+  -- Game3:drawWorldBody already painted the world into a canvas for TILT, so
+  -- a pipeline that replaces the world pass has somewhere to draw.
+  local Pipelines = require("src.render.Pipelines")
+  pcall(Pipelines.install, self.data)
+
   self:applyAudioOptions()
   self.named = namedList(self.data.pokemon)
   self.atlasCache = {}
@@ -9686,6 +9959,9 @@ function Game3:load()
   }
   self.viewW, self.viewH = Game3.SCREEN_W, Game3.SCREEN_H
   self:applyDisplayOptions()
+  -- after self.options exists: this is the half that restores a pipeline the
+  -- player had switched on, and it reads options.pipelines
+  pcall(require("src.render.Pipelines").applyOptions, self.options)
   self.trainerId = nil
   self:ensureTrainerId()
   self:resetBoot()
@@ -9704,6 +9980,22 @@ function Game3:visualTile()
       y = (follow.fromY or y) + (follow.y - (follow.fromY or y)) * t
     end
     return x, y
+  end
+  -- A FREE WALK OWNS THE POSITION WHILE IT IS DRIVING.
+  --
+  -- Ruby's player is stored at CELL granularity and the smooth motion comes
+  -- from the lerp below: walkFromX -> playerX over walkCooldown. A mod that
+  -- replaces the walk (the voxel mod's first-person rung) moves the body
+  -- continuously instead, in world pixels, and has no cooldown to lerp
+  -- along -- so it writes its position here and this returns it verbatim.
+  --
+  -- In CELLS, fractional, because that is the unit this function answers in
+  -- and every caller divides or multiplies by TILE from here. Cleared the
+  -- moment the grid walk runs again (gridHandleInput), so stepping off the
+  -- rung hands the lerp straight back rather than pinning the body where
+  -- the free walk left it.
+  if self.freeWalkPx then
+    return self.freeWalkPx / Game3.TILE, (self.freeWalkPy or 0) / Game3.TILE
   end
   local x, y = self.playerX, self.playerY
   if (self.walkCooldown or 0) > 0 then
@@ -10113,6 +10405,68 @@ function Game3.connectionCoordInRange(conn, src, dest, dir, x, y)
   return lo <= coord and coord <= srcMax
 end
 
+-- WARPS, FOR A STEP ONTO (nx, ny) TRAVELLING (dx, dy).
+--
+-- Lifted verbatim out of tryWalk so a walk that is NOT the grid walk can ask
+-- the same question. Every rule here is exact and none of it is guessable:
+-- arrow warps fire only from the matching direction, animated doors only
+-- walking NORTH into them, Mt Pyre holes fall instead of warping, Petalburg
+-- gym doors are A-press only, a coord event on the mat beats the warp, and an
+-- NPC parked on the tile blocks it unless it is a pushable boulder.
+--
+-- Three answers, so a caller can tell "took it" from "refused it" from "not a
+-- warp question at all":
+--   true   a warp was taken
+--   false  there is a warp and it explicitly did not fire (bumped)
+--   nil    nothing here applies; carry on with the rest of the step
+--
+-- The free walk needs this for the tiles that are WALKABLE. A Pokemon Center
+-- exit mat is stepped ONTO rather than bumped into, so it never reaches the
+-- blocked-push verbs at all: a free walk that only fired warps from a refusal
+-- could enter a building and never leave it.
+function Game3:tryWarpStep(map, nx, ny, dx, dy)
+  local warp = Game3.warpAt(map, nx, ny)
+  if warp and not self.ignoreWarp and not self:coordEventWouldRun(nx, ny) then
+    local warpNpc = self:npcAt(map, nx, ny)
+    if warpNpc and self:actorBlocksAt(warpNpc, self.currentElevation) then
+      -- Strength boulders on a warp tile still need the push path below.
+      if warpNpc.graphicsId ~= Game3.GFX_PUSHABLE_BOULDER then
+        self:tryAdvanceCyclingRoadCollisions()
+        return false
+      end
+    end
+    local b = self:behaviorAt(map, nx, ny)
+    if Game3.isArrowWarp(b) then
+      if Game3.arrowWarpMatches(b, dx, dy) then
+        return self:followWarp(warp)
+      end
+    elseif b == Game3.MB_AQUA_HIDEOUT_WARP then
+      return self:followHideoutWarp(warp)
+    elseif b == Game3.MB_ANIMATED_DOOR then
+      -- field_control_avatar.c TryDoorWarp: only north into a warp door
+      -- runs DoDoorWarp (open → walk in → close → fade). Other dirs bump.
+      if dy == -1 then
+        return self:beginDoorWarp(warp, nx, ny)
+      end
+      self:tryAdvanceCyclingRoadCollisions()
+      return false
+    elseif b ~= Game3.MB_MT_PYRE_HOLE
+        and b ~= Game3.MB_PETALBURG_GYM_DOOR
+        and Game3.isWarpBehavior(b) then
+      -- No sign check: TryStartWarpEventScript is only
+      -- `warpEventId != -1 && IsWarpMetatileBehavior(behaviour)`. Excluding
+      -- any tile carrying a bg sign sealed all four braille chambers shut,
+      -- because the braille panel shares its tile with the doorway warp --
+      -- open the wall and you still could not walk through it. The locked
+      -- doors that guard was written for gate themselves anyway: Petalburg
+      -- by its own behaviour above, and the Mossdeep one because its script
+      -- swaps in a metatile whose behaviour is not a warp at all.
+      return self:followWarp(warp)
+    end
+  end
+  return nil
+end
+
 function Game3:connectionDest(map, x, y, dx, dy)
   local dir
   if dy < 0 then dir = "north"
@@ -10362,6 +10716,20 @@ function Game3:tryWalk(dx, dy)
       self:clampCamera()
       self:tickWalkCounters()
       self:beginGrassRustle(dx_, dy_)
+      -- Drop the catch-up debt this crossing just ran up.
+      --
+      -- The seam work happens INSIDE one logic step, so the real-time dt that
+      -- lands on the next frame is huge, and FixedStep's accumulator would pay
+      -- it back as several walk steps before the next draw: the player slides
+      -- several pixels with no leg animation.  That is the shudder -- it is not
+      -- the frame cost itself, it is the burst released afterwards, which is
+      -- why it shows up on a phone and not in a fixed-dt harness.
+      --
+      -- Gen 1 (OverworldController crossConnection) and Gen 2 (gen2/World
+      -- tryConnection) both end their seam crossing with exactly this call,
+      -- for exactly this reason (issue #93); Gen 3 was the only overworld
+      -- that never did.
+      require("src.core.FixedStep"):discardCatchup()
       return true
     end
     self:tryAdvanceCyclingRoadCollisions()
@@ -10378,44 +10746,9 @@ function Game3:tryWalk(dx, dy)
   -- Norman gym sliding doors (MB_PETALBURG_GYM_DOOR / sign bg) are
   -- A-press only. Bump-warping them skips "appears locked" and can
   -- land on the paired warp inside a wall.
-  local warp = Game3.warpAt(map, nx, ny)
-  if warp and not self.ignoreWarp and not self:coordEventWouldRun(nx, ny) then
-    local warpNpc = self:npcAt(map, nx, ny)
-    if warpNpc and self:actorBlocksAt(warpNpc, self.currentElevation) then
-      -- Strength boulders on a warp tile still need the push path below.
-      if warpNpc.graphicsId ~= Game3.GFX_PUSHABLE_BOULDER then
-        self:tryAdvanceCyclingRoadCollisions()
-        return false
-      end
-    end
-    local b = self:behaviorAt(map, nx, ny)
-    if Game3.isArrowWarp(b) then
-      if Game3.arrowWarpMatches(b, dx, dy) then
-        return self:followWarp(warp)
-      end
-    elseif b == Game3.MB_AQUA_HIDEOUT_WARP then
-      return self:followHideoutWarp(warp)
-    elseif b == Game3.MB_ANIMATED_DOOR then
-      -- field_control_avatar.c TryDoorWarp: only north into a warp door
-      -- runs DoDoorWarp (open → walk in → close → fade). Other dirs bump.
-      if dy == -1 then
-        return self:beginDoorWarp(warp, nx, ny)
-      end
-      self:tryAdvanceCyclingRoadCollisions()
-      return false
-    elseif b ~= Game3.MB_MT_PYRE_HOLE
-        and b ~= Game3.MB_PETALBURG_GYM_DOOR
-        and Game3.isWarpBehavior(b) then
-      -- No sign check: TryStartWarpEventScript is only
-      -- `warpEventId != -1 && IsWarpMetatileBehavior(behaviour)`. Excluding
-      -- any tile carrying a bg sign sealed all four braille chambers shut,
-      -- because the braille panel shares its tile with the doorway warp --
-      -- open the wall and you still could not walk through it. The locked
-      -- doors that guard was written for gate themselves anyway: Petalburg
-      -- by its own behaviour above, and the Mossdeep one because its script
-      -- swaps in a metatile whose behaviour is not a warp at all.
-      return self:followWarp(warp)
-    end
+  do
+    local took = self:tryWarpStep(map, nx, ny, dx, dy)
+    if took ~= nil then return took end
   end
   if self:isOwnedSecretBaseTile(map, nx, ny) then
     return self:enterSecretBase()
@@ -10516,6 +10849,32 @@ end
 -- FLAG_EVIL_TEAM_ESCAPED_IN_SUBMARINE was set, LilycoveCity_OnLoad stopped
 -- stamping the Wailmer, but the ones already baked into the shared cached
 -- grid stayed there and kept the cove blocked forever.
+-- A CELL WAS WRITTEN. Bump the map's grid revision.
+--
+-- Almost everything a mod reads off a map is answered live -- modMapView's
+-- blockAt, elevationAt and the rest close over the map and index its grid on
+-- every call, so they follow a write with no help. The exception is the pair
+-- of whole-map planes in that view's `def` (collisionCells, elevationCells),
+-- which are materialised once per cell and handed over as arrays. Those are
+-- snapshots, and the mod keys its own cached world context off the view table
+-- they belong to.
+--
+-- So every place the engine writes map.grid says so here, and the view is
+-- rebuilt on the next ask. Miss one and the live methods stay right while the
+-- two planes go stale -- a door that opens on screen but not in the mesh.
+function Game3.noteGridWrite(map)
+  if type(map) ~= "table" then return end
+  map._gridRev = (tonumber(map._gridRev) or 0) + 1
+  -- Same announcement Gen 1's OverworldState:replaceBlock makes. DRAMATIC_SHAPE
+  -- refreshes the voxel mesh off world.block_replaced; wrapping Map.setBlock
+  -- only sees writes that go through the facade, while doors / Cut / scripts
+  -- all land here. Runtime may still be the null bus (headless / pre-loader).
+  local Runtime = package.loaded["src.mods.Runtime"]
+  if Runtime and type(Runtime.wants) == "function" and Runtime.wants("world.block_replaced") then
+    pcall(Runtime.emit, "world.block_replaced", { mapId = map.id, map = map })
+  end
+end
+
 function Game3:setMetatile(x, y, tile, collision)
   local map = self.map
   local i = self:gridIndex(map, x, y)
@@ -10526,7 +10885,8 @@ function Game3:setMetatile(x, y, tile, collision)
   local col = (collision and collision ~= 0) and 1024 or 0
   local elev = Game3.elevationBits(cell)
   map.grid[i] = elev + (tonumber(tile) or 0) % 1024 + col
-  self:markTilesDirty()
+  Game3.noteGridWrite(map)
+  self:markTilesDirty(map) -- only this map's windows
   return true
 end
 
@@ -10556,7 +10916,8 @@ function Game3:mapGridSetMetatileId(gx, gy, metatile)
   if not i or type(map.grid) ~= "table" then return false end
   local elev = math.floor((map.grid[i] or 0) / 4096) * 4096
   map.grid[i] = elev + ((tonumber(metatile) or 0) % 4096)
-  self:markTilesDirty()
+  Game3.noteGridWrite(map)
+  self:markTilesDirty(map) -- only this map's windows
   return true
 end
 
@@ -11334,7 +11695,7 @@ end
 
 function Game3:drawLinkBattleRecords()
   local G = love.graphics
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText("BATTLE RESULTS", 10, 8)
   self:drawText(("TOTAL  %dW  %dL  %dD"):format(
     self:getGameStat(Game3.GAME_STAT_LINK_BATTLE_WINS),
@@ -11368,7 +11729,7 @@ function Game3:drawBattleTowerRecords()
     if n > 9999 then n = 9999 end
     return n
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText("BATTLE TOWER RESULTS", 10, 8)
   self:drawText("Lv. 50", 10, 28)
   self:drawText(("%s  %d Win Streak"):format(
@@ -12734,9 +13095,11 @@ function Game3:stampDecorationCells(x, y, w, h, id, map)
       if gi and type(map.grid) == "table" then
         if elev then
           map.grid[gi] = metatile + elev * 4096
+          Game3.noteGridWrite(map)
         else
           local keep = math.floor((map.grid[gi] or 0) / 4096) * 4096
           map.grid[gi] = keep + metatile
+          Game3.noteGridWrite(map)
         end
       end
     end
@@ -12770,6 +13133,7 @@ function Game3:restorePristineGrid(map)
     return self:snapshotPristineGrid(map)
   end
   for i = 1, #map._pristineGrid do map.grid[i] = map._pristineGrid[i] end
+  Game3.noteGridWrite(map)
   self:markTilesDirty()
 end
 
@@ -14841,7 +15205,8 @@ function Game3:openDoor(x, y, animate)
   if not i or type(map.grid) ~= "table" then return false end
   local cell = map.grid[i] or 0
   map.grid[i] = Game3.elevationBits(cell) + Game3.metatileOf(cell)
-  self:markTilesDirty()
+  Game3.noteGridWrite(map)
+  self:markTilesDirty(map) -- only this map's windows
   -- lightExitDoors opens the mat you landed on with animate=false: no
   -- transient task, but the door must still render open (real hardware
   -- leaves the VRAM override from the entry side in place).
@@ -14869,7 +15234,8 @@ function Game3:closeDoor(x, y, animate)
   if not i or type(map.grid) ~= "table" then return false end
   local cell = map.grid[i] or 0
   map.grid[i] = Game3.elevationBits(cell) + Game3.metatileOf(cell) + 1024
-  self:markTilesDirty()
+  Game3.noteGridWrite(map)
+  self:markTilesDirty(map) -- only this map's windows
   if map.openDoors then map.openDoors[i] = nil end
   if animate ~= false then
     self.doorAnim = {
@@ -16059,7 +16425,8 @@ function Game3:writeMetatile(x, y, mid)
   map.grid[i] = Game3.elevationBits(cell)
     + (tonumber(mid) or 0) % 1024
     + Game3.collisionOf(cell) * 1024
-  self:markTilesDirty()
+  Game3.noteGridWrite(map)
+  self:markTilesDirty(map) -- only this map's windows
   return true
 end
 
@@ -30023,7 +30390,7 @@ function Game3:drawContestPainting(f)
     G.rectangle("fill", cx - 32, cy - 32, 64, 64)
   end
   self:drawStdWindow(1, 13, 28, 19)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local caption = (f and f.caption) or self:contestPaintingCaption(subject)
   local y = 112
   for line in (caption .. "\n"):gmatch("(.-)\n") do
@@ -30528,6 +30895,23 @@ function Game3:monRibbons(mon)
   return out
 end
 
+-- sub_80F6250 walks all fourteen boxes and then the six party slots, and
+-- stops at the first mon whose MON_DATA_RIBBON_COUNT is non-zero. One ribbon
+-- anywhere in storage is enough to unlock the RIBBONS option; the screen
+-- itself only ever shows the party, but the gate does not.
+function Game3:hasRibbonWinner()
+  for i = 1, #(self.party or {}) do
+    if #self:monRibbons(self.party[i]) > 0 then return true end
+  end
+  for b = 1, Game3.BOX_COUNT do
+    local box = (self.pc or {})[b] or {}
+    for _, mon in pairs(box) do
+      if #self:monRibbons(mon) > 0 then return true end
+    end
+  end
+  return false
+end
+
 function Game3:ribbonDescription(index)
   local pack = self.data and self.data.trainers
   local all = pack and pack.ribbonDescriptions
@@ -30537,8 +30921,59 @@ function Game3:ribbonDescription(index)
 end
 
 -- CONDITION shows the five contest stats the save already carries.
+-- CONDITION does not open the graph. sub_80EC9A8 puts up a three-row card
+-- list first -- PARTY PKMN / SEARCH / CANCEL -- and the graph is what PARTY
+-- PKMN leads to. The engine used to jump straight to the graph, which is
+-- why the two sub-menus and their help tables had nowhere to appear.
 function Game3:openPokenavCondition()
-  self.field = { kind = "pokenav_condition", cursor = 0 }
+  self.field = { kind = "pokenav_condition_menu", cursor = 0,
+    items = self:pokenavConditionItems() }
+  return true
+end
+
+-- PARTY PKMN walks the party in party order. SEARCH covers storage as well
+-- -- its help line is "Check all POKeMON in detail." against the party
+-- option's "Check party POKeMON in detail." -- and sub_80ECC08 sorts the
+-- result on the chosen contest stat, highest first. Boxes are walked by
+-- slot index rather than with pairs so ties keep a stable, box-then-slot
+-- order instead of whatever the hash happens to give.
+function Game3:conditionList(sortKey)
+  local out = {}
+  for i = 1, #(self.party or {}) do out[#out + 1] = self.party[i] end
+  if not sortKey then return out end
+  for b = 1, Game3.BOX_COUNT do
+    local box = (self.pc or {})[b] or {}
+    for i = 1, Game3.BOX_SIZE do
+      if box[i] then out[#out + 1] = box[i] end
+    end
+  end
+  local rank = {}
+  for i = 1, #out do rank[out[i]] = i end
+  table.sort(out, function(a, b)
+    local va, vb = tonumber(a[sortKey]) or 0, tonumber(b[sortKey]) or 0
+    if va ~= vb then return va > vb end
+    return rank[a] < rank[b]
+  end)
+  return out
+end
+
+function Game3:openPokenavConditionParty()
+  self.field = { kind = "pokenav_condition", cursor = 0, monIndex = 1,
+    list = self:conditionList(nil) }
+  return true
+end
+
+function Game3:openPokenavSearch()
+  self.field = { kind = "pokenav_condition_search", cursor = 0,
+    items = self:pokenavSearchItems() }
+  return true
+end
+
+-- sub_80ECC08: A on a category sets the sort key and unk76AA = 1, then
+-- opens the same graph screen the party path opens.
+function Game3:openPokenavConditionSearch(key)
+  self.field = { kind = "pokenav_condition", cursor = 0, monIndex = 1,
+    searchKey = key, list = self:conditionList(key) }
   return true
 end
 
@@ -30559,13 +30994,71 @@ local function partyStep(self, f, n)
   f.monIndex = ((f.monIndex or 1) - 1 + n + #party) % #party + 1
 end
 
-function Game3:stepPokenavCondition(f)
-  if Input:wasPressed("b") or Input:wasPressed("a") then
+-- The two card lists move exactly like the root menu: UP/DOWN wrap, A
+-- picks, B backs out one level. partyStep is not involved -- these are
+-- menus, not mon browsers.
+local function listStep(f, n)
+  if Input:wasPressed("up") then
+    f.cursor = ((f.cursor or 0) - 1 + n) % n
+    return true
+  elseif Input:wasPressed("down") then
+    f.cursor = ((f.cursor or 0) + 1) % n
+    return true
+  end
+  return false
+end
+
+function Game3:stepPokenavConditionMenu(f)
+  local items = f.items or self:pokenavConditionItems()
+  if listStep(f, #items) then return end
+  if Input:wasPressed("b") then
     self:openPokeNav()
     return
   end
-  if Input:wasPressed("down") then partyStep(self, f, 1) end
-  if Input:wasPressed("up") then partyStep(self, f, -1) end
+  if not Input:wasPressed("a") then return end
+  local pick = items[(f.cursor or 0) + 1]
+  if pick == "PARTY PKMN" then
+    self:openPokenavConditionParty()
+  elseif pick == "SEARCH" then
+    self:openPokenavSearch()
+  else
+    self:openPokeNav()
+  end
+end
+
+function Game3:stepPokenavSearch(f)
+  local items = f.items or self:pokenavSearchItems()
+  if listStep(f, #items) then return end
+  -- sub_80ECC08's B branch sets unk6DAD to 5 -- the CANCEL row -- before
+  -- backing out, so B and CANCEL are the same exit.
+  if Input:wasPressed("b") then
+    self:openPokenavCondition()
+    return
+  end
+  if not Input:wasPressed("a") then return end
+  local key = Game3.POKENAV_SEARCH_KEYS[(f.cursor or 0) + 1]
+  if key then
+    self:openPokenavConditionSearch(key)
+  else
+    self:openPokenavCondition()
+  end
+end
+
+function Game3:stepPokenavCondition(f)
+  if Input:wasPressed("b") or Input:wasPressed("a") then
+    -- back to the CONDITION menu, not all the way out to the root: the
+    -- graph is a leaf of that menu now, whichever branch reached it
+    self:openPokenavCondition()
+    return
+  end
+  local n = #(f.list or self.party or {})
+  if n > 0 then
+    if Input:wasPressed("down") then
+      f.monIndex = ((f.monIndex or 1) % n) + 1
+    elseif Input:wasPressed("up") then
+      f.monIndex = ((f.monIndex or 1) - 2 + n) % n + 1
+    end
+  end
 end
 
 function Game3:stepPokenavRibbons(f)
@@ -30590,61 +31083,284 @@ function Game3:stepPokenavRibbons(f)
   end
 end
 
+-- Each sub-screen carries its own header strip from the cart
+-- (gPokenavConditionMenuHeader_Gfx and friends); drawPokenavChrome paints the
+-- device shell underneath.
+-- sub_80F29B8 parks the two header sprites at x 32 and 96 with a 64px
+-- width, and CreateSprite x is the centre, so the strip's left edge is 0.
+-- y is 49 against a 32px sprite height, putting its top edge at 33.
+-- The sub-screens are not the menu's device field: BG3 there takes its
+-- tiles from charbase 0, which pokenav.c never writes -- that is the
+-- standard menu window set loaded by gWindowTemplate_81E7080. So these
+-- screens are dark text on a light window, and the pale blue used for the
+-- menu left the stat list all but invisible against it.
+Game3.POKENAV_HEADER_X = 0
+Game3.POKENAV_HEADER_Y = 33
+
+-- A full-screen Pokenav BG layer that is transparent outside its own
+-- band, so it just composites at the origin.
+-- The device emblem on the title bar. sub_80F4024 creates it at (218, 14)
+-- as a 32x32 sprite, so its top-left corner is (202, -2), and its anim table
+-- walks eight frames 12 ticks apart.
+Game3.POKENAV_ICON_X = 202
+Game3.POKENAV_ICON_Y = -2
+Game3.POKENAV_ICON_FRAMES = 8
+Game3.POKENAV_ICON_TICKS = 12
+
+function Game3.pokenavIconFrame(seconds)
+  local tick = math.floor((seconds or 0) * 60 / Game3.POKENAV_ICON_TICKS)
+  return tick % Game3.POKENAV_ICON_FRAMES
+end
+
+function Game3:drawPokenavIcon(seconds)
+  local sheet = self:pokenavImage("icons.png")
+  if not (sheet and love.graphics.newQuad) then return false end
+  local frame = Game3.pokenavIconFrame(seconds or self.clockSeconds or 0)
+  self._pokenavIconQuads = self._pokenavIconQuads or {}
+  local quad = self._pokenavIconQuads[frame]
+  if not quad then
+    local sw, sh = sheet:getDimensions()
+    if (frame + 1) * 32 > sh then return false end
+    quad = love.graphics.newQuad(0, frame * 32, 32, 32, sw, sh)
+    self._pokenavIconQuads[frame] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, Game3.POKENAV_ICON_X, Game3.POKENAV_ICON_Y)
+  return true
+end
+
+function Game3:drawPokenavOverlay(name)
+  local img = self:pokenavImage(name)
+  if not img then return false end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(img, 0, 0)
+  return true
+end
+
+function Game3:drawPokenavHeader(name)
+  local img = self:pokenavImage(name)
+  if not img then return false end
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  G.draw(img, Game3.POKENAV_HEADER_X, Game3.POKENAV_HEADER_Y)
+  return true
+end
+
+-- The header art already spells the screen's name, so the plain-text title
+-- drawn by the chrome is only a stand-in for when the image is missing.
+-- A sub-screen: its own backdrop where the cart gives it one, then the
+-- header art. The header already spells the screen name, so the chrome
+-- only draws the text title when the art is missing.
+function Game3:drawPokenavScreen(headerName, title, backdrop)
+  local G = love.graphics
+  local back = backdrop and self:pokenavImage(backdrop)
+  local head = self:pokenavImage(headerName)
+  if back then
+    G.setColor(1, 1, 1, 1)
+    G.draw(back, 0, 0)
+    if not head then
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+      self:drawText(title, 8, 1)
+      G.setColor(1, 1, 1, 1)
+    end
+  else
+    -- not "has and nil or title": that always yields the title.
+    if head then
+      self:drawPokenavChrome(nil, true)
+    else
+      self:drawPokenavChrome(title, true)
+    end
+  end
+  if not head then return false end
+  return self:drawPokenavHeader(headerName)
+end
+
+-- pokenav.c sub_80F55AC. Vertex 0 is COOL, straight up from the centre
+-- (0x9B, 0x5B); the rest walk COUNTER-clockwise as TOUGH, SMART, CUTE,
+-- BEAUTY -- not the COOL/BEAUTY/CUTE/SMART/TOUGH order the stats are usually
+-- listed in, so reading them in stat order draws a mirrored graph. The angle
+-- advances 0x33 of 0x100 per vertex with a +1 correction at index 2, and the
+-- left-hand vertices are nudged a pixel right, exactly as the cart does.
+Game3.PENTAGON_KEYS = { "cool", "tough", "smart", "cute", "beauty" }
+Game3.PENTAGON_CX = 0x9B
+Game3.PENTAGON_CY = 0x5B
+
+function Game3:pokenavData()
+  if self._pokenavData ~= nil then return self._pokenavData or nil end
+  local ok, t = pcall(function()
+    local CacheFs = require("src.import.CacheFs")
+    return CacheFs.loadActive("data/generated/pokenav.lua")
+  end)
+  self._pokenavData = (ok and type(t) == "table") and t or false
+  return self._pokenavData or nil
+end
+
+-- gSineTable: 256 steps, amplitude 256; index + 0x40 is the cosine.
+function Game3.gbaSine(i)
+  return math.floor(math.sin((i % 256) * math.pi / 128) * 256)
+end
+
+function Game3:conditionRadius(value)
+  local d = self:pokenavData()
+  local tbl = d and d.conditionRadius
+  value = math.max(0, math.min(255, math.floor(tonumber(value) or 0)))
+  if tbl and tbl[value + 1] then return tbl[value + 1] end
+  -- no cache yet: the curve flattens near the top, so this only has to be
+  -- close enough to draw something sane until the next import.
+  return 4 + math.floor(math.sqrt(value) * 2)
+end
+
+function Game3:conditionPentagon(mon)
+  local cx, cy = Game3.PENTAGON_CX, Game3.PENTAGON_CY
+  local pts = {}
+  local keys = Game3.PENTAGON_KEYS
+  local r = self:conditionRadius(mon and mon[keys[1]] or 0)
+  pts[1] = { cx, cy - r }
+  local ang = 0x40
+  local idx = 0
+  for i = 2, 5 do
+    ang = ang + 0x33
+    idx = idx - 1
+    if idx < 0 then idx = 4 end
+    if idx == 2 then ang = ang + 1 end
+    r = self:conditionRadius(mon and mon[keys[i]] or 0)
+    local x = math.floor((r * Game3.gbaSine(ang + 0x40)) / 256) + cx
+    local y = cy - math.floor((r * Game3.gbaSine(ang)) / 256)
+    if idx <= 2 and not (r == 0x20 and idx == 2) then x = x + 1 end
+    pts[idx + 1] = { x, y }
+  end
+  return pts
+end
+
+-- The stat list is FONT3 at 16px a line. Six lines of it do not fit the
+-- 82px between the mon's name and the bottom of the screen, which is how
+-- they came to be set on a 12px pitch and overlap each other by four
+-- pixels apiece. The cart prints numeric rows in the 8x8 font4 face, so use
+-- that here too and the whole column fits with room to spare.
+Game3.POKENAV_STAT_ROW = 10
+-- the nickname above is FONT3, 16px tall from y 62, so it owns down to 78
+Game3.POKENAV_STAT_TOP = 80
+-- condition_screen.bin puts the graph panel's left edge at x 96 on every
+-- row of the stat band, so the values end two pixels short of it. Left-
+-- aligned at 84 a three-digit value ran six pixels under the panel border.
+Game3.POKENAV_STAT_VALUE_RIGHT = 94
+
+-- `right`, when given, right-aligns the string so it ENDS there. The stat
+-- values are numbers of varying width sitting next to a panel, so they read
+-- correctly aligned that way and, more to the point, cannot grow into it.
+function Game3:drawPokenavSmall(text, x, y, right)
+  text = tostring(text)
+  local art = self:menuArt("party")
+  if art and art.font then
+    if right then x = right - self:smallTextWidth(art, text) end
+    self:drawSmallText(art, text, x, y)
+    return true
+  end
+  if right then x = right - Game3.textWidth(text, self:font3WidthTable()) end
+  self:drawText(text, x, y)
+  return false
+end
+
 function Game3:drawPokenavCondition(f)
   local G = love.graphics
-  self:drawPokenavChrome("CONDITION")
-  G.setColor(0.90, 0.96, 1, 1)
-  local mon = (self.party or {})[(f.monIndex or 1)]
+  -- the cart gives this screen its own BG3 (condition_screen.bin over the
+  -- condition_view tiles), not the menu device field
+  self:drawPokenavScreen("condition_header.png", "CONDITION",
+    "condition_screen.png")
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)   -- POKENAV_TEXT
+  -- the party path fills f.list with the party; the search path fills it
+  -- with party + storage sorted on the chosen stat
+  local list = f.list or self.party or {}
+  local mon = list[(f.monIndex or 1)]
   if not mon then
-    self:drawText("No POKeMON.", 12, 32)
+    self:drawText("No POKeMON.", 12, 62)
     return
   end
-  self:drawText(mon.name or "", 12, 28)
-  local labels = { "COOL", "BEAUTY", "CUTE", "SMART", "TOUGH" }
-  for i = 1, #Game3.CONTEST_KEYS do
-    local y = 48 + (i - 1) * 14
-    local v = tonumber(mon[Game3.CONTEST_KEYS[i]]) or 0
-    self:drawText(labels[i], 16, y)
-    -- a plain bar rather than the cart's pentagon, but off the same numbers
-    self:drawText(string.rep("*", math.min(20, math.floor(v / 5))), 80, y)
-    self:drawText(tostring(v), 196, y)
+  self:drawText(mon.name or "", 12, 62)
+  -- The cart graphs the five stats as a pentagon rather than listing them.
+  local pts = self:conditionPentagon(mon)
+  local poly = {}
+  for i = 1, #pts do
+    poly[#poly + 1] = pts[i][1]
+    poly[#poly + 1] = pts[i][2]
   end
-  self:drawText(("SHEEN %d"):format(tonumber(mon.sheen) or 0), 16, 124)
+  if G.polygon and #poly >= 6 then
+    G.setColor(0.98, 0.78, 0.25, 0.85)
+    pcall(G.polygon, "fill", poly)
+    G.setColor(0.35, 0.22, 0.05, 1)
+    pcall(G.polygon, "line", poly)
+  end
+  -- sub_80F55AC order: COOL up, then TOUGH, SMART, CUTE, BEAUTY widdershins.
+  local labels = { "COOL", "TOUGH", "SMART", "CUTE", "BEAUTY" }
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)   -- POKENAV_TEXT
+  for i = 1, #labels do
+    local y = Game3.POKENAV_STAT_TOP + (i - 1) * Game3.POKENAV_STAT_ROW
+    local v = tonumber(mon[Game3.PENTAGON_KEYS[i]]) or 0
+    self:drawPokenavSmall(labels[i], 12, y)
+    self:drawPokenavSmall(v, nil, y, Game3.POKENAV_STAT_VALUE_RIGHT)
+  end
+  self:drawPokenavSmall(("SHEEN %d"):format(tonumber(mon.sheen) or 0),
+    12, Game3.POKENAV_STAT_TOP + 5 * Game3.POKENAV_STAT_ROW + 4)
+  G.setColor(1, 1, 1, 1)
+end
+
+-- DrawMonRibbonIcons: each icon is 16x16, built from two tiles plus their
+-- mirrored copies. The extractor assembles them into one row of 32, so
+-- the ribbon id indexes straight into it.
+Game3.RIBBON_ICON_W = 16
+
+function Game3:drawRibbonIcon(index, x, y)
+  local sheet = self:pokenavImage("ribbon_icons.png")
+  if not sheet or not love.graphics.newQuad then return false end
+  local w = Game3.RIBBON_ICON_W
+  local sw, sh = sheet:getDimensions()
+  local at = (tonumber(index) or 0) * w
+  if at < 0 or at + w > sw then return false end
+  local q = love.graphics.newQuad(at, 0, w, w, sw, sh)
+  love.graphics.draw(sheet, q, x, y)
+  return true
 end
 
 function Game3:drawPokenavRibbons(f)
   local G = love.graphics
-  self:drawPokenavChrome("RIBBONS")
-  G.setColor(0.90, 0.96, 1, 1)
+  self:drawPokenavScreen("ribbons_header.png", "RIBBONS")
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)   -- POKENAV_TEXT
   local mon = (self.party or {})[(f.monIndex or 1)]
   if not mon then
-    self:drawText("No POKeMON.", 12, 32)
+    self:drawText("No POKeMON.", 12, 62)
     return
   end
-  self:drawText(mon.name or "", 12, 28)
+  -- FONT3 is 16px a line, so the header band (to y 57), the nickname and
+  -- the four rows only all fit if the nickname starts right below 57.
+  self:drawText(mon.name or "", 12, 58)
   local list = f.ribbons or {}
   if #list < 1 then
-    self:drawText("No RIBBONS yet.", 12, 52)
+    self:drawText("No RIBBONS yet.", 12, 76)
     return
   end
-  self:drawText(("%d RIBBONS"):format(#list), 140, 28)
-  local rows = 5
+  self:drawText(("%d RIBBONS"):format(#list), 140, 58)
+  -- the icons are 16px, so the rows have to be at least that far apart;
+  -- at the old 12px pitch each one clipped the next
+  local rows = 4
   local start = math.max(0, math.min((f.cursor or 0) - rows + 1, #list - rows))
   if start < 0 then start = 0 end
   for i = 0, rows - 1 do
     local index = list[start + i + 1]
     if index then
-      local y = 48 + i * 12
+      local y = 76 + i * 16
       if start + i == (f.cursor or 0) then self:drawCursor(8, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(1, 1, 1, 1)
+      self:drawRibbonIcon(index, 20, y - 3)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       local d = self:ribbonDescription(index)
-      self:drawText(d and d[1] or ("RIBBON %d"):format(index), 22, y)
+      self:drawText(d and d[1] or ("RIBBON %d"):format(index), 40, y)
     end
   end
   local d = self:ribbonDescription(list[(f.cursor or 0) + 1])
   if d then
-    self:drawText(d[1], 12, 118)
-    self:drawText(d[2], 12, 130)
+    -- the description is the 8px face so both lines clear the last row
+    self:drawPokenavSmall(d[1], 12, 144)
+    self:drawPokenavSmall(d[2], 12, 152)
   end
 end
 
@@ -30652,9 +31368,66 @@ end
 -- adds CONDITION and RIBBONS to this list as they are unlocked; those are a
 -- task of their own, so only the two that exist are offered.
 Game3.POKENAV_ROWS = 6
+-- pokenav.c sub_80F1BC8, arg0 == 0 (the main menu): topOffset 42, height 20,
+-- five options. Each row is four 32px sprites created at data[3] = j*32+256
+-- and resting at data[2] = j*32+152; CreateSprite x is the centre, so a
+-- 32-wide segment puts the card's left edge at 152-16 = 136 and the last
+-- segment runs off the right edge, as it does on hardware.
+Game3.POKENAV_DIR = "assets/generated/pokenav/"
+Game3.POKENAV_TOP = 34          -- 42 - 8, the sprite's top edge
+Game3.POKENAV_ROW_H = 20
+Game3.POKENAV_CARD_X = 136
+Game3.POKENAV_CARD_W = 128
+Game3.POKENAV_CARD_H = 16
+Game3.POKENAV_SLIDE_FROM = 104  -- 256 - 152
+Game3.POKENAV_SLIDE_STEP = 0.12
+Game3.POKENAV_ROW_STAGGER = 0.12
+Game3.POKENAV_ROWS_MAX = 5
+-- sub_80F22B0: once a row has slid in, the SELECTED one keeps going, its x2
+-- offset stepping 4px a frame until it reaches -16; the others step back to
+-- 0 at the same rate. That is the pop-out.
+Game3.POKENAV_POP_OUT = -16
+Game3.POKENAV_POP_STEP = 4
+-- sub_80EF428: the help line, centred in 192px (AlignStringInMenuWindow
+-- mode 2) at Menu_PrintText(.., 3, 17) -- tile (3, 17) = pixels (24, 136).
+Game3.POKENAV_HELP_X = 24
+Game3.POKENAV_HELP_Y = 136
+Game3.POKENAV_HELP_W = 0xC0
+
+-- sub_80F1BC8 drives all three card lists through one routine, differing
+-- only in these three numbers plus which sheet and palettes it loaded:
+--
+--   arg0 0  main menu        topOffset 42  height 20  5 rows
+--   arg0 1  condition menu   topOffset 56  height 20  3 rows
+--   arg0 2  condition search topOffset 40  height 16  6 rows
+--
+-- topOffset is the sprite CENTRE, so the card's top edge is topOffset - 8.
+-- `alt` is the row index from which oam.paletteNum is repointed to sprite
+-- palette tag 1; the switch only does that for arg0 0 and 2, and a
+-- three-row list could not reach i > 2 anyway.
+Game3.POKENAV_LISTS = {
+  menu = { top = 34, rowH = 20, sheet = "menu_options.png",
+    alt = 3, altSheet = "menu_options_alt.png", help = "menuHelp" },
+  condition = { top = 48, rowH = 20, sheet = "condition_menu.png",
+    help = "conditionHelp" },
+  search = { top = 32, rowH = 16, sheet = "condition_search.png",
+    alt = 3, altSheet = "condition_search_alt.png", help = "searchHelp" },
+}
+
+function Game3:pokenavConditionItems()
+  return { "PARTY PKMN", "SEARCH", "CANCEL" }
+end
+
+-- sub_80ECC08 maps the five category rows onto MON_DATA_COOL 22, BEAUTY 23,
+-- CUTE 24, SMART 33 and TOUGH 47 -- the stat the results are sorted on.
+Game3.POKENAV_SEARCH_KEYS = { "cool", "beauty", "cute", "smart", "tough" }
+
+function Game3:pokenavSearchItems()
+  return { "COOL", "BEAUTY", "CUTE", "SMART", "TOUGH", "CANCEL" }
+end
 
 function Game3:pokenavMenuItems()
-  return { "MAP", "CONDITION", "TRAINER'S EYE", "RIBBONS", "CANCEL" }
+  return { "HOENN MAP", "CONDITION", "TRAINER'S EYES", "RIBBONS", "SWITCH OFF" }
 end
 
 function Game3:openPokeNav()
@@ -30674,25 +31447,55 @@ function Game3:openTrainersEye()
   return true
 end
 
+-- gUnknown_083E31B0's sixth and seventh strings, 1-based: the cart's
+-- sub_80EF428(0, 5) and (0, 6).
+Game3.POKENAV_REJECT_RIBBONS = 6
+Game3.POKENAV_REJECT_TRAINERS = 7
+
 function Game3:stepPokenavMenu(f)
   local items = f.items or self:pokenavMenuItems()
   local n = #items
+  -- While a rejection is showing the cart sits in state 0xFF: moving the
+  -- cursor clears it and moves, and A or B clears it WITHOUT acting on the
+  -- option, so the first press after the error tone only dismisses it.
+  if f.reject then
+    if Input:wasPressed("up") then
+      f.reject = nil
+      f.cursor = ((f.cursor or 0) - 1 + n) % n
+    elseif Input:wasPressed("down") then
+      f.reject = nil
+      f.cursor = ((f.cursor or 0) + 1) % n
+    elseif Input:wasPressed("a") or Input:wasPressed("b") then
+      f.reject = nil
+    end
+    return
+  end
   if Input:wasPressed("up") then
     f.cursor = ((f.cursor or 0) - 1 + n) % n
   elseif Input:wasPressed("down") then
     f.cursor = ((f.cursor or 0) + 1) % n
   elseif Input:wasPressed("a") then
     local pick = items[(f.cursor or 0) + 1]
-    if pick == "MAP" then
+    if pick == "HOENN MAP" then
       self.field = self:regionMapOpenState(false)
       -- so B comes back here rather than dropping straight out to START
       self.field.fromPokenavMenu = true
     elseif pick == "CONDITION" then
       self:openPokenavCondition()
-    elseif pick == "TRAINER'S EYE" then
-      self:openTrainersEye()
+    elseif pick == "TRAINER'S EYES" then
+      if #self:trainersEyeList() < 1 then
+        self:playSe(Game3.SE_FAILURE)
+        f.reject = Game3.POKENAV_REJECT_TRAINERS
+      else
+        self:openTrainersEye()
+      end
     elseif pick == "RIBBONS" then
-      self:openPokenavRibbons()
+      if not self:hasRibbonWinner() then
+        self:playSe(Game3.SE_FAILURE)
+        f.reject = Game3.POKENAV_REJECT_RIBBONS
+      else
+        self:openPokenavRibbons()
+      end
     else
       self:backToStart("POKeNAV")
     end
@@ -30729,57 +31532,178 @@ end
 
 Game3.POKENAV_DIR = "assets/generated/pokenav/"
 
+
 function Game3:pokenavImage(name)
-  if type(name) ~= "string" then return nil end
-  local dir = Game3.POKENAV_DIR
-  local tries = { dir .. name, "generated/pokenav/" .. name }
-  for _, pre in ipairs({ "ruby/", "sapphire/", "emerald/", "data/" }) do
-    tries[#tries + 1] = pre .. dir .. name
-  end
-  for i = 1, #tries do
-    local img = self:grabImage(tries[i])
-    if img then return img end
-  end
-  return nil
+  return self:grabImage((Game3.POKENAV_DIR or "assets/generated/pokenav/") .. name)
 end
 
-function Game3:drawPokenavChrome(title)
+-- The device shell is a full-screen BG layer extracted from the cart
+-- (gPokenavOutlineTiles / Tilemap / Palette). Falling back to a flat fill
+-- keeps the menu usable on a cache that predates the pokenav extractor.
+function Game3:drawPokenavChrome(title, fieldOnly)
   local G = love.graphics
   if G.setShader then G.setShader() end
-  G.setColor(0.07, 0.12, 0.28, 1)
-  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
-  G.setColor(0.12, 0.22, 0.48, 1)
-  G.rectangle("fill", 0, 0, Game3.SCREEN_W, 16)
-  G.setColor(0.55, 0.90, 0.95, 1)
-  self:drawText(title or "POKeNAV", 8, 1)
-  G.setColor(0.10, 0.18, 0.38, 1)
-  G.rectangle("fill", 0, 144, Game3.SCREEN_W, 16)
-  G.setColor(0.80, 0.88, 0.95, 1)
-  self:drawText("A select   B cancel", 8, 146)
+  G.setColor(1, 1, 1, 1)
+  -- REG_BG3CNT / REG_BG2CNT: the patterned field sits behind the device
+  -- shell, both off the same charbase. Drawing only the shell left the
+  -- backdrop to whatever was underneath.
+  -- One pre-composited image: the field and the shell are combined at
+  -- extraction, so a missing layer cannot leave line art floating on black.
+  -- The sub-screens ask for the field alone -- the cart gives them their own
+  -- background (condition_screen.bin.lz) rather than the menu's device art,
+  -- and drawing the shell under them put the stat labels on top of it.
+  local shell
+  if fieldOnly then
+    shell = self:pokenavImage("background.png")
+  end
+  shell = shell or self:pokenavImage("screen.png")
+    or self:pokenavImage("outline.png")
+  if shell then
+    G.draw(shell, 0, 0)
+  else
+    G.setColor(0.07, 0.12, 0.28, 1)
+    G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+    G.setColor(1, 1, 1, 1)
+  end
+  if title and title ~= "POKeNAV" then
+    G.setColor(0.90, 0.96, 1, 1)
+    self:drawText(title, 8, 1)
+    G.setColor(1, 1, 1, 1)
+  end
+end
+
+-- Row i rests at y = ROW_H * i + TOP and slides in from the right, later
+-- rows trailing the earlier ones.
+-- The stagger subtracts i * ROW_STAGGER from each row's progress, so the
+-- slide has to run past 1.0 or the LAST row never reaches its rest position.
+-- Capping at 1.0 parked rows 1..4 permanently short of the left edge, which
+-- is what shipped three times.
+function Game3.pokenavSlideSpan()
+  return 1 + (Game3.POKENAV_ROWS_MAX - 1) * Game3.POKENAV_ROW_STAGGER
+end
+
+-- Advances each row's pop-out offset one frame and returns the row's.
+function Game3:pokenavPopOut(f, i, cursor)
+  f.popOut = f.popOut or {}
+  local at = f.popOut[i] or 0
+  local step = Game3.POKENAV_POP_STEP
+  if i == cursor then
+    if at > Game3.POKENAV_POP_OUT then at = at - step end
+    if at < Game3.POKENAV_POP_OUT then at = Game3.POKENAV_POP_OUT end
+  else
+    if at < 0 then at = at + step end
+    if at > 0 then at = 0 end
+  end
+  f.popOut[i] = at
+  return at
+end
+
+-- The help line for whichever option is under the cursor. The cart swaps in
+-- a different string for an option that is present but empty, which is why
+-- gUnknown_083E31B0 carries seven entries for five rows.
+-- `which` names one of the three tables sub_80EF428 selects between:
+-- menuHelp (arg 0), conditionHelp (1) or searchHelp (2). It defaults to the
+-- root menu's so existing callers are unchanged.
+function Game3:pokenavHelpText(f, which)
+  local pack = self:pokenavData()
+  local list = pack and pack[which or "menuHelp"]
+  if type(list) ~= "table" then return nil end
+  -- state 0xFF: an option that is present but has nothing behind it swaps
+  -- the help line for one of the two trailing strings until the player
+  -- moves off it or presses a button again.
+  local i = tonumber(f and f.reject) or ((f and f.cursor or 0) + 1)
+  local text = list[i]
+  if type(text) ~= "string" or text == "" then return nil end
+  return text
+end
+
+function Game3:pokenavRowX(f, i)
+  local t = ((f.slide or 1) - i * Game3.POKENAV_ROW_STAGGER)
+  if t < 0 then t = 0 elseif t > 1 then t = 1 end
+  return Game3.POKENAV_CARD_X + Game3.POKENAV_SLIDE_FROM * (1 - t), t
+end
+
+-- All three card lists -- the root menu, the CONDITION menu and the
+-- condition search -- are the same draw with a different spec, because
+-- sub_80F1BC8 is literally one routine taking arg0. `header` and `title`
+-- are the chrome above them; `spec` picks the geometry and sheets.
+function Game3:drawPokenavList(f, spec, header, title)
+  local G = love.graphics
+  f.slide = math.min((f.slide or 0) + Game3.POKENAV_SLIDE_STEP,
+    Game3.pokenavSlideSpan())
+  local items = f.items or {}
+  self:drawPokenavChrome(title or "POKeNAV")
+  self:drawPokenavOverlay("banner.png")
+  self:drawPokenavIcon(f and f.t or self.clockSeconds)
+  self:drawPokenavOverlay("misc_layer.png")
+  self:drawPokenavHeader(header)
+  local cards = self:pokenavImage(spec.sheet)
+  local cursor = f.cursor or 0
+  for i = 0, #items - 1 do
+    local x, t = self:pokenavRowX(f, i)
+    x = x + self:pokenavPopOut(f, i, cursor)
+    local y = spec.rowH * i + spec.top
+    if t > 0 then
+      if cards and love.graphics.newQuad then
+        local sheet = cards
+        if spec.alt and i >= spec.alt and spec.altSheet then
+          sheet = self:pokenavImage(spec.altSheet) or cards
+        end
+        local sw, sh = sheet:getDimensions()
+        local q = love.graphics.newQuad(0, i * Game3.POKENAV_CARD_H,
+          Game3.POKENAV_CARD_W, Game3.POKENAV_CARD_H, sw, sh)
+        G.setColor(1, 1, 1, 1)
+        G.draw(sheet, q, x, y)
+      else
+        if i == cursor then
+          G.setColor(0.95, 0.78, 0.20, 1)
+        else
+          G.setColor(0.80, 0.62, 0.15, 1)
+        end
+        G.rectangle("fill", x, y, Game3.POKENAV_CARD_W, Game3.POKENAV_CARD_H)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+        self:drawText(items[i + 1], x + 12, y + 2)
+        G.setColor(1, 1, 1, 1)
+      end
+    end
+  end
+  local help = self:pokenavHelpText(f, spec.help)
+  if help then
+    local w = Game3.textWidth(help, self:font3WidthTable())
+    local hx = Game3.POKENAV_HELP_X + math.floor((Game3.POKENAV_HELP_W - w) / 2)
+    if hx < Game3.POKENAV_HELP_X then hx = Game3.POKENAV_HELP_X end
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+    self:drawText(help, hx, Game3.POKENAV_HELP_Y, Game3.POKENAV_HELP_W)
+  end
+end
+
+function Game3:drawPokenavConditionMenu(f)
+  f.items = f.items or self:pokenavConditionItems()
+  self:drawPokenavList(f, Game3.POKENAV_LISTS.condition,
+    "condition_header.png", "CONDITION")
+end
+
+function Game3:drawPokenavSearch(f)
+  f.items = f.items or self:pokenavSearchItems()
+  self:drawPokenavList(f, Game3.POKENAV_LISTS.search,
+    "condition_header.png", "CONDITION")
 end
 
 function Game3:drawPokenavMenu(f)
-  local G = love.graphics
-  local items = f.items or self:pokenavMenuItems()
-  self:drawPokenavChrome("POKeNAV")
-  for i = 0, #items - 1 do
-    local y = 24 + i * 20
-    if i == (f.cursor or 0) then
-      G.setColor(0.20, 0.55, 0.70, 1)
-      G.rectangle("fill", 8, y - 2, 224, 18)
-    end
-    G.setColor(0.90, 0.96, 1, 1)
-    self:drawText(items[i + 1], 16, y)
-  end
+  f.items = f.items or self:pokenavMenuItems()
+  -- The root menu carries a header too: sub_80F27DC case 0 loads the
+  -- mainmenu sheet into the same tile tag the sub-screens use.
+  self:drawPokenavList(f, Game3.POKENAV_LISTS.menu,
+    "main_menu_header.png", "POKeNAV")
 end
 
 function Game3:drawTrainersEye(f)
   local G = love.graphics
   local list = f.list or {}
-  self:drawPokenavChrome("TRAINER'S EYE")
-  G.setColor(0.90, 0.96, 1, 1)
+  self:drawPokenavScreen("trainer_eyes_header.png", "TRAINER'S EYE")
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   if #list < 1 then
-    self:drawText("No trainers recorded yet.", 12, 32)
+    self:drawText("No trainers recorded yet.", 12, 62)
     return
   end
   local rows = Game3.POKENAV_ROWS
@@ -30787,9 +31711,10 @@ function Game3:drawTrainersEye(f)
   for i = 0, rows - 1 do
     local entry = list[scroll + i + 1]
     if entry then
-      local y = 28 + i * 16
+      -- the header strip owns y 33..57, so the list starts below it
+      local y = 60 + i * 13
       if scroll + i == (f.cursor or 0) then self:drawCursor(8, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       local row = self:trainerRow(entry.opponentId)
       local name = (row and row.name)
         or ("TRAINER %d"):format(entry.opponentId or 0)
@@ -30803,13 +31728,15 @@ function Game3:drawTrainersEye(f)
         124, y, 100)
     end
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
-  self:drawText(("%d/%d"):format((f.cursor or 0) + 1, #list), 12, 132)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+  self:drawText(("%d/%d"):format((f.cursor or 0) + 1, #list), 196, 62)
   -- The four lines the cart stores for whoever is under the cursor.
   local lines = self:trainersEyeDescription(list[(f.cursor or 0) + 1])
   if lines then
     for i = 1, #lines do
-      self:drawText(lines[i], 60, 120 + (i - 1) * 10)
+      local ly = 136 + (i - 1) * 10
+      if ly > 150 then break end
+      self:drawText(lines[i], 12, ly)
     end
   end
 end
@@ -33310,7 +34237,7 @@ function Game3:drawDexSearch(f)
       local opts = self:dexSearchOptionsFor(r.key)
       local v = opts and opts[(f.sel and f.sel[r.key]) or 1]
       if v then
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(v, r.x * 8 + 4, r.y * 8)
       end
     end
@@ -33323,7 +34250,7 @@ function Game3:drawDexSearch(f)
   local key = rows[(f.row or 0) + 1].key
   local desc = Game3.DEX_SEARCH_DESCRIPTIONS[key]
   if desc then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     local y = Game3.DEX_SEARCH_DESC_Y
     for line in (desc .. "\n"):gmatch("([^\n]*)\n") do
       if line ~= "" then
@@ -33348,7 +34275,7 @@ function Game3:drawDexSearch(f)
         if top + i == (o.cursor or 0) then
           self:drawCursor(boxX + 4, y)
         end
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(opt, boxX + 14, y)
       end
     end
@@ -33430,7 +34357,7 @@ function Game3:drawDexStartMenu(f)
     self:drawWindow(Game3.DEX_START_CURSOR_X - 4, 0,
       Game3.SCREEN_W - Game3.DEX_START_CURSOR_X + 4,
       Game3.DEX_START_TOP + #items * Game3.DEX_START_ROW_H + 8)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     for i = 1, #items do
       self:drawText(items[i], Game3.DEX_START_TEXT_X,
         Game3.DEX_START_TOP + (i - 1) * Game3.DEX_START_ROW_H)
@@ -33438,7 +34365,7 @@ function Game3:drawDexStartMenu(f)
   end
   for i = 1, #items do
     if (f.cursor or 0) == i - 1 then
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawCursor(Game3.DEX_START_CURSOR_X,
         Game3.DEX_START_TOP + (i - 1) * Game3.DEX_START_ROW_H)
     end
@@ -33614,6 +34541,209 @@ function Game3:stepDexEntry(state)
   self:playSe(Game3.SE_PIN)
 end
 
+-- ---------------------------------------------------------- THE MOD MANAGER
+--
+-- Ruby reaches the same manager Red and Gold do (src/mods/ManagerState.lua).
+-- It is a state object, not a field kind, and it wants four things off the
+-- game that Game3 did not previously have -- because Game3 is not built like
+-- the other two. Each is adapted rather than faked:
+--
+--   game.input    ManagerState reads `self.game.input:wasPressed`. Game3 uses
+--                 the Input singleton directly, so it is published here under
+--                 the name the manager asks for.
+--   game.stack    The manager pops itself to close, and pushes a NamingScreen
+--                 or a QuantityBox for a profile name or a numeric mod
+--                 option. Game3 has no state stack at all -- it is a
+--                 `self.field = { kind = ... }` machine -- so the manager
+--                 gets a REAL src/core/StateStack scoped to itself, rather
+--                 than a shim pretending to be one.
+--   game.save     The manager reads and writes options.mods / modOptions /
+--                 modProfiles, which live in the shared launcher options file
+--                 -- the same file Game3:applyDisplayOptions already reads
+--                 zoom and tilt out of, and the same one the Loader reads the
+--                 enable set from. So this is a view onto that table, not a
+--                 second copy of it.
+--   writeOptions  persists it, the way Game:writeOptions does for Gen 1.
+Game3.MODS_FIELD = "mods"
+
+-- The shared options file, held once so the manager's reads and its writes
+-- are the same table. nil-safe: a boot with no options file yet gets an empty
+-- one and the manager simply has nothing enabled.
+function Game3:modOptionsStore()
+  if self.save and self.save.options then return self.save.options end
+  local opts = {}
+  local ok, SaveData = pcall(require, "src.core.SaveData")
+  if ok and type(SaveData) == "table" and SaveData.loadOptions then
+    local got
+    ok, got = pcall(SaveData.loadOptions)
+    if ok and type(got) == "table" then opts = got end
+  end
+  self.save = self.save or {}
+  self.save.options = opts
+  return opts
+end
+
+function Game3:writeOptions()
+  local opts = self.save and self.save.options
+  if not opts then return end
+  pcall(function()
+    require("src.core.SaveData").saveOptions(opts)
+  end)
+end
+
+-- Is there anything to manage? The row is gated on at least one DISCOVERED
+-- mod, exactly as Red's and Gold's are, so a vanilla install's START menu is
+-- the cartridge's own five rows and nothing else.
+function Game3:hasMods()
+  local status = self.modStatus
+  return status ~= nil and #(status.available or {}) > 0
+end
+
+-- ManagerState draws through the Gen 1 Font module (160x144 tiles / TTF).
+-- Ruby's data.font is FONT3 (kind=font3, 8x16 sheet, no Gen1 charmap). Feeding
+-- that table to Font.load left image set and ttf cleared, so every label hit
+-- "font: no glyph for ..." and the manager painted a blank white box.
+-- Load Red's extracted Gen1 font from the red/ cache when present; otherwise
+-- Plain Pixel TTF alone still makes labels readable.
+local function loadRedManagerFont()
+  local bytes
+  local ok, CacheFs = pcall(require, "src.import.CacheFs")
+  if ok and CacheFs and CacheFs.read then
+    local saved = CacheFs.prefix
+    CacheFs.prefix = ""
+    -- Explicit red/ path so Ruby's active-version overlay cannot win.
+    bytes = CacheFs.read("red/data/generated/font.lua")
+    CacheFs.prefix = saved
+  end
+  if type(bytes) ~= "string" and love and love.filesystem and love.filesystem.read then
+    bytes = love.filesystem.read("red/data/generated/font.lua")
+  end
+  if type(bytes) ~= "string" then return nil end
+  local loader = loadstring or load
+  local chunk = loader(bytes, "@red/data/generated/font.lua")
+  if not chunk then return nil end
+  local loaded, value = pcall(chunk)
+  if not (loaded and type(value) == "table" and type(value.charmap) == "table") then
+    return nil
+  end
+  return value
+end
+
+function Game3:ensureManagerFont()
+  if self._managerFontReady then return end
+  local Font = require("src.render.Font")
+  pcall(function()
+    local src = self.data and self.data.font
+    local isFont3 = type(src) ~= "table"
+      or src.kind == "font3"
+      or type(src.charmap) ~= "table"
+    local def = {}
+    if isFont3 then
+      local red = loadRedManagerFont()
+      if red then
+        for k, v in pairs(red) do def[k] = v end
+        -- Prefixed paths: under a Ruby mount, un-prefixed
+        -- assets/generated/fonts/font.png is the FONT3 sheet.
+        def.image = "red/assets/generated/fonts/font.png"
+        def.imageExtra = "red/assets/generated/fonts/font_extra.png"
+        -- ManagerState lays out at Gen1 8px tile pitch. Enabling def.ttf={}
+        -- (or keeping Red's ttf table) routes ASCII through Plain Pixel at
+        -- 15px, so every row stacks on the next. Tile font only -- match Red.
+        def.ttf = nil
+      else
+        -- No Red sheet: Plain Pixel alone still labels the manager (taller
+        -- glyphs; list will look loose but readable).
+        def.ttf = {}
+      end
+    else
+      for k, v in pairs(src) do def[k] = v end
+      if not def.image then
+        def.ttf = def.ttf or {}
+      else
+        def.ttf = nil
+      end
+    end
+    Font.load({ font = def })
+    require("src.ui.Theme").load(self.data)
+  end)
+  self._managerFontReady = true
+end
+
+function Game3:modManagerOpen()
+  return self.field and self.field.kind == Game3.MODS_FIELD and true or false
+end
+
+function Game3:toggleModManager()
+  if self:modManagerOpen() then
+    self:closeModManager()
+    return
+  end
+  if not self:openModManager() then
+    self:playSe(Game3.SE_FAILURE)
+  end
+end
+
+function Game3:openModManager()
+  local ok, ManagerState = pcall(require, "src.mods.ManagerState")
+  if not (ok and ManagerState) then return false end
+  self:modOptionsStore()
+  self:ensureManagerFont()
+  self.input = self.input or Input
+  local StateStack = require("src.core.StateStack")
+  StateStack:init()
+  self.stack = StateStack
+  local made = ManagerState.new(self)
+  local pushed = pcall(StateStack.push, StateStack, made)
+  if not pushed then
+    self.stack = nil
+    return false
+  end
+  self.field = { kind = Game3.MODS_FIELD }
+  return true
+end
+
+-- The manager owns its own input while it is open. It closes by popping
+-- itself, so an empty stack is the signal to hand the START menu back --
+-- which is also what happens when a nested NamingScreen pops the last state.
+function Game3:stepModManager()
+  local stack = self.stack
+  if not stack or #(stack.states or {}) < 1 then
+    self:closeModManager()
+    return
+  end
+  pcall(stack.update, stack, self.dt or 0)
+  if #(stack.states or {}) < 1 then self:closeModManager() end
+end
+
+function Game3:closeModManager()
+  -- back to the standing mod stack, not to nil: a mod holding game.stack from
+  -- boot would otherwise find it gone after the manager was opened once
+  self.stack = self:modStack()
+  -- Back to the START menu the player opened it from, not out to the field.
+  -- Its field kind is "menu" -- stepField gates on that exact string, so a
+  -- plausible-looking "start" here left the menu drawn but inert.
+  self.field = { kind = "menu", cursor = self:startMenuIndex("MODS") }
+end
+
+function Game3:drawModManager()
+  local stack = self.stack
+  if not stack then return end
+  local G = love.graphics
+  -- ManagerState is laid out for the Gen1 160x144 surface. Letterbox it into
+  -- Ruby's 240x160 playfield so tabs/rows are not clipped into the void.
+  local ox = math.floor((Game3.SCREEN_W - 160) / 2)
+  local oy = math.floor((Game3.SCREEN_H - 144) / 2)
+  G.setShader()
+  G.setColor(0, 0, 0, 0.45)
+  G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
+  G.setColor(1, 1, 1, 1)
+  G.push()
+  G.translate(ox, oy)
+  pcall(stack.draw, stack)
+  G.pop()
+  G.setColor(1, 1, 1, 1)
+end
+
 function Game3:startMenuItems()
   if self:inSafariMode() then
     return {
@@ -33629,6 +34759,10 @@ function Game3:startMenuItems()
   items[#items + 1] = self:playerName()
   items[#items + 1] = "SAVE"
   items[#items + 1] = "OPTION"
+  -- The manager's discoverable home, in the same slot Red and Gold give it:
+  -- after OPTION and before the row that closes the menu. Gated on having
+  -- discovered a mod, so a vanilla install never sees it.
+  if self:hasMods() then items[#items + 1] = "MODS" end
   items[#items + 1] = "EXIT"
   return items
 end
@@ -33639,6 +34773,25 @@ function Game3:startMenuIndex(name)
     if labels[i] == name then return i - 1 end
   end
   return 0
+end
+
+-- THE START MENU, opened the way the field's own START press opens it.
+--
+-- Named so a second caller cannot drift from the first: a mod that replaces
+-- the walk also handles START (the voxel mod's free walk asks for a
+-- "StartMenu" screen), and on Ruby that request now lands here instead of on
+-- Gen 1's screen stack, whose start menu read a Gen 1 party table Ruby does
+-- not have and took the frame down.
+--
+-- Idempotent: the field's own handler runs earlier in the same logic step, so
+-- a second request in that frame finds the menu already up and leaves it
+-- alone rather than resetting its cursor.
+function Game3:openStartMenu()
+  if self.field and self.field.kind == "menu" then return true end
+  -- START must never sit under a stuck FADE_TO_BLACK veil.
+  self:fadeInFromBlack()
+  self.field = { kind = "menu", cursor = 0 }
+  return true
 end
 
 function Game3:backToStart(name)
@@ -33960,7 +35113,7 @@ function Game3:drawMoneyBox()
   local x = (box.x or 0) * tile
   local y = (box.y or 0) * tile
   self:drawWindow(x, y, 14 * tile, 4 * tile)
-  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(self:moneyString(), x + 16, y + 8)
 end
 
@@ -34002,7 +35155,7 @@ function Game3:drawSlotSymbol(reels, sym, x, y)
   local c = fill[sym + 1] or { 0.5, 0.5, 0.5 }
   G.setColor(c[1], c[2], c[3], 1)
   G.rectangle("fill", x + 2, y + 2, 28, 20)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText((Game3.SLOT_SYM_NAME[sym + 1] or "?"):sub(1, 3), x + 4, y + 6)
 end
 
@@ -34114,7 +35267,7 @@ function Game3:drawCoinsBox()
   local x = (box.x or 0) * tile
   local y = (box.y or 0) * tile
   self:drawWindow(x, y, 10 * tile, 4 * tile)
-  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(("COINS %d"):format(self:getCoins()), x + 8, y + 8)
 end
 
@@ -44290,7 +45443,7 @@ function Game3:drawMenuListWindow(left, top, labels, cursor, perRow)
       love.graphics.setColor(0.90, 0.28, 0.22, 1)
       self:drawCursor(tx, ty)
     end
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(labels[i + 1] or "", tx + 10, ty)
   end
 end
@@ -44310,7 +45463,7 @@ function Game3:drawYesNoWindow(left, top, cursor)
       love.graphics.setColor(0.90, 0.28, 0.22, 1)
       self:drawCursor(x, y)
     end
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(labels[i + 1], x + 10, y)
   end
 end
@@ -44335,7 +45488,7 @@ function Game3:drawBattleCursor(x, y, w, h, color)
   local G = love.graphics
   local c = color or Game3.BATTLE_CURSOR
   G.setColor(c[1], c[2], c[3], c[4] or 1)
-  G.rectangle("line", x, y, w, h or 14)
+  G.rectangle("line", x, y, w, h or Game3.BATTLE_CURSOR_H)
 end
 
 -- gSpriteAnim_83F76FC: selected ball wiggles tiles 16/0/32 then rests.
@@ -44485,20 +45638,20 @@ function Game3:drawStarterChoose(f)
       self:drawText(self:starterCategoryText(species), at[1] * 8, at[2] * 8)
       self:drawText(self:speciesName(species), at[1] * 8, at[2] * 8 + 16)
     else
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(self:starterCategoryText(species), 150, 40)
       self:drawText(self:speciesName(species), 150, 52)
     end
   end
   self:drawDialogueFrame()
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   if revealing then
     self:drawText(f.text or Game3.TEXT_DO_YOU_CHOOSE_POKE, 10, 116)
     local labels = { "YES", "NO" }
     for i = 0, 1 do
       local y = 134 + i * 10
       if i == (f.cursor or 0) then self:drawCursor(8, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(labels[i + 1], 18, y)
     end
   else
@@ -44519,7 +45672,7 @@ end
 function Game3:drawMartMenu(f)
   local G = love.graphics
   local mode = f.mode or "root"
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   if mode == "root" then
     local labels = f.martKind == "decor" and { "BUY", "QUIT" }
       or { "BUY", "SELL", "QUIT" }
@@ -44528,7 +45681,7 @@ function Game3:drawMartMenu(f)
     for i = 0, #labels - 1 do
       local y = 8 + i * 16
       if i == (f.cursor or 0) then self:drawCursor(8, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(labels[i + 1], 18, y)
     end
     return
@@ -44556,14 +45709,14 @@ function Game3:drawMartMenu(f)
   if mode ~= "qty" then start = f.cursor or 0 end
   local rows = 6
   if #list < 1 then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("There's nothing here.", 120, 16)
   else
     for i = 0, rows - 1 do
       local row = list[start + i + 1]
       local y = 8 + i * 16
       if i == 0 and mode ~= "qty" then self:drawCursor(116, y) end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if row then
         local name = nameOf(row)
         local price = priceOf(row)
@@ -44583,13 +45736,13 @@ function Game3:drawMartMenu(f)
       unit = self:itemPrice(f.qtyItem)
     end
     self:drawStdWindow(0, 8, 13, 13)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(("x %d"):format(qty), 12, 80)
     self:drawText(("$%d"):format(unit * qty), 12, 96)
   end
   if f.note then
     self:drawDialogueFrame()
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(f.note, 10, 128)
   end
 end
@@ -44633,11 +45786,30 @@ end
 -- battle_bg.c LoadBattleTextboxAndBackground: the bar is a band of the
 -- cart's own tilemap. Extracted PNGs used the teal backgroundColor; the
 -- fallback panels match the visible ROM fill instead.
+-- battle_bg.c LoadBattleTextboxAndBackground: gBattleTextboxTiles at
+-- charbase 0, gBattleTextboxTilemap at BG0 screenbase 24. BG0CNT 0x9800 is
+-- size 2, which for a text BG is 256x512 (NOT 512x256), so the second screen
+-- block sits BELOW the first -- which is what the only three scroll values
+-- the battle ever uses reach: gBattle_BG0_Y of 0, 160 and 320 pick the
+-- message, action and move layouts. Each one puts its 240x48 bar at y 112.
+--
+-- This used to return false on the grounds that the interior baked teal
+-- (menu.pal index 15) where a lavender was expected. The teal is the cart:
+-- the extracted tiles are byte-identical to the decomp menu.png, and the
+-- lavender was only ever index 7 picked out for the placeholder panel.
+Game3.BATTLE_BAR_ART = {
+  Message = "battleMessage", Actions = "battleActions", Moves = "battleMoves",
+}
+
 function Game3:drawBattleBar(layout)
-  -- battle*.png interiors were baked with menu.pal index 15 (teal), which is
-  -- the window template's backgroundColor, not the painted fill. Blitting
-  -- them covers the lavender panel. Callers fall back to drawBattlePanel.
-  return false
+  local key = Game3.BATTLE_BAR_ART[layout]
+  if not key then return false end
+  local img = self:uiPic(key)
+  if not img then return false end
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  G.draw(img, 0, Game3.BATTLE_BAR_Y)
+  return true
 end
 
 -- menu.pal frame/fill when gBattleTextboxTilemap is not in the cache.
@@ -44671,6 +45843,105 @@ end
 function Game3:lowHpBarBlinkOn()
   local period = Game3.LOW_HP_BLINK_FRAMES
   return math.floor((self.vblank or 0) / period) % 2 == 0
+end
+
+-- battle_interface.c CalcBarFilledPixels. The bar is `tiles` tiles wide and
+-- each tile shows 0..8 filled pixels, so the whole bar is tiles*8 pixels.
+-- The division truncates (the <<8 path in the cart is only for the animated
+-- in-between values), and a mon that is alive but rounds to nothing still
+-- gets a single pixel.
+function Game3.barFilledEighths(curr, maxValue, tiles)
+  curr, maxValue = tonumber(curr) or 0, tonumber(maxValue) or 0
+  tiles = tiles or 6
+  local out = {}
+  for i = 1, tiles do out[i] = 0 end
+  if maxValue <= 0 then return out, 0 end
+  local total = tiles * 8
+  local filled = math.floor(curr * total / maxValue)
+  if filled < 0 then filled = 0 elseif filled > total then filled = total end
+  if filled == 0 and curr > 0 then
+    out[1] = 1
+    return out, 1
+  end
+  local left = filled
+  for i = 1, tiles do
+    if left >= 8 then out[i] = 8; left = left - 8
+    else out[i] = left; left = 0 end
+  end
+  return out, filled
+end
+
+-- sub_8045D58: green above 24 filled pixels, yellow down to 10, red at 9
+-- or fewer. The test is on PIXELS, not on the raw hp fraction.
+Game3.HP_BAR_TILES = 6
+Game3.EXP_BAR_TILES = 8
+Game3.HP_ELEMENT_GREEN = 3
+Game3.HP_ELEMENT_YELLOW = 0x2F
+Game3.HP_ELEMENT_RED = 0x38
+Game3.EXP_ELEMENT = 0xC
+
+function Game3.hpBarElementBase(filled)
+  filled = tonumber(filled) or 0
+  if filled > 0x18 then return Game3.HP_ELEMENT_GREEN end
+  if filled > 9 then return Game3.HP_ELEMENT_YELLOW end
+  return Game3.HP_ELEMENT_RED
+end
+
+-- One element tile out of the healthbox_elements sheet (16 across).
+function Game3:drawHealthboxElement(sheet, element, x, y)
+  if not (sheet and love.graphics.newQuad) then return false end
+  self._hbElemQuads = self._hbElemQuads or {}
+  local quad = self._hbElemQuads[element]
+  if not quad then
+    local cols = Game3.HEALTHBOX_ELEMENTS_COLS
+    local sw, sh = sheet:getDimensions()
+    if (math.floor(element / cols) + 1) * 8 > sh then return false end
+    quad = love.graphics.newQuad((element % cols) * 8,
+      math.floor(element / cols) * 8, 8, 8, sw, sh)
+    self._hbElemQuads[element] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, x, y)
+  return true
+end
+
+-- The cart's HP bar: six element tiles off gHealthboxElementsGfxTable, the
+-- ramp picked by filled pixels. Falls back to the flat bar without the sheet.
+function Game3:drawHpBarTiles(x, y, hp, maxHp, opts)
+  local sheet = self:uiPic("healthboxHp")
+  if not sheet then return false end
+  local tiles = Game3.HP_BAR_TILES
+  local eighths, filled = Game3.barFilledEighths(hp, maxHp, tiles)
+  local base = Game3.hpBarElementBase(filled)
+  if base == Game3.HP_ELEMENT_RED and opts and opts.blink
+      and not self:lowHpBarBlinkOn() then
+    for i = 1, tiles do eighths[i] = 0 end
+  end
+  for i = 1, tiles do
+    if not self:drawHealthboxElement(sheet, base + eighths[i],
+        x + (i - 1) * 8, y) then
+      return false
+    end
+  end
+  return true
+end
+
+-- The cart loads TWO palettes for the healthbox (window and hpbar) and the
+-- EXP bar is on the window one: decomp expbar.png carries window.gbapal
+-- while hpbar.png carries hpbar.gbapal. On the hpbar palette the EXP ramp
+-- comes out peach instead of the cart's cyan.
+function Game3:drawExpBarTiles(x, y, exp, expNext)
+  local sheet = self:uiPic("healthbox")
+  if not sheet then return false end
+  local tiles = Game3.EXP_BAR_TILES
+  local eighths = Game3.barFilledEighths(exp, expNext, tiles)
+  for i = 1, tiles do
+    if not self:drawHealthboxElement(sheet, Game3.EXP_ELEMENT + eighths[i],
+        x + (i - 1) * 8, y) then
+      return false
+    end
+  end
+  return true
 end
 
 function Game3:drawHpBar(x, y, w, hp, maxHp, opts)
@@ -44779,6 +46050,11 @@ function Game3:discoverBattleBgPath(env)
 end
 
 function Game3:drawBattleBackground()
+  -- DRAMATIC_SHAPE 3D-BTL: OverworldBattle stamps battle.dramaticShapeShot
+  -- and hands the arena canvas through Game.renderer:setWorldOverride. The
+  -- flat terrain / platform art must not paint over that composite.
+  local bag = self.battle
+  if bag and bag.dramaticShapeShot then return end
   local G = love.graphics
   local env = self:battleEnvironment()
   local img = self:battleBgImage(env)
@@ -44833,19 +46109,21 @@ Game3.HEALTHBOX_LAYOUT = {
   player = {
     frame = "healthboxPlayer",
     nameX = 14, nameY = 2, levelX = 82, levelY = 2,
-    barX = 14, barY = 21, barW = 46,
+    barX = 14, barY = 21, barW = 48,   -- six element tiles
     -- Font4 / UpdateHpTextInHealthbox digit row (8px tall).
-    hpTextX = 64, hpTextY = 24, hpTextRight = 112,
+    -- the player frame's art is only opaque out to x=104, so a right
+    -- edge of 112 hung the second HP number off the box
+    hpTextX = 64, hpTextY = 24, hpTextRight = 100,
     -- Status left of HP digits, just under the bar fill (barY=21 h=4).
     -- ROM overwrites healthbox tiles at r8=0x1A; we overlay here.
     statusX = 16, statusY = 24,
-    expX = 32, expY = 35, expW = 68,
+    expX = 32, expY = 35, expW = 64,   -- eight element tiles
     fallbackW = 128, fallbackH = 40,
   },
   enemy = {
     frame = "healthboxEnemy",
     nameX = 6, nameY = 2, levelX = 74, levelY = 2,
-    barX = 26, barY = 19, barW = 60,
+    barX = 26, barY = 19, barW = 48,   -- six element tiles
     -- draw_status_ailment_maybe enemy r8=0x11 -> (~8,16).
     statusX = 8, statusY = 16, statusBarX = 44,
     caughtX = 88, caughtY = 8,
@@ -45005,7 +46283,7 @@ function Game3:drawHealthboxHpText(mon, x, y, L)
   end
   -- FONT3 fallback: right-align into the same slot so wide totals do not
   -- spill into the Lv column (HEALTHBOX_LAYOUT.hpTextRight).
-  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local tw = Game3.textWidth(hpStr)
   self:drawText(hpStr, right - tw, ty)
   love.graphics.setColor(1, 1, 1, 1)
@@ -45027,7 +46305,7 @@ function Game3:drawHealthbox(mon, x, y, kind)
     G.setColor(0.97, 0.97, 0.90, 1)
     G.rectangle("fill", x + 1, y + 1, w - 2, h - 2)
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local name = mon.name or "POKeMON"
   local nameMax = (L.levelX - L.nameX) - 10
   if nameMax < 24 then nameMax = 24 end
@@ -45051,18 +46329,19 @@ function Game3:drawHealthbox(mon, x, y, kind)
       self:drawText("F", gx, y + L.nameY)
     end
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
-  -- Frame art often ships a smashed "Lv" (shows as "&."). Cover it and
-  -- draw the real label + digits.
-  local lv = ("Lv%d"):format(tonumber(mon.level) or 1)
-  local lvW = Game3.textWidth(lv, self:font3WidthTable()) + 2
-  local lvX = x + L.levelX - 14
-  if frame then
-    G.setColor(0.97, 0.97, 0.90, 1)
-    G.rectangle("fill", lvX - 1, y + L.levelY, lvW, 12)
-    G.setColor(0.10, 0.10, 0.12, 1)
-  end
-  self:drawText(lv, lvX, y + L.levelY)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+  -- The cart bakes "Lv" into the healthbox art and sub_8043FC0 renders
+  -- only the DIGITS beside it. Measured on the extracted frames the baked
+  -- label sits at x 65..72 (enemy) and 73..80 (player), so levelX of 74
+  -- and 82 already points at the first digit.
+  --
+  -- This used to paint over the baked label and redraw "Lv<n>" 14px to
+  -- its left, on the belief the art shipped a smashed "Lv". It does not:
+  -- the label is clean in both frames. On the enemy box that nudge put
+  -- the level at x 68, exactly where a nine-character name ends, so
+  -- POOCHYENA and Lv9 ran together with no gap.
+  local lv = tostring(tonumber(mon.level) or 1)
+  self:drawText(lv, x + L.levelX, y + L.levelY)
   local barX = L.barX
   if not player then
     if self:hasCaught(mon.species) then
@@ -45088,15 +46367,22 @@ function Game3:drawHealthbox(mon, x, y, kind)
   local barW = L.barW - (barX - L.barX)
   local blink = player and self.battle and self.battle.lowHpSe
     and self:hpBarIsRed(mon.hp, mon.maxHp)
-  self:drawHpBar(x + barX, y + L.barY, barW, mon.hp, mon.maxHp,
-    { blink = blink })
+  -- The cart builds both bars out of gHealthboxElementsGfxTable tiles;
+  -- the flat rect is only for a cache without the element sheet.
+  if not self:drawHpBarTiles(x + barX, y + L.barY, mon.hp, mon.maxHp,
+      { blink = blink }) then
+    self:drawHpBar(x + barX, y + L.barY, barW, mon.hp, mon.maxHp,
+      { blink = blink })
+  end
   if player then
     self:drawHealthboxHpText(mon, x, y, L)
-    local fill = Game3.expBarFill(mon)
-    local ew = math.floor(L.expW * fill)
-    if ew > 0 then
-      G.setColor(0.32, 0.62, 0.95, 1)
-      G.rectangle("fill", x + L.expX, y + L.expY, ew, 2)
+    if not self:drawExpBarTiles(x + L.expX, y + L.expY,
+        Game3.expBarFill(mon) * 1000, 1000) then
+      local ew = math.floor(L.expW * Game3.expBarFill(mon))
+      if ew > 0 then
+        G.setColor(0.32, 0.62, 0.95, 1)
+        G.rectangle("fill", x + L.expX, y + L.expY, ew, 2)
+      end
     end
   end
   G.setColor(1, 1, 1, 1)
@@ -45344,7 +46630,7 @@ function Game3:drawMoveAnimBurst(cx, cy, ma, hitLeft, dur)
       self.quads[key] = q
     end
     G.setColor(1, 1, 1, fade)
-    local sc = 1 + progress * 0.35
+    local sc = 2.2 + progress * 0.9
     G.draw(sheet, q, cx, cy, progress * 0.4, sc, sc, frame / 2, frame / 2)
     G.setColor(1, 1, 1, 1)
     return
@@ -45353,16 +46639,17 @@ function Game3:drawMoveAnimBurst(cx, cy, ma, hitLeft, dur)
   local kind = ma and ma.kind or "physical"
   if kind == "special" then
     -- Beam of type-colored sparks toward the target.
-    local n = 5
+    -- Enlarged Gen3 typed burst for DramaticShapes ORAS-scale presentation.
+    local n = 9
     for i = 0, n - 1 do
       local u = (progress * 1.2 - i * 0.12)
       if u > 0 and u < 1 then
-        local ox = (ma and ma.onEnemy) and (-40 + 40 * u) or (40 - 40 * u)
-        local oy = -8 + math.sin(u * math.pi * 2) * 4
+        local ox = (ma and ma.onEnemy) and (-70 + 70 * u) or (70 - 70 * u)
+        local oy = -12 + math.sin(u * math.pi * 2) * 10
         local a = fade * (1 - math.abs(u - 0.5) * 1.5)
         G.setColor(r, g, b, math.max(0, a))
         if G.circle then
-          G.circle("fill", cx + ox, cy + oy, 2 + (1 - u) * 3)
+          G.circle("fill", cx + ox, cy + oy, 4 + (1 - u) * 7)
         else
           G.rectangle("fill", cx + ox - 2, cy + oy - 2, 4, 4)
         end
@@ -45370,38 +46657,43 @@ function Game3:drawMoveAnimBurst(cx, cy, ma, hitLeft, dur)
     end
     G.setColor(r, g, b, fade * 0.85)
     if G.circle then
-      G.circle("fill", cx, cy, 4 + progress * 10)
+      G.circle("fill", cx, cy, 10 + progress * 28)
+      G.setColor(r, g, b, fade * 0.85)
+      G.circle("fill", cx, cy, 6 + progress * 16)
       G.setColor(1, 1, 1, fade * 0.55)
-      G.circle("fill", cx, cy, 2 + progress * 4)
+      G.circle("fill", cx, cy, 3 + progress * 7)
     end
   elseif kind == "status" then
     local a = fade * 0.75
     G.setColor(r, g, b, a)
     if G.circle then
-      G.circle("line", cx, cy, 6 + progress * 14)
-      G.circle("line", cx, cy, 10 + progress * 10)
+      G.circle("line", cx, cy, 12 + progress * 28)
+      G.circle("line", cx, cy, 20 + progress * 22)
+      G.circle("line", cx, cy, 28 + progress * 16)
     end
-    for i = 0, 3 do
-      local ang = i * (math.pi / 2) + progress * math.pi
-      local sx = cx + math.cos(ang) * (8 + progress * 10)
-      local sy = cy + math.sin(ang) * (8 + progress * 10)
+    for i = 0, 5 do
+      local ang = i * (math.pi / 3) + progress * math.pi
+      local sx = cx + math.cos(ang) * (14 + progress * 22)
+      local sy = cy + math.sin(ang) * (14 + progress * 22)
       G.setColor(r, g, b, a)
       G.rectangle("fill", sx - 1, sy - 1, 3, 3)
     end
   else
     -- Physical impact discs + cross.
-    local burst = 5 + math.floor(progress * 12)
-    G.setColor(r, g, b, fade)
+    local burst = 12 + math.floor(progress * 28)
+    G.setColor(r, g, b, fade * 0.55)
     if G.circle then
+      G.circle("fill", cx, cy, burst + 10)
+      G.setColor(r, g, b, fade)
       G.circle("fill", cx, cy, burst)
       G.setColor(1, 1, 1, fade * 0.7)
-      G.circle("fill", cx, cy, math.max(2, burst * 0.4))
+      G.circle("fill", cx, cy, math.max(3, burst * 0.4))
     else
       G.rectangle("fill", cx - burst, cy - burst, burst * 2, burst * 2)
     end
     G.setColor(r, g, b, fade * 0.9)
-    G.rectangle("fill", cx - burst - 2, cy - 1, burst * 2 + 4, 3)
-    G.rectangle("fill", cx - 1, cy - burst - 2, 3, burst * 2 + 4)
+    G.rectangle("fill", cx - burst - 4, cy - 2, burst * 2 + 8, 5)
+    G.rectangle("fill", cx - 2, cy - burst - 4, 5, burst * 2 + 8)
   end
   G.setColor(1, 1, 1, 1)
 end
@@ -45811,6 +47103,9 @@ function Game3:drawBattle()
     self:drawDexEntry(b)
     return
   end
+  -- Staged overworld battle: mons / trainers live on the arena canvas that
+  -- Game3:draw presents via worldOverride. Keep healthboxes + menus here.
+  local staged = b and b.dramaticShapeShot and true or false
   local iv = self:introCinemaVisuals()
   local hit = (b and b.animT) or 0
   local ma = b and b.moveAnim
@@ -45828,14 +47123,14 @@ function Game3:drawBattle()
   local catching = catch and catchDur > 0 and (catchT < catchDur or catch.hold)
   self:drawBattleBackground()
   -- Opponent trainer (entrance / throw exit).
-  if iv.showEnemyTrainer then
+  if (not staged) and iv.showEnemyTrainer then
     local img = self:opponentTrainerImage(b and b.npc)
     local ex = (Game3.BATTLER_CX.enemy or 176) - 32 + (iv.enemyTrainerX or 0)
     local ey = (Game3.BATTLER_CY.enemy or 40) - 32
     self:drawBattleTrainerPic(img, ex, ey, 1, iv.enemyTrainerA or 1, false)
   end
   -- Player trainer back (entrance / throw exit).
-  if iv.showPlayerTrainer then
+  if (not staged) and iv.showPlayerTrainer then
     local img = self:playerTrainerBattleImage()
     local px = (Game3.BATTLER_CX.player or 72) - 32 - (iv.playerTrainerX or 0)
     local py = (Game3.BATTLER_CY.player or 80) - 40
@@ -45861,7 +47156,7 @@ function Game3:drawBattle()
     end
     -- Wave-4: Fly/Dig/Dive STATUS2_* hide between charge and hit turns.
     if b.enemy.invuln and iv.recallSide ~= "enemy" then hideEnemy = true end
-    if not hideEnemy then
+    if (not staged) and not hideEnemy then
       local drawScale = enemyScale or 1
       local ox = math.floor(32 * (1 - drawScale) + 0.5)
       local oy = math.floor(32 * (1 - drawScale) + 0.5) + (enemyYOff or 0)
@@ -45875,7 +47170,7 @@ function Game3:drawBattle()
         love.graphics.setColor(1, 1, 1, 1)
       end
     end
-    if hit > 0 and (not ma or ma.onEnemy)
+    if (not staged) and hit > 0 and (not ma or ma.onEnemy)
         and ((b.enemy.hp or 0) > 0) then
       self:drawMoveAnimBurst(px + 32, py + 32, ma, hit, animDur)
     end
@@ -45894,7 +47189,7 @@ function Game3:drawBattle()
       drop = 0
     end
     local px, py = self:battlerTopLeft("enemy2", e2Species, "front")
-    if not iv.enemy2Hide then
+    if (not staged) and not iv.enemy2Hide then
       local drawScale = iv.enemy2Scale or 1
       local ox = math.floor(32 * (1 - drawScale) + 0.5)
       local oy = math.floor(32 * (1 - drawScale) + 0.5)
@@ -45926,7 +47221,7 @@ function Game3:drawBattle()
       or ((ma and ma.onEnemy) and -math.floor(lunge * 0.35) or -lunge)
     px = px - math.floor(iv.playerSlide or 0) + playerLunge
     local playerHide = iv.playerHide or (b.player and b.player.invuln)
-    if not playerHide then
+    if (not staged) and not playerHide then
       local drawScale = (scale or 1) * (iv.playerScale or 1)
       local ox = math.floor(32 * (1 - drawScale) + 0.5)
       local oy = math.floor(32 * (1 - drawScale) + 0.5)
@@ -45939,7 +47234,7 @@ function Game3:drawBattle()
       self:drawBattlePic(species, "back", px + ox, py + oy, drawScale, drop, evoFlash, self:isShinyMon(b.player))
       if (iv.playerAlpha or 1) < 1 then love.graphics.setColor(1, 1, 1, 1) end
     end
-    if hit > 0 and ma and not ma.onEnemy then
+    if (not staged) and hit > 0 and ma and not ma.onEnemy then
       self:drawMoveAnimBurst(px + 32, py + 32, ma, hit, animDur)
     end
     if not iv.hideBoxes and not iv.hidePlayerBox then
@@ -45957,7 +47252,7 @@ function Game3:drawBattle()
       drop = 0
     end
     local px, py = self:battlerTopLeft("player2", p2Species, "back")
-    if not iv.player2Hide then
+    if (not staged) and not iv.player2Hide then
       local drawScale = iv.player2Scale or 1
       local ox = math.floor(32 * (1 - drawScale) + 0.5)
       local oy = math.floor(32 * (1 - drawScale) + 0.5)
@@ -45973,7 +47268,7 @@ function Game3:drawBattle()
   -- Send-out ball overlay (reuse catch ball drawing).
   -- Prefer intro/switch send-out ball over catch cinema if both ever overlap.
   -- Drawn after trainers/mons so the foe throw is never buried under pics.
-  local sendBalls = iv.balls or (iv.ball and { iv.ball }) or nil
+  local sendBalls = (not staged) and (iv.balls or (iv.ball and { iv.ball }) or nil) or nil
   if sendBalls and #sendBalls > 0 then
     local G = love.graphics
     for bi = 1, #sendBalls do
@@ -46000,11 +47295,11 @@ function Game3:drawBattle()
         preferProcedural = false, alpha = 1,
       })
     end
-  elseif catching then
+  elseif (not staged) and catching then
     self:drawCatchCinema(catch, catchT, catchDur)
   end
-  self:drawShinySparkles()
-  if self.drawBattleFx then self:drawBattleFx() end
+  if not staged then self:drawShinySparkles() end
+  if (not staged) and self.drawBattleFx then self:drawBattleFx() end
   if b and b.kind == "menu" then
     if not self:drawBattleBar("Actions") then
       self:drawBattlePanel(0, Game3.BATTLE_BAR_Y, 136, Game3.BATTLE_BAR_H)
@@ -46020,10 +47315,10 @@ function Game3:drawBattle()
       labels = { "BALL", "POKeBLOCK", "GO NEAR", "RUN" }
     end
     for i = 0, 3 do
-      local x = Game3.BATTLE_ACTION_X + (i % 2) * Game3.BATTLE_ACTION_COL
-      local y = Game3.BATTLE_ACTION_Y + math.floor(i / 2) * Game3.BATTLE_ACTION_ROW
+      local slot = Game3.BATTLE_ACTION_SLOTS[i + 1]
+      local x, y = slot[1], slot[2]
       if i == b.cursor then
-        self:drawBattleCursor(x, y, Game3.BATTLE_ACTION_COL - 4)
+        self:drawBattleCursor(x, y, Game3.BATTLE_ACTION_CURSOR_W)
       end
       self:setTextInk(Game3.BATTLE_TEXT_INK)
       self:drawText(labels[i + 1], x + 4, y)
@@ -46042,17 +47337,17 @@ function Game3:drawBattle()
     local dest = b.moveSwap
     for i = 0, 3 do
       local mv = moves[i + 1]
-      local x = Game3.BATTLE_MOVE_X + (i % 2) * Game3.BATTLE_MOVE_COL
-      local y = Game3.BATTLE_MOVE_Y + math.floor(i / 2) * Game3.BATTLE_MOVE_ROW
+      local slot = Game3.BATTLE_MOVE_SLOTS[i + 1]
+      local x, y = slot[1], slot[2]
       if dest ~= nil then
         if i == dest then
-          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8)
+          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_CURSOR_W)
         elseif i == source then
-          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8, 14,
+          self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_CURSOR_W, nil,
             { 0.55, 0.55, 0.62, 1 })
         end
       elseif i == source then
-        self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_COL - 8)
+        self:drawBattleCursor(x, y, Game3.BATTLE_MOVE_CURSOR_W)
       end
       self:setTextInk(Game3.BATTLE_TEXT_INK)
       self:drawText(mv and (mv.name or "-") or "-", x + 4, y,
@@ -46397,20 +47692,7 @@ function Game3:walkHeld(dt)
   else
     if wasWalking then
       self.walkCooldown = 0
-      self.hopping = nil
-      -- PlayerAllowForcedMovementIfMovingSameDirection: once the player
-      -- has actually moved, forced movement is allowed to trigger again.
-      self.forcedMoveLatch = nil
-      self:clampCamera()
-      if self:tryTrainerSpot() then
-        self:stepNpcs(dt or 0)
-        return
-      end
-      if self.field then
-        self:stepNpcs(dt or 0)
-        return
-      end
-      if self:tryWildEncounter() then
+      if self:stepArrived() then
         self:stepNpcs(dt or 0)
         return
       end
@@ -46419,41 +47701,175 @@ function Game3:walkHeld(dt)
     if self:tryForcedMovement() then
       -- ice / current / slide / muddy; facing may stay locked
     else
-      local dx, dy = 0, 0
-      if Input:isDown("left") then dx = -1
-      elseif Input:isDown("right") then dx = 1
-      elseif Input:isDown("up") then dy = -1
-      elseif Input:isDown("down") then dy = 1
-      end
-      if dx ~= 0 or dy ~= 0 then
-        if self.warpSettle then
-          -- Held input from the previous map must not walk us back into
-          -- the stair warp. Wait for a release.
-        else
-          self.running = self:wantRun()
-          local dir = Game3.facingFromDelta(dx, dy)
-          if dir ~= self.facing then
-            self.facing = dir
-            -- ROM ProcessPlayerFieldInput: after facing matches dpad,
-            -- mapheader_run_first_tag2 warps on the arrow mat. A tap
-            -- that only turned still leaves.
-            self:tryArrowWarpOnTile(dx, dy)
-          else
-            self:tryWalk(dx, dy)
-          end
-        end
-      else
-        self.running = nil
-        self.warpSettle = nil
-        -- ROM has no sticky ignoreWarp; landing faces away from the
-        -- door. After the held key is released the next press may leave.
-        self.ignoreWarp = false
-      end
+      self:fieldHandleInput()
     end
   end
   self:clampCamera()
   self:stepNpcs(dt or 0)
   self:stepMapNamePopup(dt or 0)
+end
+
+-- LANDING ON A CELL: everything the cartridge runs once a step completes.
+--
+-- Pulled out of walkHeld unchanged so a walk that is NOT the grid walk can
+-- run the same pipeline. Gen 1 publishes this to mods as
+-- OverworldController:onStepComplete, and a mod that moves the player
+-- continuously fires it once per cell crossed -- which is exactly the rate a
+-- grid walk fires it.
+--
+-- Returns true when something took the frame (a trainer's line of sight, a
+-- field UI already up, a wild encounter), which is the caller's signal to
+-- step the NPCs and stop.
+--
+-- WARPS ARE NOT HERE, deliberately. Gen 3 doors sit on COLLISION: the step
+-- onto them is refused and the warp fires from the refusal, inside tryWalk.
+-- A free walk meets the same wall and has to ask through the push verbs
+-- instead, which is a different seam and not yet backed.
+-- The free walk's arrival check: is the cell the body just entered a warp?
+--
+-- Ruby fires a warp from the STEP ONTO the tile, inside tryWalk, so the grid
+-- walk never needs this. A continuous walk has no step to hang it on -- it
+-- simply finds itself standing somewhere new -- and the tiles that matter
+-- most are the WALKABLE ones: a Pokemon Center's exit mat is stepped onto,
+-- not bumped into, so it never reaches the blocked-push verbs. Without this a
+-- free walk can enter a building and never leave it.
+--
+-- `dx, dy` is the direction of travel, which the warp rules genuinely need:
+-- an arrow warp only fires from the matching direction.
+-- field_control_avatar.c TryStartWarpEventScript, which is a DIFFERENT rule
+-- from the one tryWalk uses, and using the wrong one sealed the player inside
+-- every shop.
+--
+-- The cart fires warps from two places and they do not agree:
+--
+--   ARRIVAL   TryStartStepBasedScript -> TryStartWarpEventScript. A warp
+--             event on the tile you are STANDING ON plus IsWarpMetatileBehavior
+--             is the whole test. There is NO direction gate.
+--
+--   A BUMP    TryDoorWarp, further down the same file, for walking INTO a
+--             door you cannot stand on. That one is direction-gated -- an
+--             animated door only opens walking north into it.
+--
+-- A Pokemon Center or Mart exit mat is walkable and carries a door behaviour,
+-- so it is an ARRIVAL. Asking the bump rules about it answered "bumped, wrong
+-- direction" for every way of stepping onto it except north, and the player
+-- could not leave the building.
+--
+-- Coord events run first here exactly as they do in the cart
+-- (TryStartCoordEventScript is the line above it): a doormat script beats the
+-- warp under it.
+function Game3:tryWarpOnArrival()
+  local map = self.map
+  if not map or self.ignoreWarp then return false end
+  local x, y = self.playerX or 0, self.playerY or 0
+  local w = Game3.warpAt(map, x, y)
+  if not w then return false end
+  if self:coordEventWouldRun(x, y) then return false end
+  local b = self:behaviorAt(map, x, y)
+  if not Game3.isWarpBehavior(b) then return false end
+  -- the branches TryStartWarpEventScript takes before the plain warp
+  if b == Game3.MB_AQUA_HIDEOUT_WARP then
+    return self:followHideoutWarp(w) == true
+  end
+  if b == Game3.MB_MT_PYRE_HOLE then
+    return self:doFallWarp() == true
+  end
+  return self:followWarp(w) == true
+end
+
+function Game3:stepArrived()
+  self.hopping = nil
+  -- PlayerAllowForcedMovementIfMovingSameDirection: once the player
+  -- has actually moved, forced movement is allowed to trigger again.
+  self.forcedMoveLatch = nil
+  self:clampCamera()
+  if self:tryTrainerSpot() then return true end
+  if self.field then return true end
+  if self:tryWildEncounter() then return true end
+  return false
+end
+
+-- THE PAD READ, AS ITS OWN METHOD -- which is what makes it wrappable.
+--
+-- Gen 1 keeps the grid walk's only keypad read in
+-- OverworldController:handleInput, and that is the single seam a mod
+-- replaces to walk the player some other way: the voxel mod's free walk
+-- (lib/FreeMove.lua) wraps exactly that method and nothing else, so every
+-- gate ABOVE the call -- scripted moves, forced movement, a warp settle, a
+-- field UI, a transition -- still applies without the mod restating any of
+-- it.
+--
+-- Ruby had no such seam: this block sat inline in walkHeld. Wrapping
+-- walkHeld itself is not the same thing and would be wrong -- it also ticks
+-- berry trees, grass rustle, the tileset animation, cracked floors, screen
+-- fades and door animation, and a mod that replaced the walk would stop all
+-- of those too. So the keypad block alone moves out here, called from the
+-- same place under the same conditions.
+function Game3:gridHandleInput()
+  -- the grid walk has the wheel again: drop any position a free walk left
+  self.freeWalkPx, self.freeWalkPy = nil, nil
+  local dx, dy = 0, 0
+  if Input:isDown("left") then dx = -1
+  elseif Input:isDown("right") then dx = 1
+  elseif Input:isDown("up") then dy = -1
+  elseif Input:isDown("down") then dy = 1
+  end
+  if dx ~= 0 or dy ~= 0 then
+    -- warpSettle exists for one narrow case: indoor stairs land you on a
+    -- walkable warp FACING THE WALL you walked into, and a held d-pad
+    -- would bump that wall forever (see settleAfterWarp).  It was doing
+    -- it by ignoring the pad until the player released it -- which on a
+    -- keyboard you never notice, because you let go anyway, but on a
+    -- touch d-pad held through the warp it freezes the player until the
+    -- thumb lifts.  That is the "delay after every warp" on mobile.
+    --
+    -- The wall is what needs holding off, not the pad.  So settle ends
+    -- the moment the held direction is one that can actually move; a
+    -- blocked direction still does nothing, exactly as before.
+    if self.warpSettle then
+      local tx, ty = (self.playerX or 0) + dx, (self.playerY or 0) + dy
+      if self:canStep(self.map, tx, ty) and not self:npcAt(self.map, tx, ty) then
+        self.warpSettle = nil
+      end
+    end
+    if self.warpSettle then
+      -- still facing something it cannot step into: ignore the pad
+    else
+      self.running = self:wantRun()
+      local dir = Game3.facingFromDelta(dx, dy)
+      if dir ~= self.facing then
+        self.facing = dir
+        -- ROM ProcessPlayerFieldInput: after facing matches dpad,
+        -- mapheader_run_first_tag2 warps on the arrow mat. A tap
+        -- that only turned still leaves.
+        self:tryArrowWarpOnTile(dx, dy)
+      else
+        self:tryWalk(dx, dy)
+      end
+    end
+  else
+    self.running = nil
+    self.warpSettle = nil
+    -- ROM has no sticky ignoreWarp; landing faces away from the
+    -- door. After the held key is released the next press may leave.
+    self.ignoreWarp = false
+  end
+end
+
+-- The seam itself. Ruby's walk goes through the module a mod wraps, so a
+-- wrap actually lands in the path -- the lesson from the voxel hotkey,
+-- which did nothing for a while because the mod had wrapped a method on the
+-- facade while the engine went on calling the one on the raw Game3.
+--
+-- With no adapter, no mod, or no overworld view, this is gridHandleInput
+-- called directly: one table lookup more than the inline block was.
+function Game3:fieldHandleInput()
+  local ok, API = pcall(require, "src.world.gen3.OverworldAPI")
+  if ok and API and type(API.handleInput) == "function" then
+    local view = self:modOverworld()
+    if view then return API.handleInput(view) end
+  end
+  return self:gridHandleInput()
 end
 
 function Game3:facingNpc()
@@ -47369,7 +48785,7 @@ function Game3:drawBagActions(f)
   for i = 0, n - 1 do
     local y = boxY + 6 + i * 14
     if i == (f and f.cursor or 0) then self:drawCursor(boxX + 4, y) end
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(actions[i + 1], boxX + 14, y)
   end
   love.graphics.setColor(1, 1, 1, 1)
@@ -47805,6 +49221,18 @@ function Game3:stepField()
   end
   if f.kind == "trainers_eye" then
     self:stepTrainersEye(f)
+    return
+  end
+  if f.kind == Game3.MODS_FIELD then
+    self:stepModManager()
+    return
+  end
+  if f.kind == "pokenav_condition_menu" then
+    self:stepPokenavConditionMenu(f)
+    return
+  end
+  if f.kind == "pokenav_condition_search" then
+    self:stepPokenavSearch(f)
     return
   end
   if f.kind == "pokenav_condition" then
@@ -48955,6 +50383,8 @@ function Game3:stepField()
       self:openSafariRetirePrompt()
     elseif name == "OPTION" then
       self.field = { kind = "option", cursor = 0 }
+    elseif name == "MODS" then
+      if not self:openModManager() then self:playSe(Game3.SE_FAILURE) end
     elseif name == self:playerName() then
       self:openTrainerCard()
     else
@@ -48967,7 +50397,7 @@ function Game3:drawStartMenu(f)
   if self:inSafariMode() then
     -- start_menu.c DisplaySafariBallsWindow: (0, 0, 10, 5), text at 1, 1.
     self:drawStdWindow(0, 0, Game3.SAFARI_STOCK_RIGHT, Game3.SAFARI_STOCK_BOTTOM)
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("SAFARI BALLS", Game3.MENU_TILE, Game3.MENU_TILE)
     self:drawText(("Stock: %d"):format(self.safariBalls or 0),
       Game3.MENU_TILE, Game3.MENU_TILE * 3)
@@ -48983,7 +50413,7 @@ function Game3:drawStartMenu(f)
     if i == (f.cursor or 0) then
       self:drawCursor(tx - Game3.MENU_TILE, y)
     end
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(labels[i + 1], tx, y,
       (Game3.START_RIGHT - Game3.START_TEXT_COL + 1) * Game3.MENU_TILE - 4)
   end
@@ -49043,7 +50473,7 @@ function Game3:drawTrainerCardFallback(face)
     -- Portrait well (tiles 19,5 8x8).
     G.setColor(164 / 255, 164 / 255, 164 / 255, 1)
     G.rectangle("fill", 19 * Game3.MENU_TILE, 5 * Game3.MENU_TILE, 64, 64)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("IDNo.", 16 * Game3.MENU_TILE, 2 * Game3.MENU_TILE)
     self:drawText("NAME", 2 * Game3.MENU_TILE, 5 * Game3.MENU_TILE)
     self:drawText("MONEY", 2 * Game3.MENU_TILE, 8 * Game3.MENU_TILE)
@@ -49119,7 +50549,7 @@ function Game3:drawTrainerCardFront()
       14 * Game3.MENU_TILE, 2 * Game3.MENU_TILE)
   end
 
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(self:playerName(), 7 * Game3.MENU_TILE, 5 * Game3.MENU_TILE, 88)
   self:drawText(self:trainerIdString(), 20 * Game3.MENU_TILE, 2 * Game3.MENU_TILE, 48)
   self:drawTrainerCardTextRight(self:moneyString(), 16, 8)
@@ -49183,7 +50613,7 @@ function Game3:drawTrainerCardBack()
     G.draw(bg, 0, 0)
   end
 
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local title = self:playerName() .. "'s TRAINER CARD"
   self:drawTrainerCardTextRight(title, 28, 2)
 
@@ -49227,7 +50657,7 @@ function Game3:drawTrainerCardBack()
   local ts = tonumber(tower and tower.bestStreak) or 0
   if tw ~= 0 or ts ~= 0 then
     self:drawText("BATTLE TOWER W/  STRAIGHT", 3 * Game3.MENU_TILE, 15 * Game3.MENU_TILE)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(("%d"):format(tw), 112, 120)
     self:drawText(("%d"):format(ts), 149, 120)
   end
@@ -49253,7 +50683,7 @@ function Game3:drawSaveAsk(f)
   G.setColor(0.10, 0.22, 0.45, 1)
   G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
   self:drawWindow(16, 8, 208, 96)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(self:saveMapName(), 24, 16)
   self:drawText("PLAYER", 24, 32)
   self:drawText(self:playerName(), 120, 32)
@@ -49269,14 +50699,14 @@ function Game3:drawSaveAsk(f)
   self:drawText("TIME", 24, y)
   self:drawText(self:playTimeString(), 120, y)
   self:drawWindow(16, 112, 208, 40)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(f and f.text or "Would you like to SAVE the game?", 24, 116)
   local cursor = f and f.cursor or 0
   local labels = { "YES", "NO" }
   for i = 0, 1 do
     local x = 48 + i * 80
     if i == cursor then self:drawCursor(x, 132) end
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(labels[i + 1], x + 12, 132)
   end
 end
@@ -49291,6 +50721,38 @@ end
 
 -- item_menu.c pocket printers: ITEMS/BALLS name xN, KEY name (+ SELECT),
 -- TM "## MOVE" xN / HM "# MOVE", BERRY "## NAME" xN.
+-- item_menu.c prints a row as TWO aligned pieces, not one string:
+--   AlignStringInMenuWindow(buf, ItemId_GetName(..), 0x66, 0)  -- name
+--   AlignInt1InMenuWindow(buf, quantity, 0x78, 1)              -- right-aligned
+-- so the quantities form a column ending 0x78 = 120px past the row origin,
+-- rather than trailing each name at whatever x it happens to end on.
+-- Key items and HMs carry no quantity at all.
+function Game3:bagListParts(slot, pocket)
+  if not slot then return "", nil end
+  local id = slot.id
+  local count = slot.count or 0
+  pocket = tonumber(pocket) or self:itemPocket(id)
+  if pocket == Game3.POCKET_KEY then
+    local mark = ((self.registeredItem or 0) == id) and " [SEL]" or ""
+    return self:itemName(id) .. mark, nil
+  end
+  if pocket == Game3.POCKET_TMHM then
+    local moveName = self:tmhmMoveName(id) or ""
+    local label = self:itemName(id)
+    if moveName ~= "" then label = label .. " " .. moveName end
+    if id < Game3.ITEM_HM_CUT then
+      return label, ("x%d"):format(count)
+    end
+    return label, nil
+  end
+  if pocket == Game3.POCKET_BERRIES then
+    local num = id - Game3.ITEM_CHERI_BERRY + 1
+    if num < 1 then num = 1 end
+    return ("%02d %s"):format(num, self:itemName(id)), ("x%d"):format(count)
+  end
+  return self:itemName(id), ("x%d"):format(count)
+end
+
 function Game3:bagListLabel(slot, pocket)
   if not slot then return "" end
   local id = slot.id
@@ -49325,9 +50787,14 @@ function Game3:bagCloseDestination(f)
   return "the field."
 end
 
-function Game3:drawBagLines(text, x, y, lineH, maxLines)
+-- `maxW` is the box the lines have to live in. It used to pass
+-- MSG_WIDTH_PX (208), the DIALOGUE width, so a long description ran out of
+-- the description panel and under the item list. The cart's strings arrive
+-- pre-wrapped, so this is a backstop rather than the usual path.
+function Game3:drawBagLines(text, x, y, lineH, maxLines, maxW)
   lineH = lineH or 16
   maxLines = maxLines or 3
+  maxW = maxW or Game3.BAG_DESC_W
   text = tostring(text or "")
   local lines = {}
   for line in (text .. "\n"):gmatch("(.-)\n") do
@@ -49335,7 +50802,7 @@ function Game3:drawBagLines(text, x, y, lineH, maxLines)
   end
   if #lines == 0 then lines[1] = text end
   for i = 1, math.min(#lines, maxLines) do
-    self:drawText(lines[i], x, y + (i - 1) * lineH, Game3.MSG_WIDTH_PX)
+    self:drawText(lines[i], x, y + (i - 1) * lineH, maxW)
   end
 end
 
@@ -49353,6 +50820,113 @@ function Game3:bagImage(name)
     if img then return img end
   end
   return nil
+end
+
+-- The six pocket names come out of the cart as one 64x96 strip, pocket p
+-- at y = p * 16 (row 0 is blank -- pockets are numbered from 1).
+-- item_menu.c positions, all of them cart-sourced:
+--   list rows   Menu_PrintText(.., 14, itemPos * 2 + 2)  -> (112, 16i + 16)
+--   description Menu_PrintTextPixelCoords(.., 4, 104 + 16b)
+--   arrows      CreateVerticalScrollIndicators(TOP, 172, 12) / (BOTTOM, .., 148)
+Game3.BAG_LIST_X = 112
+Game3.BAG_LIST_Y = 16
+Game3.BAG_LIST_ROW = 16
+Game3.BAG_CURSOR_X = 111
+Game3.BAG_CURSOR_W = 122
+Game3.BAG_CURSOR_H = 16
+-- AlignStringInMenuWindow(.., 0x66, 0) / AlignInt1InMenuWindow(.., 0x78, 1)
+Game3.BAG_LIST_NAME_W = 0x66
+Game3.BAG_LIST_QTY_RIGHT = 112 + 0x78
+Game3.BAG_DESC_X = 4
+Game3.BAG_DESC_Y = 104
+Game3.BAG_DESC_ROW = 16
+-- Measured off the extracted panel: its white interior runs x 3..105, and
+-- the cart prints from x 4, so 102px is usable. 100 was a guess and it was
+-- two pixels short -- TINYMUSHROOM's "Can be sold cheaply." is exactly
+-- 102px and would have been squashed. All 28 cart lines sampled fit 102.
+Game3.BAG_DESC_W = 102
+Game3.BAG_ARROW_X = 172
+Game3.BAG_ARROW_TOP_Y = 12
+Game3.BAG_ARROW_BOTTOM_Y = 148
+--   pocket arrows CreateVerticalScrollIndicators(LEFT, 28, 88) / (RIGHT, 100, 88)
+Game3.BAG_POCKET_LEFT_X = 28
+Game3.BAG_POCKET_RIGHT_X = 100
+Game3.BAG_POCKET_ARROW_Y = 88
+Game3.BAG_LABEL_X = 32
+Game3.BAG_LABEL_Y = 80
+Game3.BAG_LABEL_W = 64
+Game3.BAG_LABEL_H = 16
+
+-- menu_helpers.c CreateVerticalScrollIndicators takes the sprite CENTRE,
+-- so a 16x8 arrow at (172, 12) has its corner at (164, 8) and an 8x16 one at
+-- (28, 88) has its corner at (24, 80).
+Game3.SCROLL_ARROW_QUADS = {
+  up = { 0, 0, 16, 8 }, down = { 0, 8, 16, 8 },
+  left = { 0, 16, 8, 16 }, right = { 8, 16, 8, 16 },
+}
+
+function Game3:drawScrollArrow(which, cx, cy)
+  local sheet = self:uiPic("scrollArrows")
+  local q = Game3.SCROLL_ARROW_QUADS[which]
+  if not (sheet and q and love.graphics.newQuad) then return false end
+  self._scrollArrowQuads = self._scrollArrowQuads or {}
+  local quad = self._scrollArrowQuads[which]
+  if not quad then
+    local sw, sh = sheet:getDimensions()
+    quad = love.graphics.newQuad(q[1], q[2], q[3], q[4], sw, sh)
+    self._scrollArrowQuads[which] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, cx - q[3] / 2, cy - q[4] / 2)
+  return true
+end
+
+-- item_menu.c DrawPocketIndicatorDots writes tileMapBuffer[0x125 + i],
+-- i.e. tilemap row 9 col 5 -> pixels (40 + 8i, 72). The cart has BOTH these
+-- dots and the left/right switch arrows; removing the dots in favour of the
+-- arrows was my error.
+Game3.BAG_DOT_X = 40
+Game3.BAG_DOT_Y = 72
+Game3.BAG_DOT_STEP = 8
+
+function Game3:drawBagPocketDots(pocket, bob)
+  local sheet = self:bagImage("bag_dots.png")
+  if not (sheet and love.graphics.newQuad) then return false end
+  local sw, sh = sheet:getDimensions()
+  self._bagDotQuads = self._bagDotQuads or {}
+  for i = 1, Game3.POCKET_COUNT do
+    local on = (i == pocket)
+    local key = on and 1 or 0
+    local quad = self._bagDotQuads[key]
+    if not quad then
+      quad = love.graphics.newQuad(key * 8, 0, 8, 8, sw, sh)
+      self._bagDotQuads[key] = quad
+    end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(sheet, quad,
+      Game3.BAG_DOT_X + (i - 1) * Game3.BAG_DOT_STEP,
+      Game3.BAG_DOT_Y + (bob or 0))
+  end
+  return true
+end
+
+function Game3:drawBagPocketLabel(pocket, bob)
+  local sheet = self:bagImage("bag_labels.png")
+  if not (sheet and love.graphics.newQuad) then return false end
+  local p = tonumber(pocket) or Game3.POCKET_ITEMS
+  local h = Game3.BAG_LABEL_H
+  local sw, sh = sheet:getDimensions()
+  if p < 0 or (p + 1) * h > sh then return false end
+  self._bagLabelQuads = self._bagLabelQuads or {}
+  local quad = self._bagLabelQuads[p]
+  if not quad then
+    quad = love.graphics.newQuad(0, p * h, Game3.BAG_LABEL_W, h, sw, sh)
+    self._bagLabelQuads[p] = quad
+  end
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.draw(sheet, quad, Game3.BAG_LABEL_X,
+    Game3.BAG_LABEL_Y + (bob or 0))
+  return true
 end
 
 function Game3:drawBag(f)
@@ -49402,55 +50976,93 @@ function Game3:drawBag(f)
     G.draw(bagSpr, q, 26, 8 + bob)
   else
     self:drawWindow(4, 4 + bob, 104, 56)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("BAG", 12, 10 + bob)
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
-  self:drawText(self:pocketName(pocket), 8, 74 + bob, 96)
-  for i = 1, Game3.POCKET_COUNT do
-    local dx = 20 + (i - 1) * 14
-    if i == pocket then
-      G.setColor(0.95, 0.85, 0.35, 1)
-      if G.circle then G.circle("fill", dx, 92 + bob, 3) end
-    else
-      G.setColor(0.45, 0.35, 0.20, 1)
-      if G.circle then G.circle("fill", dx, 92 + bob, 2) end
+  -- item_menu.c sub_80A39B8 blits an 8x2 tile block of
+  -- gBagScreenLabels_Tilemap to tile (4, 10) -- the pocket name is cart art
+  -- sitting on the yellow bar at (32, 80), not text at (8, 74).
+  if not self:drawBagPocketLabel(pocket, bob) then
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+    self:drawText(self:pocketName(pocket), 8, 74 + bob, 96)
+  end
+  -- The cart has no row of pocket dots. item_menu.c creates a pair of
+  -- scroll indicators flanking the pocket bar instead:
+  -- CreateVerticalScrollIndicators(LEFT_ARROW, 28, 88) and
+  -- (RIGHT_ARROW, 100, 88), which is how it shows the pocket can be
+  -- switched. Only draw the side that has somewhere to go.
+  self:drawBagPocketDots(pocket, bob)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+  if pocket > Game3.POCKET_ITEMS then
+    if not self:drawScrollArrow("left", Game3.BAG_POCKET_LEFT_X,
+        Game3.BAG_POCKET_ARROW_Y + bob) then
+      self:drawText("<", Game3.BAG_POCKET_LEFT_X, Game3.BAG_POCKET_ARROW_Y + bob)
+    end
+  end
+  if pocket < Game3.POCKET_COUNT then
+    if not self:drawScrollArrow("right", Game3.BAG_POCKET_RIGHT_X,
+        Game3.BAG_POCKET_ARROW_Y + bob) then
+      self:drawText(">", Game3.BAG_POCKET_RIGHT_X, Game3.BAG_POCKET_ARROW_Y + bob)
     end
   end
 
-  self:drawWindow(112, 4, 124, 152)
+  -- No window frame here: gBagScreen_Tilemap already draws the list panel,
+  -- so painting a standard frame over it replaced the cart's yellow border
+  -- with the generic grey one.
+  -- item_menu.c: Menu_PrintText(gStringVar1, 14, itemPos * 2 + 2), i.e.
+  -- text at x 112 and y 16 * i + 16, with the cursor a tile to its left.
   for i = 0, rows - 1 do
     local idx = start + i
-    local y = 12 + i * 16
-    if idx == cursor then self:drawCursor(116, y) end
-    G.setColor(0.10, 0.10, 0.12, 1)
+    local y = Game3.BAG_LIST_Y + i * Game3.BAG_LIST_ROW
+    if idx == cursor then
+      -- The bag list marks the selection with the same wide outline the
+      -- battle menu uses (sub_814A958), not the field triangle. Measured
+      -- off a hardware capture: x 111..232, y row..row+15.
+      self:drawBattleCursor(Game3.BAG_CURSOR_X, y,
+        Game3.BAG_CURSOR_W, Game3.BAG_CURSOR_H)
+    end
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     if idx < #list then
       local slot = list[idx + 1]
-      self:drawText(self:bagListLabel(slot, pocket), 128, y, 100)
+      local name, qty = self:bagListParts(slot, pocket)
+      self:drawText(name, Game3.BAG_LIST_X, y, Game3.BAG_LIST_NAME_W)
+      if qty then
+        local w = Game3.textWidth(qty, self:font3WidthTable())
+        self:drawText(qty, Game3.BAG_LIST_QTY_RIGHT - w, y)
+      end
     elseif idx == #list then
-      self:drawText(Game3.BAG_CLOSE, 128, y, 100)
+      self:drawText(Game3.BAG_CLOSE, Game3.BAG_LIST_X, y, 100)
     end
   end
   -- Vertical scroll arrows (CreateVerticalScrollIndicators).
+  -- CreateVerticalScrollIndicators(TOP_ARROW, 172, 12) / (BOTTOM, 172, 148)
   if start > 0 then
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("^", 220, 4)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+    if not self:drawScrollArrow("up", Game3.BAG_ARROW_X, Game3.BAG_ARROW_TOP_Y) then
+      self:drawText("^", Game3.BAG_ARROW_X, Game3.BAG_ARROW_TOP_Y)
+    end
   end
   if start + rows < total then
-    G.setColor(0.10, 0.10, 0.12, 1)
-    self:drawText("v", 220, 148)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+    if not self:drawScrollArrow("down", Game3.BAG_ARROW_X, Game3.BAG_ARROW_BOTTOM_Y) then
+      self:drawText("v", Game3.BAG_ARROW_X, Game3.BAG_ARROW_BOTTOM_Y)
+    end
   end
 
-  self:drawWindow(4, 104, 104, 52)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  -- The description panel is in the screen art as well. The cart prints
+  -- into it with Menu_PrintTextPixelCoords(description, 4, 104 + b * 16).
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   if cursor >= #list then
-    -- ItemListMenu_InitDescription CLOSE BAG: "Return to" / destination.
-    self:drawText("Return to", 12, 112)
-    self:drawText(self:bagCloseDestination(f), 12, 128)
+    -- ItemListMenu_InitDescription CLOSE BAG: gOtherText_ReturnTo at
+    -- (4, 0x68) and the destination at (4, 0x78).
+    self:drawText("Return to", Game3.BAG_DESC_X, Game3.BAG_DESC_Y)
+    self:drawText(self:bagCloseDestination(f), Game3.BAG_DESC_X,
+      Game3.BAG_DESC_Y + Game3.BAG_DESC_ROW)
   else
     local slot = list[cursor + 1]
     if slot then
-      self:drawBagLines(self:itemDescription(slot.id), 12, 112, 16, 3)
+      self:drawBagLines(self:itemDescription(slot.id), Game3.BAG_DESC_X,
+        Game3.BAG_DESC_Y, Game3.BAG_DESC_ROW, 3)
     end
   end
 end
@@ -49939,7 +51551,7 @@ function Game3:drawPartyScreenFallback(f)
   G.setColor(0.22, 0.48, 0.38, 1)
   G.rectangle("fill", 0, 0, Game3.SCREEN_W, Game3.SCREEN_H)
   self:drawWindow(4, 4, 232, 152)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local title = "POKeMON"
   if f and f.kind == "party_switch" then title = "Move to where?" end
   if f and f.kind == "party_teach" then title = "Teach which?" end
@@ -49963,7 +51575,7 @@ function Game3:drawPartySlots(f)
       G.rectangle("fill", 16, y - 2, rowW, 20)
     end
     if i == cursor then self:drawCursor(18, y) end
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     if mon then
       self:drawText(mon.name or "POKeMON", 28, y, 88)
       local able = f and f.kind == "party_teach"
@@ -49993,7 +51605,7 @@ function Game3:drawCandyStats(f)
   })
   local growth = f.growth or {}
   self:drawWindow(88, 0, 152, 64)
-  love.graphics.setColor(0.10, 0.10, 0.12, 1)
+  love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local page = f.page or 0
   for i = 1, #growth do
     local row = growth[i]
@@ -50029,7 +51641,7 @@ function Game3:drawPartyAction(f)
   for i = 0, n - 1 do
     local y = boxY + 6 + i * 14
     if i == (f and f.cursor or 0) then self:drawCursor(boxX + 4, y) end
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(actions[i + 1], boxX + 14, y)
   end
 end
@@ -50053,14 +51665,14 @@ function Game3:drawPartySummary(f)
     -- sUnknown_083C157E RGB(30,30,27) vs normal RGB(26,26,23).
     G.setColor(30 / 31, 30 / 31, 27 / 31, 1)
   else
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   end
   self:drawText(mon.name or "POKeMON", 16, 14)
   if shiny then
     G.setColor(1.0, 0.92, 0.35, 1)
     self:drawText("*", 16 + #(mon.name or "POKeMON") * 6 + 4, 14)
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(("Lv%d"):format(mon.level or 1), 120, 14)
   self:drawText(titles[page + 1] or "INFO", 176, 14)
   if page == 0 then
@@ -50114,11 +51726,11 @@ function Game3:drawPartySummary(f)
       else
         G.setColor(0.55, 0.55, 0.58, 1)
         self:drawText("-", 16, y)
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       end
     end
   end
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText("< > pages  A/B back", 16, 138)
 end
 
@@ -50404,7 +52016,7 @@ function Game3:drawDexList(f)
         G.rectangle('fill', Game3.DEX_BALL_X, y + 7, 9, 2)
       end
       -- List text on the olive panel is dark, like PrintMonDexNumAndName.
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(('%03d'):format(self:dexListNumber(row.id)),
         Game3.DEX_NUM_X, y + 2)
       self:drawText(row.name, Game3.DEX_NAME_X, y + 2)
@@ -50447,7 +52059,7 @@ function Game3:drawDexList(f)
   end
 
   if #list < 1 then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText('No POKeMON seen yet.', Game3.DEX_NUM_X, 72)
   end
 end
@@ -50546,7 +52158,7 @@ function Game3:drawDexSelectBar(state)
       G.setColor(0.90, 0.28, 0.22, 1)
       self:drawCursor(x, 138)
     end
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(names[i], x + 10, 138)
     x = x + 58
   end
@@ -50561,7 +52173,7 @@ function Game3:drawDexSizeScreen(state)
   local monOff = tonumber(row.pokemonOffset) or 0
   local trainerOff = tonumber(row.trainerOffset) or 0
   self:drawDexChrome("size")
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(Game3.TEXT_DEX_SIZE_COMPARED .. (self:playerName() or ""),
     16, 12)
   -- pokedex.c CreateSizeScreenTrainerPic / CreateMonSpriteFromNationalDexNumber:
@@ -50620,7 +52232,7 @@ function Game3:drawDexCryScreen(state)
   local G = love.graphics
   local species = (state and (state.dexSpecies or state.species)) or 0
   self:drawDexChrome("cry")
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(Game3.TEXT_DEX_CRY_OF, 80, 16)
   self:drawText(self:speciesName(species), 80, 32)
   do
@@ -50682,12 +52294,12 @@ function Game3:drawDexAreaScreen(state)
     end
   end
   self:drawStdWindow(0, 0, 12, 3)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText("AREA", 8, 8)
   self:drawText(self:speciesName(species), 8, 20)
   if Game3.dexHabitatCount(habitat) < 1 then
     self:drawStdWindow(6, 7, 23, 11)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(Game3.TEXT_DEX_AREA_UNKNOWN, 64, 72)
   end
   -- Task_InitAreaScreenMultistep loads the submenu select bar here, the same
@@ -50718,7 +52330,7 @@ function Game3:drawDexEntry(state)
   local owned = state and state.owned
   if owned == nil then owned = self:hasCaught(species) end
   self:drawDexChrome()
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   if fromCatch then
     self:drawText(Game3.TEXT_DEX_REGISTERED, 16, 8)
   end
@@ -50850,7 +52462,7 @@ function Game3:drawRegionMap(f)
   self:drawSpriteCenter(self:cinemaPic("regionMapCursor"),
     cmx, cmy, frame * 16, 0, 16, 16, curScale)
   self:drawStdWindow(21, 0, 29, 3)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText("HOENN", 22 * Game3.MENU_TILE, 1 * Game3.MENU_TILE)
   local sec = Game3.regionMapSectionAt(cx, cy)
   local kind = self:regionMapKind(sec)
@@ -50876,7 +52488,7 @@ function Game3:drawRegionMap(f)
   local top = 16 - markLines * 2 - extra * 2
   if top < 14 then top = 14 end
   self:drawStdWindow(16, top, 29, 19)
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   local ty = (top + 1) * Game3.MENU_TILE
   if name ~= "" then
     self:drawText(name, 17 * Game3.MENU_TILE, ty)
@@ -50893,7 +52505,7 @@ function Game3:drawRegionMap(f)
     ty = ty + 16
   end
   if fly then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("Fly to where?", 8, 0x90)
   end
 end
@@ -51021,7 +52633,7 @@ function Game3:drawFieldOverlay()
   if f.kind == "mail_read" then
     self:drawPartyScreen({ kind = "party", cursor = 0 })
     self:drawWindow(16, 40, 208, 80)
-    love.graphics.setColor(0.10, 0.10, 0.12, 1)
+    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(self:itemName(f.item), 32, 56)
     self:drawText("The MAIL is blank.", 32, 80)
     return
@@ -51088,7 +52700,7 @@ function Game3:drawFieldOverlay()
   self:drawDialogueFrame()
   if f.kind == "daycare" then
     local labels = { "LEAVE", "TAKE" }
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText("DAY CARE", 8, 116)
     for i = 1, #labels do
       local y = 128 + (i - 1) * 12
@@ -51096,13 +52708,13 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(labels[i], 18, y)
     end
   elseif f.kind == "daycare_send" or f.kind == "npc_trade"
       or f.kind == "move_tutor_mon" then
     local party = self.party or {}
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(f.kind == "daycare_send" and "Leave which?"
       or "Which POKeMON?", 8, 108)
     local n = math.max(1, #party)
@@ -51116,14 +52728,14 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if mon then
         self:drawText(("%s  Lv%d"):format(mon.name or "POKeMON", mon.level or 1), 18, y)
       end
     end
   elseif f.kind == "daycare_take" then
     local list = self:daycareTakeRows()
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("Take which?", 8, 108)
     for i = 1, math.max(1, #list) do
       local row = list[i]
@@ -51132,7 +52744,7 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if row then
         local grew = row.gained or 0
         local grewTxt = (grew == 1) and "1 level"
@@ -51144,7 +52756,7 @@ function Game3:drawFieldOverlay()
   elseif f.kind == "daycare_retrieve" then
     local pages = f.pages or {}
     local page = pages[f.page or 1] or ""
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawDialogue({ text = page })
     if f.askPay then
       local labels = { "YES", "NO" }
@@ -51153,7 +52765,7 @@ function Game3:drawFieldOverlay()
   elseif f.kind == "fly" then
     self:drawRegionMap(f)
   elseif f.kind == "gender" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText("Are you a boy or a girl?", 10, 116)
     local labels = { "BOY", "GIRL" }
     for i = 0, 1 do
@@ -51162,7 +52774,7 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(labels[i + 1], 18, y)
     end
   elseif f.kind == "nickname" then
@@ -51172,7 +52784,7 @@ function Game3:drawFieldOverlay()
     local WallClock = require("src.ui.gen3.WallClock")
     WallClock.draw(self, f)
   elseif f.kind == "diploma" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(("%s's DIPLOMA"):format(self:playerName()), 10, 100)
     self:drawText("HOENN POKeDEX", 10, 114)
     self:drawText("A/B close", 8, 148)
@@ -51181,7 +52793,7 @@ function Game3:drawFieldOverlay()
   elseif f.kind == "tower_records" then
     self:drawBattleTowerRecords()
   elseif f.kind == "slots" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("SLOT MACHINE", 10, 100)
     self:drawText(("COINS %d  BET %d  PIKA %d"):format(
         self:getCoins(), f.bet or 1, f.pikaPower or 0), 10, 110)
@@ -51236,12 +52848,12 @@ function Game3:drawFieldOverlay()
             G.setColor(0.20, 0.85, 0.35, 1)
             G.rectangle("fill", x - 2, y - 2, 44, 16)
           end
-          G.setColor(0.10, 0.10, 0.12, 1)
+          G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
           self:drawText(labels[id] or "?", x, y)
         end
       end
     end
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(("COINS %d  BET %d  BALL %d/%d  x%d"):format(
       self:getCoins(), f.minBet or 1, f.balls or 0, Game3.ROULETTE_BALLS,
       self:rouletteMultiplier(cur, f)), 8, 88)
@@ -51289,14 +52901,14 @@ function Game3:drawFieldOverlay()
       or f.kind == "move_deleter" or f.kind == "player_pc" then
     local note = f.note
     if note then
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(note, 8, 100)
     end
     self:drawMenuListWindow(0, 1, f.labels, f.cursor)
   elseif self.drawPlayerPcMenus and self:drawPlayerPcMenus(f) then
     return
   elseif f.kind == "easy_chat" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     if f.text then self:drawText(f.text, 10, 100) end
     local labels = f.labels or {}
     local cur = f.cursor or 0
@@ -51311,11 +52923,11 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(labels[idx + 1] or "", 18, y)
     end
   elseif f.kind == "daycare_egg" or f.kind == "secret_base_move" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(f.text or (f.kind == "secret_base_move"
       and "Move your SECRET BASE here?" or "Want the EGG?"), 10, 116)
     local labels = { "YES", "NO" }
@@ -51325,11 +52937,11 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(labels[i + 1], 18, y)
     end
   elseif f.kind == "contest_cat" then
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText("Which CONTEST?", 8, 116)
     local names = Game3.CONTEST_CAT_NAMES
     local start = f.cursor or 0
@@ -51339,14 +52951,14 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       local name = names[start + i + 1]
       if name then self:drawText(name, 18, y) end
     end
   elseif f.kind == "contest_mon" then
     local party = self.party or {}
     local start = f.cursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText("Enter which?", 8, 116)
     for i = 0, 1 do
       local mon = party[start + i + 1]
@@ -51355,7 +52967,7 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if mon then
         self:drawText(("%s  Lv%d"):format(mon.name, mon.level or 1), 18, y)
       end
@@ -51363,7 +52975,7 @@ function Game3:drawFieldOverlay()
   elseif f.kind == "contest_rank" then
     local ranks = f.ranks or { 0 }
     local start = f.cursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText("Which rank?", 8, 116)
     for i = 0, 1 do
       local rank = ranks[start + i + 1]
@@ -51372,7 +52984,7 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if rank then
         self:drawText(Game3.CONTEST_RANK_NAMES[rank + 1] or "NORMAL", 18, y)
       end
@@ -51386,7 +52998,7 @@ function Game3:drawFieldOverlay()
     if round > Game3.CONTEST_TURNS then round = Game3.CONTEST_TURNS end
     local applause = c.applauseLevel or 0
     local meter = string.rep("*", applause) .. string.rep("-", 4 - applause)
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText(("APPEAL %d/%d  Crowd %s"):format(
       round, Game3.CONTEST_TURNS, meter), 8, 4)
     if c.mons then
@@ -51402,7 +53014,7 @@ function Game3:drawFieldOverlay()
         local mark = (who == (c.playerIndex or 3)) and ">" or " "
         local pts = st and (st.pointTotal or 0) or 0
         local hearts = Contest3.hearts(st and st.appeal or 0)
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(("%s%s  %d  %s"):format(
           mark, (src and src.nickname) or "????", pts,
           string.rep("<", hearts)), 8, y)
@@ -51412,13 +53024,13 @@ function Game3:drawFieldOverlay()
       local text = Contest3.currentText(c, self) or ""
       local y = 68
       for line in (text .. "\n"):gmatch("(.-)\n") do
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         self:drawText(line, 8, y)
         y = y + 12
       end
       self:drawText("A continue", 160, 148)
     else
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText("Choose a move.", 8, 68)
       for i = 0, 1 do
         local move = moves[start + i + 1]
@@ -51427,7 +53039,7 @@ function Game3:drawFieldOverlay()
           G.setColor(0.90, 0.28, 0.22, 1)
           self:drawCursor(8, y)
         end
-        G.setColor(0.10, 0.10, 0.12, 1)
+        G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
         if move then
           local id = move.id or 0
           local row = Contest3.moveRow(id)
@@ -51445,7 +53057,7 @@ function Game3:drawFieldOverlay()
         local desc = Contest3.moveDescription(sel.id or 0)
         local y = 108
         for line in (desc .. "\n"):gmatch("(.-)\n") do
-          G.setColor(0.10, 0.10, 0.12, 1)
+          G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
           self:drawText(line, 8, y)
           y = y + 12
         end
@@ -51455,7 +53067,7 @@ function Game3:drawFieldOverlay()
     if f.kind == "contest_winner" and f.subject then
       self:drawContestPainting(f)
     else
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       self:drawText(f.text or self:contestResultsText(), 8, 128)
       self:drawText("A continue", 160, 148)
     end
@@ -51465,6 +53077,12 @@ function Game3:drawFieldOverlay()
     self:drawPokenavMenu(f)
   elseif f.kind == "trainers_eye" then
     self:drawTrainersEye(f)
+  elseif f.kind == Game3.MODS_FIELD then
+    self:drawModManager()
+  elseif f.kind == "pokenav_condition_menu" then
+    self:drawPokenavConditionMenu(f)
+  elseif f.kind == "pokenav_condition_search" then
+    self:drawPokenavSearch(f)
   elseif f.kind == "pokenav_condition" then
     self:drawPokenavCondition(f)
   elseif f.kind == "pokenav_ribbons" then
@@ -51472,7 +53090,7 @@ function Game3:drawFieldOverlay()
   elseif f.kind == "blender_berry" then
     local slots = f.slots or {}
     local start = f.cursor or 0
-    G.setColor(0.10, 0.10, 0.12, 1)
+    G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     self:drawText("Choose a BERRY to blend.", 8, 116)
     for i = 0, 1 do
       local slot = slots[start + i + 1]
@@ -51481,7 +53099,7 @@ function Game3:drawFieldOverlay()
         G.setColor(0.90, 0.28, 0.22, 1)
         self:drawCursor(8, y)
       end
-      G.setColor(0.10, 0.10, 0.12, 1)
+      G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
       if slot then
         self:drawText(self:itemName(slot.id), 18, y)
       end
@@ -51529,7 +53147,7 @@ function Game3:drawBlenderSpin(f)
   if G.circle then G.circle("fill", ax, ay, 3) end
   local rpm = Game3.blenderRpmFromSpeed(f.speed)
   local scores = f.scores or {}
-  G.setColor(0.10, 0.10, 0.12, 1)
+  G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   self:drawText(("RPM %d.%02d  MAX %d.%02d"):format(
       math.floor(rpm / 100), rpm % 100,
       math.floor((f.maxRpm or 0) / 100), (f.maxRpm or 0) % 100), 8, 118)
@@ -51556,6 +53174,18 @@ function Game3:update(dt)
   -- or fling the camera, matching Gen 1/2.
   self:updateMusic(dt)
   require("src.render.Tilt").update(dt)
+  -- Render pipelines get a tick, on REAL time beside the other two, because
+  -- what they do with it is build work rather than gameplay: the voxel mod's
+  -- chunk mesher queues a map's mesh on the frame it is first asked for and
+  -- advances that queue here. Gen 1 and Gen 2 both call this
+  -- (src/core/Game.lua, src/core/Game2.lua) and Ruby did not, so a queued
+  -- mesh never built -- the mod said "no mesh yet (queued) -- flat for now"
+  -- once and then stayed flat forever, with nothing further logged because
+  -- that line prints once per map.
+  --
+  -- pcall'd rather than guarded: Pipelines wraps each mod's own update, but a
+  -- fault in the registry itself must not take the frame down.
+  pcall(function() require("src.render.Pipelines").update(dt) end)
   local speed = self:logicSpeed()
   FixedStep.maxAccum = math.max(0.25, speed * FixedStep.STEP * 1.5)
   if not self._speedClock then
@@ -51603,9 +53233,7 @@ function Game3:logicStep(dt)
     -- live but the player does not walk, a cursor does.
     self:stepDecorPlacing()
   elseif Input:wasPressed("start") and self.phase == "play" then
-    -- START must never sit under a stuck FADE_TO_BLACK veil.
-    self:fadeInFromBlack()
-    self.field = { kind = "menu", cursor = 0 }
+    self:openStartMenu()
   elseif Input:wasPressed("select") and self.phase == "play"
       and (self.walkCooldown or 0) <= 0 then
     self:useRegisteredItem()
@@ -51816,7 +53444,23 @@ function Game3:warmOneMap(dest)
     self:applyNpcFlags(dest)
   end
   self:warmNpcSprites(dest)
-  self:prefetchMapWindow(dest)
+  -- No tile prefetch.  The draw path already builds a neighbour's tile window
+  -- lazily and clipped to the camera (drawConnections -> drawLayer ->
+  -- tileWindow with visibleRange), so baking one here ahead of time was pure
+  -- duplicated work -- and MORE work than the lazy one, because it bakes whole
+  -- small maps and 16-tile bands rather than just the visible slice.
+  --
+  -- This is what the Gen 1 / Gen 2 overworld already concluded.  From
+  -- OverworldState:rebuildNeighbors: "A TileRenderer is now a light object --
+  -- the tile layer draws windowed to the camera, so nothing per-map is
+  -- constructed up front -- so there is no build cost to amortize and no
+  -- prefetch race to lose at a seam.  That is what the old one-per-frame
+  -- streaming queue existed to hide, and it is gone."
+  --
+  -- Measured on the Mauville <-> Route 111 seam: dropping it took the
+  -- deferred map work from 11.6-15.6ms to 0.9-2.2ms and roughly halved total
+  -- tileWindow/fillLayer work, because the prefetched windows were larger
+  -- than anything the camera actually asked for.
 end
 
 function Game3:warmConnectedMaps(map)
@@ -51828,14 +53472,25 @@ end
 
 -- One neighbor per frame after a connection so the seam step stays cheap.
 function Game3:flushPendingWarm()
+  -- Everything below was deferred out of enterMap so the seam STEP stays
+  -- cheap, which means THIS is the frame that actually pays for the map
+  -- change.  Whatever we do here, arm the catch-up drop again on the way out
+  -- (see the tail of this function): the crossing already armed it for the
+  -- frame that called us, and without re-arming, the oversized dt this frame
+  -- produces is paid back on the NEXT one as a burst of walk steps -- a ~9px
+  -- lurch in a single frame, measured off a phone capture, against the 2px a
+  -- normal walk frame moves.
+  local didWork = false
   local musicMap = self._pendingMapMusic
   if musicMap then
     self._pendingMapMusic = nil
+    didWork = true
     self:playMapMusic(musicMap)
   end
   local workMap = self.map
   if self._deferEnterWork and workMap then
     self._deferEnterWork = nil
+    didWork = true
     if not self._skipRoamerMove then
       self:tryUpdateRandomTrainerRematches()
       self:updateLocationHistoryForRoamer()
@@ -51858,10 +53513,39 @@ function Game3:flushPendingWarm()
       self:hideMapNamePopup()
     end
   end
+  -- ONE neighbour per frame, which is what the comment on this function has
+  -- always claimed.  warmConnectedMaps does every connected map in a single
+  -- call, and warmOneMap's prefetchMapWindow bakes tile windows, so a seam
+  -- crossing was paying for all of them on one frame: measured at 11.9ms of
+  -- update on a desktop (9.9-11.1ms of it inside prefetchMapWindow, 3-4
+  -- neighbours), which is the brief stop the player sees when walking across
+  -- a seam -- and it grows with the destination, because a bigger map has
+  -- more neighbours and more of each to bake.
+  --
+  -- Spread over frames instead: the queue is built once per crossing and
+  -- drained a map at a time, so no single frame carries more than one bake.
   local map = self._pendingWarm
-  if not map then return end
-  self._pendingWarm = nil
-  self:warmConnectedMaps(map)
+  if map then
+    if not self._warmQueue then
+      local q = {}
+      self:eachConnectedMap(map, function(dest) q[#q + 1] = dest end)
+      self._warmQueue = q
+    end
+    local dest = table.remove(self._warmQueue, 1)
+    if dest then
+      didWork = true
+      self:warmOneMap(dest)
+    end
+    if #self._warmQueue == 0 then
+      self._pendingWarm = nil
+      self._warmQueue = nil
+    end
+  end
+  -- The deferred half of the map change is what makes this frame long, so it
+  -- is this frame -- not the crossing one -- whose debt has to be dropped.
+  if didWork then
+    require("src.core.FixedStep"):discardCatchup()
+  end
 end
 
 function Game3:npcAt(map, x, y)
@@ -52138,8 +53822,26 @@ function Game3:actorReflects(tileX, tileY, hide, spriteH, map, spriteW, fromX, f
   return false
 end
 
-function Game3:markTilesDirty()
-  self.tileWindows = {}
+-- `map` narrows the invalidation to the one whose tiles actually changed.
+-- Without it a single setmetatile threw away every drawn map's windows: Route
+-- 111's onLoad stamps two tiles on arrival and that alone rebuilt all six
+-- windows of both maps (6ms of draw) one frame after the seam.  Tile windows
+-- are keyed by map id, so only that map's entries need to go.  No argument
+-- still clears everything, for the callers that really do change the world
+-- (layout swaps, decorations, a fresh map load).
+function Game3:markTilesDirty(map)
+  local id = map and (map.id or map)
+  if id and type(self.tileWindows) == "table" then
+    local prefix = tostring(id) .. "|"
+    local n = #prefix
+    for k in pairs(self.tileWindows) do
+      if type(k) == "string" and k:sub(1, n) == prefix then
+        self.tileWindows[k] = nil
+      end
+    end
+  else
+    self.tileWindows = {}
+  end
   self.borderFillCache = nil
   self.voidPaletteCache = nil
   self.connectedLayoutCache = nil
@@ -52399,10 +54101,24 @@ function Game3:voidFillMetatileOk(map, mid, kind)
   return true
 end
 
+-- Whole-map scan: "does this map contain terrain of `kind` anywhere?"
+--
+-- Cached, because drawVoidFill asks this once per drawn placement per FRAME,
+-- and the answer depends only on the map's grid.  Uncached it was 5,600 cells
+-- re-scanned every frame on Route 111 (40x140), doubled at a seam where the
+-- neighbour is drawn too -- which is what made the Mauville crossing cost
+-- several times what an ordinary one does.  Shares the lifetime of
+-- mapRepresentativeTiles' cache next door, which scans the same grid for the
+-- same reason and was already memoised.
 function Game3:mapTerrainPresent(map, kind)
   if not (map and type(map.grid) == "table") then return false end
+  self._voidFillMapTileCache = self._voidFillMapTileCache or {}
+  local cache = self._voidFillMapTileCache
+  local ckey = "present|" .. tostring(map.id or map) .. "|" .. tostring(kind)
+  local hit = cache[ckey]
+  if hit ~= nil then return hit end
   local w, h = map.width or 0, map.height or 0
-  if w < 1 or h < 1 then return false end
+  if w < 1 or h < 1 then cache[ckey] = false return false end
   for y = 0, h - 1 do
     for x = 0, w - 1 do
       local cell = map.grid[y * w + x + 1]
@@ -52410,10 +54126,12 @@ function Game3:mapTerrainPresent(map, kind)
       local b = self:behaviorAt(map, x, y)
       local k = Game3.voidFillKind(b, Game3.collisionOf(cell))
       if k == kind and self:voidFillMetatileOk(map, mid, kind) then
+        cache[ckey] = true
         return true
       end
     end
   end
+  cache[ckey] = false
   return false
 end
 
@@ -52694,7 +54412,10 @@ function Game3:drawWrapTileFill(image, tilesetId, cells, cacheKey, topPass, rect
             if mode ~= "skip" then
               local px, py = bx * Game3.TILE, by * Game3.TILE
               self:blitMetatile(image, mid, px, py, mode, nil)
-              if not staticBake then
+              -- this bake is keyed on `flip`, so it paints the corners only
+              -- for the variant that has them (drawAnimCorners no longer
+              -- checks the flip itself)
+              if not staticBake and flip then
                 self:drawAnimCorners(image, dummy, mid, px, py, topPass,
                   nil, self:behaviorAt(dummy, 0, 0), mode,
                   Game3.collisionOf(cell))
@@ -52738,64 +54459,29 @@ end
 -- simply paint over it. Cost is O(placements) -- typically 2-6 -- a
 -- handful of wrap-tiled quads, never a per-tile loop over the visible
 -- area, so it stays flat regardless of how far survey zoom pulls out.
-function Game3:drawVoidFill(which)
-  if which ~= "bottom" then return end
-  local map = self.map
-  if not map or Game3.isIndoorFillMap(map) then return end
-  local mode = self:voidFillMode()
-  if mode == "black" then return end
-  local G = love.graphics
-  if not (G and G.draw) then return end
-  local x = math.floor(self.camX or 0)
-  local y = math.floor(self.camY or 0)
-  local vw, vh = self:viewSize()
-  if (vw or 0) < 1 or (vh or 0) < 1 then return end
-  local view = { x, y, x + vw, y + vh }
-  local global = Game3.globalVoidCells(mode)
-  if global then
-    -- One wrap-tiled quad for the whole view. Nothing here depends on the
-    -- map the player happens to be standing on, so nothing here changes
-    -- when they walk into the next one.
-    local image = self:layersFor(map.tileset)
-    if image then
-      self:drawWrapTileFill(image, map.tileset, global,
-        "global|void|" .. mode, nil, { view }, true)
-    end
-    return
-  end
-  local placements = self:mapPlacements(map)
-  local t = Game3.TILE
-  -- Generous enough to always reach past the edge of the view even at
-  -- the deepest survey zoom; a wrap-tiled quad costs the same whether
-  -- it is 2 tiles wide or 200, so there is no reason to pinch this.
-  local pad = math.max(vw, vh, Game3.SCREEN_W, Game3.SCREEN_H) * 2
-  for i = 1, #placements do
-    local p = placements[i]
-    local dest = p and p.map
-    if dest then
-      local cover = {
-        (p.ox or 0) * t, (p.oy or 0) * t,
-        ((p.ox or 0) + (dest.width or 0)) * t,
-        ((p.oy or 0) + (dest.height or 0)) * t,
-      }
-      local hit = Game3.intersectRect(view, Game3.expandRect(cover, pad))
-      if hit then
-        local cells = self:voidFillCells(dest, mode)
-        if cells then
-          local bottom = self:layersFor(dest.tileset)
-          local image = bottom
-          if image then
-            self:drawWrapTileFill(image, dest.tileset, cells,
-              tostring(dest.id or dest) .. "|void|" .. mode,
-              nil, { hit }, true)
-          end
-        end
-      end
-    end
-  end
-end
+-- VOID FILL: REMOVED.
+--
+-- This drew the port's own invention -- a fill for the screen space beyond the
+-- edges of the maps actually drawn, which the cart has no concept of: a
+-- 240x160 screen never shows more than a few tiles past a map edge, and
+-- GetBorderBlockAt answers those from the current map's own 2x2 border.  It
+-- cost a per-placement pass every frame, and its appearance changed as the
+-- drawn layout changed, so it is gone.  Beyond the drawn maps now renders
+-- nothing, exactly as the old BLACK mode did.
+--
+-- The map's OWN border ring is a different thing and is STILL DRAWN -- see
+-- drawBorderFill above, which is the faithful GetBorderBlockAt behaviour.
+--
+-- Kept as a no-op rather than deleted outright so that any surviving caller
+-- (a mod, a stale option) is harmless instead of a nil-call.
+function Game3:drawVoidFill() end
 
-function Game3:fillLayer(image, map, x0, y0, x1, y1, topPass, batch)
+-- `animBatch`, when given, receives the animated corners instead of `batch`.
+-- They are the only flip-dependent thing in a layer, so splitting them out is
+-- what lets the static batch outlive the 4Hz flip (see tileWindow).  Without
+-- one -- the immediate fallback path -- corners are drawn inline exactly as
+-- before, gated on the live flip.
+function Game3:fillLayer(image, map, x0, y0, x1, y1, topPass, batch, animBatch)
   local w = map.width or 0
   local h = map.height or 0
   for y = y0, y1 do
@@ -52814,8 +54500,13 @@ function Game3:fillLayer(image, map, x0, y0, x1, y1, topPass, batch)
           local py = y * Game3.TILE
           local behavior = self:behaviorAt(map, x, y)
           self:blitMetatile(image, mid, px, py, mode, batch)
-          self:drawAnimCorners(image, map, mid, px, py, topPass, batch,
-            behavior, mode, Game3.collisionOf(cell))
+          if animBatch then
+            self:drawAnimCorners(image, map, mid, px, py, topPass, animBatch,
+              behavior, mode, Game3.collisionOf(cell))
+          elseif self:tileAnimFlip() then
+            self:drawAnimCorners(image, map, mid, px, py, topPass, batch,
+              behavior, mode, Game3.collisionOf(cell))
+          end
         end
       end
     end
@@ -52868,6 +54559,18 @@ function Game3:spriteBatchUsable()
   return self._spriteBatchOk
 end
 
+-- The cached ground window: a static SpriteBatch of every visible metatile,
+-- plus a second batch holding just that window's animated corners.
+--
+-- The flip is deliberately absent from the key.  tileAnimFlip() toggles 4x a
+-- second, and testing it here used to throw the whole window away twice a
+-- second -- every cell of every pass re-derived and re-batched (~11.7k
+-- metatileOf calls, 4-9ms) so that a handful of animated corners could change.
+-- Now the corners live in their own batch, so nothing about the animation
+-- touches the static one: it is rebuilt only when the camera leaves its
+-- margin, the tileset frame changes, or markTilesDirty drops the cache.
+--
+-- Returns the entry (not the batch) so drawLayer can draw both parts.
 function Game3:tileWindow(image, map, x0, y0, x1, y1, topPass)
   local G = love.graphics
   if not (G and G.newSpriteBatch) or not self:spriteBatchUsable() then
@@ -52876,16 +54579,21 @@ function Game3:tileWindow(image, map, x0, y0, x1, y1, topPass)
   end
   local w = map.width or 0
   local h = map.height or 0
-  local flip = self:tileAnimFlip() and true or false
+  -- `image` IS the animation frame's atlas (layersFor/animLayers hand back a
+  -- different Image per frame), so the frame number adds nothing to the key --
+  -- and it actively hurt, because self._tilesetFrame is ONE GLOBAL field.  A
+  -- crossing calls loadTileset, the counter ticks, and every cached window for
+  -- every map key-misses at once: measured 6 full window rebuilds (17ms of
+  -- draw) on the seam frame, with 132 still-valid windows orphaned behind it.
+  -- Keyed on the atlas alone, a window stays valid until its atlas or its
+  -- bounds actually change.
   local key = tostring(map.id or map) .. "|" .. tostring(image)
     .. "|" .. tostring(topPass or "bottom")
-    .. "|" .. tostring(self._tilesetFrame or 0)
   self.tileWindows = self.tileWindows or {}
   local win = self.tileWindows[key]
-  if win and win.flip == flip
-      and x0 >= win.x0 and y0 >= win.y0
+  if win and x0 >= win.x0 and y0 >= win.y0
       and x1 <= win.x1 and y1 <= win.y1 then
-    return win.batch
+    return win
   end
   local mx0 = math.max(0, x0 - Game3.TILE_WINDOW_MARGIN)
   local my0 = math.max(0, y0 - Game3.TILE_WINDOW_MARGIN)
@@ -52900,8 +54608,16 @@ function Game3:tileWindow(image, map, x0, y0, x1, y1, topPass)
     end
     batch = made
   end
+  -- Only a few cells in a window carry animated corners, so this one starts
+  -- small; LOVE grows a SpriteBatch past its initial size on demand.
+  local animBatch = win and win.anim
+  if not animBatch then
+    local okA, madeA = pcall(G.newSpriteBatch, image, 256, "dynamic")
+    animBatch = okA and madeA or nil
+  end
   if batch.clear then batch:clear() end
-  self:fillLayer(image, map, mx0, my0, mx1, my1, topPass, batch)
+  if animBatch and animBatch.clear then animBatch:clear() end
+  self:fillLayer(image, map, mx0, my0, mx1, my1, topPass, batch, animBatch)
   -- A ground pass covers every cell in the window, so an empty batch means
   -- the quads never landed. Painting the window directly is slower but keeps
   -- the world on screen instead of leaving VOID FILL (or bare background)
@@ -52913,10 +54629,14 @@ function Game3:tileWindow(image, map, x0, y0, x1, y1, topPass)
     self.tileWindows[key] = nil
     return nil
   end
-  self.tileWindows[key] = {
-    batch = batch, x0 = mx0, y0 = my0, x1 = mx1, y1 = my1, flip = flip,
+  local animCount = 0
+  if animBatch and animBatch.getCount then animCount = animBatch:getCount() end
+  win = {
+    batch = batch, anim = animBatch, animCount = animCount,
+    x0 = mx0, y0 = my0, x1 = mx1, y1 = my1,
   }
-  return batch
+  self.tileWindows[key] = win
+  return win
 end
 
 function Game3:drawLayer(image, map, x0, y0, x1, y1, originX, originY, topPass)
@@ -52930,8 +54650,13 @@ function Game3:drawLayer(image, map, x0, y0, x1, y1, originX, originY, topPass)
     G.push()
     G.translate(dx, dy)
   end
-  local batch = self:tileWindow(image, map, x0, y0, x1, y1, topPass)
-  if batch then G.draw(batch) end
+  local win = self:tileWindow(image, map, x0, y0, x1, y1, topPass)
+  if win then
+    G.draw(win.batch)
+    -- the flip-dependent half, drawn over the static one on the frames it is
+    -- on; this is the whole per-frame cost of the tile animation now
+    if win.animCount > 0 and self:tileAnimFlip() then G.draw(win.anim) end
+  end
   -- pokeruby DrawMetatile COVERED: after BG3, paint BG2 before sprites.
   -- A later covered pass can skip these if layerTop was nil at load.
   if not topPass then
@@ -53675,7 +55400,6 @@ function Game3:drawMapGround(includeOverlay)
   local map = self.map
   local x0, y0, x1, y1 = self:visibleRange()
   if self.layerBottom then
-    self:drawVoidFill("bottom")
     self:drawBorderFill(self.layerBottom, map)
     self:drawLayer(self.layerBottom, map, x0, y0, x1, y1, 0, 0)
     self:drawConnections("bottom")
@@ -53772,7 +55496,478 @@ end
 
 -- Flat world at zoom scale s, in window pixels. Tiles are live (Gen 1
 -- windowed SpriteBatch), so a larger view shows connected maps.
-function Game3:drawWorldBody(s)
+-- ------------------------------------------------ render pipelines
+--
+-- A pipeline is a display mode a mod owns (src/render/Pipelines.lua).  The
+-- `drawWorld` half REPLACES the overworld pass -- it renders the world its own
+-- way and hands back a canvas -- and the `worldPresent` half folds a
+-- post-process over that canvas before any UI draws on top.
+--
+-- This half is inert on Gold, and Schemas.lua says why in those words: Gold's
+-- overworld draws straight to the window rather than into a canvas.  Ruby is
+-- not in that position -- drawTilted already paints the world into one for the
+-- TILT effect -- which is why the seam can exist here and not there.
+local function pipelinesModule()
+  local cached = Game3._pipelines
+  if cached ~= nil then return cached or nil end
+  local got, mod = pcall(require, "src.render.Pipelines")
+  Game3._pipelines = (got and mod) or false
+  return Game3._pipelines or nil
+end
+
+-- The id of the pipeline that owns the world this frame, or nil for the
+-- cartridge's own pass.  Everything else reads this rather than asking
+-- Pipelines directly, so "is a pipeline driving the world" has one answer.
+function Game3:worldPipelineId()
+  local Pipelines = pipelinesModule()
+  if not Pipelines then return nil end
+  local got, id = pcall(Pipelines.worldPipeline)
+  if not got then return nil end
+  return id
+end
+
+-- What a pipeline is handed.  The key names are Gen 1's
+-- (src/world/OverworldController.lua) so a mod written against that engine
+-- finds what it expects; two of them are deliberately absent rather than
+-- faked:
+--
+--   paletteFor / spriteColors  Gen 1's SGB world palette.  Ruby's art is
+--                              true-colour GBA and is never re-mapped, so a
+--                              pipeline asking for one gets nil -- which is
+--                              the same answer Gen 1 gives in its own
+--                              true-colour modes.
+--   fx / drawFx                Gen 1 hands its field effects to the pipeline
+--                              to composite at projected anchors.  Ruby does
+--                              the same: when a pipeline owns the world pass,
+--                              emotes (and any other standing FX) are drawn
+--                              only through ctx.drawFx so they sit on the
+--                              diorama rather than at a flat screen position.
+--                              Full-screen flash / weather / fade stay in
+--                              drawWorldFx AFTER this pass -- those are not
+--                              world-anchored.
+
+-- Standing field FX for a world pipeline's overlay (ctx.drawFx).
+-- Closures draw in CAMERA-RELATIVE world pixels -- the same unit Gen 1's
+-- fxEmote / Gold's drawEmote(1, at) use -- so the drawFx transform can slide
+-- their flat foot onto the projected anchor without a second cam subtract.
+function Game3:drawPipelineEmoteFx(camX, camY)
+  camX, camY = camX or self.camX or 0, camY or self.camY or 0
+  local G = love.graphics
+  local function blit(tileX, tileY, emote, lift)
+    if not emote then return end
+    local spec = Game3.emoteSpec(self.data and self.data.sprites, emote)
+    local img = spec and self:grabImage(spec.path)
+    G.setColor(1, 1, 1, 1)
+    if img then
+      local px, py = Game3.emoteDrawPos(tileX, tileY, lift)
+      G.draw(img, px - camX, py - camY)
+      return
+    end
+    local glyph = Game3.EMOTE_GLYPH[emote]
+    if not glyph then return end
+    self:drawText(glyph,
+      tileX * Game3.TILE + 4 - camX,
+      tileY * Game3.TILE - 10 - (lift or 0) - camY)
+  end
+  if self.emote then
+    local vx, vy = self:visualTile()
+    blit(vx, vy, self.emote, self.levitate or 0)
+  end
+  local map = self.map
+  local npcs = self:npcsFor(map)
+  if npcs then
+    for i = 1, #npcs do
+      local o = npcs[i]
+      if o and o.emote and not o.hidden and not o.invisible then
+        local vx, vy = self:npcVisual(o)
+        blit(vx, vy, o.emote, o.levitate or 0)
+      end
+    end
+  end
+  if type(self.eachConnectedMap) == "function" then
+    self:eachConnectedMap(map, function(dest, ox, oy)
+      local live = self:npcsFor(dest)
+      if not live then return end
+      for i = 1, #live do
+        local o = live[i]
+        if o and o.emote and not o.hidden and not o.invisible then
+          local vx, vy = self:npcVisual(o)
+          blit(vx + (ox or 0), vy + (oy or 0), o.emote, o.levitate or 0)
+        end
+      end
+    end)
+  end
+end
+
+-- Anchor every active standing FX through `at(drawFn, worldX, worldY)`.
+-- Foot convention matches Gen 1: centre-x of the cell, bottom of the cell
+-- (px + 8, py + 16 on a 16px tile). One call per actor so a "!" on a
+-- terrace NPC projects onto THAT NPC rather than the player.
+function Game3:drawPipelineFieldFx(at, camX, camY)
+  if type(at) ~= "function" then return end
+  camX, camY = camX or self.camX or 0, camY or self.camY or 0
+  local TILE = Game3.TILE
+  local G = love.graphics
+  local function emoteAt(tileX, tileY, emote, lift)
+    if not emote then return end
+    local wx = tileX * TILE + TILE / 2
+    local wy = tileY * TILE + TILE
+    at(function()
+      local spec = Game3.emoteSpec(self.data and self.data.sprites, emote)
+      local img = spec and self:grabImage(spec.path)
+      G.setColor(1, 1, 1, 1)
+      if img then
+        local px, py = Game3.emoteDrawPos(tileX, tileY, lift)
+        G.draw(img, px - camX, py - camY)
+        return
+      end
+      local glyph = Game3.EMOTE_GLYPH[emote]
+      if glyph then
+        self:drawText(glyph,
+          tileX * TILE + 4 - camX,
+          tileY * TILE - 10 - (lift or 0) - camY)
+      end
+    end, wx, wy)
+  end
+  -- Grass tufts / fieldEffects live in drawWorldStanding on the flat path.
+  -- When a pipeline owns the world pass, that path never runs -- composite
+  -- them here at projected feet (Emerald/Gold ctx.drawFx contract).
+  local function grassAt(map, tileX, tileY, originX, originY)
+    if not map or not self:grassIsRustling(tileX, tileY) then return end
+    originX, originY = originX or 0, originY or 0
+    local wx = (originX + tileX) * TILE + TILE / 2
+    local wy = (originY + tileY) * TILE + TILE
+    at(function()
+      G.push()
+      G.translate(-camX, -camY)
+      pcall(self.drawGrassTuftAt, self, map, tileX, tileY, originX, originY)
+      G.pop()
+    end, wx, wy)
+  end
+  local function fieldFxAt()
+    local list = self.fieldEffects
+    if not list then return end
+    local t = TILE
+    for i = 1, #list do
+      local fx = list[i]
+      if fx.id == Game3.FLDEFF_SPARKLE then
+        local dur = fx.dur or Game3.FLDEFF_SPARKLE_FRAMES
+        local left = fx.left or 0
+        local pulse = 0.35 + 0.65 * (left / dur)
+        local cx = (fx.x or 0) * t + t / 2
+        local cy = (fx.y or 0) * t + t / 2
+        local r = 2 + 3 * pulse
+        at(function()
+          local x, y = cx - camX, cy - camY
+          G.setColor(1, 1, 0.55, pulse)
+          G.circle("fill", x, y, r)
+          G.setColor(1, 1, 1, pulse)
+          G.rectangle("fill", x - 1, y - r - 1, 2, r * 2 + 2)
+          G.rectangle("fill", x - r - 1, y - 1, r * 2 + 2, 2)
+        end, cx, cy + t / 2)
+      elseif fx.fieldMove then
+        local dur = fx.dur or Game3.FLDEFF_FIELD_MOVE_POSE_FRAMES
+        local left = fx.left or 0
+        local progress = 1 - (left / math.max(dur, 1))
+        if progress < 0 then progress = 0 elseif progress > 1 then progress = 1 end
+        local gx = fx.gx or (fx.x or 0)
+        local gy = fx.gy or (fx.y or 0)
+        local cx = gx * t + t / 2
+        local cy = gy * t + t / 2
+        if fx.id == Game3.FLDEFF_USE_CUT_ON_TREE then
+          local a = math.min(1, progress * 2) * (1 - math.max(0, progress - 0.55) * 2)
+          local span = 4 + 10 * math.min(1, progress * 1.6)
+          at(function()
+            local x, y = cx - camX, cy - camY
+            G.setColor(0.45, 0.95, 0.35, a)
+            G.setLineWidth(2)
+            G.line(x - span, y + span * 0.2, x + span, y - span * 0.35)
+            G.line(x - span * 0.7, y + span * 0.45, x + span * 0.85, y - span * 0.1)
+            G.setLineWidth(1)
+          end, cx, cy + t / 2)
+        elseif fx.id == Game3.FLDEFF_USE_ROCK_SMASH then
+          local a = math.min(1, progress * 2.5) * (1 - math.max(0, progress - 0.5) * 2)
+          local scatter = 2 + 8 * progress
+          at(function()
+            local x, y = cx - camX, cy - camY
+            G.setColor(0.55, 0.4, 0.28, a)
+            G.rectangle("fill", x - 3 - scatter * 0.4, y - 2, 4, 4)
+            G.rectangle("fill", x + scatter * 0.5, y - 3 - scatter * 0.3, 3, 3)
+            G.rectangle("fill", x - 1, y + scatter * 0.45, 5, 3)
+            G.setColor(0.75, 0.6, 0.4, a * 0.85)
+            G.rectangle("fill", x + 2 - scatter * 0.2, y + 1, 3, 3)
+          end, cx, cy + t / 2)
+        elseif fx.id == Game3.FLDEFF_USE_STRENGTH then
+          local pulse = 0.25 + 0.75 * math.sin(progress * math.pi)
+          local r = 3 + 5 * pulse
+          at(function()
+            local x, y = cx - camX, cy - camY
+            G.setColor(1, 0.85, 0.25, pulse * 0.7)
+            G.circle("line", x, y, r)
+            G.setColor(1, 1, 0.7, pulse)
+            G.circle("fill", x, y, 2)
+          end, cx, cy + t / 2)
+        end
+      end
+    end
+  end
+  if self.emote then
+    local vx, vy = self:visualTile()
+    emoteAt(vx, vy, self.emote, self.levitate or 0)
+  end
+  local map = self.map
+  if map and not self.hopping and (self.levitate or 0) <= 0 then
+    grassAt(map, self.playerX, self.playerY)
+    if (self.walkCooldown or 0) > 0 then
+      grassAt(map, self.walkFromX, self.walkFromY)
+    end
+  end
+  local npcs = map and self:npcsFor(map)
+  if npcs then
+    for i = 1, #npcs do
+      local o = npcs[i]
+      if o and not o.hidden and not o.invisible then
+        local vx, vy = self:npcVisual(o)
+        if o.emote then emoteAt(vx, vy, o.emote, o.levitate or 0) end
+        if (o.levitate or 0) <= 0 then
+          grassAt(map, o.x, o.y)
+          if (o.cooldown or 0) > 0 then grassAt(map, o.fromX, o.fromY) end
+        end
+      end
+    end
+  end
+  if type(self.eachConnectedMap) == "function" then
+    self:eachConnectedMap(map, function(dest, ox, oy)
+      local live = self:npcsFor(dest)
+      if not live then return end
+      for i = 1, #live do
+        local o = live[i]
+        if o and not o.hidden and not o.invisible then
+          local vx, vy = self:npcVisual(o)
+          if o.emote then
+            emoteAt(vx + (ox or 0), vy + (oy or 0), o.emote, o.levitate or 0)
+          end
+          if (o.levitate or 0) <= 0 then
+            grassAt(dest, o.x, o.y, ox, oy)
+            if (o.cooldown or 0) > 0 then
+              grassAt(dest, o.fromX, o.fromY, ox, oy)
+            end
+          end
+        end
+      end
+    end)
+  end
+  fieldFxAt()
+end
+
+function Game3:worldPipelineContext(s, id, pw, ph)
+  local Pipelines = pipelinesModule()
+  -- TWO DIFFERENT SIZES, and collapsing them is what put the diorama in a
+  -- corner of an empty screen on a phone.
+  --
+  --   vw / vh          the world view, in WORLD pixels -- how much of the
+  --                    map the window covers at the current zoom. NOT a
+  --                    constant 240x160: syncWorldView divides the window by
+  --                    the zoom scale, so a tall phone at 3x covers roughly
+  --                    240x533 and a pipeline's camera must frame that much
+  --                    or the diorama comes out at the wrong magnification.
+  --   width / height   the PLAYFIELD, in SCREEN pixels -- what a pipeline
+  --                    sizes its canvas and projection from
+  --
+  -- Gen 1 keeps them apart (`width = pw, height = ph` from playfieldRect,
+  -- beside its own vw/vh). Publishing one number for both happened to look
+  -- right on a desktop window of roughly the GBA's shape and put the world in
+  -- the bottom corner of a tall portrait one.
+  local vw = self.viewW or Game3.SCREEN_W
+  local vh = self.viewH or Game3.SCREEN_H
+  local w = tonumber(pw) or vw
+  local h = tonumber(ph) or vh
+  local camX, camY = self.camX or 0, self.camY or 0
+  return {
+    game = self,
+    -- `state` is Gen 1's OverworldController, and a mod reaches THROUGH it for
+    -- the things an overworld has -- VoxelScene.render's first line is
+    -- `local cam = state.camera`. Handing over the raw Game3 put a game here
+    -- instead: it has camX and camY but no `.camera`, so the pipeline died on
+    -- its first draw. The overworld view publishes the overworld's shape, so
+    -- that is what belongs in this slot.
+    state = self:modOverworld(),
+    generation = 3,
+    cam = { x = camX, y = camY },
+    camX = camX, camY = camY,
+    vw = vw, vh = vh, bgY = camY,
+    width = w, height = h,
+    scale = s,
+    level = Pipelines and Pipelines.level(id) or 0,
+    paletteFor = function() return nil end,
+    spriteColors = function() return nil end,
+    -- Gen 1 hands its live field effects to the pipeline so they can be
+    -- composited at PROJECTED anchors -- a "!" bubble on the terrace the
+    -- player is standing on rather than at its flat screen position. Same
+    -- contract as src/world/OverworldController.lua and Gold's
+    -- World:drawPipeline: `project(wx, wy)` maps a world point to canvas
+    -- pixels (nil behind the camera), and the closures draw in cam-relative
+    -- world pixels so the transform can slide their flat foot onto the
+    -- projected anchor. Deliberately unscaled by depth, like :billboard.
+    --
+    -- When a pipeline owns the world pass, drawWorldBody returns after
+    -- presenting the canvas -- so these never also draw flat on top.
+    fx = {
+      emote = function() self:drawPipelineEmoteFx(camX, camY) end,
+    },
+    drawFx = function(project, scale)
+      scale = scale or s
+      if type(project) ~= "function" then return end
+      local G = love.graphics
+      local function at(drawFn, wx, wy)
+        if not drawFn then return end
+        local sx, sy = project(wx, wy)
+        if not sx then return end
+        local fx, fy = wx - camX, wy - camY
+        G.push()
+        G.scale(scale, scale)
+        G.translate(sx / scale - fx, sy / scale - fy)
+        -- A missing emote sheet must not retire the whole pipeline: project
+        -- already answered, so the anchor is right even if the blit fails.
+        pcall(drawFn)
+        G.pop()
+      end
+      self:drawPipelineFieldFx(at, camX, camY)
+    end,
+    -- the cartridge's own world pass, so a pipeline that folds over the flat
+    -- world rather than replacing it does not have to reimplement it
+    fallback = function() self:drawWorldFlat(s) end,
+  }
+end
+
+-- The world pass.  A pipeline owns it when one is eligible and actually
+-- returns a canvas; a pipeline that declines this frame (nil back -- nothing
+-- to draw, or it threw and the engine retired it) falls through to the
+-- cartridge's pass rather than leaving the world blank.
+-- A PIPELINE'S CANVAS IS MEASURED IN PHYSICAL PIXELS; THIS PASS DRAWS IN
+-- LOGICAL UNITS.
+--
+-- The mod sizes its scene from love.graphics.getPixelDimensions() and
+-- allocates it through its own PixelCanvas.new, which passes `dpiscale = 1`
+-- -- so the image is one texel per PHYSICAL pixel and its coordinate space
+-- is the physical one. Ruby draws through GameViewport, whose dimensions()
+-- is love.graphics.getDimensions(): LOGICAL units. On a display whose DPI
+-- scale is not 1 those two differ by exactly that factor, and a 1:1 blit
+-- shows only the top-left 1/dpi of the image at 1/dpi of its intended size.
+--
+-- That reads on screen as the world sitting low and right in a frame that
+-- is otherwise the pipeline's cleared sky, which is not a coincidence: the
+-- orbit builds `focus` and `eye` so the focus projects to the CENTRE of its
+-- own canvas (Voxel3D.viewProjection's symmetric frustum), so cropping to
+-- the top-left quadrant puts the player -- and the only ground that was
+-- meshed around them -- down in the lower right, with cleared sky above.
+--
+-- Gen 1 divides by the frame's dpi, in Renderer:endFrame's worldOverride
+-- branch: `G.draw(self.worldOverride, vux, vuy, 0, 1 / dpiX, 1 / dpiY)`.
+-- Taking the factor from the canvas's own size against the rect being
+-- filled comes to that same number whenever the pipeline measured the same
+-- window we did, and additionally covers the case Gen 1 has no equivalent
+-- of: render.viewport reserving a rectangle SMALLER than the window, where
+-- our target is not window-sized and a fixed 1/dpi would still be wrong.
+--
+-- Returns false rather than drawing when the canvas cannot be measured, so
+-- the caller falls through to the cartridge's own pass instead of leaving
+-- the world blank.
+function Game3:presentWorldCanvas(canvas, pw, ph)
+  if not canvas then return false end
+  local function measure(pixelName, unitName)
+    local fn = canvas[pixelName] or canvas[unitName]
+    if type(fn) ~= "function" then return nil end
+    local ok, value = pcall(fn, canvas)
+    if not ok then return nil end
+    value = tonumber(value)
+    if not value or value < 1 then return nil end
+    return value
+  end
+  local cw = measure("getPixelWidth", "getWidth")
+  local ch = measure("getPixelHeight", "getHeight")
+  if not cw or not ch then return false end
+  local tw = tonumber(pw)
+  local th = tonumber(ph)
+  if not tw or not th or tw < 1 or th < 1 then
+    tw, th = self:windowSize()
+  end
+  local G = love.graphics
+  G.setColor(1, 1, 1, 1)
+  G.draw(canvas, 0, 0, 0, tw / cw, th / ch)
+  return true
+end
+
+-- ONE LINE PER MAP SAYING WHAT THE WORLD PASS ACTUALLY DID.
+--
+-- When a pipeline draws the world and the result looks wrong, the first
+-- question is which path ran -- the pipeline's canvas, or the cartridge's
+-- flat pass because the pipeline declined -- and at what scale. Reading that
+-- off a screenshot is guesswork: an interior falling back to flat and an
+-- interior drawn by a pipeline that meshed nothing look similar, and I have
+-- already mis-read one for the other. The mod states its own reason in the
+-- log beside this, so the two lines together name the frame exactly.
+--
+-- Once per map per outcome, at info: it costs a table lookup on every other
+-- frame and nothing at all once a map has reported.
+function Game3:logWorldPass(outcome, s, pw, ph, canvas)
+  local map = self.map
+  local key = tostring(map and map.id) .. "|" .. outcome
+  self._worldPassLogged = self._worldPassLogged or {}
+  if self._worldPassLogged[key] then return end
+  self._worldPassLogged[key] = true
+  local cw, ch = "-", "-"
+  if canvas and canvas.getPixelWidth then
+    local ok, a, b = pcall(function()
+      return canvas:getPixelWidth(), canvas:getPixelHeight()
+    end)
+    if ok then cw, ch = a, b end
+  end
+  local vw, vh = self:viewSize()
+  local line = string.format(
+    "world pass: %s on %s (mapType %s) -- scale %s, view %sx%s world px, "
+    .. "playfield %sx%s, canvas %sx%s",
+    outcome, tostring(map and map.id), tostring(map and map.mapType),
+    tostring(s), tostring(vw), tostring(vh),
+    tostring(pw), tostring(ph), tostring(cw), tostring(ch))
+  require("src.core.Logger").info("%s", line)
+  -- AND TO A FILE, because on a phone the Logger goes to stdout and stdout
+  -- goes to logcat, which the person actually playing cannot read. The error
+  -- screen already points at the save directory for lua-error.log, so this
+  -- sits beside it under a name that says what it is. Bounded by the same
+  -- once-per-map-per-outcome gate above, so it stays a handful of lines.
+  pcall(function()
+    if not (love and love.filesystem and love.filesystem.append) then return end
+    love.filesystem.append("world-pass.log",
+      os.date("%H:%M:%S ") .. line .. string.char(10))
+  end)
+end
+
+function Game3:drawWorldBody(s, pw, ph)
+  local id = self:worldPipelineId()
+  if id then
+    local Pipelines = pipelinesModule()
+    local ctx = self:worldPipelineContext(s, id, pw, ph)
+    local got, canvas = pcall(Pipelines.drawWorld, id, ctx)
+    if got and canvas then
+      local okFold, folded = pcall(Pipelines.worldPresent, canvas, ctx)
+      if okFold and folded then canvas = folded end
+      if self:presentWorldCanvas(canvas, pw, ph) then
+        self:logWorldPass("pipeline canvas", s, pw, ph, canvas)
+        return
+      end
+      self:logWorldPass("canvas UNPRESENTABLE", s, pw, ph, canvas)
+    else
+      self:logWorldPass(got and "pipeline declined" or "pipeline THREW",
+        s, pw, ph, nil)
+    end
+  end
+  self:drawWorldFlat(s)
+end
+
+-- The cartridge's own world pass, unchanged.  Split out so a pipeline can ask
+-- for it back through ctx.fallback.
+function Game3:drawWorldFlat(s)
   local G = love.graphics
   G.push()
   G.scale(s, s)
@@ -53907,11 +56102,19 @@ function Game3:drawOverworldWindow(w, h)
   end
   G.rectangle("fill", 0, 0, w, h)
   G.setColor(1, 1, 1, 1)
-  local tilt = (not flashing) and Tilt.active() and self:tiltMesh() ~= nil
+  -- A world pipeline outranks TILT: both want to own the world pass, and the
+  -- pipeline is the one the player switched on last.  Gen 1 gates the same
+  -- way (`local tilt = (not pipelineId) and Tilt.active()`); without this the
+  -- diorama would be drawn and then thrown away by the tilt capture.
+  local tilt = (not flashing) and (not self:worldPipelineId())
+    and Tilt.active() and self:tiltMesh() ~= nil
   if tilt then
     self:drawTilted(w, h, s, gw, gh)
   else
-    self:drawWorldBody(s)
+    -- w/h are the PLAYFIELD in screen pixels, which a pipeline sizes its own
+    -- canvas and projection from. They are not viewW/viewH, which are the
+    -- world view in WORLD pixels -- 240x160 whatever the window is.
+    self:drawWorldBody(s, w, h)
   end
   self:drawWorldFx(w, h, s)
 end
@@ -53952,6 +56155,8 @@ function Game3:drawPlay()
   end
   if clockField and (clockField.kind == "pokenav_menu"
       or clockField.kind == "pokenav_condition"
+      or clockField.kind == "pokenav_condition_menu"
+      or clockField.kind == "pokenav_condition_search"
       or clockField.kind == "pokenav_ribbons"
       or clockField.kind == "trainers_eye") then
     self:drawFieldOverlay()
@@ -54039,6 +56244,9 @@ function Game3:draw()
   local G = love.graphics
   local w, h = GameViewport.dimensions()
   G.clear(0.02, 0.04, 0.07, 1)
+  -- Gen 1 Renderer:beginFrame clears worldOverride each frame so a stale
+  -- pipeline/battle canvas cannot stick. Consumed after drawScene below.
+  self.worldOverride = nil
   if (self.phase == "play" or self.phase == "battle_transition")
       and self.map and (self.phase == "battle_transition" or self:fieldShowsWorld()) then
     self:drawOverworldWindow(w, h)
@@ -54063,6 +56271,14 @@ function Game3:draw()
       self:drawScene()
       G.setCanvas(prev)
       G.origin()
+      -- Emerald endFrame worldOverride branch: a staged 3D-BTL (or any mod)
+      -- canvas fills the window; the 240x160 UI canvas composites over it.
+      -- OverworldBattle clears that UI canvas transparent when it stages.
+      local override = self.worldOverride
+      self.worldOverride = nil
+      if override then
+        self:presentWorldCanvas(override, w, h)
+      end
       G.setColor(1, 1, 1, 1)
       G.draw(canvas, ox, oy, 0, scale, scale)
     else
@@ -54071,6 +56287,11 @@ function Game3:draw()
       G.scale(scale, scale)
       self:drawScene()
       G.pop()
+      local override = self.worldOverride
+      self.worldOverride = nil
+      if override then
+        self:presentWorldCanvas(override, w, h)
+      end
     end
   end
   GameViewport.finish(self)
@@ -54109,7 +56330,42 @@ function Game3:hotkey(key)
   return false
 end
 
+-- Offer a key to the registered render pipelines. canToggle inside
+-- Pipelines.hotkey is the free-roam gate -- it stops a mode flipping mid-warp
+-- or mid-cutscene -- so the only thing passed in is what Ruby has to stand in
+-- for Gen 1's stack top and overworld.
+function Game3:pipelineHotkey(key)
+  local ok, Pipelines = pcall(require, "src.render.Pipelines")
+  if not (ok and Pipelines and Pipelines.hotkey) then return false end
+  -- Zoom.gateOK -- the default gate -- asks that the overworld be the TOP of
+  -- the stack: `top == nil or top ~= overworld` refuses. Gen 1 satisfies that
+  -- by passing stack:top() and Game.overworld, which are the same state
+  -- object in free roam. Ruby has no stack, and its answer to "is the
+  -- overworld what the player is looking at" is displayGateOK -- so when that
+  -- is true both arguments are the game, and when it is false both are nil and
+  -- the gate refuses, which is the behaviour the gate exists for.
+  local ow = self:displayGateOK() and self or nil
+  local top = ow
+  local got, id = pcall(Pipelines.hotkey, key, top, ow)
+  if not (got and id) then return false end
+  -- a world pipeline and TILT both want the world pass; syncOptions writes
+  -- the whole ladder back, including the tilt exclusion a world pipeline
+  -- forces, and persistDisplayOptions is Ruby's writeOptions
+  pcall(Pipelines.syncOptions, self.options)
+  pcall(function()
+    require("src.render.Tilt").setLevel(self.options.tilt or 0)
+  end)
+  self:persistDisplayOptions()
+  return true
+end
+
 function Game3:keypressed(key)
+  if key == "f10" then
+    -- Same toggle Gen 1 uses: F10 opens/closes ManagerState. START ->
+    -- OPTION/MODS is the cart path; F10 is the shortcut.
+    self:toggleModManager()
+    return
+  end
   if key == "escape" and self.phase == "battle" then
     self:endBattle()
     return
@@ -54130,6 +56386,13 @@ function Game3:keypressed(key)
     return
   end
   if self:hotkey(key) then return end
+  -- Mod render pipelines claim their hotkeys LAST, so one can never shadow an
+  -- engine display key however a mod declares it -- Gen 1 orders it the same
+  -- way (src/core/Game.lua). Without this Ruby had no way to switch a
+  -- pipeline on at all: Game3:hotkey owns "3" for TILT and returns true, and
+  -- the options row a mod would otherwise use needs src.ui.OptionsMenu, which
+  -- Gen3Compat does not serve.
+  if self:pipelineHotkey(key) then return end
   Input:keypressed(key)
 end
 
@@ -54270,6 +56533,7 @@ end
 
 Game3Boot.attach(Game3)
 Game3Pc.attach(Game3)
+Game3ModWorld.attach(Game3)
 Game3PlayerPc.attach(Game3)
 Game3WeatherFx.attach(Game3)
 Game3Tv.attach(Game3)

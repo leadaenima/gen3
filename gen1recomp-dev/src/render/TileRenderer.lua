@@ -960,6 +960,26 @@ function TileRenderer.invalidate()
   end
 end
 
+-- A Gen 3 tileset, in the shape a renderer mod asks the host for. Lives in
+-- src/render/Gen3Sheets.lua; published HERE because the name a mod reaches
+-- for is TileRenderer.gen3SheetsFor -- that is the contract, and a mod
+-- written against the other engine should not have to know Ruby keeps the
+-- implementation somewhere else.
+--
+-- nil for anything that is not a Gen 3 tileset, so Gen 1 and Gen 2 callers
+-- are untouched by its existence.
+function TileRenderer.gen3SheetsFor(tilesetDef, data)
+  local ok, Gen3Sheets = pcall(require, "src.render.Gen3Sheets")
+  if not (ok and Gen3Sheets) then return nil end
+  local got, record = pcall(Gen3Sheets.forTileset, tilesetDef, data)
+  if not got then return nil end
+  return record
+end
+
 Assets.register(TileRenderer.invalidate)
+Assets.register(function()
+  local ok, Gen3Sheets = pcall(require, "src.render.Gen3Sheets")
+  if ok and Gen3Sheets then Gen3Sheets.invalidate() end
+end)
 
 return TileRenderer

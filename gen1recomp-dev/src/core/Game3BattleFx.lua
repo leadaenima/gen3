@@ -12,7 +12,7 @@
 local BF = {}
 
 BF.FPS = 60
-BF.SPRITE_DIR = "misc/pokeruby-master/pokeruby-master/graphics/battle_anims/sprites/"
+BF.SPRITE_DIR = "assets/generated/battle_anims/"
 
 -- ANIM_TAG_* true indices (ANIM_SPRITES_START + N) — files use N as %03d.png
 BF.TAG = {

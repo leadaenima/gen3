@@ -121,15 +121,85 @@ local GEN1_ONLY_MODULES = {
   ["src.ui.OptionsMenu"] = true,
 }
 
-local function crossGenerationDenial(name, generation)
-  if type(name) ~= "string" or generation ~= 1 then return nil end
-  if not (name:find("^src%.[%w_]+%.gen2%.") or name == "src.core.Game2") then
-    return nil
+-- The genuine require, captured before the shim can replace it.
+--
+-- Declared HERE rather than further down because facadeFor below calls it:
+-- with the old placement it was still nil at that point, the pcall failed,
+-- and every generation-3 facade lookup answered "no adapter" for names the
+-- facade did in fact serve.
+local rawRequire = require
+
+-- Which compat facade answers a generation, if any. Gen 1 needs none -- the
+-- module names a mod asks for ARE Gen 1's modules -- and every other
+-- generation gets the arm written for it or nothing at all.
+local function facadeFor(generation)
+  if generation == 2 then return Gen2Compat end
+  if generation == 3 then
+    local ok, mod = pcall(rawRequire, "src.mods.Gen3Compat")
+    return ok and mod or nil
   end
-  return ("%s is a Gen 2 engine module and this is a Gen 1 game; the structs "
-    .. "it reads and writes are not this game's, so anything it stores lands "
-    .. "on the save in the wrong shape. Take the game from mod.game and the "
-    .. "world from mod.world, which resolve per generation"):format(name)
+  return nil
+end
+
+-- The per-generation home of one facade module.
+--
+-- This replaces two more `generation == 2 and X or Y` ternaries, which had
+-- the same shape as the require interposition's old `~= 1` gate and the same
+-- consequence: on a Gen 3 boot they fell through to the GEN 1 arm, so
+-- mod.world handed a Ruby mod src/world/WorldAPI.lua -- Red's -- wrapped
+-- around a Game3 instance, and mod.battle did the same. The loader's own
+-- error messages point authors at mod.world as the correct route, so it
+-- lying was the worst place for this to be wrong.
+local GENERATION_HOMES = {
+  [1] = { WorldAPI = "src.world.WorldAPI", BattleAPI = "src.battle.BattleAPI" },
+  [2] = { WorldAPI = "src.world.gen2.WorldAPI",
+          BattleAPI = "src.battle.gen2.BattleAPI" },
+  [3] = { WorldAPI = "src.world.gen3.WorldAPI" },
+}
+
+-- nil when this generation has no arm for that name, which engineRequire
+-- turns into nil rather than into another generation's module
+local function generationModule(generation, name)
+  local homes = GENERATION_HOMES[generation or 1]
+  return homes and homes[name] or nil
+end
+
+local function facadeServes(name, generation)
+  local facade = facadeFor(generation)
+  return facade ~= nil and facade.serves(name) == true
+end
+
+local function facadeFile(generation)
+  if generation == 3 then return "src/mods/Gen3Compat.lua" end
+  return "src/mods/Gen2Compat.lua"
+end
+
+-- A mod reaching into ANOTHER generation's engine, in either direction.
+--
+-- This used to fire on Gen 1 only, which left the hole open the moment there
+-- were three generations: on a Ruby boot a mod could require src.core.Game2
+-- or src.world.gen2.Map and get Gold's live modules, and on a Red or Gold
+-- boot it could reach src.core.Game3 the same way. The reason is the same
+-- whichever way it points -- the structs are not this game's -- so the rule
+-- is stated once and applied to every generation but the module's own.
+local GENERATION_MODULES = {
+  [2] = { prefix = "^src%.[%w_]+%.gen2%.", core = "src.core.Game2" },
+  [3] = { prefix = "^src%.[%w_]+%.gen3%.", core = "src.core.Game3" },
+}
+
+local function crossGenerationDenial(name, generation)
+  if type(name) ~= "string" or not generation then return nil end
+  for owner, spec in pairs(GENERATION_MODULES) do
+    if owner ~= generation
+        and (name:find(spec.prefix) or name == spec.core) then
+      return ("%s is a Gen %d engine module and this is a Gen %d game; the "
+        .. "structs it reads and writes are not this game's, so anything it "
+        .. "stores lands on the save in the wrong shape. Take the game from "
+        .. "mod.game and the world from mod.world, which resolve per "
+        .. "generation"):format(name, owner, generation)
+    end
+  end
+  return nil
 end
 
 -- the src.* modules the mod surface points authors at: another mod's
@@ -169,15 +239,18 @@ local function scanRequire(name)
   -- A Gen 1-only module on a Gold boot is not a permissions question, it is a
   -- dead patch: reported once, attributed, and onto the boot error feed the
   -- manager shows the player rather than a dev-only log line.
+  -- Served is per generation now, so the question is whether THIS boot's
+  -- facade has an adapter -- not whether Gen 2's does.
   if devShim.generation ~= 1 and GEN1_ONLY_MODULES[name]
-      and not Gen2Compat.serves(name) then
-    local key = modId .. "|gen2|" .. name
+      and not facadeServes(name, devShim.generation) then
+    local key = modId .. "|gen" .. tostring(devShim.generation) .. "|" .. name
     if not devShim.warned[key] then
       devShim.warned[key] = true
-      local message = ("%s: requires %s, which a Gen 2 game never runs and "
-        .. "src/mods/Gen2Compat.lua has no adapter for; take the game from "
+      local message = ("%s: requires %s, which a Gen %d game never runs and "
+        .. "%s has no adapter for; take the game from "
         .. "the game.ready payload and mod.world")
-        :format(modId, name)
+        :format(modId, name, devShim.generation or 0,
+          facadeFile(devShim.generation))
       local errors = devShim.errors
       if errors then errors[#errors + 1] = message end
       Logger.error("%s", message)
@@ -193,8 +266,6 @@ local function scanRequire(name)
   end
 end
 
--- the genuine require, captured before the shim can replace it
-local rawRequire = require
 
 -- a module the loader pulls in late on the mod's behalf.  The mod asked for
 -- a facade, not for this module nor for whatever it drags in, so the whole
@@ -234,15 +305,24 @@ function Loader:_installDevShim()
       -- The Gen 1 name a mod asked for, answered by the Gen 2 arm behind it.
       -- Engine code keeps the real module: src/render/PaletteFX.lua:776
       -- requires src.core.Game on both generations and means it.
-      if devShim.generation ~= 1 and Gen2Compat.serves(name)
-          and (owner or callerIsMod(3)) then
-        local adapter = Gen2Compat.resolve(name, Runtime.currentMod)
+      --
+      -- GENERATION 2 ONLY, and the `== 2` is load-bearing. This used to read
+      -- `~= 1`, from when Gen 2 was the only other generation -- so once Ruby
+      -- arrived, a Gen 3 mod asking for src.core.Game was silently handed
+      -- GOLD's adapter, and src.world.Map handed it src.world.gen2.Map. That
+      -- is worse than an outright failure: the mod gets a live, working
+      -- module belonging to a game that is not running, reads an empty world
+      -- off it and has no way to tell why.
+      local facade = devShim.generation ~= 1
+        and facadeFor(devShim.generation) or nil
+      if facade and facade.serves(name) and (owner or callerIsMod(3)) then
+        local adapter = facade.resolve(name, Runtime.currentMod)
         if adapter then
           local key = "adapter|" .. name
           if not devShim.warned[key] then
             devShim.warned[key] = true
-            Logger.info("gen2 facade: %s -> %s", name,
-              tostring(Gen2Compat.ADAPTERS[name]))
+            Logger.info("gen%d facade: %s -> %s", devShim.generation, name,
+              tostring(facade.ADAPTERS[name]))
           end
           return adapter
         end
@@ -1517,8 +1597,8 @@ function Loader:_api(mod)
     local game = loader:_game()
     if key == "battle" then
       if battle then return battle end
-      local module = game and engineRequire(loader.generation == 2
-        and "src.battle.gen2.BattleAPI" or "src.battle.BattleAPI")
+      local module = game and engineRequire(generationModule(
+        loader.generation, "BattleAPI"))
       if not module then return nil end
       battle = module.new(game)
       return battle
@@ -1528,8 +1608,8 @@ function Loader:_api(mod)
     -- one facade name, one arm per generation: Gold's world is not a stack
     -- state and its flags are a bitfield, so the resolution differs even
     -- where the method set does not (src/world/gen2/WorldAPI.lua)
-    local module = game and engineRequire(loader.generation == 2
-      and "src.world.gen2.WorldAPI" or "src.world.WorldAPI")
+    local module = game and engineRequire(generationModule(
+      loader.generation, "WorldAPI"))
     if not module then return nil end
     world = module.new(game, modId)
     return world
@@ -1799,7 +1879,13 @@ function Loader:load(data)
   -- The Gen 1 Game facade proxies THIS loader's live game, and reads it on
   -- every touch: a mod captures the facade at file scope, before Game2 has a
   -- save or a world (src/mods/Gen2Compat.lua).
+  -- Both arms get the same resolver: only one of them is ever consulted on a
+  -- given boot, and binding the other costs nothing.
   Gen2Compat.bind(function() return self:_game() end)
+  local gen3 = facadeFor(3)
+  if gen3 and gen3.bind then
+    gen3.bind(function() return self:_game() end)
+  end
   -- Any boot with mods on it needs the gate, because require("io") is how a
   -- mod would walk out of Sandbox.envFor.  Dev mode adds the permissions
   -- tripwire on top, and a Gold boot the Gen 1-only require report -- the
