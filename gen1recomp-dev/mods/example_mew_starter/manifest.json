@@ -8,5 +8,9 @@
   "dependencies": [],
   "optional_dependencies": [],
   "conflicts": [],
-  "description": "Turns the Oak's Lab Charmander gift into a level 20 Mew with inverted battle sprites."
+  "description": "Turns the Oak's Lab Charmander gift into a level 20 Mew with inverted battle sprites.",
+  "games": [
+    "gen1",
+    "gen2"
+  ]
 }

@@ -5523,6 +5523,24 @@ function MA.attach(Game3)
       moveId = move and move.id,
       ax = ax, ay = ay, tx = tx, ty = ty,
     }
+    -- ...and the CART'S OWN PARTICLES alongside this module's motion.
+    --
+    -- This module is a hand-written subset (see the header): it drives the
+    -- lunges, shakes and sound chains for the moves it knows and leaves the
+    -- rest to Game3's generic burst. The particle list extracted from
+    -- gBattleAnims_Moves is a different axis -- WHICH sprite appears WHERE
+    -- and WHEN -- so it is attached here as well rather than replacing
+    -- anything: a move this module knows keeps its motion and gains the
+    -- sprites the cartridge draws over it.
+    do
+      local plans = self.data and self.data.animPlans
+      local mid = move and (move.id or move.moveId or move.number)
+      local plan = plans and mid and plans[mid]
+      if plan and type(plan.events) == "table" and #plan.events > 0 then
+        b.moveAnim.events = plan.events
+        b.moveAnim.scriptFrames = plan.frames
+      end
+    end
     b.animT = dur
     -- Timed SE chain (playsewithpan / loopsewithpan at frame offsets).
     -- Effectiveness SE is queued separately and flushed when anim ends.

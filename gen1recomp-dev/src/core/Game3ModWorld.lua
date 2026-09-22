@@ -21,7 +21,18 @@
 local ModWorld = {}
 
 local Logger = require("src.core.Logger")
-local MapNames = require("src.world.gen3.MapNames")
+local MapNames
+do
+  local ok, mod = pcall(require, "src.world.gen3.MapNames")
+  if ok and type(mod) == "table" then
+    MapNames = mod
+  else
+    -- Partial box checkouts lack the gen3 MapNames module; keep attach()
+    -- loadable so Game3's require chain (and battle.started wiring) still
+    -- runs. Desktop trees always have the real module.
+    MapNames = { of = function() return nil end }
+  end
+end
 
 -- one line per unbacked push verb, not one per push
 local warnedPush = {}
@@ -44,18 +55,6 @@ local COMPASS = {
 
 local function compassOf(dir)
   return COMPASS[dir] or nil
-end
-
--- Inverse of COMPASS: Gen 1 renderers (SpriteRenderer, FirstPerson.apparentFacing)
--- speak down/up/left/right. pose() translates at the boundary so STAND tables
--- and camera-relative facing keep working.
-local PAD = {
-  north = "up", south = "down", west = "left", east = "right",
-  up = "up", down = "down", left = "left", right = "right",
-}
-
-local function padOf(dir)
-  return PAD[dir] or nil
 end
 
 -- Gen 3 metatile geometry, and the two numbers a renderer uses to tell the
@@ -105,107 +104,6 @@ function ModWorld.attach(Game3)
   -- blockCells 1 are what identify a Gen 3 map to a mod, and `blocks` is
   -- deliberately absent -- Ruby has metatiles and no Gen 1 block table, and a
   -- mod that finds `blocks` will read it as one.
-  -- Emerald DRAMATIC_SHAPE gen3_metatiles role owners are keyed
-  -- P<hex>/S<hex> from Emerald ROM tileset header addresses
-  -- (TILESET_03DF704 …). Ruby's extractor publishes gTileset_*
-  -- names (and pair_N ids). Without this bridge, ctx.metaRole is
-  -- nil on EVERY map and fences/grass/ledges/soil fall to the
-  -- behaviour-only / wall-of-last-resort path.
-  local EMERALD_TILESET_HEX = {
-  ["gTileset_BattleArena"] = "03DFD04",
-  ["gTileset_BattleDome"] = "03DFCBC",
-  ["gTileset_BattleFactory"] = "03DFCD4",
-  ["gTileset_BattleFrontier"] = "03DFC94",
-  ["gTileset_BattleFrontierOutsideEast"] = "03DF86C",
-  ["gTileset_BattleFrontierOutsideWest"] = "03DF854",
-  ["gTileset_BattleFrontierRankingHall"] = "03DFDAC",
-  ["gTileset_BattlePalace"] = "03DFCA4",
-  ["gTileset_BattlePike"] = "03DFCEC",
-  ["gTileset_BattlePyramid"] = "03DFD1C",
-  ["gTileset_BattleTent"] = "03DFDC4",
-  ["gTileset_BattleTower"] = "03DFC94",
-  ["gTileset_BikeShop"] = "03DF9D4",
-  ["gTileset_BrendansMaysHouse"] = "03DFAF4",
-  ["gTileset_Building"] = "03DF884",
-  ["gTileset_CableClub"] = "03DF95C",
-  ["gTileset_Cave"] = "03DF8CC",
-  ["gTileset_Contest"] = "03DFAC4",
-  ["gTileset_Dewford"] = "03DF74C",
-  ["gTileset_DewfordGym"] = "03DFBB4",
-  ["gTileset_EliteFour"] = "03DFC7C",
-  ["gTileset_EverGrande"] = "03DF80C",
-  ["gTileset_Facility"] = "03DF9BC",
-  ["gTileset_Fallarbor"] = "03DF7AC",
-  ["gTileset_Fortree"] = "03DF7C4",
-  ["gTileset_FortreeGym"] = "03DFC14",
-  ["gTileset_General"] = "03DF704",
-  ["gTileset_GenericBuilding"] = "03DFB6C",
-  ["gTileset_InsideOfTruck"] = "03DFA94",
-  ["gTileset_InsideShip"] = "03DFC44",
-  ["gTileset_IslandHarbor"] = "03DFD64",
-  ["gTileset_Lab"] = "03DFB0C",
-  ["gTileset_Lavaridge"] = "03DF794",
-  ["gTileset_LavaridgeGym"] = "03DFBE4",
-  ["gTileset_Lilycove"] = "03DF7DC",
-  ["gTileset_LilycoveMuseum"] = "03DFADC",
-  ["gTileset_Mauville"] = "03DF77C",
-  ["gTileset_MauvilleGameCorner"] = "03DFB84",
-  ["gTileset_MauvilleGym"] = "03DFBCC",
-  ["gTileset_MeteorFalls"] = "03DF92C",
-  ["gTileset_MirageTower"] = "03DFD34",
-  ["gTileset_Mossdeep"] = "03DF7F4",
-  ["gTileset_MossdeepGameCorner"] = "03DFD4C",
-  ["gTileset_MossdeepGym"] = "03DFC2C",
-  ["gTileset_MysteryEventsHouse"] = "03DFDDC",
-  ["gTileset_NavelRock"] = "03DFD94",
-  ["gTileset_OceanicMuseum"] = "03DF944",
-  ["gTileset_Pacifidlog"] = "03DF824",
-  ["gTileset_Petalburg"] = "03DF71C",
-  ["gTileset_PetalburgGym"] = "03DFB3C",
-  ["gTileset_PokemonCenter"] = "03DF8B4",
-  ["gTileset_PokemonDayCare"] = "03DF9A4",
-  ["gTileset_PokemonFanClub"] = "03DF8FC",
-  ["gTileset_PokemonSchool"] = "03DF8E4",
-  ["gTileset_PrettyPetalFlowerShop"] = "03DF98C",
-  ["gTileset_Rustboro"] = "03DF734",
-  ["gTileset_RustboroGym"] = "03DFB9C",
-  ["gTileset_RusturfTunnel"] = "03DF9EC",
-  ["gTileset_SeashoreHouse"] = "03DF974",
-  ["gTileset_SecretBase"] = "03DFC5C",
-  ["gTileset_SecretBaseBlueCave"] = "03DFA4C",
-  ["gTileset_SecretBaseBrownCave"] = "03DFA04",
-  ["gTileset_SecretBaseRedCave"] = "03DFA7C",
-  ["gTileset_SecretBaseShrub"] = "03DFA34",
-  ["gTileset_SecretBaseTree"] = "03DFA1C",
-  ["gTileset_SecretBaseYellowCave"] = "03DFA64",
-  ["gTileset_Ship"] = "03DFC44",
-  ["gTileset_Shop"] = "03DF89C",
-  ["gTileset_Slateport"] = "03DF764",
-  ["gTileset_Sootopolis"] = "03DF83C",
-  ["gTileset_SootopolisGym"] = "03DFB54",
-  ["gTileset_TrainerHill"] = "03DFD7C",
-  ["gTileset_TrickHousePuzzle"] = "03DFBFC",
-  ["gTileset_Underwater"] = "03DFB24",
-  ["gTileset_UnionRoom"] = "03DFDF4",
-  ["gTileset_Unused1"] = "03DF914",
-  ["gTileset_Unused2"] = "03DFAAC",
-}
-
-  local function emeraldHex(name)
-    if type(name) ~= "string" or name == "" then return nil end
-    local hex = name:match("^TILESET_(%x+)$")
-    if hex then return hex:upper() end
-    return EMERALD_TILESET_HEX[name]
-  end
-
-  local function emeraldPairId(primaryName, secondaryName, fallback)
-    local p = emeraldHex(primaryName)
-    local s = emeraldHex(secondaryName)
-    if p and s then return ("TILESET_%s_%s"):format(p, s) end
-    if p then return ("TILESET_%s"):format(p) end
-    return fallback
-  end
-
   local function tilesetView(self, map)
     local id = map.tileset
     local spec = self.data.tilesets and self.data.tilesets.byId
@@ -216,18 +114,8 @@ function ModWorld.attach(Game3)
     local iw = bottom and bottom.getWidth and bottom:getWidth()
       or cols * METATILE_PX
     local ih = bottom and bottom.getHeight and bottom:getHeight() or nil
-    local primaryName = (spec and spec.primaryKey) or nil
-    local secondaryName = spec and spec.secondaryKey or nil
-    -- SEPARATE KEYS (dsvx-160-r8): roles/palings need Emerald TILESET_<p>_<s>
-    -- hex, but sheet/atlas/UV lookup keys off data.tilesets.byId[pair_N].
-    -- Putting emerald hex on tilesetView.id made Gen3Sheets.forTileset miss
-    -- every pair -- meshes came back WHITE (water/NPC paths unaffected).
-    -- Keep gTileset_* on primaryKey/secondaryKey for gen3_shapes / gen3_maps.
-    local emeraldId = emeraldPairId(primaryName, secondaryName, id)
     return {
-      id = id,                 -- pair_N: sheet / atlas / texture binding
-      pairId = id,             -- alias of id (sheet key)
-      emeraldId = emeraldId,   -- TILESET_<hex>_<hex>: owner / palings / roles
+      id = id,
       -- THE CARTRIDGE'S OWN NAMES, and the reason this matters more than it
       -- looks. A renderer mod carries per-tileset shape profiles -- tree
       -- hulls, roof massing, counter pins -- keyed by exactly these strings.
@@ -238,14 +126,11 @@ function ModWorld.attach(Game3)
       --
       -- Falls back to the id when the importer could not name a pair, which
       -- is a missed profile rather than a wrong one.
-      primaryKey = primaryName or id,
-      secondaryKey = secondaryName,
+      primaryKey = (spec and spec.primaryKey) or id,
+      secondaryKey = spec and spec.secondaryKey or nil,
       -- both spellings: a mod may look for either
-      primary = primaryName,
-      secondary = secondaryName,
-      -- Emerald TILESET_<hex> aliases (owner-key bridge; optional readers)
-      primaryId = primaryName and emeraldHex(primaryName) and ("TILESET_" .. emeraldHex(primaryName)) or nil,
-      secondaryId = secondaryName and emeraldHex(secondaryName) and ("TILESET_" .. emeraldHex(secondaryName)) or nil,
+      primary = spec and spec.primaryKey or nil,
+      secondary = spec and spec.secondaryKey or nil,
       blockTiles = BLOCK_TILES,
       blockCells = BLOCK_CELLS,
       cell = METATILE_PX,
@@ -347,7 +232,25 @@ function ModWorld.attach(Game3)
       blockPx = METATILE_PX,
       tileset = map.tileset,
       mapType = map.mapType,
-      outdoor = Game3.isOutdoorMapType(map.mapType) == true,
+      -- free_fly map.entered lands when not skyAbove(def); skyAbove trusts
+      -- def.outdoor first. Prefer an explicit map.outdoor stamp, then the
+      -- numeric MAP_TYPE_* outdoor set, then string aliases some packs use.
+      -- Never false-negative a known outdoor type just because mapType was
+      -- briefly nil/0 during a connection rebuild — fall through to aliases.
+      outdoor = (function()
+        if map.outdoor == true then return true end
+        local t = map.mapType
+        if Game3.isOutdoorMapType(t) == true then return true end
+        if type(t) == "string" then
+          local u = string.upper(t)
+          if u == "TOWN" or u == "CITY" or u == "ROUTE"
+             or u == "UNDERWATER" or u == "OCEAN_ROUTE"
+             or u == "OCEAN" then
+            return true
+          end
+        end
+        return false
+      end)(),
       connections = connections,
       collisionCells = collision,
       elevationCells = elevation,
@@ -495,37 +398,6 @@ function ModWorld.attach(Game3)
       return borderAt(map, cx, cy)
     end
 
-    -- Gen 1 Map:setBlock, over this view's raw grid. Looks up Map.setBlock
-    -- at call time so DRAMATIC_SHAPE's wrap (ChunkMesher.refresh) is the
-    -- one that runs -- a local write here would skip the mesh invalidation.
-    function view.setBlock(self, bx, by, block, impassable)
-      local okM, MapMod = pcall(require, "src.world.Map")
-      if okM and type(MapMod) == "table" and type(MapMod.setBlock) == "function" then
-        return MapMod.setBlock(map, bx, by, block, impassable)
-      end
-      local i = game:gridIndex(map, bx, by)
-      if not i or type(map.grid) ~= "table" then return end
-      local cell = map.grid[i] or 0
-      local mid = tonumber(block) or 0
-      local elev = Game3.elevationBits(cell)
-      local col = Game3.collisionOf(cell)
-      if impassable ~= nil then
-        col = impassable and 1 or 0
-      end
-      map.grid[i] = elev + (mid % 1024) + col * 1024
-      Game3.noteGridWrite(map)
-      if type(game.markTilesDirty) == "function" then
-        pcall(game.markTilesDirty, game, map)
-      end
-    end
-
-    function view.clearBlock(self, bx, by)
-      local okM, MapMod = pcall(require, "src.world.Map")
-      if okM and type(MapMod) == "table" and type(MapMod.clearBlock) == "function" then
-        return MapMod.clearBlock(map, bx, by)
-      end
-    end
-
     -- CAN A WALKER STAND HERE. The engine's own verdict, not the collision
     -- bits alone.
     --
@@ -541,22 +413,32 @@ function ModWorld.attach(Game3)
     -- `isWalkableCell` first and only then allows water of its own accord
     -- when the player is surfing -- and canStep answers exactly that, because
     -- its surf branches read the same surfing flag.
-    -- NON-SURFING land verdict, INDEPENDENT OF THE PLAYER.
-    --
-    -- canStep folds in the player's current elevation, facing and surfing
-    -- flag. Structures (standGen3Ledges bank runs, apron fills, walkable
-    -- ridge detection) asks this of ARBITRARY cells while the player stands
-    -- somewhere else, so a zMismatch against the avatar made every terrace
-    -- cell at a different elevation look impassable. Banking then failed and
-    -- Oldale / Route 101 ridges stayed as sharp 90-degree walls. FreeMove
-    -- also asks this first and only then allows water via isWaterCell when
-    -- surfing -- so the answer here must stay the dry-land non-surfing one.
     function view.isWalkableCell(_, cx, cy)
-      if not cellAt(map, cx, cy) then return false end
+      -- FREEFLY airborne: DramaticShapes FreeMove asks map:isWalkableCell
+      -- (this view), NOT MapMod / canStep. free_fly's MapMod.__freeFlyPermissive
+      -- wrap never reaches Gen3 FreeMove walls. While Game3:isFreeFlying(),
+      -- mirror that permissive contract: in-bounds cells are walkable so
+      -- FreeMove can slide over trees/buildings/water. Dry-land semantics
+      -- below stay when grounded.
+      if type(game.isFreeFlying) == "function" then
+        local okFly, flying = pcall(game.isFreeFlying, game)
+        if okFly and flying then
+          if type(cx) ~= "number" or type(cy) ~= "number" then return false end
+          local w, h = map.width or 0, map.height or 0
+          return cx >= 0 and cy >= 0 and cx < w and cy < h
+        end
+      end
+      local word = cellAt(map, cx, cy)
+      if not word then return false end
+      -- NOT Game3:canStep.  canStep answers "may the avatar move there NOW",
+      -- which folds in surf, elevation and facing -- so while surfing it calls
+      -- water walkable, and a structures pass asking about an arbitrary cell
+      -- while the player stands elsewhere read every terrace at another height
+      -- as impassable.  This is the DRY LAND verdict about a cell and nothing
+      -- else; surfing is granted by the caller through isWaterCell.
       if not Game3.walkable(map, cx, cy) then return false end
-      local b = view.behaviorAt(_, cx, cy)
-      if Game3.isSurfable(b) or Game3.isWaterfall(b) then return false end
-      if Game3.ledgeDelta and Game3.ledgeDelta(b) then return false end
+      local b = game:behaviorAt(map, cx, cy)
+      if Game3.isSurfable(b) then return false end
       return true
     end
 
@@ -564,15 +446,6 @@ function ModWorld.attach(Game3)
       local word = cellAt(map, cx, cy)
       if not word then return nil end
       return Game3.elevationOf(word)
-    end
-
-    -- Per-cell collision plane (bits 10-11). Emerald's Map exposes the same
-    -- answer via layout collisionCells; Gen3 synthesizes from this when the
-    -- def snapshot is thin.
-    function view.collisionAt(_, cx, cy)
-      local word = cellAt(map, cx, cy)
-      if not word then return nil end
-      return Game3.collisionOf(word)
     end
 
     -- The two attribute planes, per metatile id rather than per cell.
@@ -721,16 +594,7 @@ function ModWorld.attach(Game3)
     local id = map.tileset
     local bottom, top = self:layersFor(id)
     if not bottom then return nil end
-    -- NEVER trust a bare tileset id string as the attribute view. Gen3.engineWorld
-    -- passes map.tileset, which on the live engine map is "pair_N" / a number --
-    -- truthy, so `tileset or tilesetView` used to keep the string and every
-    -- world.attributes(mid) answered 0,0. Behaviour then collapsed to MB_NORMAL
-    -- and the mesher extruded far fewer accurate roles than Emerald.
-    local view = tileset
-    if type(view) ~= "table" or type(view.behavior) ~= "table" then
-      view = tilesetView(self, map)
-    end
-    if not view then return nil end
+    local view = tileset or tilesetView(self, map)
     local cols = view.tilesPerRow or Game3.ATLAS_COLS
     -- Keep the caller's def (usually the mod map view's planes).  A `local def`
     -- would shadow the parameter and read as nil on the RHS in Lua.
@@ -859,15 +723,22 @@ function ModWorld.attach(Game3)
   -- keyed by the NPC's graphicsId -- rather than the cast being left out, and
   -- every field in it is a live read.
   --
-  -- WHY `walker` IS FALSE (Gen 1 WALK tables are the wrong layout).
+  -- WHY `walker` IS FALSE, which is the one deliberate loss.
   --
-  -- The consumer's default path picks a sheet row from Gen 1's tables:
+  -- The consumer picks a sheet row itself, from Gen 1's tables:
   --   STAND = { down = 0, up = 1, left = 2, right = 2 }
   --   WALK  = { down = 3, up = 4, left = 5, right = 5 }
-  -- Ruby's standing rows match STAND. Its walking rows do not: south is
-  -- [3,0,4,0], north [5,1,6,1], west [7,2,8,2]. So `walker` stays false and
-  -- VoxelScene.frameFor drives the stride through Game3.poseFor on the
-  -- def's own face/walk tables -- the same answer the flat OW path draws.
+  -- Ruby's standing rows are IDENTICAL -- south 0, north 1, west 2, east 2
+  -- mirrored -- so with `walker` false every direction, mirror included, is
+  -- exactly right. Its walking rows are not: Ruby walks south on [3,0,4,0],
+  -- north on [5,1,6,1] and west on [7,2,8,2], so Gen 1's single WALK row lands
+  -- on south's second step for north and on north's first for west.
+  --
+  -- Declaring `walker` therefore trades a correct still for a wrong moving
+  -- frame. Declining it means the cast stands rather than strides -- visible,
+  -- but never a sprite facing the wrong way. Driving the walk properly needs
+  -- the consumer to accept a stated frame AND a mirror; today it accepts a
+  -- stated frame and forces the mirror off.
   -- Resolve VAR_OBJ_GFX_ID_* (Mauville bard is GFX_VAR_0 -> GFX_BARD+n) and
   -- build a Gen1-shaped sprite object. Missing byId rows with no ow_<id>.png
   -- on disk (the bard family) return nil; VoxelScene skips that card.
@@ -883,13 +754,84 @@ function ModWorld.attach(Game3)
     return gid or 0
   end
 
+  -- RUBY'S SHEETS RUN ACROSS; THE CONSUMER READS DOWN.
+  --
+  -- An overworld strip on this cart is one row: 144x32 is nine 16x32 frames
+  -- side by side.  The voxel mod's card builder takes a STATED frame and cuts
+  -- it out with `fy = frame * fh` -- i.e. it walks DOWN the sheet -- and
+  -- clamps past the bottom.  Handed Ruby's strip, every frame of every NPC
+  -- resolved to frame 0: the cast stood still and faced one way, which is
+  -- exactly what "the npcs do not animate or face their direction of
+  -- movement" looked like on screen.
+  --
+  -- So the strip is republished ROTATED: one frame wide, frameCount frames
+  -- tall.  Built through Assets.provide, so it exists as a path the consumer
+  -- can ask for and nothing is written to disk -- an extracted sheet is the
+  -- cart's art and must not be baked into the tree.
+  local STACKED = "gen3/stacked/"
+
+  local function stackedSheet(self, spec)
+    if type(spec.path) ~= "string" or spec.path == "" then return nil end
+    local frames = tonumber(spec.frameCount) or 0
+    local fw = tonumber(spec.width) or 0
+    local fh = tonumber(spec.height) or 0
+    if frames < 2 or fw < 1 or fh < 1 then return nil end
+
+    local Assets = require("src.render.Assets")
+    if type(Assets.provide) ~= "function"
+        or type(Assets.imageData) ~= "function" then
+      return nil
+    end
+
+    local name = spec.path:match("([^/]+)$") or spec.path
+    local out = STACKED .. name
+    if type(Assets.provides) == "function" and Assets.provides(out) then
+      return out
+    end
+
+    -- PROVE THE SOURCE IS A STRIP BEFORE PUBLISHING THE PATH.  Publishing
+    -- first and discovering inside the lazy build that the sheet is missing
+    -- or a different shape points the consumer at a path that answers nil,
+    -- which draws nothing -- strictly worse than leaving it on the strip it
+    -- already had.  So the dimensions are read here, up front.
+    local okData, srcData = pcall(Assets.imageData, spec.path)
+    if not (okData and srcData) then return nil end
+    local okDim, sw, sh = pcall(function()
+      if type(srcData.getDimensions) == "function" then
+        return srcData:getDimensions()
+      end
+      return srcData:getWidth(), srcData:getHeight()
+    end)
+    if not okDim or type(sw) ~= "number" or type(sh) ~= "number" then
+      return nil
+    end
+    -- one row of `frames` frames, and nothing else: a sheet that is already
+    -- stacked, or ragged, is left alone
+    if sw ~= fw * frames or sh ~= fh then return nil end
+
+    Assets.provide(out, function()
+      local okSrc, src = pcall(Assets.imageData, spec.path)
+      if not (okSrc and src) then return nil end
+      local madeOk, made = pcall(love.image.newImageData, fw, fh * frames)
+      if not (madeOk and made) then return nil end
+      for i = 0, frames - 1 do
+        -- frame i moves from its COLUMN in the source to its ROW in the
+        -- target: (i*fw, 0) -> (0, i*fh)
+        local okPaste = pcall(made.paste, made, src, 0, i * fh,
+                              i * fw, 0, fw, fh)
+        if not okPaste then return nil end
+      end
+      local okImg, img = pcall(love.graphics.newImage, made)
+      if not okImg then return nil end
+      return img
+    end)
+    return out
+  end
+
   local function spriteFor(self, npc)
-    local okG, gid = pcall(graphicsIdOf, self, npc)
-    if not okG then return nil end
-    gid = gid or 0
+    local gid = graphicsIdOf(self, npc)
     local sprites = self.data and self.data.sprites
-    local okS, spec = pcall(Game3.spriteSpec, sprites, gid)
-    if not okS then spec = nil end
+    local spec = Game3.spriteSpec(sprites, gid)
     if not spec then
       -- Same path Game3's extract writes for every OW sheet. Only publish a
       -- stub when the file actually loads: Mauville's bard (GFX_BARD+n) was
@@ -918,7 +860,10 @@ function ModWorld.attach(Game3)
     end
     if type(spec.path) ~= "string" or spec.path == "" then return nil end
     local game = self
-    local path = spec.path
+    -- the rotated sheet where one could be built, the strip otherwise: a
+    -- consumer that reads down gets frames, one that reads across still works
+    local stacked = stackedSheet(self, spec)
+    local path = stacked or spec.path
     local sprite = {
       def = {
         id = spec.id or gid,
@@ -928,18 +873,27 @@ function ModWorld.attach(Game3)
         width = spec.width,
         height = spec.height,
         frames = spec.frameCount,
-        frameCount = spec.frameCount,
         walker = false,
-        -- Gen 3 OW anim tables (same records Game3.poseFor / drawOwSprite use)
-        face = spec.face,
-        walk = spec.walk,
         monIcon = false,
         -- Ruby's overworld art is true-colour GBA and is never re-mapped, so
         -- a consumer must not run it through a palette pass.
         trueColor = true,
-        -- NOT height>16: that flagged every 16x32 OW walker as big and
-        -- SpriteBillboards cached one mesh per sheet (frame 0 forever).
-        -- Card size comes from frameWidth/Height + footAnchor/halfWidth.
+        -- THE ROWS, so the renderer picks its own frame.
+        --
+        -- Ruby names a pose per direction: `face[dir]` is the standing frame
+        -- and `walk[dir]` the ordered list a step cycles through.  Publishing
+        -- them lets the consumer index the sheet itself in either camera --
+        -- which is the whole reason nothing here states a frame.  Stating one
+        -- outranked the first-person facing remap and rode bikes backwards.
+        face = spec.face,
+        walk = spec.walk,
+        -- Taller than one cell would tell the consumer to size its billboard
+        -- from the whole IMAGE -- which on a stacked sheet is the entire
+        -- NOT `height > METATILE_PX`.  Flagging every 16x32 walker big made
+        -- the consumer cache one mesh per SHEET and hold every actor on
+        -- frame 0 -- the still, wrong-facing cast again.  The card takes its
+        -- size from frameWidth/frameHeight, so this stays false: on a
+        -- stacked sheet the image is a whole column of frames anyway.
         big = false,
       },
     }
@@ -955,11 +909,26 @@ function ModWorld.attach(Game3)
   -- Ruby's NPCs carry x/y in cells and the renderer derives pixels; Gen 1's
   -- carry both. Both spellings are published because mods read both, and both
   -- come off the same source rather than one being remembered.
+  -- THE PAD VOCABULARY, not the compass.
+  --
+  -- Ruby names its facings for the compass (north/south/east/west); the
+  -- consumer indexes Gen 1's sheet tables with this name, and those are keyed
+  -- up/down/left/right.  A compass name matched no row, so every actor stayed
+  -- on whatever frame came last -- the same "NPCs face the wrong way" symptom
+  -- the stacked sheet fixed the other half of.
+  local PAD_FACING = {
+    north = "up", south = "down", east = "right", west = "left",
+    -- already pad names: passed through, so a caller may hand either in
+    up = "up", down = "down", left = "left", right = "right",
+  }
+
+  local function padFacing(facing)
+    return PAD_FACING[facing] or "down"
+  end
+
   local function actorView(self, npc)
     local game = self
-    if type(npc) ~= "table" then npc = {} end
-    local okSp, sprite = pcall(spriteFor, self, npc)
-    if not okSp then sprite = nil end
+    local sprite = spriteFor(self, npc)
     local cx, cy = npc.x or 0, npc.y or 0
     local px, py = cx * METATILE_PX, cy * METATILE_PX
     -- The PLAYER's pixel position is the free walk's while one is driving:
@@ -975,120 +944,63 @@ function ModWorld.attach(Game3)
       cellY = cy,
       px = px,
       py = py,
-      facing = npc.facing,
+      facing = padFacing(npc.facing),
       elevation = npc.currentElevation or npc.elevation or 0,
       hidden = npc.hidden == true,
       -- Live source for VAR_OBJ_GFX refreshes (Mauville bard / hipster / ...).
-      graphicsId = (function()
-        local okG, gid = pcall(graphicsIdOf, self, npc)
-        if okG then return gid end
-        return npc.graphicsId or 0
-      end)(),
+      graphicsId = graphicsIdOf(self, npc),
       sprite = sprite,
       npc = nil,   -- filled below; the consumer poses THIS object
     }
 
-    -- The contract, verbatim: sprite, x, y, facing, phase, flip.
-    -- Facing is Gen 1 pad vocabulary for SpriteRenderer / FirstPerson.
-    -- phase is 0 when still; when moving it is walk progress in (0,1] so
-    -- VoxelScene.frameFor can call Game3.poseFor with the same t the flat
-    -- path uses (not Gen 1's 0/1 foot phase -- Ruby sheets need the cycle).
+    -- How far through the current step this actor is, 0 when standing.
+    -- Ruby counts a step DOWN (cooldown remaining out of walkDuration), and
+    -- the consumer wants it counting up, so it is inverted here rather than
+    -- leaving every actor on a held zero -- a zero phase is a standing frame,
+    -- which is the still cast again.
+    local function walkPhaseOf(src)
+      local dur = tonumber(src and (src.walkDuration or src.duration))
+        or Game3.WALK_PERIOD
+      local left = tonumber(src and (src.cooldown or src.walkCooldown)) or 0
+      if left <= 0 or dur <= 0 then return 0 end
+      local done = 1 - (left / dur)
+      if done < 0 then done = 0 end
+      if done > 1 then done = 1 end
+      return done
+    end
+
+    -- The contract, verbatim: sprite, x, y, facing, phase, flip. `flip` is the
+    -- down/up mirror it uses for a stride, which without a stride is false.
     -- Sprite is re-resolved each pose so a VAR_OBJ_GFX_ID write (the bard's
     -- sheet) lands on the next frame instead of staying stuck on the spawn
     -- snapshot -- and so a previously-nil sheet can appear once extracted.
     function actor:pose()
       local src = npc
       if self.id == "player" then
-        local gid = self.graphicsId
-        if type(game.playerGraphicsId) == "function" then
-          local okP, got = pcall(game.playerGraphicsId, game)
-          if okP and got ~= nil then gid = got end
-        end
-        src = { id = "player", graphicsId = gid }
+        src = {
+          id = "player",
+          graphicsId = game.playerGraphicsId and game:playerGraphicsId() or self.graphicsId,
+        }
       end
-      local okSp, sp = pcall(spriteFor, game, src)
-      if okSp and sp then
+      local sp = spriteFor(game, src)
+      if sp then
         sprite = sp
         self.sprite = sp
-        local okG, gid = pcall(graphicsIdOf, game, src)
-        if okG then self.graphicsId = gid end
+        self.graphicsId = graphicsIdOf(game, src)
       end
-
-      -- Live facing + pixels: NPC records move under us between view rebuilds.
-      local compassFacing
-      local px, py = self.px, self.py
+      -- FREEFLY height (flight4): VoxelScene lift = e.py - poseY.
+      -- Return py - floor(freeFlyAlt) from the write-through store so the
+      -- card rises by the full altitude free_fly stamped (no scale).
+      local outPy = self.py
       if self.id == "player" then
-        compassFacing = game.facing or self.facing
-        if game.freeWalkPx then
-          px, py = game.freeWalkPx, game.freeWalkPy or py
-        elseif type(game.visualTile) == "function" then
-          local okV, vx, vy = pcall(game.visualTile, game)
-          if okV and vx then
-            px, py = vx * METATILE_PX, vy * METATILE_PX
-          end
-        end
-      else
-        compassFacing = npc.facing or self.facing
-        if type(game.npcVisual) == "function" then
-          local okV, vx, vy = pcall(game.npcVisual, game, npc)
-          if okV and vx then
-            px, py = vx * METATILE_PX, vy * METATILE_PX
-          end
-        end
-        -- Snapshot only: player px/py write-through to freeWalkPx and must
-        -- not be assigned here (a grid walk would latch free-walk forever).
-        self.facing = compassFacing
-        self.px, self.py = px, py
-      end
-
-      -- Same moving/t rules as Game3:drawPlayer / drawOneObject.
-      local moving, t = false, 1
-      if self.id == "player" then
-        if (game.walkCooldown or 0) > 0 and not game.lockAnim then
-          moving = true
-          if type(game.walkProgress) == "function" then
-            local okT, got = pcall(game.walkProgress, game)
-            if okT and type(got) == "number" then t = got end
-          end
-        elseif (game.freeWalkAnim or 0) > 0 then
-          -- FreeMove refreshes freeWalkAnim while covering ground; animate
-          -- off playSeconds so legs cycle without a Gen 1 animClock.
-          moving = true
-          local period = Game3.WALK_PERIOD
-          local okG, G = pcall(require, "src.core.Game")
-          if (okG and G.save and G.save.onBike) or game.running then
-            period = Game3.RUN_PERIOD
-          end
-          if period and period > 0 then
-            t = ((game.playSeconds or 0) % period) / period
-          end
-        end
-      else
-        moving = ((npc.cooldown or 0) > 0
-                  or Game3.wanderDirs(npc.movementType) == "place")
-                 and not npc.lockAnim
-        if moving and (npc.cooldown or 0) > 0 then
-          local dur = npc.walkDuration or Game3.WALK_PERIOD
-          if dur <= 0 then dur = Game3.WALK_PERIOD end
-          t = 1 - npc.cooldown / dur
-          if t < 0 then t = 0 elseif t > 1 then t = 1 end
-        elseif moving then
-          t = ((npc.placeT or 0) % 0.5) / 0.5
+        local store = game._modPlayerStore
+        local alt = store and tonumber(store.freeFlyAlt) or 0
+        if alt and alt > 0 then
+          outPy = (tonumber(self.py) or 0) - math.floor(alt)
         end
       end
-
-      -- phase > 0 means "moving" for frameFor's poseFor path; never 0 mid-stride.
-      local phase = 0
-      if moving then
-        if t <= 0 then t = 1e-6 end
-        if t > 1 then t = 1 end
-        phase = t
-      end
-
-      local facing = padOf(compassFacing) or "down"
-      -- nil sprite is a skipped card, never a throw: Mauville's bard and
-      -- any Center NPC whose ow_<id>.png was never extracted stay invisible.
-      return sprite, px, py, facing, phase, false
+      return sprite, self.px, outPy, padFacing(self.facing),
+             walkPhaseOf(src), false
     end
 
     -- an actor is its own npc, so a consumer reaching either way lands here
@@ -1156,6 +1068,19 @@ function ModWorld.attach(Game3)
     -- thinks the player is standing still, which is exactly the case a
     -- continuous walk is in
     bumpFrames = function(g, v) g.freeWalkAnim = tonumber(v) end,
+    -- FREEFLY flight4: free_fly lands with p.surfing=true / takeoff nil.
+    -- Authority is live g.surfing (PLAYER_READS), never the store. Mounting
+    -- surf clears the bike the same way Game3's own surf paths do.
+    surfing = function(g, v)
+      g.surfing = (v and true) or nil
+      if g.surfing then g.bike = nil end
+    end,
+    -- free_fly ridingBike reads ow.player.onBike. Write only CLEARS the bike
+    -- (truthy write is ignored) so a mod cannot invent a bike kind through
+    -- the proxy; takeoff clears via freeFlying below.
+    onBike = function(g, v)
+      if not v then g.bike = nil end
+    end,
   }
 
   -- the same fields, read back off the game -- see __newindex for why a
@@ -1175,18 +1100,35 @@ function ModWorld.attach(Game3)
       return g.freeWalkPy or (g.playerY or 0) * METATILE_PX
     end,
     bumpFrames = function(g) return g.freeWalkAnim end,
-    -- Live: FreeMove.blockedCell reads p.surfing every slide. A snapshot
-    -- taken when the view was built stayed false after useSurf mounted,
-    -- so the free walk still refused water cells in voxel first-person.
+    -- Live, not snapshot: FreeMove.tick gates on p.moving / p.inputLocked
+    -- every frame. The overworld view is memoized without walkCooldown in its
+    -- signature, so a connection lerp (tryWalk → walkCooldown > 0 → moving
+    -- baked true) that then settles with an unchanged cam/player left the
+    -- cached actor permanently moving=true. FreeMove then drop()s every
+    -- tick and never walks again -- the post-seam softlock in 1ST/3RD.
+    -- Same class of bug as surfing (r13): snapshot taken at view build
+    -- went stale while the live game flag moved.
     surfing = function(g) return g.surfing == true end,
-    -- Live: FreeMove.tick gates on p.moving / p.inputLocked every frame.
-    -- Baking them into the cached overworld fields (and omitting walkCooldown
-    -- from the rebuild signature) left moving=true after a connection
-    -- lerp finished -- FreeMove stood aside forever until a menu/bike
-    -- rebuild cleared the stale snapshot. Same class of bug as surfing.
+    -- free_fly ridingBike() reads ow.player.onBike; Game3's flag is g.bike.
+    onBike = function(g) return g.bike ~= nil end,
     moving = function(g) return (g.walkCooldown or 0) > 0 end,
+    -- Soft after map seams / battle return: bare scriptWaiting/Delaying with
+    -- no UI field (enterMap deferred onTransition/onLoad, or endBattle while
+    -- a script wait is still armed) must NOT softlock FreeMove.
+    -- Real menus/dialogs set a hard field and still lock. Door/move/wait
+    -- fields also lock so scripted motion keeps the body.
+    -- Restored from desktop-sync-fp-mapchange after weather-fx/flight4 drift
+    -- reintroduced displayGateOK as the sole gate (killed FP after battles).
     inputLocked = function(g)
-      return type(g.displayGateOK) == "function" and not g:displayGateOK()
+      if g.phase ~= nil and g.phase ~= "play" then return true end
+      if not g.map then return true end
+      local f = g.field
+      if f then
+        return true
+      end
+      -- No field: ignore bare scriptWaiting/Delaying for free-cam input.
+      -- displayGateOK may still be false (stack:top soft-path covers that).
+      return false
     end,
   }
 
@@ -1231,7 +1173,14 @@ function ModWorld.attach(Game3)
           return write(self, value)
         end
         -- anything the contract does not name is the mod's own bookkeeping:
-        -- kept, on the game so it survives a rebuild, and never forwarded
+        -- kept, on the game so it survives a rebuild, and never forwarded.
+        -- free_fly stamps freeFlying / freeFlyAlt here; enterMap must NOT
+        -- clear _modPlayerStore (it does not) or flight soft-grounds at seams.
+        -- FREEFLY flight4: takeoff sets freeFlying=true — dismount bike so
+        -- ridingBike() is false in the air (freeFlying stays STORE-only).
+        if key == "freeFlying" and value then
+          self.bike = nil
+        end
         store[key] = value
       end,
     })
@@ -1302,6 +1251,35 @@ function ModWorld.attach(Game3)
       game = game,
     }
 
+    -- free_fly (and HM-relaxing mods) call ow:partyKnows("FLY") the way Gen 1
+    -- OverworldState:partyKnows does: return the mon that may field-use the
+    -- move, or nil.  Accepts a move name or numeric id; routes through
+    -- Game3:partyKnowsMove so fieldmove.eligibility wrappers apply.
+    function ow.partyKnows(_, moveId)
+      local id = moveId
+      if type(moveId) == "string" then
+        local key = "MOVE_" .. tostring(moveId):gsub("%s+", "_"):upper()
+        id = Game3[key] or moveId
+      end
+      id = tonumber(id) or id
+      if not game:partyKnowsMove(id) then return nil end
+      local party = game.party or {}
+      for i = 1, #party do
+        local mon = party[i]
+        if mon and not mon.isEgg and game:knowsMove(mon, id) then
+          return mon
+        end
+      end
+      -- Eligibility unlocked the move without anyone listing it (FIELD MOVES
+      -- ALL style): hand back the first healthy non-egg so callers that only
+      -- test ~= nil still see a flyer.
+      for i = 1, #party do
+        local mon = party[i]
+        if mon and not mon.isEgg then return mon end
+      end
+      return party[1]
+    end
+
     ow.map = self:modMapView(self.map)
 
     -- The player's own extra fields, folded onto the posed actor built below
@@ -1310,16 +1288,32 @@ function ModWorld.attach(Game3)
     -- draws them twice.
     local playerExtra = {
       surfing = self.surfing == true,
-      -- inputLocked is a live PLAYER_READ (displayGateOK); do not bake here.
-      -- DRAMATIC_SHAPE's VoxelScene culls the local OW card in first person
-      -- by marking the pose `isPlayer`. Emerald can use table identity
-      -- (`e == state.player`); Ruby's writeThrough proxy is rebuilt with the
-      -- view, so identity alone can miss. Stamp the flag on the actor (and
-      -- again on the proxy store below) so the cull still fires.
-      isPlayer = true,
+      -- `inputLocked` is Gen 1's name for "the player cannot be steered right
+      -- now". Game3's own answer is displayGateOK -- the same test the zoom
+      -- and tilt hotkeys gate on -- so it is read from there rather than from
+      -- a flag invented for this view.
+      inputLocked = not self:displayGateOK(),
     }
 
+    -- FREEFLY flight4: free_fly airborne tick calls ow.camera:follow(px,
+    -- py - camLift, vw, vh). Publish a method that writes through to
+    -- game.camX/camY (Gen1 Camera:follow centering: +16/+8 for the cell
+    -- pixel free_fly passes) and stamps _modCamFollow so clampCamera later
+    -- in logicStep keeps the lift instead of wiping it back to ground.
     ow.camera = { x = self.camX or 0, y = self.camY or 0 }
+    function ow.camera:follow(px, py, vw, vh)
+      px = tonumber(px) or 0
+      py = tonumber(py) or 0
+      vw = tonumber(vw) or 240
+      vh = tonumber(vh) or 160
+      local camX = px - vw / 2 + 16
+      local camY = py - vh / 2 + 8
+      camX = Game3.snapPixel(camX)
+      camY = Game3.snapPixel(camY)
+      game.camX, game.camY = camX, camY
+      self.x, self.y = camX, camY
+      game._modCamFollow = true
+    end
 
     -- Signature matches OverworldController.computeNeighbors.  VoxelScene
     -- calls the function unbound and supplies a maps table first; Ruby's
@@ -1378,8 +1372,17 @@ function ModWorld.attach(Game3)
     ow.neighbors = {}
     -- Diorama cameras see past one hop.  Use the view-hop gather so maps that
     -- still intersect the camera are meshed, matching where ghost NPCs stand.
+    -- WITH THE PREFETCH MARGIN, not just the view hops.  Without it a
+    -- neighbour only enters this list once it ALREADY intersects the camera,
+    -- so the mesher starts cold with the seam on screen -- the stutter into
+    -- flat ground at a map change.  Game3.LAYOUT_PREFETCH_TILES is about a
+    -- screen's worth (measured: the gather rect goes from 20x16 tiles to
+    -- 64x60), so a neighbour is building before it can be seen.  The constant
+    -- was already declared and commented in Game3.lua; only the argument was
+    -- missing, which left it orphaned.
     local placements = self:connectedLayout(
-      self.map, Game3.CONNECTION_VIEW_HOPS or 4) or {}
+      self.map, Game3.CONNECTION_VIEW_HOPS or 4,
+      Game3.LAYOUT_PREFETCH_TILES) or {}
     for _, row in ipairs(placements) do
       if row.map and row.map ~= self.map then
         ow.neighbors[#ow.neighbors + 1] = {
@@ -1415,14 +1418,12 @@ function ModWorld.attach(Game3)
       hidden = false,
     })
     for key, value in pairs(playerExtra) do player[key] = value end
-    -- moving / inputLocked are live PLAYER_READS (walkCooldown / displayGateOK).
-    -- Do not bake onto the actor snapshot: the fields cache can survive a
-    -- finished seam step and FreeMove would see a sticky moving=true.
+    -- MOVING is what a walk-replacing mod checks before it takes the wheel:
+    -- a grid step, a ledge hop or a scripted move is already animating the
+    -- player, and it must stand aside and adopt the result. Ruby's answer is
+    -- the step cooldown, the same one visualTile lerps along.
+    player.moving = (self.walkCooldown or 0) > 0
     player = writeThroughPlayer(self, player)
-    -- Also on the proxy store: view rebuilds mint a new empty proxy each
-    -- time, and VoxelScene may compare across two reads. The store outlives
-    -- the proxy, so `player.isPlayer` keeps answering true after a rebuild.
-    player.isPlayer = true
     ow.player = player
 
     ow.entities = { player }
@@ -1565,12 +1566,30 @@ function ModWorld.attach(Game3)
     -- warpAt first keeps this from taking an ordinary step: with no warp on
     -- the cell there is nothing here to do.
     function ow.checkDoorWarp(_, dir)
+      -- FREEFLY: FreeMove blocked-push door verb must not enter buildings
+      -- while airborne (tryWalk would skip tryWarpStep then step onto the
+      -- mat; onStepComplete/tryWarpOnArrival is also gated in Game3).
+      if type(game.isFreeFlying) == "function" then
+        local okFly, flying = pcall(game.isFreeFlying, game)
+        if okFly and flying then return false end
+      end
       local map = game.map
       if not map then return false end
       local dx, dy = deltaOf(dir)
       local nx, ny = (game.playerX or 0) + dx, (game.playerY or 0) + dy
       if not Game3.warpAt(map, nx, ny) then return false end
       return game:tryWalk(dx, dy) == true
+    end
+
+    -- FreeMove (DRAMATIC_SHAPE) calls checkGen3ArrowWarp before checkEdgeExit.
+    -- Alias the Gen3 door verb so a nil index does not crash mid-push; while
+    -- airborne the door gate above already refuses.
+    function ow.checkGen3ArrowWarp(_, dir)
+      return ow.checkDoorWarp(_, dir)
+    end
+
+    function ow.checkGen2CarpetExit(_, dir)
+      return false
     end
 
     -- Named and refusing, for the reasons each carries. A push simply does
@@ -1631,6 +1650,12 @@ function ModWorld.attach(Game3)
       tostring(self.facing), tostring(self.camX), tostring(self.camY),
       tostring(self.field), tostring(self.surfing), tostring(self.phase),
       tostring(self.npcByMap),
+      -- walk-in-progress bit (not the float cooldown): FreeMove and
+      -- renderers that still read the snapshotted player.moving need the
+      -- view to rebuild when a connection lerp starts or ends. Live
+      -- PLAYER_READS.moving covers FreeMove; this keeps entities[1].moving
+      -- honest for anything that bypasses the proxy reads.
+      tostring((self.walkCooldown or 0) > 0),
     }, "|")
     if self._modOwSig == sig and self._modOwFields then
       return self._modOwFields
@@ -1657,6 +1682,33 @@ function ModWorld.attach(Game3)
   -- then -- before any map existed. Its fields answer nil while there is no
   -- map, which is the same thing a nil overworld says, without the identity
   -- changing underneath a holder.
+  -- THE VERBS SURVIVE A MAPLESS MOMENT; the map DATA does not.
+  --
+  -- modOverworldFields answers nil until the player is standing on a map, and
+  -- the proxy passed that nil straight through -- so every key read before the
+  -- first map answered nil, including the METHODS.  That is right for `map`,
+  -- `camera` and the cast, which genuinely do not exist yet.  It is wrong for
+  -- `interact` and `onStepComplete`: those are verbs on the GAME, they mean
+  -- the same thing on any map, and a mod that captures one does so at
+  -- game.ready -- which fires BEFORE the first map is entered.
+  --
+  -- hm_anywhere_gen2:849 does exactly that (`baseInteract =
+  -- OverworldState.interact`) and calls it on the first A press.  It captured
+  -- nil, its own `type(...) == "table"` guard passed because the proxy is
+  -- still a table, and the game died on "attempt to call local 'baseInteract'".
+  -- src/world/gen3/WorldAPI.lua:overworld() hands out this same proxy, so the
+  -- crash is reachable through mod.world as well.
+  --
+  -- Strictly additive: when there IS a map this branch is never taken, so
+  -- nothing that works today changes.
+  local MAPLESS_VERBS = {
+    interact = function(game) return game:tryTalk() end,
+    onStepComplete = function(game)
+      if game.tryWarpOnArrival and game:tryWarpOnArrival() then return true end
+      return game:stepArrived()
+    end,
+  }
+
   function Game3:modOverworld()
     local proxy = self._modOverworldProxy
     if proxy then return proxy end
@@ -1665,8 +1717,17 @@ function ModWorld.attach(Game3)
       __index = function(_, key)
         if key == "overworld" or key == "world" then return proxy end
         local fields = game:modOverworldFieldsCached()
-        if not fields then return nil end
-        return fields[key]
+        if fields then return fields[key] end
+        -- No map yet.  Hand back the verbs anyway, bound to the game, so a
+        -- mod that captured one before the first map still holds something
+        -- callable.  Written with an ignored first argument for the same
+        -- reason the real ones are: `ow:interact()` and `ow.interact(ow)`
+        -- both have to reach the game.
+        local verb = MAPLESS_VERBS[key]
+        if verb then
+          return function(_) return verb(game) end
+        end
+        return nil
       end,
       __newindex = function(t, key, value) rawset(t, key, value) end,
     })
@@ -1739,8 +1800,16 @@ function ModWorld.attach(Game3)
     function stack:top()
       if #overlay > 0 then return overlay[#overlay] end
       if type(innerTop) == "function" then return innerTop(self) end
-      if not game:displayGateOK() then return nil end
-      return game:modOverworld()
+      if game:displayGateOK() then return game:modOverworld() end
+      -- Map-seam / battle-return soft path: displayGateOK is false during bare
+      -- script wait after enterMap(connected) or after endBattle while a wait
+      -- is still armed, which made FirstPerson.onTop() fail and killed mouse
+      -- look / FreeMove while the player was still in the overworld. Real UI
+      -- sets game.field or pushes an overlay above (BattleExit, menus).
+      if game.phase == "play" and game.map and game.field == nil then
+        return game:modOverworld()
+      end
+      return nil
     end
     return stack
   end
@@ -1751,8 +1820,11 @@ function ModWorld.attach(Game3)
     if stack then return ensureOverlay(stack, game) end
     stack = {
       top = function()
-        if not game:displayGateOK() then return nil end
-        return game:modOverworld()
+        if game:displayGateOK() then return game:modOverworld() end
+        if game.phase == "play" and game.map and game.field == nil then
+          return game:modOverworld()
+        end
+        return nil
       end,
       states = {},
     }

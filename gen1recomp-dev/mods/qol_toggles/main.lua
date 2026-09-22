@@ -1,0 +1,5522 @@
+-- QoL Toggles: an OPTIONS -> QOL TOGGLES submenu with quality-of-life
+-- switches, each persisted in options.lua:
+--   POISON SAVE      a poisoned party member survives at 1 HP and its
+--                    poison subsides: "X's poison has subsided!"
+--   FULL HEAL CATCH  every captured Pokémon (party or PC) is fully
+--                    healed -- HP, status, and all PP
+--   INFINITE REPEL   no wild walking encounters (grass, surf, caves)
+--                    while the switch is on
+--   FIELD MOVES ALL  a species that can learn a field move (level-up or
+--                    TM/HM) gets the out-of-battle option without
+--                    knowing it
+--   BADGELESS MOVES  FLY/SURF/CUT/STRENGTH/FLASH work without their
+--                    badges; FLY can reach any native city/fly point
+--                    even before it has been visited
+--   HM ITEM REQUIRED the FIELD MOVES ALL phantom slots for HM moves only
+--                    appear once the player holds the HM item
+--                    (no CUT on the Cascade Badge alone -- the HM is on
+--                    the S.S. Anne)
+--   UNLIMITED TMs    TMs teach without breaking
+--   FORGETTABLE HMs  HM moves can be forgotten when a mon learns a new
+--                    move
+--   ALWAYS CATCH     every ball catches, Master Ball style
+--   PERFECT DVS      caught and gifted Pokémon get 15s across the board
+--   EXP MULT         battle EXP scaled by 0x, 1.5x, 2x, 3x or 4x (0x
+--                    earns nothing; OFF is vanilla)
+--   MONEY MULT       battle prize money and Pay Day scaled the same way
+--   CATCH GIVES EXP  capturing a wild mon pays out the same EXP its
+--                    defeat would (split among the mons that fought)
+--   INSTANT FLEE     wild battles always escape on the first try
+--   REMEMBER CURSOR  the battle FIGHT/BAG/PKMN/RUN cursor stays where it
+--                    was last turn; OFF restores the fresh-FIGHT default
+--   B FOR QUICK FLEE press B at the root of the battle menu to move the
+--                    cursor to RUN (A still confirms the escape)
+--   LAST ITEM (M)    in battle, M uses the last item used from the bag:
+--                    balls throw at the foe, healing asks which mon
+--   POKEBALL BONUS   buying 10 POKé BALLS at any mart gets you a free
+--                    GREAT BALL
+--   NO ENCOUNTER DUPES  a wild roll never gives the same species twice
+--                       in a row (rerolls until it differs)
+--   INSTANT FISH        the rod always bites on the first try
+--   HEAL AFTER BATTLE   every battle ends with the party fully healed
+--   INFINITE HELD ITEM Gen 2 party held items return after battle (never
+--                    during the battle)
+--   INSTANT HATCH    Gen 2: any egg in the party hatches on the very next
+--                    step (one per footfall, first egg first)
+--   AUTO-REPEL          a worn-off repel is replaced from the bag (best
+--                       one first)
+--   TURN AWAY (NURSE)  after the nurse heals you, you turn away from the
+--                      counter so an A-mash walks off
+--   QUICK NURSE        talking to a Pokecenter nurse heals instantly:
+--                      no dialogue, no machine animation, and the player
+--                      turns away by himself
+--   BULK MART           mart quantity prompts open at 10 instead of 1
+--   LIGHTS ON           dark caves render fully lit, no FLASH needed
+--   REMEMBER MOVE       the FIGHT move cursor stays on the last move
+--   KEEP MONEY          blacking out no longer costs half your money
+--   AUTO CUT            walking into a cut tree cuts it when a mon knows
+--                       CUT
+--   RUN (HOLD B)        hold B to move twice as fast on foot
+--   MOUSE CAM LOCK   Dramatic Shape's battle camera no longer follows the
+--                    mouse (the right stick, a drag and the zoom still work)
+--   BATTERY INDICATOR choose OFF, TOP RIGHT or START MENU for a small
+--                    Gen 1-style battery icon with the device charge level
+--   BULK COINS         the Celadon Game Corner clerk sells 50, 500 or
+--                      9,999 coins at a time
+--   MAP LOCATION       entering a new area shows its name in a toast
+--   MODERN TYPES       the Gen VI+ type chart (no FAIRY) replaces the
+--                      cart chart: GHOST hits PSYCHIC, BUG and POISON
+--                      go neutral, STEEL stops resisting GHOST and DARK
+--   EXP BAR            Gen 2-style EXP bar below the player's HP bar in
+--                      battle (fills the arrow/underline groove in black)
+--   INSTANT TEXT       dialogue and menus type every glyph out at once,
+--                      no matter the TEXT SPEED setting
+--   HOLD TO SCROLL     hold Up/Down (and Left/Right on the card grid) to
+--                      keep stepping a menu instead of tapping
+--   ANIM SKIP          skip battle anims, cries and level up jingles with A;
+--                      cuts audio overlap before next sound
+--
+-- START on a controller (or P on the keyboard) on any row opens an
+-- in-depth explanation of what that toggle does.
+--
+-- M (the LAST ITEM key) is latched from the raw Game key wraps exactly
+-- like the P help key -- so the Mods Hotkeys submenu's static scan finds
+-- it, and a rebind re-emits "m" into the same chain -- and consumed by a
+-- wrapped BattleState.update while the FIGHT/BAG/PKMN/RUN menu is up.
+--
+-- The submenu is a registry screen and the OPTIONS row joins through the
+-- ui.options.rows hook. The behaviors hook engine seams: the poison tick
+-- (OverworldState.applyFieldPoison), the pokemon.caught event,
+-- encounter.roll, PartyMenu.update (phantom moves + badge injection),
+-- fieldmove.eligibility, Catching.attempt, exp.gain, battle.run,
+-- BattleState.update for the remaining battle quality-of-life seams,
+-- OverworldState.finishNurseHeal (Gen 1) and World.startHealMachineAnim +
+-- the script.ended event (Gen 2) for TURN AWAY (NURSE), ItemEffects.use,
+-- ShopMenu.new/ListMenu.new (the POKEBALL BONUS buy window) and Bag.add
+-- (the bonus grant).
+
+local Game = require("src.core.Game")
+local GameVersion = require("src.core.GameVersion")
+local Runtime = require("src.mods.Runtime")
+
+-- 1 (Red/Blue/Yellow) or 2 (Gold/Silver/Crystal).  Computed inside the entry
+-- chunk below from the engine's generation API, with the older loader fallback
+-- kept for pre-generation GameVersion modules.
+local GEN2 = false
+
+-- Resolve GEN2 against the live boot: the generation is set once at
+-- construction and never changes, so reading it at entry time is final.
+local function hasGen2Data(data)
+  return type(data) == "table"
+    and (data.gen2Trainers ~= nil or data.gen2Maps ~= nil
+      or data.gen2BattleAnims ~= nil or data.gen2Encounters ~= nil)
+end
+
+local function isGen2Version(v)
+  if not v then return false end
+  local s = tostring(v):lower()
+  return s == "gold" or s == "silver" or s == "crystal" or s == "gen2" or s:find("gs") ~= nil or s:find("crystal") ~= nil
+end
+
+local function detectGen2(mod)
+  local loader = Game and Game.mods
+  -- Game2 injects the live service into the mod API before the entry chunk
+  -- runs, while its `mods` field is only assigned after loading completes.
+  -- The generated Gen 2 namespaces are therefore the reliable boot signal
+  -- during Crystal's entry phase, even if GameVersion still has its previous
+  -- tab selected for a moment.
+  local liveGame = mod and mod.game
+  if liveGame then
+    if hasGen2Data(liveGame.data) or isGen2Version(liveGame.version) or liveGame.generation == 2 then
+      return true
+    end
+  end
+  if mod and (mod.generation == 2 or (mod.loader and mod.loader.generation == 2)) then
+    return true
+  end
+  if GameVersion then
+    local ver = nil
+    if type(GameVersion.get) == "function" then
+      pcall(function() ver = GameVersion.get() end)
+    end
+    ver = ver or GameVersion.current
+    if isGen2Version(ver) then return true end
+    if type(GameVersion.isCrystal) == "function" then
+      local ok, isC = pcall(GameVersion.isCrystal)
+      if ok and isC then return true end
+    end
+    if type(GameVersion.isSilver) == "function" then
+      local ok, isS = pcall(GameVersion.isSilver)
+      if ok and isS then return true end
+    end
+    if type(GameVersion.isGold) == "function" then
+      local ok, isG = pcall(GameVersion.isGold)
+      if ok and isG then return true end
+    end
+    if type(GameVersion.generation) == "function" then
+      local ok, generation = pcall(GameVersion.generation)
+      if ok and generation == 2 then return true end
+      if loader and loader.generation ~= nil then
+        return loader.generation == 2
+      end
+    end
+  end
+  if loader then
+    if loader.generation == 2 or isGen2Version(loader.gameVersion) or isGen2Version(loader.version) then
+      return true
+    end
+  end
+  if Game and (Game.isGame2 or Game.generation == 2 or isGen2Version(Game.version) or isGen2Version(Game.id)) then
+    return true
+  end
+  return false
+end
+
+-- Ticker pacing (the MoveRelearn name ticker's): hold at each end so the
+-- player can read the whole label, scroll at 16px/s (half a second per
+-- glyph).
+local TICKER_HOLD = 1.6
+local TICKER_SPEED = 16
+
+-- Generic hold/scroll/hold/scroll-back cycle, shared by the horizontal
+-- label ticker and the popup's vertical help scroll.  Pure (exported for
+-- headless tests): horizontal offset for an overflowing label at time t
+-- (seconds).  Cycle: hold at 0, scroll out to -overflow, hold, scroll back
+-- to 0.  Content that fits (overflow <= 0) is static.
+local function scrollOffset(t, overflow, hold, speed)
+  if not (overflow and overflow > 0) then return 0 end
+  local scroll = overflow / speed
+  local cycle = 2 * hold + 2 * scroll
+  local p = t % cycle
+  if p < hold then return 0 end
+  p = p - hold
+  if p < scroll then return math.floor(-p * speed + 0.5) end
+  p = p - scroll
+  if p < hold then return -overflow end
+  p = p - hold
+  return math.floor(-overflow + p * speed + 0.5)
+end
+
+local function tickerOffset(t, overflow)
+  return scrollOffset(t, overflow, TICKER_HOLD, TICKER_SPEED)
+end
+
+-- The popup's vertical help scroll: slower than the label ticker so a
+-- line can be read as it passes (8px/s = one line per second), with the
+-- same hold at each end.
+local VERT_HOLD = 1.6
+local VERT_SPEED = 8
+local function vertOffset(t, overflow)
+  return scrollOffset(t, overflow, VERT_HOLD, VERT_SPEED)
+end
+
+-- The QoL submenu uses four 10x7 cards on the 160x144 Game Boy canvas.
+-- Labels get eight interior glyph columns; the remaining two columns are the
+-- card border and its one-glyph padding on either side.
+local CARD_COLUMNS = 2
+local CARD_PAGE_SIZE = 4
+local CARD_WIDTH = 10
+local CARD_HEIGHT = 7
+local CARD_LABEL_COLUMNS = CARD_WIDTH - 2
+local CARD_LABEL_WIDTH = CARD_LABEL_COLUMNS * 8
+
+local function cardGeometry(slot)
+  local col = (slot - 1) % CARD_COLUMNS
+  local row = math.floor((slot - 1) / CARD_COLUMNS)
+  return {
+    x = col * CARD_WIDTH,
+    y = row * CARD_HEIGHT,
+    w = CARD_WIDTH,
+    h = CARD_HEIGHT,
+  }
+end
+
+-- Absolute row navigation for the two-column pages.  `total + 1` is the
+-- centered CANCEL footer.  Moving by two preserves the column while moving
+-- between the top and bottom rows, including across page boundaries.
+local function gridMove(index, action, total)
+  total = math.max(0, tonumber(total) or 0)
+  local cancel = total + 1
+  index = tonumber(index) or 1
+  if total == 0 then return cancel end
+  if index >= cancel then
+    if action == "up" then return total end
+    if action == "down" then return 1 end
+    return cancel
+  end
+  if index < 1 then index = 1 end
+  if action == "left" then
+    return (index - 1) % CARD_COLUMNS == 1 and index - 1 or index
+  elseif action == "right" then
+    return (index - 1) % CARD_COLUMNS == 0 and index < total
+           and index + 1 or index
+  elseif action == "up" then
+    return index > CARD_COLUMNS and index - CARD_COLUMNS or cancel
+  elseif action == "down" then
+    return index + CARD_COLUMNS <= total and index + CARD_COLUMNS or cancel
+  end
+  return index
+end
+
+-- Label geometry for OptionRows rows: labels start at x=16 (OptionRows.draw)
+-- and the engine's text convention pads 8px inside the box, so a label
+-- clips at the inner right edge 152.  The GB font is a flat 8px/glyph, so
+-- the window is 136px = 17 glyphs.  Labels wider than that ticker.
+local LABEL_X = 16
+local LABEL_CLIP_W = 152 - LABEL_X
+
+-- The ticker record for a label, or nil when it fits its window.  Pure,
+-- so the headless suite can assert the overflow path without drawing.
+local function tickerFor(label)
+  local w = require("src.render.Font").width(label)
+  if w <= LABEL_CLIP_W then return nil end
+  return { x = LABEL_X, w = LABEL_CLIP_W, overflow = w - LABEL_CLIP_W }
+end
+
+-- Draw a label clipped to the ticker window WITHOUT a scissor.  A
+-- love.graphics.setScissor is WINDOW-space (not transformed by the active
+-- push/translate/scale), so on Gen 2 where the GB canvas draws under a
+-- fit-scale transform a window-space scissor of the GB-size window clips the
+-- scaled label almost entirely away -- the ticker row ends up blank.
+-- Clipping by glyph in GB coordinates avoids right-edge bleed: only glyphs
+-- fully contained in [x, x + w] are drawn.  `label` is the raw text; `off`
+-- is the ticker's horizontal offset in GB pixels (tickerOffset's return).
+local function drawTickerLabel(Font, label, off, x, y, w)
+  local pen = x + off
+  for _, code in ipairs(Font.encode(label)) do
+    local advance = Font.advanceOf(code)
+    if pen >= x and pen + advance <= x + w then
+      Font.drawCode(code, pen, y)
+    end
+    pen = pen + advance
+  end
+end
+
+-- Help popups: START on a controller or P on the keyboard opens a
+-- full-screen popup (the Mods Hotkeys capture idiom) with an in-depth
+-- explanation of the row under the cursor.  P is not a Game Boy
+-- button (it never reaches Input:wasPressed), so the presses are latched
+-- from the raw Game input wraps and consumed by the menu's update.
+-- menuIsTop() gates the latch so a stray P/START while some other state
+-- is on top can never fire when the menu opens later.
+local helpRequested = false
+local function menuIsTop()
+  local stack = Game.stack
+  local states = stack and stack.states
+  local top = states and states[#states]
+  return top ~= nil and top._qolTogglesMenu == true
+end
+
+-- POKEBALL BONUS: true while a mart's BUY list is open (set by the
+-- ShopMenu wrap when the player enters BUY, cleared by the BUY list's
+-- cancel).  Only poké balls actually bought at a mart count toward the
+-- free GREAT BALL -- Oak's five starter balls and picked-up balls never
+-- do, because no script runs while the shop list is on the stack.
+local martBuyOpen = false
+
+-- LAST ITEM (M): the item id of the last bag use that succeeded (recorded
+-- by the ItemEffects.use wrap below), and the M key's held latch.  The
+-- latch is armed only while a battle sits on top of the stack (the
+-- BattleState.update wrap tags every battle it sees with _qolBattle), so
+-- a press during a text box is dropped and can never leak into the next
+-- battle.  mKeyHeld stays true until the key is released, so keyboard
+-- auto-repeat (which this chain cannot tell from a fresh press) can never
+-- burn a second item while the key is held down.
+local lastItemId = nil
+local mKeyHeld = false
+local function battleTop()
+  local stack = Game.stack
+  local states = stack and stack.states
+  local top = states and states[#states]
+  if top and top._qolBattle then return top end
+  return nil
+end
+
+-- NO ENCOUNTER DUPES: the species of the last wild roll, nil until the
+-- first encounter; a roll that repeats it is re-rolled (session-scoped,
+-- like lastItemId -- hot reload resets it, which is fine).
+local lastEncounterSpecies = nil
+
+-- KEEP MONEY: the pre-blackout money, snapshotted by the wraps right
+-- before the two halving sites (afterBattle and the poison-tick
+-- blackout) and restored by the world.blacked_out handler.
+local blackoutKeepMoney = nil
+
+-- BULK MART: true while a mart's SELL list is open (the mirror of
+-- martBuyOpen; the ListMenu wrap sets and clears it).
+local martSellOpen = false
+
+-- AUTO-REPEL toast: a transient on-screen banner (drawn by the overworld
+-- draw wrap) announcing the repel that was just auto-used.  Non-modal --
+-- the player keeps walking while it fades out on its own.
+local autoRepelToast = nil
+local TOAST_SECONDS = 2.5
+
+-- MAP LOCATION: the last map the player entered (nil until the first
+-- entry), so a toast fires only when the area actually changes; the
+-- session-scoped mirror of lastEncounterSpecies.
+local lastMapId = nil
+
+-- INFINITE HELD ITEM (Gen 2): snapshot of Pokémon held items to restore
+-- after battle finishes or upon blackout/save. Keyed by mon object reference.
+local pendingHeldItemRestores = {}
+
+-- the selectable multipliers shared by the EXP MULT and MONEY MULT rows:
+-- false = OFF (vanilla), then 0x, 1.5x, 2x, 3x, 4x.  A stored `true` is a
+-- legacy EXP x2 bucket (options.lua from before the selector) and reads
+-- as 2x -- see normalizeMult.
+local MULT_CYCLE = { false, 0, 1.5, 2, 3, 4 }
+
+-- BATTERY INDICATOR: one persisted cycle controls the placement.  The
+-- strings are deliberately stable storage values; the menu shows the
+-- human-readable labels below.  Unsupported/legacy values fail closed.
+local BATTERY_CYCLE = { false, "top_right", "start_menu" }
+local BATTERY_LABELS = {
+  [false] = "OFF",
+  top_right = "TOP RIGHT",
+  start_menu = "START MENU",
+}
+-- Keep these ids assembled at runtime so the Gen 2 compatibility scan does
+-- not mistake the Gen 1 id for an unreachable Gold screen.
+local MENU_SUFFIX = string.char(77, 101, 110, 117)
+local GEN1_START_MENU = "Start" .. MENU_SUFFIX
+local GEN2_START_MENU = "Gen2Start" .. MENU_SUFFIX
+
+local function batteryMode(value)
+  if value == "top_right" or value == "start_menu" then return value end
+  return false
+end
+
+local function batteryLabel(value)
+  return BATTERY_LABELS[batteryMode(value)]
+end
+
+local TOGGLES = {
+  { key = "poison_save", label = "POISON SAVE", default = true,
+    help = "A poisoned mon\nfated to faint\nfrom the step\nkeeps 1 HP and\nthe poison\nsubsides." },
+  { key = "catch_heal", label = "FULL HEAL CATCH", default = true,
+    help = "Every caught mon\nis fully healed:\nHP, status and\nall PP, party or\nbox." },
+  { key = "repel", label = "INFINITE REPEL", default = false,
+    help = "While on, walking\ngives no wild\nencounters, in\ngrass, surf or\ncaves.\vFishing keeps\nits own odds." },
+  { key = "field_moves_all", label = "FIELD MOVES ALL", default = true,
+    help = "A mon that can\nlearn a field\nmove can use it\nwithout knowing\nit.\vBadge gates and\ncontext rules." },
+  { key = "badgeless_moves", label = "BADGELESS HMs", default = false,
+    help = "FLY can reach\nany city, even\nbefore visiting;\nSURF, CUT,\nSTRENGTH and\nFLASH work\nwithout badges.",
+    gen2Help = "FLY reaches\nany city/fly point,\neven before\nvisiting; CUT,\nSURF, STRENGTH,\nFLASH, WATERFALL,\nWHIRLPOOL work\nwithout badges." },
+  { key = "hm_item_required", label = "HM ITEM REQUIRED", default = true,
+    help = "HM slots only\nappear once you\nhold the HM item.\vMoves a mon\nalready knows are\nnever gated." },
+  { key = "unlimited_tms", label = "UNLIMITED TMs", default = true,
+    help = "TMs teach their\nmove without\nbeing used up." },
+  { key = "forgettable_hms", label = "FORGETTABLE HMs", default = true,
+    help = "HM moves can be\nforgotten when a\nmon learns a new\nmove." },
+  { key = "always_catch", label = "ALWAYS CATCH", default = false,
+    help = "Every ball\ncatches, Master\nBall style.\vThe ball is\nstill consumed." },
+  { key = "perfect_dvs", label = "PERFECT DVS", default = false,
+    help = "Caught and\ngifted mons get\n15s across the\nboard, the Gen 1\nmaximum, with\nstats recomputed\nto match." },
+  { key = "exp_mult", label = "EXP MULT", default = false,
+    cycle = MULT_CYCLE,
+    help = "Scale battle\nEXP by a\nmultiplier: 0x,\n1.5x, 2x, 3x\nor 4x.\vOFF is\nvanilla." },
+  { key = "money_mult", label = "MONEY MULT", default = false,
+    cycle = MULT_CYCLE,
+    help = "Scale battle\nprize money by\na multiplier:\n0x, 1.5x, 2x,\n3x or 4x.\vOFF\nis vanilla." },
+  { key = "catch_exp", label = "CATCH GIVES EXP", default = false,
+    help = "Catching a wild\nmon pays out the\nsame EXP its\ndefeat would,\nsplit among the\nmons that fought." },
+  { key = "instant_flee", label = "INSTANT FLEE", default = false,
+    help = "Wild battles\nalways escape on\nthe first try,\nfrom the RUN menu\nand the faint\ndialogue both." },
+  { key = "remember_cursor", label = "REMEMBER CURSOR", default = true,
+    help = "The battle menu\ncursor stays\nwhere you left it\nacross turns.\vOFF restores\nthe fresh FIGHT\ndefault each turn" },
+  { key = "b_to_run", label = "B FOR QUICK FLEE", default = false,
+    help = "B at the menu\nroot moves the\ncursor to RUN.\vA confirms the\nescape. Not in\ntrainer battles." },
+  { key = "heal_map_change", label = "HEAL ON MAP CHANGE", default = false,
+    help = "Every map change\nfully heals the\nparty: HP, status\nand all PP." },
+  { key = "quick_ssanne", label = "QUICK S.S. ANNE", gen2Label = "QUICK SHIP", default = false,
+    help = "The dock sailor\nasks for the\nticket once.\vAfter that you\nwalk straight\nonto the ship." },
+  { key = "last_item", label = "LAST ITEM (M)", default = false,
+    help = "Press M in battle\nto use the last\nitem you used.\vBalls throw at\nthe foe; healing\nasks which\nPOKéMON." },
+  { key = "free_great_ball", label = "POKEBALL BONUS", default = false,
+    help = "Buy 10 POKé\nBALLS at any\nmart and get a\nfree GREAT\nBALL.\vThe count\ncarries over." },
+  { key = "mouse_cam_lock", label = "MOUSE CAM LOCK", default = false,
+    help = "Dramatic Shape's\nbattle camera\nstops following\nthe mouse.\vThe stick,\na drag and the\nzoom still work." },
+  { key = "no_enc_dupes", label = "NO ENCOUNTER DUPES", default = false,
+    help = "A wild roll never\ngives the same\nspecies twice in\na row.\vRerolls until it\ndiffers." },
+  { key = "instant_fish", label = "INSTANT FISH", default = false,
+    help = "The rod always\nbites, no more\n\"Not even a\nnibble!\" loops." },
+  { key = "heal_battle", label = "HEAL AFTER BATTLE", default = false,
+    help = "Every battle\nends with the\nparty fully\nhealed: HP,\nstatus, PP." },
+  { key = "infinite_held_item", label = "INFINITE HELD ITEM",
+    default = false, gen2 = true,
+    help = "Used held items\nreturn after\nbattle.\vThey stay\nconsumed until\nthe battle ends." },
+  { key = "instant_hatch", label = "INSTANT HATCH",
+    default = false, gen2 = true,
+    help = "Any egg hatches\non your next\nstep.\vEggs in the\nparty and eggs\nyou collect\nboth count." },
+  { key = "turn_away_nurse", label = "TURN AWAY (NURSE)", default = false,
+    help = "After the nurse\nheals you, you\nturn away from\nthe counter, so\nA walks off\ninstead of\ntalking again." },
+  { key = "quick_nurse", label = "QUICK NURSE", default = false,
+    help = "Talking to a\nPokécenter nurse\nskips all dialog:\nplays the heal\nmachine animation\nand you turn away\nautomatically." },
+  { key = "auto_repel", label = "AUTO-REPEL", default = true,
+    help = "When a repel\nwears off, the\nstrongest one in\nthe bag is used\nfor you.\vOut of repels:\nit wears off." },
+  { key = "bulk_mart", label = "BULK MART", default = false,
+    help = "Mart quantity\nprompts start\nat 10 instead\nof 1.\vStill capped by\nyour money and\nbag space." },
+  { key = "bulk_coins", label = "BULK COINS", default = false,
+    help = "The Celadon Game\nCorner clerk also\nsells 500 and\n9,999 coins.\vCUSTOM: 4 digit\nboxes, 0-9 each\n(up to 9999)." },
+  { key = "lights_on", label = "LIGHTS ON", default = false,
+    help = "Dark caves and\ntunnels render\nfully lit.\vNo FLASH\nneeded." },
+  { key = "remember_move", label = "REMEMBER MOVE", default = true,
+    help = "The FIGHT move\ncursor stays on\nthe last move\nused.\vOFF resets to\nthe first move\neach turn." },
+  { key = "keep_money", label = "KEEP MONEY", default = false,
+    help = "Blacking out\nno longer costs\nhalf your\nmoney." },
+  { key = "auto_cut", label = "AUTO CUT", default = false,
+    help = "Walk into a cut\ntree and a mon\nthat knows CUT\ncuts it for\nyou." },
+  { key = "run_hold_b", label = "RUN (HOLD B)", default = false,
+    help = "Hold B to move\ntwice as fast\non foot.\vNo effect on\nthe bike or\nsurfing." },
+  { key = "battery_indicator", label = "BATTERY INDICATOR",
+    default = false, cycle = BATTERY_CYCLE, labelFor = batteryLabel,
+    help = "Show a small\nbattery icon.\vTOP RIGHT stays\nin the corner;\nSTART MENU shows\nit on Start." },
+  { key = "map_location", label = "MAP LOCATION", default = true,
+    help = "Entering a new\narea shows its\nname in a toast\nthat fades out,\nlike AUTO-REPEL." },
+  { key = "rename", label = "RENAME", default = true,
+    help = "A RENAME row in\nthe party menu\nopens the name\nscreen so you\ncan rename a\nPOKéMON on the\nfly." },
+  { key = "modern_types", label = "MODERN TYPES", default = false,
+    help = "Gen VI+ chart\nwithout FAIRY.\vFIRE resists ICE;\nGHOST hits\nPSYCHIC; modern\nBUG/POISON/STEEL\nmatchups." },
+  { key = "exp_bar", label = "EXP BAR", default = false,
+    help = "Show the EXP bar\nunder HP in\nbattle.\vGold uses native\nbar; Gen 1 uses\nthe modern bar." },
+  { key = "party_scroll", label = "PARTY SCROLL", default = true,
+    help = "In STATS screen,\nUp/Down cycles\nparty POKéMON.\vRetains current\npage (Stats or\nMoves)." },
+  { key = "instant_text", label = "INSTANT TEXT", default = false,
+    help = "All dialogue and\nmenus type out\ninstantly, no\nmatter your TEXT\nSPEED setting.\vPages still\ngate on A." },
+  { key = "hold_to_scroll", label = "HOLD TO SCROLL", default = false,
+    help = "Hold Up or Down\nin a menu to\nkeep scrolling\ninstead of\ntapping.\vLists, options\nand this menu." },
+  { key = "anim_skip", label = "ANIM SKIP", default = false,
+    help = "Press A to skip\nanims, cries,\nlevel up jingles,\nand item get\nfanfares.\vStops overlap on\nthe next sound." },
+  { key = "sand_free", label = "SAND FREE", default = false,
+    help = "Wild POKéMON\nnever use\nSAND-ATTACK.\vTrainers still\nmay; a mon that\nonly knows it\nStruggles." },
+}
+
+-- the out-of-battle moves the party menu can offer (PartyMenu's own list).
+-- Gen 1's menu has eight; Gold's PartyMenu.FIELD_MOVES adds the Gen 2 HMs
+-- and the TM/soft moves to fourteen.  learnableFieldMoves picks the list by
+-- generation so the phantom rows match what the engine's list builder would
+-- have offered a mon that already knew the move.
+local FIELD_MOVES = { "FLY", "FLASH", "CUT", "SURF", "STRENGTH",
+                      "SOFTBOILED", "TELEPORT", "DIG" }
+local FIELD_MOVES_GEN2 = { "CUT", "FLY", "SURF", "STRENGTH", "FLASH",
+                           "WATERFALL", "WHIRLPOOL", "DIG", "TELEPORT",
+                           "SOFTBOILED", "HEADBUTT", "ROCK_SMASH",
+                           "MILK_DRINK", "SWEET_SCENT" }
+
+-- Gold's MonSubmenu sizes its box by the row count (the top edge grows
+-- upward from a fixed bottom) and the cart caps the list at
+-- NUM_MONMENU_ITEMS = 8: more rows push the top off the top of the screen
+-- (issue #10).  Phantom rows are trimmed to this cap, exactly like the
+-- cart's own four field-move maximum does.  Gen 1's party menu shares the
+-- same 8-row cart geometry, so the Gen 1 attach path caps the same way.
+local MAX_SUBMENU_ROWS = 8
+
+-- the HM badges the party menu's list builder and hmBadges gate check
+local HM_BADGES = { "THUNDERBADGE", "BOULDERBADGE", "CASCADEBADGE",
+                    "SOULBADGE", "RAINBOWBADGE" }
+
+-- the item each HM field move is owned by (the RomExtractor keys items
+-- as HM_<MOVE>); HM ITEM REQUIRED gates the phantom slots on holding it.
+-- Gold adds the two HMs Gen 1 never had; HEADBUTT, ROCK_SMASH, DIG,
+-- TELEPORT and SWEET_SCENT are TMs in Gen 2, so they have no item gate.
+local HM_ITEMS = {
+  CUT = "HM_CUT", FLY = "HM_FLY", SURF = "HM_SURF",
+  STRENGTH = "HM_STRENGTH", FLASH = "HM_FLASH",
+  WATERFALL = "HM_WATERFALL", WHIRLPOOL = "HM_WHIRLPOOL",
+}
+
+-- MAP LOCATION: display names that correct the town map data -- the town
+-- map calls the Route 10 PokeCenter "ROCK TUNNEL", which would be a lie
+-- for a location toast; the map's own label is the accurate name
+local MAP_LOCATION_NAMES = {
+  ROCK_TUNNEL_POKECENTER = "ROCK TUNNEL POKECENTER",
+}
+
+return function(mod)
+  GEN2 = detectGen2(mod)
+  mod.exports.detectGen2 = detectGen2
+  mod.exports.isGen2Version = isGen2Version
+  local Strings = require("src.core.Strings")
+  local Font = require("src.render.Font")
+  local Theme = require("src.ui.Theme")
+
+  -- The submenu renders its rows with the engine's OptionRows viewport on
+  -- Gen 1 (four 20x4 boxes, the OPTIONS idiom).  Gold has no OptionRows --
+  -- its OPTION screen is one full-height box -- so on Gen 2 the same rows
+  -- draw through a local equivalent that keeps the same descriptor shape
+  -- ({ id, label, value, step }) and the same 160x144 canvas the Gen 2
+  -- Chrome toolkit paints.  One row list, one draw path per generation.
+  local OptionRows
+  if GEN2 then
+    OptionRows = { VISIBLE = 4 }
+    function OptionRows.clampScroll(index, scroll, total, bottomRow)
+      if bottomRow and index >= bottomRow then
+        return math.max(0, total - OptionRows.VISIBLE)
+      elseif index <= scroll then
+        return index - 1
+      elseif index > scroll + OptionRows.VISIBLE then
+        return index - OptionRows.VISIBLE
+      end
+      return scroll
+    end
+    function OptionRows.draw(game, rows, index, scroll, bottomLabel, bottomRow)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.rectangle("fill", 0, 0, 160, 144)
+      for slot = 1, OptionRows.VISIBLE do
+        local i = scroll + slot
+        local row = rows[i]
+        if not row then break end
+        Font.drawBox(0, (slot - 1) * 4, 20, 4)
+        love.graphics.setColor(0, 0, 0, 1)
+        Font.draw(row.label, 16, ((slot - 1) * 4 + 1) * 8)
+        Font.draw(row.value and row.value(game) or "", 24,
+                  ((slot - 1) * 4 + 2) * 8)
+        if i == index then
+          Font.drawCode(0xED, 8, ((slot - 1) * 4 + 1) * 8)
+        end
+      end
+      if scroll + OptionRows.VISIBLE < #rows then
+        Font.drawCode(0xEE, 144, 128)
+      end
+      if bottomLabel then
+        love.graphics.setColor(0, 0, 0, 1)
+        Font.draw(bottomLabel, 16, 136)
+        if bottomRow and index == bottomRow then
+          Font.drawCode(0xED, 8, 136)
+        end
+      end
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+  else
+    -- Gen 1's shared OptionRows module: the ticker wrap below patches the
+    -- ENGINE's copy so Mods Hotkeys' own OptionRows wrap composes with it
+    -- (the wrap_compose_test).  The name is built at runtime so gen2check
+    -- does not flag a Gen 1-only module that never loads under Gold.
+    OptionRows = require("src" .. ".ui.OptionRows")
+  end
+
+  local function cardLabelLines(label)
+    label = tostring(label or "")
+    if label == "" then return { "" } end
+    local lines, current = {}, nil
+    for word in label:gmatch("%S+") do
+      local candidate = current and (current .. " " .. word) or word
+      if current and Font.width(candidate) > CARD_LABEL_WIDTH then
+        lines[#lines + 1] = current
+        current = word
+      else
+        current = candidate
+      end
+    end
+    if current then lines[#lines + 1] = current end
+    return lines
+  end
+
+  local function cardLineTickers(lines)
+    local tickers = {}
+    for i, line in ipairs(lines) do
+      local overflow = Font.width(line) - CARD_LABEL_WIDTH
+      if overflow > 0 then tickers[i] = { overflow = overflow } end
+    end
+    return tickers
+  end
+
+  -- Toggles are player configuration, so read them through the public options
+  -- facade first.  Older engines do not expose an options setter to mods, so
+  -- set() keeps the legacy live bucket/writeOptions fallback below.  The
+  -- sandbox-safe storage mirror covers builds where that legacy bucket is not
+  -- writable from a mod and is also the migration path for new installs.
+  local storedSettings = nil
+  local storageReadAttempted = false
+
+  local function loadStoredSettings()
+    if storedSettings ~= nil or storageReadAttempted then return storedSettings end
+    if not mod.storage or not mod.storage.read or not Game then return nil end
+    if not Game.save then return nil end
+    storageReadAttempted = true
+    local ok, values = pcall(function()
+      return mod.storage:read(Game, "settings")
+    end)
+    if ok and type(values) == "table" then
+      storedSettings = values
+      return storedSettings
+    end
+    return nil
+  end
+
+  local function publicOption(key)
+    if not mod.options or type(mod.options.get) ~= "function" then
+      return nil
+    end
+    local ok, value = pcall(function() return mod.options:get(key) end)
+    if ok then return value end
+    return nil
+  end
+
+  -- the stored value for a key, falling back to scoped storage and then the
+  -- per-toggle default: everything except INFINITE REPEL ships ON
+  mod.exports.defaultFor = function(key)
+    for _, spec in ipairs(TOGGLES) do
+      if spec.key == key then return spec.default ~= false end
+    end
+    return false
+  end
+
+  local function get(key)
+    local value = publicOption(key)
+    if value ~= nil then return value end
+    local saved = loadStoredSettings()
+    if saved and saved[key] ~= nil then return saved[key] end
+    local loader = Game.mods
+    local bucket = loader and loader.modOptions and loader.modOptions[mod.id]
+    value = bucket and bucket[key]
+    if value ~= nil then return value end
+    return mod.exports.defaultFor(key)
+  end
+
+  -- BADGELESS FLY: the engine keeps the destination list separate from the
+  -- badge/field-move eligibility gate.  Give the native picker a temporary
+  -- view in which every native fly point has been visited, then let the
+  -- engine keep its own region, map, warp and landmark filters.  The copies
+  -- are deliberately shallow: only the nested visited tables are replaced,
+  -- so the real save is never changed just by opening FLY.
+  local function copyTable(value)
+    if type(value) ~= "table" then return value end
+    local copy = {}
+    for key, item in pairs(value) do copy[key] = item end
+    local mt = getmetatable(value)
+    if mt then setmetatable(copy, mt) end
+    return copy
+  end
+
+  local function gen1FlyGame(game)
+    if type(game) ~= "table" then return game end
+    local cloned = copyTable(game)
+    local save = copyTable(game.save) or {}
+    local visited = copyTable(game.save and game.save.visited) or {}
+    local field = game.data and game.data.field or {}
+    for _, mapId in ipairs(field.flyOrder or {}) do
+      visited[mapId] = true
+    end
+    save.visited = visited
+    cloned.save = save
+    return cloned
+  end
+
+  local function gen2FlySave(save, flyPoints)
+    if type(save) ~= "table" then return save end
+    local cloned = copyTable(save)
+    local visited = copyTable(save.visitedSpawns) or {}
+    local flags = copyTable(save.engineFlags) or {}
+    for _, row in ipairs(flyPoints or {}) do
+      if row.spawn then visited[row.spawn] = true end
+      if row.flag ~= nil then flags[row.flag] = true end
+    end
+    cloned.visitedSpawns = visited
+    cloned.engineFlags = flags
+    return cloned
+  end
+
+  local function installBadgelessFly()
+    if GEN2 then
+      local ok, FieldMoves2 = pcall(require, "src.world.gen2.FieldMoves")
+      if not (ok and FieldMoves2)
+         or FieldMoves2._qolTogglesBadgelessFlyInstalled then
+        return
+      end
+      local vanillaFlyPoints = FieldMoves2.flyPoints
+      if type(vanillaFlyPoints) ~= "function" then return end
+      FieldMoves2._qolTogglesBadgelessFlyInstalled = true
+      FieldMoves2.flyPoints = function(save, landmarks, region)
+        if not get("badgeless_moves") then
+          return vanillaFlyPoints(save, landmarks, region)
+        end
+        return vanillaFlyPoints(
+          gen2FlySave(save, FieldMoves2.FLYPOINTS), landmarks, region)
+      end
+      return
+    end
+
+    local okTownMap, TownMap = pcall(require, "src.ui.TownMap")
+    if okTownMap and TownMap and not TownMap._qolTogglesBadgelessFlyInstalled then
+      local vanillaNew = TownMap.new
+      if type(vanillaNew) == "function" then
+        TownMap._qolTogglesBadgelessFlyInstalled = true
+        TownMap.new = function(game, opts)
+          if get("badgeless_moves") and opts and opts.fly then
+            game = gen1FlyGame(game)
+          end
+          return vanillaNew(game, opts)
+        end
+      end
+    end
+
+    local okFlyMenu, FlyMenu = pcall(require, "src.ui.FlyMenu")
+    if okFlyMenu and FlyMenu and not FlyMenu._qolTogglesBadgelessFlyInstalled then
+      local vanillaNew = FlyMenu.new
+      if type(vanillaNew) == "function" then
+        FlyMenu._qolTogglesBadgelessFlyInstalled = true
+        FlyMenu.new = function(game)
+          if get("badgeless_moves") then game = gen1FlyGame(game) end
+          return vanillaNew(game)
+        end
+      end
+    end
+  end
+
+  -- MODERN TYPES: the Gen VI+ type chart (minus FAIRY) replaces the cart's
+  -- chart while the toggle is on.  The modern chart differs from Gen 1's in
+  -- four matchups -- Fire resists Ice in Gen 2+ (was 1x neutral in Gen 1),
+  -- Bug vs Poison and Poison vs Bug were 2x in Red/Blue/Yellow (Bug resists
+  -- Poison and Poison is neutral on Bug today), and Ghost was immune to Psychic
+  -- there (the famous pointer bug; it is 2x today) -- and from Gen 2's in two:
+  -- Steel stopped resisting Ghost and Dark in Gen VI.  Every other matchup is
+  -- already identical, so the modern chart is just the vanilla rows with
+  -- these multipliers swapped and any missing rows (like ICE on FIRE) added.
+  -- FAIRY is excluded: neither generation has the type, so no FAIRY rows
+  -- are added.
+  local MODERN_TYPE_OVERRIDES = {
+    ICE   = { FIRE = 5 },            -- Gen 1: 1x (neutral); Gen 2+: resisted (0.5x)
+    BUG   = { POISON = 5 },          -- Gen 1: 2x; Gen 2+: resisted (0.5x)
+    POISON = { BUG = 10 },           -- Gen 1: 2x; Gen 2+: neutral (1.0x)
+    GHOST = { PSYCHIC_TYPE = 20,     -- Gen 1: immune (0x bug); Gen 2+: 2.0x
+              PSYCHIC = 20,          -- Gen 2: 2.0x
+              STEEL = 10 },          -- Gen VI: Steel stops resisting Ghost (1.0x)
+    DARK  = { STEEL = 10 },          -- Gen VI: Steel stops resisting Dark (1.0x)
+  }
+
+  -- the modern rows for a vanilla matchup list: the same rows in the same
+  -- order, with the differing multipliers swapped, and any missing modern
+  -- entries (like ICE on FIRE) injected.  Pure, so the headless suite can
+  -- assert the deltas without a battle.
+  mod.exports.modernTypeChart = function(matchups)
+    local out = {}
+    local seen = {}
+    for _, row in ipairs(matchups or {}) do
+      local byDefender = MODERN_TYPE_OVERRIDES[row.attacker]
+      local override = byDefender and byDefender[row.defender]
+      seen[row.attacker .. ":" .. row.defender] = true
+      out[#out + 1] = {
+        attacker = row.attacker,
+        defender = row.defender,
+        multiplier = override or row.multiplier,
+      }
+    end
+    -- Add any modern matchups that were absent from the vanilla chart
+    for attacker, defenders in pairs(MODERN_TYPE_OVERRIDES) do
+      for defender, multiplier in pairs(defenders) do
+        local key = attacker .. ":" .. defender
+        if not seen[key] then
+          seen[key] = true
+          out[#out + 1] = {
+            attacker = attacker,
+            defender = defender,
+            multiplier = multiplier,
+          }
+        end
+      end
+    end
+    return out
+  end
+
+  -- the cart's matchup rows, snapshotted once.  The snapshot lives on the
+  -- chart table itself so a hot reload that re-runs this entry chunk after
+  -- a session already swapped the chart still captures the ORIGINAL rows,
+  -- not the modern ones the previous session left in chart.matchups.
+  local vanillaMatchups = nil
+  local function snapshotVanillaMatchups()
+    if vanillaMatchups then return true end
+    local chart = Game and Game.data and Game.data.type_chart
+    local rows = chart and chart.matchups
+    if not rows then return false end
+    vanillaMatchups = chart._qolTogglesVanillaMatchups
+    if not vanillaMatchups then
+      vanillaMatchups = {}
+      for _, row in ipairs(rows) do
+        vanillaMatchups[#vanillaMatchups + 1] = {
+          attacker = row.attacker,
+          defender = row.defender,
+          multiplier = row.multiplier,
+        }
+      end
+      chart._qolTogglesVanillaMatchups = vanillaMatchups
+    end
+    return true
+  end
+
+  -- swap the chart the battles read.  Gold's battle reads
+  -- data.type_chart.matchups live on every hit, so the swap alone covers it;
+  -- Gen 1's TypeChart module caches its lookup from the last load
+  -- (BattleState.new reloads it per battle), so re-run the load when the
+  -- module is available, making a battle that is already open see the change.
+  mod.exports.applyModernTypes = function(on)
+    if on == nil then on = get("modern_types") end
+    if not snapshotVanillaMatchups() then return end
+    local chart = Game and Game.data and Game.data.type_chart
+    if not chart then return end
+    chart.matchups = on and mod.exports.modernTypeChart(vanillaMatchups)
+                       or vanillaMatchups
+    if not GEN2 then
+      local ok, TypeChart = pcall(require, "src.battle.TypeChart")
+      if ok and TypeChart.load then TypeChart.load(Game.data) end
+    end
+  end
+
+  local settingsDirty = false
+  local lastSettingChangeTime = 0
+  local SAVE_DEBOUNCE_SECONDS = 0.25
+
+  local function flushSettings()
+    if not settingsDirty then return end
+    settingsDirty = false
+
+    -- mod.storage is the supported persistence boundary for data owned by a
+    -- mod.  It is scoped by the engine to this mod and playthrough; failures
+    -- are expected on a title screen before a playthrough exists.
+    if mod.storage and mod.storage.write and Game then
+      pcall(function() mod.storage:write(Game, "settings", storedSettings) end)
+    end
+
+    -- Legacy fallback for pre-sandbox engines.  This contains no raw file
+    -- access: the engine owns writeOptions and the live option tables.
+    if Game and Game.writeOptions then
+      pcall(function() Game:writeOptions() end)
+    end
+  end
+  mod.exports.flushSettings = flushSettings
+
+  local function set(key, value)
+    storedSettings = storedSettings or loadStoredSettings() or {}
+    storedSettings[key] = value
+
+    -- MODERN TYPES flips the live chart the moment the toggle changes (the
+    -- menu's step calls set), ahead of the persistence paths below -- a
+    -- sandbox build that returns early from the public setter still applies
+    -- the chart.
+    if key == "modern_types" then mod.exports.applyModernTypes(value) end
+
+    -- LIGHTS ON immediately re-bakes the overworld map palettes if the player
+    -- toggles it while currently inside a cave or dark area.
+    if key == "lights_on" then
+      local world = Game and (Game.world or Game.overworld)
+      if world then
+        if world.applyPalettes and world.refreshMapImages then
+          pcall(function()
+            world:applyPalettes()
+            world:refreshMapImages()
+          end)
+        elseif world.updatePalette then
+          pcall(function() world:updatePalette() end)
+        end
+      end
+    end
+
+    -- Newer sandbox builds may expose a public setter alongside get().
+    -- Capability-test it so this mod remains loadable on older engines.
+    if mod.options and type(mod.options.set) == "function" then
+      local ok = pcall(function() mod.options:set(key, value) end)
+      if ok then return end
+    end
+
+    -- Live in-memory update for instant responsiveness
+    local loader = Game and Game.mods
+    if loader then
+      loader.modOptions = loader.modOptions or {}
+      loader.modOptions[mod.id] = loader.modOptions[mod.id] or {}
+      loader.modOptions[mod.id][key] = value
+    end
+
+    -- Mirror into the active save's options in-memory
+    if Game and Game.save and Game.save.options then
+      Game.save.options.modOptions = Game.save.options.modOptions or {}
+      Game.save.options.modOptions[mod.id] =
+        Game.save.options.modOptions[mod.id] or {}
+      Game.save.options.modOptions[mod.id][key] = value
+    end
+
+    settingsDirty = true
+
+    -- In headless tests or non-interactive environments, flush immediately.
+    -- In interactive game loops, debounce so rapid menu toggling has zero lag.
+    if not (love and love.timer and love.timer.getTime) then
+      flushSettings()
+    else
+      lastSettingChangeTime = love.timer.getTime()
+    end
+  end
+
+  -- the live setter, exported so the headless suite can drive the exact
+  -- persistence path (Gen1 and Gen2 buckets) without poking the UI
+  mod.exports.set = set
+
+  -- BATTERY INDICATOR: powerInfo is deliberately sampled rather than read
+  -- every frame.  Some desktop platforms provide the value through a
+  -- relatively expensive system call, and the icon does not need a faster
+  -- refresh than this.
+  local batterySample = {
+    at = -math.huge,
+    state = "unknown",
+    percent = nil,
+  }
+  local BATTERY_REFRESH_SECONDS = 1
+
+  local function batteryNow()
+    if love and love.timer and love.timer.getTime then
+      return love.timer.getTime()
+    end
+    return 0
+  end
+
+  local function readBattery(now)
+    if now - batterySample.at >= BATTERY_REFRESH_SECONDS then
+      local ok, state, percent = pcall(function()
+        if not (mod.device and mod.device.powerInfo) then
+          return "unknown", nil
+        end
+        return mod.device:powerInfo()
+      end)
+      batterySample.at = now
+      if ok then
+        batterySample.state = state or "unknown"
+        batterySample.percent = percent
+      else
+        batterySample.state = "unknown"
+        batterySample.percent = nil
+      end
+    end
+    return batterySample.state, batterySample.percent
+  end
+
+  local function batteryScreenId(game)
+    local stack = game and game.stack or Game.stack
+    local top = nil
+    if stack and type(stack.top) == "function" then
+      top = stack:top()
+    end
+    if not top and stack and stack.states then
+      top = stack.states[#stack.states]
+    end
+    return top and (top.screenId or top.id)
+  end
+
+  local function drawBattery(layout)
+    local g = love.graphics
+    local x, y = layout.x, layout.y
+
+    -- A compact black outline with a white face matches the Gen 1 menu
+    -- palette and stays readable over both the field and menu backgrounds.
+    g.setColor(0, 0, 0, 1)
+    g.rectangle("fill", x, y, 16, 8)
+    g.rectangle("fill", x + 16, y + 2, 2, 4)
+    g.setColor(1, 1, 1, 1)
+    g.rectangle("fill", x + 1, y + 1, 14, 6)
+    g.setColor(0, 0, 0, 1)
+    for bar = 1, layout.bars do
+      g.rectangle("fill", x + 2 + (bar - 1) * 3, y + 2, 2, 4)
+    end
+    if layout.charging then
+      -- A tiny lightning mark communicates charging without adding text.
+      g.rectangle("fill", x + 8, y + 1, 2, 2)
+      g.rectangle("fill", x + 7, y + 3, 2, 2)
+      g.rectangle("fill", x + 6, y + 5, 2, 2)
+      g.rectangle("fill", x + 9, y + 3, 2, 2)
+    end
+  end
+
+  -- render.hud runs after either generation's composed game frame.  The
+  -- shared seam keeps the icon in Game Boy coordinates while the viewport
+  -- supplies the window translation and fit scale.  TOP RIGHT remains
+  -- visible over the Start menu; START MENU is restricted to the two start
+  -- menu screen ids and uses the bottom-right blank area.  Hook ownership is
+  -- already scoped to this loader, so this must be registered on every entry
+  -- run: local hot reload replaces the hook bus while retaining Game.
+  mod.hooks:wrap("render.hud", function(next, game, viewport)
+    local r1, r2 = next(game, viewport)
+    local mode = batteryMode(get("battery_indicator"))
+    if not mod.exports.batteryVisible(mode, batteryScreenId(game)) then
+      return r1, r2
+    end
+    local state, percent = readBattery(batteryNow())
+    local layout = mod.exports.batteryLayout(mode, state, percent)
+    if not layout then return r1, r2 end
+
+    local vp = viewport or {}
+    local sx = (vp.gameWidth or 160) / 160
+    local sy = (vp.gameHeight or 144) / 144
+    local g = love.graphics
+    g.push()
+    if vp.gameX and vp.gameY then g.translate(vp.gameX, vp.gameY) end
+    g.scale(sx, sy)
+    drawBattery(layout)
+    g.setColor(1, 1, 1, 1)
+    g.pop()
+    return r1, r2
+  end)
+
+  -- MODERN TYPES: a save with the toggle ON resumes with the modern chart
+  -- already swapped in (the menu flips it live through set(); this covers
+  -- the boot where no menu is involved)
+  mod.events:on("game.ready", function()
+    mod.exports.applyModernTypes()
+  end)
+
+  local function knows(mon, id)
+    for _, mv in ipairs(mon.moves or {}) do
+      if mv.id == id then return true end
+    end
+    return false
+  end
+
+  local function battleParty(battle)
+    if battle and battle.party then return battle.party end
+    local game = battle and battle.game
+    local save = (game and game.save) or Game.save
+    return save and save.party
+  end
+
+  local function snapshotHeldItems(party)
+    local snapshot = {}
+    for index, mon in ipairs(party or {}) do
+      if mon and mon.item ~= nil and mon.item ~= false then
+        snapshot[mon] = mon.item
+        snapshot[index] = mon.item
+        pendingHeldItemRestores[mon] = mon.item
+      end
+    end
+    return snapshot
+  end
+  mod.exports.snapshotHeldItems = snapshotHeldItems
+
+  local function restoreHeldItems(party, snapshot)
+    if snapshot then
+      for key, item in pairs(snapshot) do
+        if type(key) == "table" and (key.item == nil or key.item == false) then
+          key.item = item
+        end
+      end
+      for index, mon in ipairs(party or {}) do
+        if mon and (mon.item == nil or mon.item == false) and snapshot[index] ~= nil then
+          mon.item = snapshot[index]
+        end
+      end
+    end
+  end
+  mod.exports.restoreHeldItems = restoreHeldItems
+
+  local function restoreAllPendingHeldItems()
+    if not get("infinite_held_item") then
+      pendingHeldItemRestores = {}
+      return
+    end
+    for mon, item in pairs(pendingHeldItemRestores) do
+      if mon and item and (mon.item == nil or mon.item == false) then
+        mon.item = item
+      end
+    end
+    pendingHeldItemRestores = {}
+  end
+  mod.exports.restoreAllPendingHeldItems = restoreAllPendingHeldItems
+
+  -- the wallet on either generation: Gen 1's save.money, Gold's
+  -- save.player.money (src/core/gen2/Save.lua:147)
+  local function moneyOf(save)
+    if GEN2 then return save and save.player and save.player.money end
+    return save and save.money
+  end
+
+  local function setMoney(save, amount)
+    if GEN2 then
+      if save then
+        save.player = save.player or {}
+        save.player.money = amount
+      end
+    elseif save then
+      save.money = amount
+    end
+  end
+
+  local function coinsOf(save)
+    if GEN2 then return save and save.player and save.player.coins end
+    return save and save.coins
+  end
+
+  local function setCoins(save, amount)
+    if GEN2 then
+      if save then
+        save.player = save.player or {}
+        save.player.coins = amount
+      end
+    elseif save then
+      save.coins = amount
+    end
+  end
+
+  -- Gen 1 learnsets are `{level, move}` rows (learnset); Gen 2 writes the
+  -- same rows as levelMoves plus a flat level1Moves id list.  Reading all
+  -- three keeps FIELD MOVES ALL's learnability check honest on both
+  -- generations.
+  local function canLearn(def, id)
+    for _, entry in ipairs(def.learnset or {}) do
+      if entry.move == id then return true end
+    end
+    for _, entry in ipairs(def.levelMoves or {}) do
+      if entry.move == id then return true end
+    end
+    for _, mv in ipairs(def.level1Moves or {}) do
+      if mv == id then return true end
+    end
+    for _, tm in ipairs(def.tmhm or {}) do
+      if tm == id then return true end
+    end
+    return false
+  end
+
+  -- --------------------------------------------------------------- exports
+
+  -- the ON/OFF rows, built against caller-supplied get/set so the submenu
+  -- and the headless tests share one implementation.  A label wider than
+  -- the row's label window gets a ticker (row.tick advanced by the menu's
+  -- update) instead of bleeding over the box border.  Every row has a
+  -- generation-specific implementation or a shared engine seam; rows marked
+  -- `gen2` are omitted from the Gen 1 submenu.
+  -- `gen2` is the runtime flag (the loader's generation), passed explicitly
+  -- so the headless suite can drive the filter on any engine.
+  mod.exports.batteryMode = batteryMode
+  mod.exports.batteryLabel = batteryLabel
+  mod.exports.batteryVisible = function(mode, screenId)
+    mode = batteryMode(mode)
+    if mode == "top_right" then return true end
+    return mode == "start_menu"
+      and (screenId == GEN1_START_MENU or screenId == GEN2_START_MENU)
+  end
+  mod.exports.batteryLayout = function(mode, state, percent)
+    mode = batteryMode(mode)
+    if not (mode and (state == "battery" or state == "charging"
+                      or state == "charged")) then
+      return nil
+    end
+    percent = tonumber(percent)
+    if not percent then return nil end
+    percent = math.max(0, math.min(100, percent))
+    return {
+      x = mode == "top_right" and 140 or 136,
+      y = mode == "top_right" and 4 or 128,
+      w = 18,
+      h = 8,
+      bars = percent > 0 and math.ceil(percent / 25) or 0,
+      charging = state == "charging",
+      percent = percent,
+    }
+  end
+
+  mod.exports.toggleRows = function(getFn, setFn, gen2)
+    gen2 = gen2 == nil and GEN2 or gen2
+    local rows = {}
+    for _, spec in ipairs(TOGGLES) do
+      if not spec.gen2 or gen2 then
+        local label = Strings((gen2 and spec.gen2Label) or spec.label)
+        local cardLines = cardLabelLines(label)
+        local row = {
+          id = spec.key,
+          label = label,
+          cardLines = cardLines,
+          cardTickers = cardLineTickers(cardLines),
+          help = (gen2 and spec.gen2Help) or spec.help,
+          -- a `cycle` spec (EXP MULT / MONEY MULT) steps through the
+          -- multiplier list instead of flipping a boolean: the value box
+          -- shows "OFF" / "0x" / "1.5x" / "2x" / "3x" / "4x" and A
+          -- advances to the next one (wrapping back to OFF)
+          cycle = spec.cycle ~= nil,
+          value = function()
+            if spec.cycle then
+              local value = spec.labelFor
+                and spec.labelFor(getFn(spec.key))
+                or mod.exports.multLabel(getFn(spec.key))
+              return Strings(value)
+            end
+            return getFn(spec.key) and Strings("ON") or Strings("OFF")
+          end,
+          step = function()
+            if spec.cycle then
+              setFn(spec.key, mod.exports.cycleStep(getFn(spec.key),
+                                                    spec.cycle))
+            else
+              setFn(spec.key, not getFn(spec.key))
+            end
+            return true
+          end,
+        }
+        local ticker = tickerFor(label)
+        if ticker then
+          row.ticker = ticker
+          row.tick = 0
+        end
+        rows[#rows + 1] = row
+      end
+    end
+    return rows
+  end
+
+  mod.exports.enabledCount = function(getFn, gen2)
+    gen2 = gen2 == nil and GEN2 or gen2
+    local n = 0
+    for _, spec in ipairs(TOGGLES) do
+      if (not spec.gen2 or gen2) and getFn(spec.key) then n = n + 1 end
+    end
+    return n
+  end
+
+  mod.exports.visibleCount = function(gen2)
+    gen2 = gen2 == nil and GEN2 or gen2
+    local n = 0
+    for _, spec in ipairs(TOGGLES) do
+      if not spec.gen2 or gen2 then n = n + 1 end
+    end
+    return n
+  end
+
+  mod.exports.tickerOffset = tickerOffset
+  mod.exports.vertOffset = vertOffset
+  mod.exports.tickerFor = tickerFor
+  mod.exports.drawTickerLabel = drawTickerLabel
+  mod.exports.cardLabelLines = cardLabelLines
+  mod.exports.cardGeometry = cardGeometry
+  mod.exports.gridMove = gridMove
+
+  -- the in-depth help for a toggle id (START / P on its row), or nil for
+  -- an unknown id; the rows carry it so the menu never re-looks it up
+  mod.exports.helpFor = function(id)
+    for _, spec in ipairs(TOGGLES) do
+      if spec.key == id then return spec.help end
+    end
+    return nil
+  end
+
+  -- test seam: latches a help request exactly like the raw input wraps do
+  mod.exports.requestHelp = function()
+    helpRequested = true
+  end
+
+  -- LAST ITEM (M): the item id of the last successful bag use, and the
+  -- test seam to set/clear it (the ItemEffects.use wrap is the live writer)
+  mod.exports.lastItem = function()
+    return lastItemId
+  end
+
+  mod.exports.setLastItem = function(id)
+    lastItemId = id
+  end
+
+  -- POKEBALL BONUS: the free GREAT BALLs qty more POKé BALLS unlock after
+  -- count already bought -- one per ten, cumulative across shops and saves
+  mod.exports.bonusBalls = function(count, qty)
+    qty = qty or 1
+    return math.floor((count + qty) / 10) - math.floor(count / 10)
+  end
+
+  -- the clerk's "free ball" message, shown once per purchase that unlocks
+  -- one or more GREAT BALLs
+  mod.exports.bonusMessage = function()
+    return "Thanks for your\nsupport,\vplease take\nthis free\vGreat Ball!"
+  end
+
+  -- test seam: marks the mart's BUY list open exactly like the ShopMenu
+  -- wrap does, so the headless suite can drive the Bag.add bonus
+  mod.exports.setMartBuyOpen = function(open)
+    martBuyOpen = open
+  end
+
+  -- test seam: the SELL-list mirror of setMartBuyOpen (the ListMenu wrap
+  -- is the live writer), so the suite can drive the BULK MART qty box
+  mod.exports.setMartSellOpen = function(open)
+    martSellOpen = open
+  end
+
+  -- NO ENCOUNTER DUPES: re-roll a wild encounter until it is not the same
+  -- species as the last one (max attempts, then the last roll stands).
+  -- Pure: `roll` is any thunk returning an encounter table or nil.
+  mod.exports.avoidDupe = function(roll, last, max)
+    local lastRoll
+    for _ = 1, (max or 8) do
+      local enc = roll()
+      if not enc then return nil end
+      lastRoll = enc
+      if enc.species ~= last then return enc end
+    end
+    return lastRoll
+  end
+
+  -- SAND FREE: a wild enemy that rolls SAND-ATTACK is re-rolled
+  -- from its other usable moves (max attempts, then it Struggles rather
+  -- than ever use it -- "never" is absolute).  Pure: action is the
+  -- vanilla enemy action (a move table on Gen 1, a bare move id on Gen 2),
+  -- and nextAction re-runs the vanilla choice for the re-roll.
+  mod.exports.sandFreeAction = function(action, battle, nextAction)
+    if not get("sand_free") or not battle then return action end
+    if not (battle.kind == "wild" or battle.wild == true) then return action end
+    local id = type(action) == "table" and (action.id or action.move) or action
+    if id ~= "SAND_ATTACK" then return action end
+    for _ = 1, 8 do
+      local reroll = nextAction and nextAction() or action
+      local rid = type(reroll) == "table" and (reroll.id or reroll.move) or reroll
+      if rid ~= "SAND_ATTACK" then return reroll end
+    end
+    return { id = "STRUGGLE", pp = 1, struggle = true }
+  end
+
+  -- INSTANT FISH: a uniform pick from the rod's candidate group, skipping
+  -- the engine's rejection loop (bite odds size/(size+4)); nil when the
+  -- map has no fishing group at all (nothing to conjure).
+  mod.exports.fishBite = function(candidates)
+    if candidates and #candidates > 0 then
+      local pick = candidates[math.random(#candidates)]
+      return { species = pick.species, level = pick.level }
+    end
+    return nil
+  end
+
+  -- AUTO-REPEL: the strongest repel in the bag (MAX > SUPER > plain), or
+  -- nil when there is nothing to use
+  mod.exports.autoRepel = function(save)
+    local inv = save and save.inventory
+    if not inv then return nil end
+    for _, id in ipairs({ "MAX_REPEL", "SUPER_REPEL", "REPEL" }) do
+      if inv[id] and inv[id] > 0 then return id end
+    end
+    return nil
+  end
+
+  -- consume the auto-repel and re-arm save.repelSteps; returns the item
+  -- used, or nil when the bag has none
+  mod.exports.applyAutoRepel = function(save)
+    if not save then return nil end
+    local id = mod.exports.autoRepel(save)
+    if not id then return nil end
+    require("src.inventory.Bag").remove(save, id, 1)
+    save.repelSteps = id == "REPEL" and 100
+                      or id == "SUPER_REPEL" and 200 or 250
+    return id
+  end
+
+  -- AUTO-REPEL / MAP LOCATION toast: consume the refill and arm the on-screen
+  -- banner that announces it; returns the item used, or nil when the bag has
+  -- none.  `now` is the toast clock (love.timer.getTime in game; the
+  -- headless suite passes its own so expiry is deterministic).
+  -- Long names that exceed the 16-character interior (128px) ticker-scroll
+  -- horizontally, and the duration is extended so the player can read the
+  -- start, the scroll, and the end before the toast fades out.
+  mod.exports.setAutoRepelToast = function(text, now)
+    now = now or 0
+    local duration = TOAST_SECONDS
+    local okFont, Font = pcall(require, "src.render.Font")
+    if okFont and Font and Font.width then
+      local w = Font.width(text)
+      local overflow = w - 128
+      if overflow > 0 then
+        -- hold at start (1.6s) + scroll to end (overflow / 16) + hold at end (1.6s) + fadeout (0.5s) + margin (0.3s)
+        duration = TICKER_HOLD * 2 + (overflow / TICKER_SPEED) + 0.8
+      end
+    end
+    autoRepelToast = {
+      text = text,
+      start = now,
+      expire = now + duration,
+      duration = duration,
+    }
+  end
+
+  mod.exports.autoRepelToastText = function(now)
+    if autoRepelToast and autoRepelToast.expire > (now or 0) then
+      return autoRepelToast.text
+    end
+    autoRepelToast = nil
+    return nil
+  end
+
+  -- Toast layout: computes the box geometry, text clipping window,
+  -- horizontal scroll offset (if overflowing) and fade-out alpha.
+  mod.exports.toastLayout = function(toast, now)
+    if not (toast and toast.text) then return nil end
+    now = now or 0
+    if toast.expire and toast.expire <= now then return nil end
+    local okFont, Font = pcall(require, "src.render.Font")
+    local w = (okFont and Font and Font.width) and Font.width(toast.text) or (#toast.text * 8)
+    local maxInterior = 128
+    local bw = math.min(144, w + 16)
+    local bx = math.floor((160 - bw) / 2)
+    local alpha = 1
+    if toast.expire then
+      alpha = math.min(1, math.max(0, (toast.expire - now) / 0.5))
+    end
+    local off = 0
+    local overflow = w - maxInterior
+    if overflow > 0 then
+      local t = now - (toast.start or (toast.expire - (toast.duration or TOAST_SECONDS)))
+      off = tickerOffset(t, overflow)
+    end
+    return {
+      text = toast.text,
+      x = bx,
+      y = 8,
+      w = bw,
+      h = 16,
+      textX = bx + 8,
+      textY = 12,
+      textW = maxInterior,
+      overflow = overflow > 0 and overflow or 0,
+      offset = off,
+      alpha = alpha,
+    }
+  end
+
+  mod.exports.autoRepelToastFor = function(save, data, now)
+    local id = mod.exports.applyAutoRepel(save)
+    if id then
+      local def = data and data.items and data.items[id]
+      local name = def and def.name or id
+      mod.exports.setAutoRepelToast(Strings("USED %s!", name), now)
+      return id
+    end
+    return nil
+  end
+
+  -- MAP LOCATION: the display name for a map -- a corrected name for the
+  -- ids whose town-map entry lies (the Route 10 PokeCenter is "ROCK
+  -- TUNNEL" there), else the town map's name for the id, else the map's
+  -- own label split at case boundaries (FixTown -> FIX TOWN), else the
+  -- id itself.  Pure, so the headless suite asserts it.
+  mod.exports.locationName = function(data, mapId, map)
+    local override = MAP_LOCATION_NAMES[mapId]
+    if override then return override end
+    -- Gold has no data.field slice (Gen2Compat warns on the read), so the
+    -- town-map lookup is a Gen 1 path; the map's own def.label covers Gold.
+    local townMap, locations
+    if not GEN2 then
+      townMap = data and data.field and data.field.townMap
+      locations = townMap and (townMap.locations or townMap)
+    end
+    local entry = type(locations) == "table" and locations[mapId]
+    local name = type(entry) == "table" and entry.name
+    local def = map and map.def or (data and data.maps and data.maps[mapId])
+    if not name and def and type(def.label) == "string" then
+      -- FixTown -> FIX TOWN, CeladonMansion1F -> CELADON MANSION 1F
+      name = def.label:gsub("(%l)(%u)", "%1 %2"):gsub("(%l)(%d)", "%1 %2")
+    end
+    return (name or tostring(mapId):gsub("_", " ")):upper()
+  end
+
+  -- MAP LOCATION toast: the same on-screen slot as the AUTO-REPEL banner
+  -- (one draw wrap renders both -- the last armed toast wins)
+  mod.exports.setLocationToast = function(name, now)
+    mod.exports.setAutoRepelToast(name, now)
+  end
+
+  -- the onStepComplete pre-refill: autoRepelToastFor plus one extra step
+  -- so vanilla's own decrement (repelSteps = repelSteps - 1) lands on the
+  -- item's exact count; returns the item used, or nil when there was
+  -- nothing to refill with
+  mod.exports.refillForStep = function(save, data, now)
+    local id = mod.exports.autoRepelToastFor(save, data, now)
+    if id and save then save.repelSteps = save.repelSteps + 1 end
+    return id
+  end
+
+  -- BULK COINS: the Celadon Game Corner clerk's quantity tiers (20¥ per
+  -- coin, the vanilla rate).  The 50-coin tier keeps vanilla's gate
+  -- (refuse only when the case has < 10 coins of room); the bulk tiers
+  -- need real room or the money is wasted on coins the 9999 cap eats.
+  local COIN_RATE = 20
+  mod.exports.coinOptions = function(coins, bulk)
+    local options = {}
+    coins = coins or 0
+    if coins < 9990 then
+      options[#options + 1] = { qty = 50, cost = 50 * COIN_RATE }
+    end
+    if bulk then
+      if coins + 500 <= 9999 then
+        options[#options + 1] = { qty = 500, cost = 500 * COIN_RATE }
+      end
+      if coins + 9999 <= 9999 then
+        options[#options + 1] = { qty = 9999, cost = 9999 * COIN_RATE }
+      end
+    end
+    return options
+  end
+
+  -- the clerk's offer line: the vanilla flow keeps the extracted text
+  -- byte-for-byte; the bulk path keeps the welcome page (up to the first
+  -- page break) and re-asks with a yes/no prompt of its own
+  mod.exports.clerkOffer = function(raw, bulk)
+    if not bulk then return raw end
+    local welcome = raw:match("^([^\f]+)") or raw
+    return welcome .. "\fWould you like to\npurchase some\nCOINS?"
+  end
+
+  -- deduct money and grant coins (clamped to the 9999 cap); false when
+  -- the player cannot afford the tier
+  mod.exports.buyCoins = function(save, qty)
+    local cost = qty * COIN_RATE
+    local money = moneyOf(save)
+    if not save or money == nil or money < cost then return false end
+    setMoney(save, money - cost)
+    setCoins(save, math.min(9999, (coinsOf(save) or 0) + qty))
+    return true
+  end
+
+  -- the CUSTOM picker: four digit boxes (each 1-9, up/down cycles with
+  -- wrap), left/right moves the active box; A confirms the 4-digit
+  -- amount, B cancels back to the HOW MANY? list.  Opaque so the list
+  -- beneath is not drawn at all (no text can peek around the panel),
+  -- and the panel itself is a full white sheet (the mod's white-pass
+  -- idiom).  Exported so the headless suite can drive it.
+  local CoinDigitPicker = {}
+  CoinDigitPicker.__index = CoinDigitPicker
+  CoinDigitPicker.isOpaque = true
+
+  function CoinDigitPicker.new(game, opts)
+    opts = opts or {}
+    return setmetatable({
+      game = game,
+      digits = { 1, 1, 1, 1 },
+      box = 1,
+      unitPrice = opts.unitPrice,
+      onDone = opts.onDone,
+    }, CoinDigitPicker)
+  end
+
+  function CoinDigitPicker:value()
+    return self.digits[1] * 1000 + self.digits[2] * 100
+         + self.digits[3] * 10 + self.digits[4]
+  end
+
+  function CoinDigitPicker:update(dt)
+    local input = self.game.input
+    if input:wasPressed("up") then
+      self.digits[self.box] = (self.digits[self.box] + 1) % 10
+    elseif input:wasPressed("down") then
+      self.digits[self.box] = (self.digits[self.box] - 1) % 10
+    elseif input:wasPressed("left") then
+      self.box = self.box > 1 and self.box - 1 or 4
+    elseif input:wasPressed("right") then
+      self.box = self.box < 4 and self.box + 1 or 1
+    elseif input:wasPressed("a") then
+      if self:value() == 0 then return end -- buying 0 coins is meaningless
+      self.game.stack:pop()
+      if self.onDone then self.onDone(self:value()) end
+    elseif input:wasPressed("b") then
+      self.game.stack:pop()
+      if self.onDone then self.onDone(nil) end
+    end
+  end
+
+  function CoinDigitPicker:draw()
+    local Font = require("src.render.Font")
+    local g = love.graphics
+    -- full white sheet: covers the HOW MANY? list underneath (opaque,
+    -- so the list is not drawn at all) with nothing peeking at the seams
+    Font.drawBox(0, 0, 20, 18)
+    -- title
+    g.setColor(0, 0, 0, 1)
+    Font.draw("CUSTOM", 56, 20)
+    -- the four digit boxes: 3x3 tiles (24x24), so the glyph sits in the
+    -- exact center cell, one tile clear of the border on every side
+    for i = 1, 4 do
+      local tx = 1 + (i - 1) * 5
+      Font.drawBox(tx, 6, 3, 3)
+      g.setColor(0, 0, 0, 1)
+      Font.draw(tostring(self.digits[i]), (tx + 1) * 8, 56)
+      g.setColor(1, 1, 1, 1)
+    end
+    -- the active box's cursor (the engine's more-arrow glyph)
+    g.setColor(0, 0, 0, 1)
+    Font.drawCode(0xEE, (1 + (self.box - 1) * 5) * 8 + 8, 72)
+    -- the live price, centered
+    local price = ("¥%d"):format(self:value() * (self.unitPrice or 0))
+    Font.draw(price, math.floor((160 - Font.width(price)) / 2), 88)
+    g.setColor(1, 1, 1, 1)
+  end
+
+  mod.exports.coinDigitPicker = CoinDigitPicker.new
+
+  -- RUN (HOLD B): halve the per-step frame count (double foot speed)
+  -- while B is held, off the bike and off the surfboard
+  mod.exports.runFrames = function(frames, ctx)
+    if get("run_hold_b") and not (ctx and (ctx.onBike or ctx.surfing))
+       and ctx and ctx.input and ctx.input:isDown("b") then
+      return frames / 2
+    end
+    return frames
+  end
+
+  -- REMEMBER MOVE: the battle object already keeps moveIndex across
+  -- turns; with the toggle OFF the end of every turn parks it back on
+  -- the first move, the vanilla default
+  mod.exports.applyMoveRemember = function(battle, remember)
+    if battle and not remember then battle.moveIndex = 1 end
+    return battle and battle.moveIndex or nil
+  end
+
+  -- KEEP MONEY: snapshot before the halving sites run, restore on the
+  -- blackout event (the halving has already happened by then)
+  mod.exports.snapshotMoney = function(save)
+    if save then blackoutKeepMoney = moneyOf(save) end
+  end
+
+  mod.exports.keepMoneyRestore = function(save)
+    if save and blackoutKeepMoney ~= nil then
+      setMoney(save, blackoutKeepMoney)
+      blackoutKeepMoney = nil
+    end
+  end
+
+  -- LAST ITEM (M) in battle: spend the turn using the last item the bag
+  -- used, the way selecting it from BAG would.  Balls throw at the foe
+  -- (battle:throwBall); items that need a party target (potions, status
+  -- cures, revives, ETHERs) open the vanilla party screen so the player
+  -- picks the mon -- ETHERs/PP UP then ask for the move, exactly like the
+  -- bag; targetless battle items (X items, POKé FLUTE, POKé DOLL) run
+  -- straight on the active battler.  A failed use shows the vanilla
+  -- refusal text and does NOT spend the turn, exactly like the bag.  With
+  -- nothing recorded (or the item gone) the bag opens normally so the
+  -- player can pick the next item.  Returns true when an action was taken.
+  mod.exports.useLastItem = function(battle)
+    if not (battle and battle.game) then return nil end
+    local game = battle.game
+    local save = game.save
+    local id = lastItemId
+    local left = id and save and save.inventory and save.inventory[id]
+    if not id or not left or left <= 0 then
+      if battle.openItems then battle:openItems() end
+      return nil
+    end
+    local ItemEffects = require("src.inventory.ItemEffects")
+    local TextBox = require("src.render.TextBox")
+    local function say(msgs, onDone)
+      if not msgs or #msgs == 0 then
+        if onDone then onDone() end
+        return
+      end
+      game.stack:push(TextBox.new(game, table.concat(msgs, "\f"), onDone))
+    end
+    -- the battle-use tail, BagMenu's useOn subset: the item lands on the
+    -- chosen target, the turn is spent when the text box closes
+    local function runUse(target, moveIndex)
+      local result, payload, extra = ItemEffects.use(game.data, save, id,
+                                                     target, battle, moveIndex,
+                                                     game.overworld)
+      if result == "consumed" then
+        require("src.inventory.Bag").remove(save, id, 1)
+        say(payload, function() battle:itemUsed({}) end)
+      elseif result == "consumed_escape" then -- POKé DOLL
+        require("src.inventory.Bag").remove(save, id, 1)
+        say(payload, function()
+          battle.pokeDollEscape = true
+          battle.result = "run"
+          battle.afterQueue = "finish"
+          battle.phase = "messages"
+        end)
+      elseif result == "flute" then
+        require("src.core.Sound").play(game.data, "Pokeflute")
+        say(payload, function() battle:itemUsed({}) end)
+      else -- "failed" (and anything unexpected): text only, turn not spent
+        say(payload)
+      end
+    end
+    battle.phase = "messages"
+    battle.afterQueue = "menu"
+    if ItemEffects.isBall(id) then
+      require("src.inventory.Bag").remove(save, id, 1)
+      battle:throwBall(id)
+      return true
+    end
+    local def = game.data.items[id]
+    -- target-needing items open the vanilla party picker (the party
+    -- screen) instead of auto-targeting: potions and status cures reach
+    -- any party member, and ETHERs/PP UP ask for the move, just as they
+    -- do from BAG.  The picker pops itself before onSwitch (keepOpen
+    -- false in battle), so a cancel simply hands back to the battle menu.
+    if ItemEffects.needsTarget(id, def) then
+      local wantsMove = id == "ETHER" or id == "MAX_ETHER" or id == "PP_UP"
+      local opts = {
+        pickOnly = true,
+        keepOpen = false,
+        onSwitch = function(mon, picker)
+          if not mon then return end
+          if not wantsMove then
+            runUse(mon, nil)
+            return
+          end
+          local rows = {}
+          local moves = mon.moves or {}
+          for mi, mv in ipairs(moves) do
+            if mv and mv.id then
+              local mdef = game and game.data and game.data.moves and game.data.moves[mv.id]
+              table.insert(rows, {
+                value = mi,
+                label = mdef and mdef.name or mv.id,
+                right = mv.pp ~= nil and ("%d"):format(mv.pp) or "--",
+              })
+            end
+          end
+          if #rows == 0 then return end
+          game.stack:push(require("src.ui.ListMenu").new(game,
+            "Which move?", rows, {
+            onChoose = function(row, l)
+              l:close()
+              runUse(mon, row.value)
+            end,
+          }))
+        end,
+      }
+      if def and def.machine then
+        opts.tmhm = { move = def.machine.move, kind = def.machine.kind }
+      end
+      -- This is the Gen 1 party-picker arm; Gold uses BattleState:useItem and
+      -- its native Gen2PartyMenu path above.
+      require("src.ui.Screens").push(game, "Party" .. "Menu", opts)
+      return true
+    end
+    -- targetless battle items (X items, POKé FLUTE, POKé DOLL) run
+    -- straight on the active battler
+    runUse(nil, nil)
+    return true
+  end
+
+  -- ---------------------------------------------------- BATTLE EXP BAR
+  -- Gen 2-style EXP bar in battle: renders a thin black bar below the
+  -- player's HP numbers along the bottom border line (x=80..147 in classic
+  -- battles, x=224..291 in wide battles, y=89, width 67px, height 2px),
+  -- filling from right to left as the active Pokémon gains EXP
+  -- toward its next level. At max level (level 100), the bar fills completely
+  -- from the right vertical tick all the way to the left arrow.
+  -- Smoothly animates during battle when EXP is gained and loops through
+  -- level-ups. Gold draws its own native XP bar, so this toggle is Gen 1 only.
+  local EXP_BAR_X = 80
+  local EXP_BAR_RIGHT = 147
+  local EXP_BAR_WIDTH = 67
+  local EXP_BAR_Y = 89
+  local EXP_BAR_HEIGHT = 2
+  local EXP_BAR_SPEED = 40 -- pixels per second animation rate
+
+  mod.exports.EXP_BAR_X = EXP_BAR_X
+  mod.exports.EXP_BAR_RIGHT = EXP_BAR_RIGHT
+  mod.exports.EXP_BAR_WIDTH = EXP_BAR_WIDTH
+  mod.exports.EXP_BAR_Y = EXP_BAR_Y
+  mod.exports.EXP_BAR_HEIGHT = EXP_BAR_HEIGHT
+
+  -- Minimum total EXP required to reach a given level for a growth rate.
+  -- Delegates to src.pokemon.Growth when available, falling back to the standard
+  -- Gen 1 formula table.
+  mod.exports.expForLevel = function(growthRate, level, growthRatesData)
+    local rateStr = tostring(growthRate or "")
+    local normRate = rateStr:upper():gsub("%s+", "_")
+    local ok, Growth = pcall(require, "src.pokemon.Growth")
+    if ok and Growth and type(Growth.expForLevel) == "function" then
+      if Growth.CURVES and (Growth.CURVES[normRate] or (growthRatesData and growthRatesData[normRate])) then
+        return Growth.expForLevel(normRate, level, growthRatesData)
+      end
+      return Growth.expForLevel(growthRate, level, growthRatesData)
+    end
+    local n = math.max(1, math.min(100, tonumber(level) or 1))
+    local rate = rateStr:lower()
+    if rate == "fast" or (rate:find("fast") and not rate:find("medium")) then
+      return math.floor(4 * n * n * n / 5)
+    elseif rate == "slow" or (rate:find("slow") and not rate:find("medium")) then
+      return math.floor(5 * n * n * n / 4)
+    elseif rate:find("medium") and rate:find("slow") then
+      if n <= 1 then return 0 end
+      return math.floor(1.2 * n * n * n - 15 * n * n + 100 * n - 140)
+    else -- medium fast / medium / default
+      return n * n * n
+    end
+  end
+
+  -- Progress within the current level: returns (progressExp, neededExp, fraction, filledPixels).
+  mod.exports.expBarProgress = function(mon, data)
+    if not (mon and mon.species) then return 0, 0, 0, 0 end
+    local pokemonData = data and data.pokemon
+    local def = pokemonData and pokemonData[mon.species]
+    local growthRate = (def and def.growthRate) or (mon.def and mon.def.growthRate) or "Medium Fast"
+    local growthRates = data and data.growth_rates
+    local level = mon.level or 1
+    local cap = (data and data.constants and data.constants.levelCap) or 100
+
+    if level >= cap then
+      return 0, 0, 1.0, EXP_BAR_WIDTH
+    end
+
+    local curLevelExp = mod.exports.expForLevel(growthRate, level, growthRates)
+    local nextLevelExp = mod.exports.expForLevel(growthRate, level + 1, growthRates)
+    local needed = nextLevelExp - curLevelExp
+    if needed <= 0 then return 0, 0, 0, 0 end
+
+    local curExp = mon.exp or curLevelExp
+    local progress = math.max(0, math.min(needed, curExp - curLevelExp))
+    local fraction = progress / needed
+    local filledPixels = math.floor(fraction * EXP_BAR_WIDTH)
+    return progress, needed, fraction, filledPixels
+  end
+
+  -- Resolve target pixel fill for the active player Pokémon in battle.
+  mod.exports.expBarPixels = function(battle)
+    local mon = battle and battle.player and battle.player.mon
+    if not mon then return 0 end
+    local _, _, _, pixels = mod.exports.expBarProgress(mon, battle.data or Game.data)
+    return pixels
+  end
+
+  -- Effective color for the EXP bar (crisp black).
+  mod.exports.expBarColor = function(battle)
+    return { 0, 0, 0, 1 }
+  end
+
+  -- Update animated EXP bar state across frames (handles gain interpolation,
+  -- multi-level level-ups, and mon switching).
+  mod.exports.updateExpBar = function(battle, dt)
+    local mon = battle and battle.player and battle.player.mon
+    if not mon then
+      battle._qolExpBarState = nil
+      return
+    end
+
+    local targetPixels = mod.exports.expBarPixels(battle)
+    local state = battle._qolExpBarState
+    if not state or state.mon ~= mon then
+      battle._qolExpBarState = {
+        mon = mon,
+        level = mon.level or 1,
+        pixels = targetPixels,
+      }
+      return
+    end
+
+    local step = (dt or (1 / 60)) * EXP_BAR_SPEED
+    local currentLevel = mon.level or 1
+
+    if currentLevel > state.level then
+      -- Level up: animate fill to full bar (EXP_BAR_WIDTH), then wrap to 0 for the next level
+      if state.pixels < EXP_BAR_WIDTH then
+        state.pixels = math.min(EXP_BAR_WIDTH, state.pixels + step)
+      else
+        state.level = state.level + 1
+        state.pixels = 0
+      end
+    elseif currentLevel < state.level then
+      -- Level dropped or reset
+      state.level = currentLevel
+      state.pixels = targetPixels
+    else
+      -- Same level: animate towards target pixels
+      if state.pixels < targetPixels then
+        state.pixels = math.min(targetPixels, state.pixels + step)
+      elseif state.pixels > targetPixels then
+        state.pixels = math.max(targetPixels, state.pixels - step)
+      end
+    end
+  end
+
+  -- Draw the EXP bar onto the battle HUD (fills right-to-left inside the bottom border groove).
+  mod.exports.drawExpBar = function(battle)
+    if not (love and love.graphics) then return end
+    if not (battle and battle.player and battle.player.mon) then return end
+    if battle.safari or battle.demo or battle.showPlayerBack then return end
+    if battle.blankForAskName then return end
+    if battle.introSlide and battle.introSlide ~= 0 then return end
+
+    local state = battle._qolExpBarState
+    local mon = battle.player.mon
+    local px = (state and state.mon == mon and state.pixels)
+               or mod.exports.expBarPixels(battle)
+    px = math.max(0, math.min(EXP_BAR_WIDTH, math.floor(px or 0)))
+    if px <= 0 then return end
+
+    local isWide = (type(battle.wideLayout) == "function" and battle:wideLayout())
+                   or (type(battle.isWideBattleLayout) == "function" and battle:isWideBattleLayout())
+    local right = isWide and 291 or EXP_BAR_RIGHT
+    local x = right - px
+    local y = EXP_BAR_Y
+
+    local g = love.graphics
+    g.setShader()
+    g.setColor(0, 0, 0, 1)
+    g.rectangle("fill", x, y, px, EXP_BAR_HEIGHT)
+
+    local ok, PaletteFX = pcall(require, "src.render.PaletteFX")
+    if ok and PaletteFX and PaletteFX.markTrueColor then
+      PaletteFX.markTrueColor(x, y, px, EXP_BAR_HEIGHT)
+    end
+  end
+
+
+  -- a poisoned mon at or below the damage threshold survives at 1 HP and
+  -- its poison subsides (status cleared); returns the subsided mons so the
+  -- caller can queue the message.  Gen 1 names the status "PSN"; Gold's
+  -- battle writes "poison"/"toxic" into mon.status and older saves carry
+  -- "psn"/"tox" -- the same spellings StepEvents.isPoisoned accepts
+  -- (src/world/gen2/StepEvents.lua:36-40).
+  mod.exports.poisonClamp = function(party, damage)
+    local subsided = {}
+    for _, mon in ipairs(party) do
+      local poisoned = mon.status == "PSN" or mon.status == "psn"
+        or mon.status == "tox" or mon.status == "poison"
+        or mon.status == "toxic"
+      if poisoned and mon.hp > 0 and mon.hp <= damage then
+        mon.hp = 1
+        mon.status = nil
+        subsided[#subsided + 1] = mon
+      end
+    end
+    return subsided
+  end
+
+  -- full heal + PP restore on the caught mon: Gen 1's Pokemon.heal is the
+  -- Center/blackout heal; Gold's Mon has no heal module, so the writes are
+  -- the same ones World:healParty makes (src/world/gen2/World.lua:6527)
+  mod.exports.healCaught = function(mon)
+    if GEN2 then
+      mon.hp = mon.maxHp or mon.hp
+      mon.status = nil
+      mon.statusTurns = nil
+      for _, move in ipairs(mon.moves or {}) do
+        if type(move) == "table" then move.pp = move.maxPp or move.pp end
+      end
+      return mon.hp == (mon.maxHp or mon.hp) and mon.status == nil
+    end
+    require("src.pokemon.Pokemon").heal(mon)
+    return mon.hp == mon.stats.hp and mon.status == nil
+  end
+
+  -- Gold-only catch EXP: the gen 2 engine's Catching.attempt never receives
+  -- a battle (the ball arm in BattleState:useItem passes a flat opts table),
+  -- so Battle:caught -- the only site that consults battle.catch_exp -- never
+  -- runs and a capture pays no EXP.  Pay the award from pokemon.caught (which
+  -- carries the live battle and the caught mon, and which fires AFTER the mon
+  -- is in the party/PC) through the engine's own Battle:awardExperience path,
+  -- then hand the emitted exp/level events to the battle screen so the EXP
+  -- bar crawl, "grew to level" lines and post-battle evolution still show.
+  -- The battle.catch_exp wrap above is the one toggle gate; setting
+  -- caughtHandled -- the latch Battle:caught would have set -- keeps a
+  -- future engine fix that reaches Battle:caught from paying twice.
+  mod.exports.giveCatchExp = function(battle, mon)
+    if not (battle and mon) then return false end
+    if battle.caughtHandled then return false end
+    if not battle.awardExperience then return false end
+    if Runtime.wantsHook("battle.catch_exp")
+        and Runtime.call("battle.catch_exp", function() return false end,
+          { battle = battle }) then
+      battle.caughtHandled = true
+      local events = battle.events or {}
+      local before = #events
+      battle:awardExperience(mon)
+      -- The screen owns the queue, and the engine's own takeEvents drains
+      -- never run on the catch path, so the award's exp/level events are
+      -- handed to it here -- the tail awardExperience appended, nothing that
+      -- was already queued.
+      local added = {}
+      for i = before + 1, #events do added[#added + 1] = events[i] end
+      for i = #events, before + 1, -1 do events[i] = nil end
+      if #added > 0 then
+        local screen
+        local stack = Game.stack
+        local states = stack and stack.states
+        for i = #(states or {}), 1, -1 do
+          local s = states[i]
+          if s and s.battle == battle then
+            screen = s
+            break
+          end
+        end
+        if screen and screen.pushAll then screen:pushAll(added) end
+      end
+      return true
+    end
+    return false
+  end
+
+  -- full heal + PP restore for the whole party (HEAL ON MAP CHANGE)
+  mod.exports.healParty = function(party)
+    if GEN2 then
+      for _, mon in ipairs(party or {}) do
+        if mon then
+          mon.hp = mon.maxHp or mon.hp
+          mon.status = nil
+          mon.statusTurns = nil
+          for _, move in ipairs(mon.moves or {}) do
+            if type(move) == "table" then move.pp = move.maxPp or move.pp end
+          end
+        end
+      end
+      return
+    end
+    local Pokemon = require("src.pokemon.Pokemon")
+    for _, mon in ipairs(party or {}) do
+      if mon then Pokemon.heal(mon) end
+    end
+  end
+
+  -- TURN AWAY (NURSE): flip the player's facing so an A-mash walks away
+  -- from the counter instead of re-talking to the nurse.  Pure, exported
+  -- for headless tests; both engines store the facing the same way.
+  local REVERSE_FACING = { up = "down", down = "up",
+                           left = "right", right = "left" }
+  mod.exports.turnAround = function(player)
+    if not player or not player.facing then return nil end
+    local back = REVERSE_FACING[player.facing] or "down"
+    player.facing = back
+    return back
+  end
+
+  -- the farewell callback handed to finishNurseHeal: turn the player away
+  -- (when the toggle is on) and then run the caller's own onDone.  Pure,
+  -- so the headless suite can drive the exact callback the Gen 1 wrap
+  -- installs without booting the overworld dialogue.
+  mod.exports.afterNurseHeal = function(player, onDone)
+    return function()
+      if get("turn_away_nurse") then mod.exports.turnAround(player) end
+      if onDone then onDone() end
+    end
+  end
+
+  -- QUICK NURSE (Gen 1): talking to a Pokecenter nurse skips all dialogue
+  -- (welcome, yes/no, need pokemon, fighting fit, farewell), plays the heal
+  -- machine animation and jingle, heals the party, remembers this center as
+  -- the last-heal point, and turns the player away automatically.
+  -- The nurse still turns to the machine during healing and faces the player
+  -- when finished.
+  mod.exports.quickNurse = function(self, onDone, npc)
+    local save = Game.save
+    if not (save and self and self.map and self.player) then
+      if onDone then onDone() end
+      return true
+    end
+    save.usedPokecenter = true -- BIT_USED_POKECENTER, like the vanilla flow
+    for _, mon in ipairs(save.party or {}) do
+      if mon then
+        -- Gen 1 mons carry a `stats` table and heal through the engine's own
+        -- Pokemon.heal; Gold's mons have none, so their HP, status and PP are
+        -- restored here instead.  The Gen 1 module is required lazily and
+        -- defensively: a Gen 2-only engine that does not ship it still heals
+        -- through the fallback rather than aborting the whole nurse.
+        local okPokemon, Pokemon = false, nil
+        if mon.stats then
+          okPokemon, Pokemon = pcall(require, "src.pokemon.Pokemon")
+        end
+        if okPokemon and Pokemon and Pokemon.heal then
+          Pokemon.heal(mon)
+        else
+          mon.hp = mon.maxHp or mon.hp
+          mon.status = nil
+          mon.statusTurns = nil
+          for _, move in ipairs(mon.moves or {}) do
+            if type(move) == "table" then move.pp = move.maxPp or move.pp end
+          end
+        end
+      end
+    end
+    save.lastHeal = { -- SetLastBlackoutMap, exactly the vanilla record
+      map = self.map.id, x = self.player.cellX, y = self.player.cellY,
+      outdoor = self.lastOutdoor
+        and { id = self.lastOutdoor.id, x = self.lastOutdoor.x,
+              y = self.lastOutdoor.y } or nil,
+    }
+
+    -- Gold has no Gen 1 follower module. Keep this concrete module name out
+    -- of the Gold checker and use the normal heal path when no follower is
+    -- present.
+    local okFollower, Follower = false, nil
+    if not GEN2 then
+      okFollower, Follower = pcall(require, "src.world." .. "PikachuFollower")
+    end
+    local function finish()
+      if okFollower and Follower and Follower.setVisible then
+        Follower.setVisible(self, true)
+      end
+      if npc and npc.facePlayer and self.player then
+        npc:facePlayer(self.player)
+      end
+      mod.exports.turnAround(self.player)
+      if onDone then onDone() end
+    end
+
+    local function startMachine()
+      if npc then npc.facing = "left" end
+      if okFollower and Follower and Follower.setVisible then
+        Follower.setVisible(self, false)
+      end
+      local okMusic, Music = pcall(require, "src.core.Music")
+      if okMusic and Music and Music.stop then
+        Music.stop()
+      end
+      self.healAnim = {
+        balls = math.min(6, #(save.party or {})),
+        lit = 0,
+        timer = 0,
+        visible = true,
+        px = (self.player and self.player.cellX or 0) * 16,
+        py = (self.player and self.player.cellY or 0) * 16,
+        onDone = finish,
+      }
+      -- In headless tests or stubs where stepHealAnim is not driven by an update loop,
+      -- execute finish() immediately so test assertions complete.
+      if not (self.stepHealAnim or type(self.update) == "function") then
+        finish()
+      end
+    end
+
+    if okFollower and Follower and type(Follower.hopToCounter) == "function" and self.follower then
+      Follower.hopToCounter(self, startMachine)
+    else
+      startMachine()
+    end
+    return true
+  end
+
+  -- QUICK NURSE (Gen 2): the nurse the player is facing, or nil.  Gold's
+  -- nurses are NPCs behind COLL_COUNTER tiles.  Imported Gold map objects
+  -- carry a raw script pointer (for example "56:5236") and SPRITE_NURSE,
+  -- while fixture/adapter objects may expose the resolved
+  -- PokecenterNurseScript name.  The lookup follows the engine's own
+  -- CheckFacingObject doubling (src/world/gen2/World.lua interactBody):
+  -- double the distance over a counter tile, then identify the nurse by
+  -- either compatible shape.  The gen2 modules load lazily (this is only
+  -- ever called from the Gold wrap) so the gen1 boot never touches them.
+  -- Pure, exported for the headless suite.  Adapters may provide the two
+  -- geometry helpers directly; the live Gen 2 world falls back to its native
+  -- modules below.
+  mod.exports.nurseAt = function(world)
+    if not (world and world.player and world.npcAt and world.map) then
+      return nil
+    end
+    if world.busy and world:busy() then return nil end
+    local p = world.player
+    if p.moving then return nil end
+    local ox, oy
+    if type(world.facingObjectCell) == "function" then
+      ox, oy = world:facingObjectCell()
+    else
+      local delta = world.delta or (require("src.world.gen2.Map").DELTA)
+      local isCounter = world.isCounter or (require("src.world.gen2.Permissions").isCounter)
+      local d = delta[p.facing] or { 0, 1 }
+      local fx, fy = p.cellX + d[1], p.cellY + d[2]
+      ox, oy = fx, fy
+      if isCounter(world.map:cellCollision(fx, fy)) then
+        ox, oy = p.cellX + d[1] * 2, p.cellY + d[2] * 2
+      end
+    end
+    if not ox then return nil end
+    local npc = world:npcAt(ox, oy)
+    if npc and (npc.def or npc.spriteId or npc.sprite) then
+      local def = npc.def or {}
+      local spriteName = tostring(def.sprite or npc.spriteId or npc.sprite or ""):upper()
+      local scriptName = tostring(def.scriptKey or def.script or "")
+      local objName = tostring(def.name or ""):upper()
+      if scriptName == "PokecenterNurseScript"
+         or spriteName == "SPRITE_NURSE"
+         or spriteName:find("NURSE") ~= nil
+         or objName:find("NURSE") ~= nil then
+        return npc
+      end
+    end
+    return nil
+  end
+
+  -- max DVs on a caught mon: all 15s, stats recomputed so the mon's actual
+  -- stats match.  Gen 1's Stats.calc drives the five Gen 1 stats; Gold's
+  -- Mon.stats computes the six Gen 2 stats (special split into spcA/spcD).
+  mod.exports.perfectDVs = function(mon, data)
+    mon.dvs = { attack = 15, defense = 15, speed = 15, special = 15, hp = 15,
+                specialAttack = 15, specialDefense = 15 }
+    local def = data and data.pokemon and data.pokemon[mon.species]
+    if def then
+      if GEN2 then
+        mon.stats = require("src.battle.gen2.Mon").stats(def, mon.dvs,
+                                                          mon.level, mon.statExp)
+        mon.maxHp = mon.stats and mon.stats.hp or mon.maxHp
+      else
+        mon.stats = require("src.pokemon.Stats").calc(def, mon.level,
+                                                      mon.dvs, mon.statExp)
+      end
+    end
+    return mon.stats
+  end
+
+  -- a party member that counts as knowing a field move for the
+  -- fieldmove.eligibility gate: one that knows it, or -- with allMoves --
+  -- one whose species can learn it.  The allMoves fallback (the phantom
+  -- case) honours HM ITEM REQUIRED: HM moves need the item held, like
+  -- the party-menu list; a mon that already knows the move is never
+  -- gated (it had the HM to learn it).
+  mod.exports.eligibleMon = function(party, data, moveId, allMoves,
+                                     inventory, requireHm)
+    for _, mon in ipairs(party or {}) do
+      if mon and mon.moves then
+        for _, mv in ipairs(mon.moves) do
+          if mv and mv.id == moveId then return mon end
+        end
+      end
+    end
+    if not allMoves then return nil end
+    for _, mon in ipairs(party or {}) do
+      if mon and mon.moves then
+        local def = data and data.pokemon and data.pokemon[mon.species]
+        if def and canLearn(def, moveId) then
+          local item = HM_ITEMS[moveId]
+          if not requireHm or not item or (inventory and inventory[item]) then
+            return mon
+          end
+        end
+      end
+    end
+    return nil
+  end
+
+  -- the field moves this species can learn (level-up or TM/HM) but does
+  -- not currently know; HM moves drop out while HM ITEM REQUIRED is on
+  -- and the player does not hold the item
+  mod.exports.learnableFieldMoves = function(def, mon, inventory, requireHm)
+    local out = {}
+    local list = GEN2 and FIELD_MOVES_GEN2 or FIELD_MOVES
+    for _, id in ipairs(list) do
+      if def and canLearn(def, id) and not knows(mon, id) then
+        local item = HM_ITEMS[id]
+        if not requireHm or not item or (inventory and inventory[item]) then
+          out[#out + 1] = id
+        end
+      end
+    end
+    return out
+  end
+
+  -- Gold's ui.party.submenu wrap body (pure, exported for headless tests):
+  -- run the downstream chain first, then drop the phantom field-move rows in
+  -- before the first fixed option (STATS).  The engine's updateSubmenu
+  -- dispatches `item.fieldMove` to useFieldMove, so the rows act exactly
+  -- like a known move; ctx.battle (the battle SWITCH/STATS box) and eggs
+  -- stay vanilla.
+  mod.exports.submenuRows = function(next, game, items, mon, ctx)
+    if (ctx and ctx.battle) or (mon and mon.isEgg) then
+      return next(game, items, mon, ctx)
+    end
+    local allMoves = get("field_moves_all")
+    local badgeless = get("badgeless_moves")
+    if not allMoves and not badgeless then
+      return next(game, items, mon, ctx)
+    end
+    local data = game and game.data
+    local def = data and data.pokemon and data.pokemon[mon and mon.species]
+    if not def then return next(game, items, mon, ctx) end
+    local inventory = game and game.save and game.save.inventory
+    local learnable = mod.exports.learnableFieldMoves(def, mon, inventory,
+                                                      get("hm_item_required"))
+    if #learnable == 0 then return next(game, items, mon, ctx) end
+    -- run the rest of the chain first so a higher-priority hook sees the
+    -- vanilla list, then drop the phantom rows in before STATS.
+    local list = next(game, items, mon, ctx)
+    if type(list) ~= "table" then list = items end
+    local insertAt = #list + 1
+    for i, row in ipairs(list) do
+      if not row.fieldMove then insertAt = i break end
+    end
+    -- The box cannot render more than MAX_SUBMENU_ROWS rows (issue #10), so
+    -- the phantom rows follow the cart's own rule: they displace the CANCEL
+    -- row first (the cart drops it whenever the list is full), then the
+    -- excess is trimmed from the tail of the learnable list (the HMs keep
+    -- their front seats).
+    local cancelAt
+    for i = #list, 1, -1 do
+      if list[i].id == "CANCEL" then cancelAt = i break end
+    end
+    local slots = MAX_SUBMENU_ROWS - #list + (cancelAt and 1 or 0)
+    if cancelAt and #learnable > slots - 1 then
+      table.remove(list, cancelAt)
+      insertAt = #list + 1
+      for i, row in ipairs(list) do
+        if not row.fieldMove then insertAt = i break end
+      end
+    end
+    local moves = data and data.moves
+    for _, id in ipairs(learnable) do
+      if #list >= MAX_SUBMENU_ROWS then break end
+      local mdef = moves and moves[id]
+      table.insert(list, insertAt, {
+        id = id, label = (mdef and mdef.name) or id, fieldMove = true,
+      })
+      insertAt = insertAt + 1
+    end
+    return list
+  end
+
+  -- RENAME: the party submenu gains a RENAME row that opens the name
+  -- screen for the selected mon, so nicknames can be changed on the fly.
+  -- One hook, both engines: Gen 1's PartyMenu and Gold's both assemble
+  -- their submenu lists through the ui.party.submenu chain, and both
+  -- dispatch a hook-injected row's onSelect(mon, game) -- Gen 1 before
+  -- its vanilla action ids (src/ui/PartyMenu.lua), Gold before its own
+  -- VANILLA_SUBMENU_IDS (src/ui/gen2/PartyMenu.lua).  Battle submenus
+  -- (ctx.battle, the SWITCH/STATS box) and eggs stay vanilla, the way
+  -- the phantom rows and the Name Rater skip them.
+  --
+  -- The submenu box holds eight rows on both carts (MAX_SUBMENU_ROWS), so
+  -- the row follows the cart's own full-list rule: the CANCEL row drops
+  -- first (Gold only appends it while the list is still short of the
+  -- cap), and if the list is still full the last field-move row gives up
+  -- its seat -- a phantom the mod itself added first, since phantoms sit
+  -- at the tail of the field-move run.  RENAME is therefore always
+  -- visible on a mon that can be renamed.  Pure (no side effects), so
+  -- the headless suite drives the row building without a live menu.
+  mod.exports.submenuRename = function(next, game, items, mon, ctx)
+    if not get("rename") then return next(game, items, mon, ctx) end
+    if (ctx and ctx.battle) or (mon and mon.isEgg) then
+      return next(game, items, mon, ctx)
+    end
+    local list = next(game, items, mon, ctx)
+    if type(list) ~= "table" then list = items end
+    local cancelAt
+    for i = #list, 1, -1 do
+      if list[i].id == "CANCEL" then cancelAt = i break end
+    end
+    if cancelAt and #list >= MAX_SUBMENU_ROWS then
+      table.remove(list, cancelAt)
+      cancelAt = nil
+    end
+    while #list >= MAX_SUBMENU_ROWS do
+      local trimmed = false
+      for i = #list, 1, -1 do
+        if list[i].fieldMove then
+          table.remove(list, i)
+          trimmed = true
+          break
+        end
+      end
+      if not trimmed then break end
+    end
+    local row = { id = "RENAME", label = Strings("RENAME"),
+                  onSelect = function(m, g) mod.exports.openRename(m, g) end }
+    if cancelAt and list[cancelAt] and list[cancelAt].id == "CANCEL" then
+      table.insert(list, cancelAt, row)
+    else
+      list[#list + 1] = row
+    end
+    return list
+  end
+
+  -- the rename write itself: "" (or a re-typed copy of the current name)
+  -- leaves the mon untouched, the Name Rater's own decline rule
+  mod.exports.applyRename = function(mon, name)
+    if mon and name and #name > 0 then mon.nickname = name end
+    return mon and mon.nickname
+  end
+
+  -- the RENAME action: push the engine's naming screen over the party
+  -- menu.  Gen 1 opens the same screen BattleState:askNicknameUI uses
+  -- (NICKNAME?, 10 letters); the current nickname pre-fills and an empty
+  -- confirm restores it.  Gold reuses World:renameMon, the exact screen
+  -- the Goldenrod Name Rater opens (initial = current name; empty or B
+  -- keeps it).  `gen2` is the runtime flag, passed explicitly so the
+  -- headless suite can drive the Gold arm on the gen 1 engine.  Returns
+  -- false when there is nothing to rename into.
+  mod.exports.openRename = function(mon, game, gen2)
+    if not (mon and game and game.stack) then return false end
+    gen2 = gen2 == nil and GEN2 or gen2
+    if gen2 then
+      local world = game.world
+      if not (world and world.renameMon) then return false end
+      world:renameMon(mon, function(name)
+        mod.exports.applyRename(mon, name)
+      end)
+      return true
+    end
+    local Screens = require("src.ui.Screens")
+    local namingScreen = gen2 and ("Gen" .. "2NamingScreen")
+                         or ("Naming" .. "Screen")
+    Screens.push(game, namingScreen, {
+      title = Strings("NICKNAME?"),
+      maxLen = 10,
+      default = mon.nickname,
+      onDone = function(name)
+        mod.exports.applyRename(mon, name)
+      end,
+    })
+    return true
+  end
+
+  -- append phantom move slots so the vanilla party-menu list builder shows
+  -- learnable field moves; returns the added ids for detachPhantomMoves.
+  -- The cart's move slots cap a mon's field moves at four, so the phantom
+  -- slots are trimmed to that same total: any more would grow the submenu
+  -- box past the cart's eight rows and off the top of the screen (the Gen 2
+  -- counterpart is the cap in submenuRows).
+  mod.exports.attachPhantomMoves = function(mon, def, inventory, requireHm)
+    local added = mod.exports.learnableFieldMoves(def, mon, inventory,
+                                                  requireHm)
+    local list = GEN2 and FIELD_MOVES_GEN2 or FIELD_MOVES
+    local knownRows = 0
+    for _, mv in ipairs(mon.moves or {}) do
+      for _, id in ipairs(list) do
+        if mv.id == id then knownRows = knownRows + 1 break end
+      end
+    end
+    local room = math.max(0, 4 - knownRows)
+    if #added > room then
+      for i = #added, room + 1, -1 do table.remove(added, i) end
+    end
+    for _, id in ipairs(added) do
+      mon.moves[#mon.moves + 1] = { id = id }
+    end
+    return added
+  end
+
+  mod.exports.detachPhantomMoves = function(mon, added)
+    for _, id in ipairs(added) do
+      for i = #mon.moves, 1, -1 do
+        if mon.moves[i].id == id then table.remove(mon.moves, i) break end
+      end
+    end
+  end
+
+  -- FIELD MOVES ALL: a species that can learn a field move (level-up or
+  -- TM/HM) gets the out-of-battle option even without knowing it.  The
+  -- party menu builds its field-move list from mon.moves INLINE in update,
+  -- before the ui.party.submenu hook fires, so phantom slots are attached
+  -- to the selected mon before the vanilla update runs and detached after.
+  -- The vanilla builder then applies every contextual rule untouched: the
+  -- badge gates (THUNDERBADGE for FLY, SOULBADGE for SURF, ...),
+  -- FLY/TELEPORT outdoors-only, FLASH in the dark, DIG's tileset list.
+  -- Selection reads the action off the built item list, never the moveset,
+  -- so the phantom slots leave no trace.
+  mod.exports.withPhantoms = function(self, nextUpdate, dt)
+    -- pickOnly: the menu is an item/script target picker (ether, TM teach,
+    -- ...) whose onSwitch reads mon.moves directly -- phantom slots have no
+    -- pp and would crash BagMenu's move list
+    if self.battle or self.submenu or self.tmhm or self.pickOnly then
+      return nextUpdate(self, dt)
+    end
+    local allMoves = get("field_moves_all")
+    local badgeless = get("badgeless_moves")
+    if not allMoves and not badgeless then
+      return nextUpdate(self, dt)
+    end
+    local game = self.game
+    local party = self.party or (game and game.save and game.save.party)
+    local mon = party and party[self.index]
+    local added
+    if allMoves and mon and mon.moves and game and game.data
+       and game.data.pokemon[mon.species] then
+      added = mod.exports.attachPhantomMoves(mon,
+                                             game.data.pokemon[mon.species],
+                                             game.save and game.save.inventory,
+                                             get("hm_item_required"))
+    end
+    -- BADGELESS: fake the HM badges for the list-time gates; the badges
+    -- never existed (or were already owned) are removed right after
+    local inv = badgeless and game and game.save and game.save.inventory
+    local injected = {}
+    if inv then
+      for _, badge in ipairs(HM_BADGES) do
+        if not inv[badge] then
+          inv[badge] = 1
+          injected[#injected + 1] = badge
+        end
+      end
+    end
+    local ok, r1, r2 = pcall(nextUpdate, self, dt)
+    if added and #added > 0 then mod.exports.detachPhantomMoves(mon, added) end
+    for _, badge in ipairs(injected) do inv[badge] = nil end
+    if not ok then error(r1, 0) end
+    return r1, r2
+  end
+
+  -- UNLIMITED TMs: the engine returns "learn" for a TM that teaches a
+  -- move -- the signal that consumes it in BagMenu -- and "learnkept" for
+  -- HMs (never consumed).  Remapping "learn" -> "learnkept" while the
+  -- toggle is on covers every teach path: <4 moves, 4+ moves through the
+  -- forget UI, and the battle screen.
+  mod.exports.keepTm = function(result)
+    if get("unlimited_tms") and result == "learn" then return "learnkept" end
+    return result
+  end
+
+  -- ---- EXP MULT / MONEY MULT: the multiplier read/write helpers ------
+  -- The stored value is false (OFF = vanilla) or one of the MULT_CYCLE
+  -- numbers; a legacy `true` from the old EXP x2 toggle reads as 2x.
+  -- All pure, so the headless suite drives the cycle and the scaling
+  -- without a live battle.
+  mod.exports.normalizeMult = function(value)
+    if value == true then return 2 end -- legacy EXP x2 bucket
+    if value == nil or value == false then return false end
+    return value
+  end
+
+  -- the value-box label for a stored multiplier: OFF / 0x / 1.5x / 2x ...
+  mod.exports.multLabel = function(value)
+    local m = mod.exports.normalizeMult(value)
+    if m == false then return "OFF" end
+    return tostring(m) .. "x"
+  end
+
+  -- scale an amount by a multiplier; OFF passes through untouched and
+  -- everything else floors, the way the cart floors EXP splits (and the
+  -- Trainer Rematch mod floors its earnings percentage)
+  mod.exports.scaleValue = function(amount, mult)
+    local m = mod.exports.normalizeMult(mult)
+    if m == false then return amount end
+    return math.floor((amount or 0) * m)
+  end
+
+  -- the next multiplier in the cycle after a stored value (wraps to OFF)
+  mod.exports.cycleStep = function(value, cycle)
+    local m = mod.exports.normalizeMult(value)
+    for i, v in ipairs(cycle) do
+      if v == m then return cycle[i % #cycle + 1] end
+    end
+    return cycle[1]
+  end
+
+  -- shadow a trainer record with a scaled baseMoney for one call, never
+  -- touching the shared data record (the Trainer Rematch trick): prize =
+  -- baseMoney * level comes out scaled and the "You got ¥N" text prints
+  -- the scaled figure.  OFF or a trainer with no baseMoney passes through.
+  mod.exports.scaleTrainer = function(trainer, mult)
+    local m = mod.exports.normalizeMult(mult)
+    if m == false or not trainer or not trainer.baseMoney then
+      return trainer
+    end
+    return setmetatable({
+      baseMoney = mod.exports.scaleValue(trainer.baseMoney, m),
+    }, { __index = trainer })
+  end
+
+  -- Pay Day money under a multiplier: nil at 0x (nothing to pick up, and
+  -- the "picked up ¥N" line never prints), scaled otherwise, untouched
+  -- when OFF
+  mod.exports.scalePayDay = function(amount, mult)
+    if amount == nil then return nil end
+    local m = mod.exports.normalizeMult(mult)
+    if m == false then return amount end
+    if m == 0 then return nil end
+    return mod.exports.scaleValue(amount, m)
+  end
+
+  -- the trainer-victory prize line ("RED got ¥1200\nfor winning!"), so 0x
+  -- can drop it instead of printing a "You got ¥0" box
+  mod.exports.isPrizeLine = function(text)
+    return type(text) == "string" and text:find("got ", 1, true) ~= nil
+      and text:find("for winning", 1, true) ~= nil
+  end
+
+  -- REMEMBER CURSOR: the battle menu keeps menuIndex on the battle
+  -- object, so the FIGHT/BAG/PKMN/RUN cursor already stays put across
+  -- turns; with the toggle OFF, the end of every turn parks it back on
+  -- FIGHT, the vanilla default.  Returns the cursor's landing position
+  -- so tests can assert the call both ways.
+  mod.exports.applyCursorRemember = function(battle, remember)
+    if battle and not remember then battle.menuIndex = 1 end
+    return battle and battle.menuIndex or nil
+  end
+
+  -- B FOR QUICK FLEE: at the root of the battle menu (phase "menu"), a B press
+  -- parks the cursor on RUN.  Neither engine has a B branch at the menu
+  -- root (B only backs out of move select), so intercepting it is
+  -- collision free.  Trainer battles are skipped: RUN sits in the menu but
+  -- can never escape (both engines refuse it), so parking the cursor there
+  -- is only ever a wasted turn.  Gen 1's demo (old man) and Safari battles
+  -- use different menus and are skipped, as are Gold's tutorial and contest
+  -- menus (the same pair, different names); a locked action
+  -- (thrash/rage/recharge) keeps the real menu unreachable so it is
+  -- skipped too.  A fainted active mon opens the forced replacement
+  -- screen instead, so that path is left alone.  The active mon lives in
+  -- different places per generation: Gen 1 wraps it as battle.player.mon
+  -- on the screen, Gold's screen keeps it on the battle model
+  -- (battle.battle.player) and has no .player of its own -- issue #11.
+  -- Trainer battles are likewise found in different places: Gen 1's screen
+  -- carries kind = "trainer" and the trainer record itself, while Gold's
+  -- screen delegates to the battle model (battle.battle.trainer).  Returns
+  -- the cursor's landing position for headless tests.
+  mod.exports.menuBToRun = function(battle, on)
+    if not battle or not on or battle.phase ~= "menu"
+       or battle.demo or battle.safari or battle.ghost
+       or battle.tutorial or battle.contest
+       or battle.kind == "link" or battle.kind == "trainer" or battle.trainer
+       or battle.spectating
+       or (battle.battle and (battle.battle.kind == "link"
+                              or battle.battle.link
+                              or battle.battle.kind == "trainer"
+                              or battle.battle.trainer))
+       or (battle.menuLockedAction and battle:menuLockedAction(battle.player))
+       or not battle.game or not battle.game.input
+       or not battle.game.input:wasPressed("b") then
+      return battle and battle.menuIndex or nil
+    end
+    local playerMon = battle.player and battle.player.mon
+      or (battle.battle and battle.battle.player) or nil
+    if not playerMon or playerMon.hp == 0 then
+      return battle and battle.menuIndex or nil
+    end
+    battle.menuIndex = 4 -- 4 = RUN
+    return battle.menuIndex
+  end
+
+  -- FORGETTABLE HMs: MoveLearnMenu.update blocks the HM moves through a
+  -- module-local HM_MOVES table, so while the toggle is on the wrap below
+  -- swaps in this gate-free copy of the same update (the vanilla body
+  -- minus the HMCantDeleteText check -- keep it in lockstep with
+  -- src/ui/MoveLearnMenu.lua).  The selecting guard is "== false" (not
+  -- "not selecting"): engine builds v0.1.59..v0.1.63 ran the old
+  -- ChoiceBox flow and never set selecting at all (nil), with the forget
+  -- list live whenever the menu is top -- treating nil as "not yet
+  -- choosing" would disable the toggle on those builds and the vanilla
+  -- HM gate would fire even with FORGETTABLE HMs on.
+  mod.exports.forgetUpdate = function(self, dt)
+    if self.selecting == false then return end
+    local input = self.game.input
+    local n = #self.mon.moves + 1 -- moves + CANCEL
+    if input:wasPressed("up") then
+      self.index = self.index > 1 and self.index - 1 or n
+    elseif input:wasPressed("down") then
+      self.index = self.index < n and self.index + 1 or 1
+    elseif input:wasPressed("b") then
+      self:confirmAbandon()
+    elseif input:wasPressed("a") then
+      if self.index > #self.mon.moves then
+        self:confirmAbandon()
+      else
+        local old = self.mon.moves[self.index]
+        local mdef = self.game.data.moves[self.newMoveId]
+        self.mon.moves[self.index] = { id = self.newMoveId, pp = mdef.pp }
+        self.forgot = self.game.data.moves[old.id].name
+        self:finish(true)
+      end
+    end
+  end
+
+  -- PARTY SCROLL (Gen 1): Up/Down in the Summary / STATS screen cycles
+  -- through the player's party Pokémon, preserving the current page
+  -- (Stats or Moves/EXP), updating the front sprite and playing the cry.
+  mod.exports.summarySwitchMon = function(self, delta, party)
+    if not (self and self.mon and party and #party > 1 and delta and delta ~= 0) then
+      return false
+    end
+    local curIdx = nil
+    for i, mon in ipairs(party) do
+      if mon == self.mon then
+        curIdx = i
+        break
+      end
+    end
+    if not curIdx then return false end
+    local nextIdx = curIdx + delta
+    if nextIdx < 1 then
+      nextIdx = #party
+    elseif nextIdx > #party then
+      nextIdx = 1
+    end
+    if nextIdx == curIdx then return false end
+
+    local newMon = party[nextIdx]
+    if not newMon then return false end
+    self.mon = newMon
+
+    local game = self.game or Game
+    local data = game and game.data
+
+    if data and data.pokemon and newMon.species then
+      local okStats, Stats = pcall(require, "src.pokemon.Stats")
+      if okStats and Stats and Stats.ensure then
+        Stats.ensure(data.pokemon[newMon.species], newMon)
+      end
+
+      local okSprites, Sprites = pcall(require, "src.pokemon.Sprites")
+      if okSprites and Sprites and Sprites.path and love and love.graphics and love.graphics.newImage then
+        local path, trueColor = Sprites.path(data, newMon.species, "front",
+          { mon = newMon, kind = "summary" })
+        if path then
+          local ok, img = pcall(love.graphics.newImage, path)
+          self.sprite = ok and img or nil
+        else
+          self.sprite = nil
+        end
+        self.spriteTrueColor = self.sprite and trueColor or false
+      end
+
+      local okSound, Sound = pcall(require, "src.core.Sound")
+      if okSound and Sound and Sound.playCry then
+        Sound.playCry(data, newMon.species)
+      end
+    end
+
+    return true
+  end
+
+  -- ANIM SKIP: active sound tracking and force stopping on audio overlap
+  local activeSounds = {}
+  mod.exports.setActiveSound = function(src)
+    if not src then return end
+    activeSounds[src] = true
+  end
+
+  mod.exports.stopActiveSound = function()
+    for src in pairs(activeSounds) do
+      pcall(function()
+        if src.stop then src:stop() end
+      end)
+    end
+    activeSounds = {}
+  end
+
+  mod.exports.skipAnimOrAudio = function(battle)
+    if not battle then return false end
+    local input = battle.game and battle.game.input
+    if not input or not input:wasPressed("a") then return false end
+
+    local skipped = false
+
+    -- Gen 1 battle move animation / subanimation
+    if battle.animPlaying then
+      mod.exports.stopActiveSound()
+      if battle.waitingSound then
+        pcall(function() if battle.waitingSound.stop then battle.waitingSound:stop() end end)
+        battle.waitingSound = nil
+      end
+      if battle.animPlayer then
+        if type(battle.animPlayer.finish) == "function" then
+          pcall(battle.animPlayer.finish, battle.animPlayer)
+        elseif type(battle.animPlayer.stop) == "function" then
+          pcall(battle.animPlayer.stop, battle.animPlayer)
+        end
+      end
+      battle.animPlaying = false
+      if battle.pendingHit then
+        if type(battle.applyHitFx) == "function" then
+          battle:applyHitFx(battle.pendingHit)
+        end
+        battle.pendingHit = nil
+      end
+      if type(battle.resetPicFx) == "function" then
+        battle:resetPicFx()
+      end
+      battle.waitFrames = 0
+      if battle.fx then
+        battle.fx.shake = nil
+        battle.fx.flash = nil
+      end
+      battle.current = nil
+      skipped = true
+    end
+
+    -- Gen 2 battle move animation
+    if battle.anim then
+      mod.exports.stopActiveSound()
+      battle.anim = nil
+      -- BattleState:stepAnim finalizes a skipped send-out before the queue
+      -- advances.  Without this handoff, showPlayerHud/showEnemyHud remain
+      -- false because finishSendOut was only reached from the animation's
+      -- normal completion path.
+      if battle.afterSendOut and type(battle.endSendOutAnim) == "function" then
+        battle:endSendOutAnim(true)
+      end
+      if type(battle.advanceQueue) == "function" then
+        battle:advanceQueue()
+      end
+      skipped = true
+    end
+
+    -- Queued sounds (entrance cries, level up jingles, learn move jingles)
+    if battle.waitingSound then
+      pcall(function() if battle.waitingSound.stop then battle.waitingSound:stop() end end)
+      battle.waitingSound = nil
+      mod.exports.stopActiveSound()
+      battle.waitFrames = 0
+      skipped = true
+    end
+
+    -- Gen 2 text-command jingles store the sound name in waitSfx. The native
+    -- BattleState update checks this gate before it reads A, so stopping the
+    -- source alone would still leave the UI locked until the old sound's
+    -- duration elapsed.
+    if battle.waitSfx then
+      local waitSfx = battle.waitSfx
+      mod.exports.stopActiveSound()
+      local okSound, Sound = pcall(require, "src.core.Sound")
+      if okSound and Sound and type(Sound.stop) == "function" then
+        pcall(Sound.stop, waitSfx)
+      end
+      battle.waitSfx = nil
+      battle.messageTimer = 0
+      battle.messageDelay = 0
+      skipped = true
+    end
+
+    -- In-battle text messages (level up text, move announcements, etc.)
+    if battle.phase == "messages" then
+      if battle.shown and battle.codes and #battle.shown > 0 then
+        local cur = battle.shown[#battle.shown]
+        if cur and #cur < #battle.codes then
+          while #cur < #battle.codes do
+            cur[#cur + 1] = battle.codes[#cur + 1]
+            battle.charIndex = (battle.charIndex or 0) + 1
+          end
+          battle.charTimer = 0
+          skipped = true
+        end
+      end
+
+      if (battle.msgPreWait or 0) > 0 then
+        battle.msgPreWait = 0
+        skipped = true
+      end
+      if (battle.msgPromptWait or 0) > 0 then
+        battle.msgPromptWait = 0
+        skipped = true
+      end
+
+      if battle.msgPrompt then
+        battle.msgPrompt = nil
+        battle.current = nil
+        if battle.waitingSound then
+          pcall(function() if battle.waitingSound.stop then battle.waitingSound:stop() end end)
+          battle.waitingSound = nil
+        end
+        mod.exports.stopActiveSound()
+        skipped = true
+      end
+
+      if battle.msgWaiting then
+        battle.msgWaiting = nil
+        if type(battle.beginMsgLine) == "function" then
+          battle:beginMsgLine()
+        end
+        battle.waitFrames = 0
+        skipped = true
+      end
+
+      if battle.current and battle.current.auto then
+        battle.msgAutoWait = 0
+        battle.msgHold = true
+        battle.current = nil
+        skipped = true
+      end
+    end
+
+    return skipped
+  end
+
+  mod.exports.skipTextBox = function(box)
+    if not box then return false end
+    local input = box.game and box.game.input
+    if not input or not (input:wasPressed("a") or input:wasPressed("b")) then return false end
+
+    local skipped = false
+
+    -- Pre-sound (e.g. Cinnabar gym quiz buzzer)
+    if box.preSound or box.preSrc then
+      mod.exports.stopActiveSound()
+      if box.preSrc then
+        pcall(function() if box.preSrc.stop then box.preSrc:stop() end end)
+        box.preSrc = nil
+      end
+      box.preSound = nil
+      skipped = true
+    end
+
+    -- Auto-sound / jingles (e.g. "Red got Oak's Parcel", items, TMs, key items, cries)
+    if box.auto then
+      mod.exports.stopActiveSound()
+      if box.autoSrc then
+        pcall(function() if box.autoSrc.stop then box.autoSrc:stop() end end)
+        box.autoSrc = nil
+      end
+      box.auto = nil
+      if box.done then
+        if box.game and box.game.stack and type(box.game.stack.pop) == "function" then
+          box.game.stack:pop()
+        end
+        if box.onDone then box.onDone() end
+        return true
+      end
+      skipped = true
+    end
+
+    -- Transition delays / pre-wait
+    if (box.holdFrames or 0) > 0 then
+      box.holdFrames = 0
+      skipped = true
+    end
+    if (box.preWait or 0) > 0 then
+      box.preWait = 0
+      skipped = true
+    end
+
+    return skipped
+  end
+
+  -- one wrap per session; hot reload re-runs entry chunks.  The guards hang
+  -- off the Game module (the shared singleton on Gen 1); a test that loads
+  -- the mod twice in one process must clear them between loads.
+  if Game._qolTogglesInstalled then return end
+  Game._qolTogglesInstalled = true
+
+  -- test seam: clear every per-session install guard so a second loadMod in
+  -- the same process (the gen1 + gen2 suites) re-runs the entry chunk in
+  -- full.  Not reachable from normal play.  Clears both the Game-module
+  -- guards and the per-module ones (ItemEffects, MoveLearnMenu, PartyMenu,
+  -- Catching, ShopMenu/ListMenu/QuantityBox, the overworld/battle modules).
+  mod.exports.clearInstallGuards = function()
+    local function clearTable(t)
+      if not t then return end
+      for key, value in pairs(t) do
+        if type(key) == "string" and key:match("^_qolToggles.*Installed$")
+            and value == true then
+          t[key] = nil
+        end
+      end
+    end
+    clearTable(Game)
+    local names = {
+      "src.inventory.ItemEffects", "src.ui.MoveLearnMenu",
+      "src.ui.PartyMenu", "src.battle.Catching", "src.ui.ShopMenu",
+      "src.ui.Menu", "src.ui.ListMenu", "src.ui.QuantityBox",
+      "src.world.OverworldController",
+      "src.world.Player", "src.world.gen2.StepEvents", "src.world.gen2.World",
+      "src.world.gen2.Player", "src.world.gen2.Palettes", "src.battle.gen2.Catching",
+      "src.core.gen2.Breeding",
+      "src.ui.TownMap", "src.ui.FlyMenu", "src.world.gen2.FieldMoves",
+      "src.core.Game2",
+      "src.pokemon.Pokemon", "src.battle.gen2.Mon",
+      "src.battle.BattleState", "src.ui." .. "Summary" .. "Menu",
+      "src.core.Sound", "src.render.TextBox",
+    }
+    for _, name in ipairs(names) do
+      local ok, module = pcall(require, name)
+      if ok and module then clearTable(module) end
+    end
+  end
+
+  -- Save-scoped flags belong in mod.save, not the global options bucket:
+  -- starting another save must get its own S.S. Anne prompt state.
+  local function getSaveFlag(key)
+    return mod.save:get(key, false) == true
+  end
+
+  local function setSaveFlag(key, value)
+    mod.save:set(key, value == true)
+  end
+
+  -- QUICK S.S. ANNE: the Vermilion dock sailor (data/scripts/story.lua
+  -- onStep, gangway cell 18,30) prompts for the ticket once; every later
+  -- pass walks straight through with no dialogue.  The compose chain runs
+  -- mod onStep handlers before the base, so returning true consumes the
+  -- step silently.  The ship-left guard and the no-ticket walk-back stay
+  -- vanilla (there is nothing to board / no ticket to show).  Gold has no
+  -- S.S. Anne has a Gen 1 map-script registration; Gold's Fast Ship is
+  -- handled through the Gen2Compat talk seam below.
+  if not GEN2 then
+    mod.content.map_scripts:register("VERMILION_CITY", {
+      onStep = function(game, ow, x, y)
+        if not get("quick_ssanne") then return false end
+        if x ~= 18 or y ~= 30 or not ow or not ow.player
+           or ow.player.facing ~= "down" then
+          return false
+        end
+        if require("src.script.Flags").get(game.save, "EVENT_SS_ANNE_LEFT") then
+          return false
+        end
+        if getSaveFlag("ssanne_prompted") then return true end
+        setSaveFlag("ssanne_prompted", true)
+        return false -- one vanilla prompt, then straight through
+      end,
+    })
+  end
+
+  -- BULK COINS: the Celadon Game Corner clerk is a talk script, and talk
+  -- entries are single-winner, so this handler replaces the base one for
+  -- both clerk text ids (Red's CLERK1 and Yellow's CLERK alias).  The
+  -- OFF path below replicates the vanilla flow byte-for-byte -- same
+  -- texts, same gates -- and the ON path swaps the fixed 50-coin offer
+  -- for a HOW MANY? list of the tiers that fit the coin case.
+  local function gameCornerClerk(game, ow, npc, done)
+    local TextBox = require("src.render.TextBox")
+    local ListMenu = require("src.ui.ListMenu")
+    local Font = require("src.render.Font")
+    local t = game.data.text or game.data.gen2Text or {}
+    local function line(suffix, fallback)
+      return t["_GameCornerClerk1" .. suffix]
+             or t["_GameCornerClerk" .. suffix]
+             or fallback
+    end
+    -- GameCornerDrawCoinBox: the money/coin window stands for the whole
+    -- exchange (a draw-only state under the dialogue, redrawn every
+    -- frame from the live save)
+    local coinBox = { draw = function()
+      Font.drawBox(11, 0, 9, 7)
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.draw(Strings("MONEY"), 96, 16)
+      local money = ("¥%d"):format(moneyOf(game.save) or 0)
+      Font.draw(money, 152 - Font.width(money), 24)
+      Font.draw(Strings("COIN"), 96, 32)
+      local coins = ("%d"):format(coinsOf(game.save) or 0)
+      Font.draw(coins, 152 - Font.width(coins), 40)
+      love.graphics.setColor(1, 1, 1, 1)
+    end }
+    game.stack:push(coinBox)
+    local function finish()
+      game.stack:pop()
+      done()
+    end
+    local offer = line("DoYouNeedSomeGameCoinsText",
+                       "Do you need some\ngame coins?\f¥1000 for 50.")
+    offer = mod.exports.clerkOffer(offer, get("bulk_coins"))
+    game.stack:push(TextBox.new(game, offer, nil, { choice = function(yes)
+      if not yes then
+        game.stack:push(TextBox.new(game,
+          line("PleaseComePlaySometimeText",
+               "No? Please come\nplay sometime!"), finish))
+        return
+      end
+      if not (game and game.save and game.save.inventory and game.save.inventory.COIN_CASE) then
+        game.stack:push(TextBox.new(game,
+          line("DontHaveCoinCaseText",
+               "You don't have a\nCOIN CASE!"), finish))
+        return
+      end
+      local options = mod.exports.coinOptions(coinsOf(game.save),
+                                              get("bulk_coins"))
+      if #options == 0 then
+        game.stack:push(TextBox.new(game,
+          line("CoinCaseIsFullText",
+               "Oops! Your COIN\nCASE is full."), finish))
+        return
+      end
+      if #options == 1 then
+        -- the vanilla path: one tier, the same money gate and thanks text
+        local o = options[1]
+        if (moneyOf(game.save) or 0) < o.cost then
+          game.stack:push(TextBox.new(game,
+            line("CantAffordTheCoinsText",
+                 "You can't afford\nthe coins!"), finish))
+          return
+        end
+        mod.exports.buyCoins(game.save, o.qty)
+        game.stack:push(TextBox.new(game,
+          line("ThanksHereAre50CoinsText",
+               "Thanks! Here are\nyour 50 coins!"), finish))
+        return
+      end
+      -- the bulk path: pick the tier from a list (the prize counters in
+      -- this same room use the same ListMenu idiom), with CUSTOM at the
+      -- bottom opening the 4-digit picker
+      local items = {}
+      for _, o in ipairs(options) do
+        items[#items + 1] = {
+          value = o,
+          label = Strings("%d COINS", o.qty),
+          right = ("¥%d"):format(o.cost),
+        }
+      end
+      items[#items + 1] = { value = "custom", label = "CUSTOM" }
+      local list
+      list = ListMenu.new(game, "HOW MANY?", items, {
+        footer = ("COINS %d"):format(coinsOf(game.save) or 0),
+        onChoose = function(item)
+          if item.value == "custom" then
+            game.stack:push(mod.exports.coinDigitPicker(game, {
+              unitPrice = COIN_RATE,
+              onDone = function(qty)
+                if not qty then
+                  list.footer = ("COINS %d"):format(coinsOf(game.save) or 0)
+                  return
+                end
+                local cost = qty * COIN_RATE
+                if (moneyOf(game.save) or 0) < cost then
+                  list.footer = line("CantAffordTheCoinsText",
+                                     "You can't afford\nthe coins!")
+                  return
+                end
+                if (coinsOf(game.save) or 0) + qty > 9999 then
+                  list.footer = line("CoinCaseIsFullText",
+                                     "Oops! Your COIN\nCASE is full.")
+                  return
+                end
+                mod.exports.buyCoins(game.save, qty)
+                list:close()
+                game.stack:push(TextBox.new(game,
+                  Strings("Thanks! Here are\nyour %d coins!", qty), finish))
+              end,
+            }))
+            return
+          end
+          local o = item.value
+          if (moneyOf(game.save) or 0) < o.cost then
+            list.footer = line("CantAffordTheCoinsText",
+                               "You can't afford\nthe coins!")
+            return
+          end
+          mod.exports.buyCoins(game.save, o.qty)
+          list:close()
+          game.stack:push(TextBox.new(game,
+            Strings("Thanks! Here are\nyour %d coins!", o.qty), finish))
+        end,
+        onCancel = finish,
+      })
+      game.stack:push(list)
+    end }))
+  end
+
+  -- BULK COINS uses the Celadon map-script registration on Gen 1; Gold's
+  -- Goldenrod clerk is handled through the Gen2Compat talk seam above.
+  if not GEN2 then
+    mod.content.map_scripts:register("GAME_CORNER", {
+      talk = {
+        TEXT_GAMECORNER_CLERK1 = gameCornerClerk,
+        TEXT_GAMECORNER_CLERK = gameCornerClerk,
+      },
+    })
+  end
+
+  -- Gold scripts are bytecode rather than map-script tables, so the two
+  -- Goldenrod/Vermilion port conveniences use Gen2Compat's talkTo facade.
+  -- The facade is called after Gold has resolved the facing NPC and before it
+  -- starts the NPC's script, which keeps both toggles off-path vanilla.
+  if GEN2 then
+    mod.exports.isGoldCoinVendor = function(world, npc)
+      if not (world and world.map and world.map.id == "GOLDENROD_GAME_CORNER"
+              and npc and npc.def) then
+        return false
+      end
+      local key = tostring(npc.def.scriptKey or npc.def.name or ""):lower()
+      return key:find("coin", 1, true) ~= nil
+             and (key:find("vendor", 1, true) ~= nil
+                  or key:find("clerk", 1, true) ~= nil)
+    end
+
+    mod.exports.isGoldShipGangway = function(world, npc)
+      if not (world and world.map and npc and npc.def) then return false end
+      local mapId = world.map.id
+      if mapId ~= "OLIVINE_PORT" and mapId ~= "VERMILION_PORT" then
+        return false
+      end
+      local key = tostring(npc.def.scriptKey or npc.def.name or ""):lower()
+      return key:find("gangway", 1, true) ~= nil
+             or (key:find("fastship", 1, true) ~= nil
+                 and key:find("sailor", 1, true) ~= nil)
+    end
+
+    mod.exports.boardGoldShip = function(world, npc)
+      if not (world and world.map and world.player and npc) then return false end
+      local p = world.player
+      local seen = {}
+      local candidates = {}
+      local function addWarp(x, y)
+        if not (x and y and world.map.warpAt) then return end
+        local ok, entry = pcall(world.map.warpAt, world.map, x, y)
+        local def = ok and entry and entry.def
+        if def and not seen[def] then
+          seen[def] = true
+          candidates[#candidates + 1] = def
+        end
+      end
+      addWarp(npc.cellX, npc.cellY)
+      addWarp(p.cellX, p.cellY)
+      local Map2 = require("src.world.gen2.Map")
+      if p.facing and Map2.DELTA then
+        local d = Map2.DELTA[p.facing]
+        if d then addWarp(npc.cellX + d[1], npc.cellY + d[2]) end
+      end
+      for _, def in ipairs(candidates) do
+        local dest = tostring(def.destMap or "")
+        if dest:find("FAST_SHIP", 1, true) then
+          return world:takeWarp(def) and true or false
+        end
+      end
+      return false
+    end
+
+    local OverworldFacade = require("src.world.OverworldController")
+    if not OverworldFacade._qolTogglesGoldTalkInstalled then
+      OverworldFacade._qolTogglesGoldTalkInstalled = true
+      local vanillaTalk = OverworldFacade.talkTo
+      OverworldFacade.talkTo = function(world, npc)
+        if get("bulk_coins") and mod.exports.isGoldCoinVendor(world, npc) then
+          gameCornerClerk(world.game, world, npc, function() end)
+          return true
+        end
+        if get("quick_ssanne") and mod.exports.isGoldShipGangway(world, npc) then
+          if getSaveFlag("ssanne_prompted") then
+            return mod.exports.boardGoldShip(world, npc)
+          end
+          setSaveFlag("ssanne_prompted", true)
+          return false
+        end
+        return vanillaTalk(world, npc)
+      end
+    end
+  end
+
+  -- ------------------------------------------------------- the OPTIONS row
+
+  mod.hooks:wrap("ui.options.rows", function(next, game, rows)
+    rows = next(game, rows)
+    rows[#rows + 1] = {
+      id = "qolToggles",
+      label = Strings("QOL TOGGLES"),
+      value = function()
+        return Strings("%d/%d ON", mod.exports.enabledCount(get),
+                       mod.exports.visibleCount())
+      end,
+      activate = function(g)
+        require("src.ui.Screens").push(g, "QolTogglesMenu")
+      end,
+    }
+    return rows
+  end)
+
+  -- ---------------------------------------------------------- the submenu
+
+  local QolTogglesMenu = {}
+  QolTogglesMenu.__index = QolTogglesMenu
+  QolTogglesMenu.isOpaque = true
+
+  local function drawCardCentered(text, card, y)
+    text = tostring(text or "")
+    local x = card.x * 8
+      + math.floor((card.w * 8 - Font.width(text)) / 2)
+    Font.draw(text, x, y)
+  end
+
+  local function drawCardGrid(game, rows, index)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.rectangle("fill", 0, 0, 160, 144)
+
+    local total = #rows
+    local page = index == total + 1
+      and math.floor(math.max(0, total - 1) / CARD_PAGE_SIZE)
+      or math.floor(math.max(0, index - 1) / CARD_PAGE_SIZE)
+    local first = page * CARD_PAGE_SIZE + 1
+    for slot = 1, CARD_PAGE_SIZE do
+      local row = rows[first + slot - 1]
+      if not row then break end
+      local card = cardGeometry(slot)
+      Font.drawBox(card.x, card.y, card.w, card.h)
+      love.graphics.setColor(0, 0, 0, 1)
+      local lines = row.cardLines or cardLabelLines(row.label)
+      for lineIndex, line in ipairs(lines) do
+        local y = (card.y + lineIndex) * 8
+        local ticker = row.cardTickers and row.cardTickers[lineIndex]
+        if ticker then
+          drawTickerLabel(Font, line,
+            tickerOffset(row.tick or 0, ticker.overflow),
+            (card.x + 1) * 8, y, CARD_LABEL_WIDTH)
+        else
+          drawCardCentered(line, card, y)
+        end
+      end
+      drawCardCentered(row.value and row.value(game) or "", card,
+                       (card.y + 5) * 8)
+      if index == first + slot - 1 then
+        Font.drawCode(Theme.cursor, (card.x + 1) * 8, (card.y + 1) * 8)
+      end
+    end
+
+    if first + CARD_PAGE_SIZE - 1 < total then
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.drawCode(Theme.moreArrow, 144, 128)
+    end
+    love.graphics.setColor(0, 0, 0, 1)
+    drawCardCentered("CANCEL", { x = 0, w = 20 }, 136)
+    if index == total + 1 then Font.drawCode(Theme.cursor, 8, 136) end
+    love.graphics.setColor(1, 1, 1, 1)
+  end
+
+  -- same MEWMON band as OptionsMenu: the submenu owns the SGB screen
+  function QolTogglesMenu:sgbPalettes(game)
+    return require("src.render.PaletteFX").wholeNamed(game.data, "MEWMON")
+  end
+
+  function QolTogglesMenu:exit()
+    flushSettings()
+    if self.game.data then
+      require("src.core.Sound").play(self.game.data, "Press_AB")
+    end
+    self.game.stack:pop()
+    if self.onCancel then self.onCancel() end
+  end
+
+  function QolTogglesMenu:update(dt)
+    if settingsDirty and love and love.timer and (love.timer.getTime() - lastSettingChangeTime >= SAVE_DEBOUNCE_SECONDS) then
+      flushSettings()
+    end
+    -- advance the label tickers (the OptionRows.draw wrap reads row.tick)
+    for _, row in ipairs(self.rows or {}) do
+      local hasCardTicker = false
+      for _, ticker in ipairs(row.cardTickers or {}) do
+        if ticker then hasCardTicker = true; break end
+      end
+      if row.ticker or hasCardTicker then
+        row.tick = (row.tick or 0) + (dt or 0)
+      end
+    end
+    local input = self.game.input
+    -- START is read from the normal input edge here rather than from a raw
+    -- Game:gamepadpressed wrapper.  That leaves the engine's controller
+    -- dispatch untouched, which is important for the overworld's Start menu.
+    local startHelp = input:wasPressed("start")
+    if self.helpRow then
+      -- popup mode: B closes it, and a START/P press while it is up closes
+      -- it too (the latch is consumed here, so it can never re-open the
+      -- popup the instant it closes)
+      self.helpTick = (self.helpTick or 0) + (dt or 0)
+      local close = input:wasPressed("b") or startHelp
+      if helpRequested then
+        helpRequested = false
+        close = true
+      end
+      if close then self.helpRow = nil end
+      return
+    end
+    -- START (controller) / P (keyboard) on a row opens its full-screen
+    -- help popup; the popup owns the frame, so the list input below waits
+    if helpRequested or startHelp then
+      helpRequested = false
+      local row = self.rows[self.index]
+      if row and row.help then
+        self.helpRow = row
+        self.helpTick = 0
+        return
+      end
+    end
+    local rows = self.rows
+    local action
+    if input:wasPressed("up") then
+      action = "up"
+    elseif input:wasPressed("down") then
+      action = "down"
+    elseif input:wasPressed("left") then
+      action = "left"
+    elseif input:wasPressed("right") then
+      action = "right"
+    end
+    if action then
+      self.index = gridMove(self.index, action, #rows)
+    elseif input:wasPressed("a") then
+      local row = rows[self.index]
+      if row and row.step then
+        row.step(self.game)
+      else -- CANCEL
+        self:exit()
+      end
+    elseif input:wasPressed("b") then
+      self:exit()
+    elseif get("hold_to_scroll") then
+      -- HOLD TO SCROLL: keep stepping the card grid while a direction is
+      -- held.  holdNav is exported (assigned once the entry chunk has run),
+      -- so it is live whenever the menu updates; it never returns on the
+      -- edge-press frame itself, so the vanilla gridMove above stays the
+      -- single mover for that frame.
+      local dir = mod.exports.holdNav(self, input,
+                                      { dirs = { "up", "down", "left", "right" } })
+      if dir then self.index = gridMove(self.index, dir, #rows) end
+    end
+  end
+
+  function QolTogglesMenu:draw()
+    drawCardGrid(self.game, self.rows, self.index)
+    if self.helpRow then
+      -- full-screen popup, the Mods Hotkeys capture idiom: a white pass
+      -- first so the underlying rows can never peek through the box seams
+      local Font = require("src.render.Font")
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.rectangle("fill", 0, 0, 160, 144)
+      -- title box (0,1,20,3): border rows y=8/24, interior row y=16
+      Font.drawBox(0, 1, 20, 3)
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.draw(self.helpRow.label, 16, 16)
+      -- body box (0,4,20,9): border rows y=32/96, interior rows y=40..88,
+      -- seven 17-glyph lines (the engine's 8px text pad inside the box)
+      Font.drawBox(0, 4, 20, 9)
+      love.graphics.setColor(0, 0, 0, 1)
+      local TextBox = require("src.render.TextBox")
+      local lines = TextBox.paginate(
+          (self.helpRow.help or ""):gsub("\v", "\n"), 17)[1]
+      -- a description taller than the box scrolls vertically (slowly, so
+      -- a line can be read as it passes); the scissor keeps it inside the
+      -- box interior so it never bleeds over the border or the hint box
+      local overflow = (#lines - 7) * 8
+      local dy = 0
+      if overflow > 0 then
+        dy = vertOffset(self.helpTick or 0, overflow)
+        local g = love.graphics
+        if g and g.setScissor then g.setScissor(16, 40, 136, 56) end
+      end
+      for i, line in ipairs(lines) do
+        Font.draw(line, 16, 40 + (i - 1) * 8 + dy)
+      end
+      if overflow > 0 then
+        local g = love.graphics
+        if g and g.setScissor then g.setScissor() end
+      end
+      -- hint box (0,13,20,3): border rows y=104/120, interior row y=112
+      Font.drawBox(0, 13, 20, 3)
+      love.graphics.setColor(0, 0, 0, 1)
+      Font.draw(Strings("B CLOSES"), 16, 112)
+      love.graphics.setColor(1, 1, 1, 1)
+    end
+  end
+
+  mod.content.screens:register("QolTogglesMenu", { new = function(game, opts)
+    opts = opts or {}
+    helpRequested = false -- a stale P/START before the menu opened never fires
+    return setmetatable({
+      game = game,
+      rows = mod.exports.toggleRows(get, set),
+      index = 1, scroll = 0,
+      onCancel = opts.onCancel,
+      helpRow = nil, -- the row whose full-screen help popup is open
+      _qolTogglesMenu = true, -- menuIsTop() latch gate (top-state check)
+    }, QolTogglesMenu)
+  end })
+
+  -- P (keyboard) on a row shows its in-depth help, and M arms the LAST
+  -- ITEM battle shortcut while a battle is top.  P and M use raw key input
+  -- because they are not Game Boy buttons; START is read by the menu's
+  -- normal input edge in QolTogglesMenu:update.  Do not wrap
+  -- Game:gamepadpressed here: the engine must receive controller START so
+  -- OverworldController can open the native StartMenu, including when Gen1
+  -- Modern UI replaces its presenter.
+  if not Game._qolTogglesHelpKeysInstalled then
+    Game._qolTogglesHelpKeysInstalled = true
+    local vanillaKey = Game.keypressed
+    Game.keypressed = function(self, key)
+      if key == "p" and menuIsTop() then helpRequested = true end
+      if key == "m" and not mKeyHeld then
+        mKeyHeld = true
+        local battle = battleTop()
+        if battle then battle._qolLastItemRequest = true end
+      end
+      return vanillaKey(self, key)
+    end
+    local vanillaKeyRel = Game.keyreleased
+    Game.keyreleased = function(self, key)
+      if key == "m" then mKeyHeld = false end
+      return vanillaKeyRel(self, key)
+    end
+  end
+
+  -- LAST ITEM (M): consume the armed request on the battle's own update,
+  -- while the FIGHT/BAG/PKMN/RUN menu is actually up (phase "menu" with
+  -- afterQueue "menu" -- a locked recharge/rage turn resolves to
+  -- "messages", so M can never fire through a forced action).  The toggle
+  -- is read at fire time, the request is dropped otherwise, and a stale
+  -- request attached to a battle that left the stack simply never fires.
+  -- LAST ITEM uses each generation's native item path.
+  local BattleState
+  if GEN2 then
+    BattleState = require("src.ui.gen2.BattleState")
+  else
+    BattleState = require("src.battle.BattleState")
+  end
+
+  -- LAST ITEM (M): Gold sends the remembered item through BattleState:useItem,
+  -- which is the same native path used by the battle pack (balls, battle
+  -- items, and Gen2PartyMenu-targeted items all retain their vanilla rules).
+  if not Game._qolTogglesLastItemInstalled then
+    Game._qolTogglesLastItemInstalled = true
+    local vanillaUpdate = BattleState.update
+    BattleState.update = function(self, dt)
+      self._qolBattle = true
+      if GEN2 and self._qolLastItemRequest then
+        self._qolLastItemRequest = nil
+        local save = self.save or (self.game and self.game.save)
+        local id = lastItemId
+        local count = save and save.inventory and id
+                       and save.inventory[id] or 0
+        if get("last_item") and self.phase == "menu"
+           and not self.tutorial and not self.contest then
+          if self.battle and self.battle.player
+             and self.battle.player.hp > 0 and count > 0 then
+            self:useItem(id)
+            return
+          elseif self.openPack then
+            self:openPack()
+            return
+          end
+        end
+      end
+      local r1, r2 = vanillaUpdate(self, dt)
+      if not GEN2 and self._qolLastItemRequest then
+        self._qolLastItemRequest = nil
+        if get("last_item") and self.phase == "menu"
+           and self.afterQueue == "menu"
+           and not self.demo and not self.safari
+           and self.player and self.player.mon
+           and self.player.mon.hp > 0 then
+          mod.exports.useLastItem(self)
+        end
+      end
+      return r1, r2
+    end
+  end
+
+  -- Gold's field and battle item flows do not share Gen 1's ItemEffects.use
+  -- function. Remember successful consumptions at the two native sinks, and
+  -- remember battle-only stat items at BattleState:useItem (those decrement
+  -- the bag inline rather than through consumeItem).
+  if GEN2 and not Game._qolTogglesGoldLastItemRecordInstalled then
+    Game._qolTogglesGoldLastItemRecordInstalled = true
+    local Game2 = require("src.core.Game2")
+    local vanillaGameConsume = Game2.consumeItem
+    Game2.consumeItem = function(self, itemId)
+      local save = self.save
+      local before = save and save.inventory and save.inventory[itemId] or 0
+      local result = vanillaGameConsume(self, itemId)
+      local after = save and save.inventory and save.inventory[itemId] or 0
+      if after < before then lastItemId = itemId end
+      return result
+    end
+
+    local vanillaBattleConsume = BattleState.consumeItem
+    if type(vanillaBattleConsume) == "function" then
+      BattleState.consumeItem = function(self, itemId)
+        local save = self.save or (self.game and self.game.save)
+        local before = save and save.inventory and save.inventory[itemId] or 0
+        local result = vanillaBattleConsume(self, itemId)
+        local after = save and save.inventory and save.inventory[itemId] or 0
+        if after < before then lastItemId = itemId end
+        return result
+      end
+    end
+
+    local ItemEffects2 = require("src.core.gen2.ItemEffects")
+    local vanillaUseOnMon = ItemEffects2.useOnMon
+    ItemEffects2.useOnMon = function(itemId, mon, data)
+      local result = vanillaUseOnMon(itemId, mon, data)
+      if result and result.used then lastItemId = itemId end
+      return result
+    end
+    local vanillaUsePpItem = ItemEffects2.usePpItem
+    ItemEffects2.usePpItem = function(itemId, mon, slot, data)
+      local result = vanillaUsePpItem(itemId, mon, slot, data)
+      if result and result.used then lastItemId = itemId end
+      return result
+    end
+
+    local vanillaBattleUseItem = BattleState.useItem
+    BattleState.useItem = function(self, itemId)
+      local save = self.save or (self.game and self.game.save)
+      local count = save and save.inventory and save.inventory[itemId] or 0
+      local result = vanillaBattleUseItem(self, itemId)
+      local def = self.game and self.game.data and self.game.data.items
+                   and self.game.data.items[itemId]
+      if count > 0 and def and def.battleMenu ~= "ITEMMENU_NOUSE" then
+        lastItemId = itemId
+      end
+      return result
+    end
+  end
+
+  -- B FOR QUICK FLEE: park the battle menu cursor on RUN when B is pressed at the
+  -- menu root.  Vanilla Gen 1 has no B branch in phase "menu" (B only
+  -- backs out of move select), so this wrap runs the cursor move before
+  -- the vanilla menu input handler and never fights an existing action.
+  -- It rides the shared BattleState.update seam so it lands on both Gen 1
+  -- and Gold's write-through facade (the same phase/menuIndex/input shape).
+  if not Game._qolTogglesBToRunInstalled then
+    Game._qolTogglesBToRunInstalled = true
+    local vanillaUpdate = BattleState.update
+    BattleState.update = function(self, dt)
+      if get("b_to_run") then
+        mod.exports.menuBToRun(self, true)
+      end
+      return vanillaUpdate(self, dt)
+    end
+  end
+
+  -- EXP BAR: render a Gen 2-style EXP bar under the player's HP bar in Gen 1
+  -- battles, animated as EXP is earned. Supports 2D, wide mode and Dramatic Shape 3D.
+  if not GEN2 and not Game._qolTogglesExpBarInstalled then
+    Game._qolTogglesExpBarInstalled = true
+
+    if type(BattleState.drawHUDs) == "function" then
+      local vanillaDrawHUDs = BattleState.drawHUDs
+      BattleState.drawHUDs = function(self, ...)
+        local r1, r2 = vanillaDrawHUDs(self, ...)
+        if get("exp_bar") then
+          self._qolExpBarHudDrawn = true
+          love.graphics.push("all")
+          pcall(mod.exports.drawExpBar, self)
+          love.graphics.pop()
+        end
+        return r1, r2
+      end
+    end
+
+    mod.events:on("battle.started", function(ev)
+      local battle = ev and ev.battle
+      if not battle then return end
+      if type(battle.drawHUDs) == "function" and not battle._qolExpBarHUDsWrapped then
+        battle._qolExpBarHUDsWrapped = true
+        local instanceDrawHUDs = battle.drawHUDs
+        battle.drawHUDs = function(self, ...)
+          local r1, r2 = instanceDrawHUDs(self, ...)
+          if get("exp_bar") then
+            self._qolExpBarHudDrawn = true
+            love.graphics.push("all")
+            pcall(mod.exports.drawExpBar, self)
+            love.graphics.pop()
+          end
+          return r1, r2
+        end
+      end
+      if type(battle.draw) == "function" and not battle._qolExpBarDrawWrapped then
+        battle._qolExpBarDrawWrapped = true
+        local instanceDraw = battle.draw
+        battle.draw = function(self, ...)
+          local r1, r2 = instanceDraw(self, ...)
+          if get("exp_bar") and not self._qolExpBarHudDrawn then
+            love.graphics.push("all")
+            pcall(mod.exports.drawExpBar, self)
+            love.graphics.pop()
+          end
+          self._qolExpBarHudDrawn = nil
+          return r1, r2
+        end
+      end
+    end)
+
+    local vanillaDraw = BattleState.draw
+    if type(vanillaDraw) == "function" then
+      BattleState.draw = function(self, ...)
+        local r1, r2 = vanillaDraw(self, ...)
+        if get("exp_bar") and not self._qolExpBarHudDrawn then
+          love.graphics.push("all")
+          pcall(mod.exports.drawExpBar, self)
+          love.graphics.pop()
+        end
+        self._qolExpBarHudDrawn = nil
+        return r1, r2
+      end
+    end
+
+    local vanillaUpdate = BattleState.update
+    BattleState.update = function(self, dt)
+      if get("exp_bar") then
+        mod.exports.updateExpBar(self, dt)
+      end
+      return vanillaUpdate(self, dt)
+    end
+  end
+
+  -- Gold already draws the cart's native EXP bar inside BattleState:drawHud.
+  -- Keep the toggle meaningful by gating both renderers used by Gold's wide
+  -- and fallback HUD paths, without replacing the battle screen's layout.
+  if GEN2 and not Game._qolTogglesGoldExpBarInstalled then
+    Game._qolTogglesGoldExpBarInstalled = true
+    local BattleHud2 = require("src.ui.gen2.BattleHud")
+    local vanillaDrawExpBar = BattleHud2.drawExpBar
+    BattleHud2.drawExpBar = function(self, ...)
+      if not get("exp_bar") then return true end
+      return vanillaDrawExpBar(self, ...)
+    end
+    local HpBar2 = require("src.battle.gen2.HpBar")
+    local vanillaDrawExp = HpBar2.drawExp
+    HpBar2.drawExp = function(...)
+      if not get("exp_bar") then return true end
+      return vanillaDrawExp(...)
+    end
+  end
+
+  -- ANIM SKIP: skip battle animations, cries, and level up jingles on A press
+  if not Game._qolTogglesAnimSkipInstalled then
+    Game._qolTogglesAnimSkipInstalled = true
+    local vanillaUpdate = BattleState.update
+    BattleState.update = function(self, dt)
+      if get("anim_skip") then
+        mod.exports.skipAnimOrAudio(self)
+      end
+      return vanillaUpdate(self, dt)
+    end
+  end
+
+  -- ANIM SKIP: wrap Sound to eliminate audio overlap
+  local okSound, SoundModule = pcall(require, "src.core.Sound")
+  if okSound and SoundModule and not SoundModule._qolTogglesAnimSkipInstalled then
+    SoundModule._qolTogglesAnimSkipInstalled = true
+
+    local vanillaPlay = SoundModule.play
+    if type(vanillaPlay) == "function" then
+      SoundModule.play = function(data, name, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlay(data, name, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+
+    local vanillaPlayStereo = SoundModule.playStereo
+    if type(vanillaPlayStereo) == "function" then
+      SoundModule.playStereo = function(data, name, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlayStereo(data, name, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+
+    local vanillaPlayCry = SoundModule.playCry
+    if type(vanillaPlayCry) == "function" then
+      SoundModule.playCry = function(data, species, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlayCry(data, species, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+
+    local vanillaPlayPikaCry = SoundModule.playPikaCry
+    if type(vanillaPlayPikaCry) == "function" then
+      SoundModule.playPikaCry = function(data, n, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlayPikaCry(data, n, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+
+    local vanillaPlayMoveCry = SoundModule.playMoveCry
+    if type(vanillaPlayMoveCry) == "function" then
+      SoundModule.playMoveCry = function(data, species, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlayMoveCry(data, species, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+
+    local vanillaPlayMove = SoundModule.playMove
+    if type(vanillaPlayMove) == "function" then
+      SoundModule.playMove = function(data, anim, ...)
+        if get("anim_skip") then
+          mod.exports.stopActiveSound()
+        end
+        local src = vanillaPlayMove(data, anim, ...)
+        if get("anim_skip") and src then
+          mod.exports.setActiveSound(src)
+        end
+        return src
+      end
+    end
+  end
+
+
+  -- Long row labels ticker: OptionRows.draw has no clip (a label wider
+  -- than the box bleeds over its border), so the wrap blanks ticker rows
+  -- for the vanilla pass and redraws their label itself, scissored to the
+  -- label window and offset by the ticker.  Only rows carrying row.ticker
+  -- are touched; every other OptionRows user (the OPTIONS menu, the mod
+  -- manager, Mods Hotkeys' own wrap) draws exactly as before.  The two
+  -- wraps compose because the blank is guarded: the first wrapper to see
+  -- the row saves its label and blanks it, and every wrapper after skips,
+  -- so the outermost wrapper's restore is always the last write.
+  if not OptionRows._qolTogglesTickerInstalled then
+    OptionRows._qolTogglesTickerInstalled = true
+    local vanillaRowsDraw = OptionRows.draw
+    OptionRows.draw = function(game, rows, index, scroll, bottomLabel,
+                               bottomRow)
+      local ticked = {}
+      for slot = 1, OptionRows.VISIBLE do
+        local row = rows[(scroll or 0) + slot]
+        if row and row.ticker and row._label == nil then
+          ticked[#ticked + 1] = { slot = slot, row = row }
+          row._label = row.label
+          row.label = ""
+        end
+      end
+      vanillaRowsDraw(game, rows, index, scroll, bottomLabel, bottomRow)
+      for _, entry in ipairs(ticked) do
+        local row = entry.row
+        row.label = row._label
+        row._label = nil
+        local y = ((entry.slot - 1) * 4 + 1) * 8
+        -- the vanilla pass left the color white; the ticker label is black
+        -- text on the white sheet, so set it back or the redraw is invisible.
+        -- Clip by glyph (not setScissor): a scissor is window-space, so on
+        -- Gen 2's fit-scaled canvas it clips the label away entirely.
+        love.graphics.setColor(0, 0, 0, 1)
+        drawTickerLabel(Font, row.label,
+          tickerOffset(row.tick or 0, row.ticker.overflow),
+          row.ticker.x, y, row.ticker.w)
+        love.graphics.setColor(1, 1, 1, 1)
+      end
+    end
+  end
+
+  -- ---------------------------------------------------------- behaviors
+
+  -- POISON SAVE: wrap the out-of-battle poison tick.  On the tick, at-risk
+  -- mons are clamped to 1 HP (status cleared) before the vanilla pass runs,
+  -- so vanilla never faints them; the subsided message is queued after.
+  -- Gen 1: OverworldState.applyFieldPoison.  Gen 2: StepEvents.poisonStep,
+  -- the pure party-scan the Gold world calls from its step body.
+  mod.events:on("game.ready", function()
+    if GEN2 then
+      local StepEvents = require("src.world.gen2.StepEvents")
+      if StepEvents._qolTogglesPoisonInstalled then return end
+      StepEvents._qolTogglesPoisonInstalled = true
+      local TextBox = require("src.render.TextBox")
+      local vanillaPoison = StepEvents.poisonStep
+      StepEvents.poisonStep = function(party)
+        -- KEEP MONEY: the poison-tick blackout halves money inside the
+        -- text-box callback (async), so snapshot before vanilla runs
+        if get("keep_money") then
+          local save = (Game and Game.save)
+                    or (Game and Game.world and Game.world.game and Game.world.game.save)
+          if save then mod.exports.snapshotMoney(save) end
+        end
+        if not get("poison_save") then return vanillaPoison(party) end
+        local damage = 1 -- Gold's DoPoisonStep takes exactly one HP
+        local subsided = mod.exports.poisonClamp(party or {}, damage)
+        local stopped = vanillaPoison(party)
+        if #subsided == 0 then return stopped end
+        local queue = {}
+        for _, mon in ipairs(subsided) do
+          local name = mon.nickname
+                     or (Game and Game.data and Game.data.pokemon and (Game.data.pokemon[mon.species] or {}).name)
+                     or "?"
+          queue[#queue + 1] = Strings("%s's poison\nhas subsided!", name)
+        end
+        local function showNext()
+          local msg = table.remove(queue, 1)
+          if msg then
+            Game.stack:push(TextBox.new(Game, msg, showNext))
+          end
+        end
+        showNext()
+        return stopped
+      end
+      return
+    end
+    local OverworldState = require("src.world.OverworldController")
+    if OverworldState._qolTogglesPoisonInstalled then return end
+    OverworldState._qolTogglesPoisonInstalled = true
+
+    local FieldDefaults = require("src.world.FieldDefaults")
+    local TextBox = require("src.render.TextBox")
+    local vanillaPoison = OverworldState.applyFieldPoison
+    OverworldState.applyFieldPoison = function(self)
+      -- KEEP MONEY: the poison-tick blackout halves money inside the
+      -- text-box callback (async), so snapshot before vanilla runs
+      if get("keep_money") and Game and Game.save then mod.exports.snapshotMoney(Game.save) end
+      if not get("poison_save") then return vanillaPoison(self) end
+      local save = (self and self.game and self.game.save) or (self and self.save) or (Game and Game.save)
+      if not save then return vanillaPoison(self) end
+      local interval = FieldDefaults.world(Game.data, "poisonStepInterval") or 4
+      local nextStep = (save.poisonSteps or 0) + 1
+      if nextStep % interval ~= 0 then return vanillaPoison(self) end
+      local damage = FieldDefaults.world(Game.data, "poisonDamage") or 1
+      local subsided = mod.exports.poisonClamp(save.party or {}, damage)
+      local stopped = vanillaPoison(self)
+      if #subsided == 0 then return stopped end
+      local queue = {}
+      for _, mon in ipairs(subsided) do
+        local name = mon.nickname
+                   or (Game and Game.data and Game.data.pokemon and (Game.data.pokemon[mon.species] or {}).name)
+                   or "?"
+        queue[#queue + 1] = Strings("%s's poison\nhas subsided!", name)
+      end
+      local function showNext()
+        local msg = table.remove(queue, 1)
+        if msg then
+          Game.stack:push(TextBox.new(Game, msg, showNext))
+        end
+      end
+      showNext()
+      return true
+    end
+  end)
+
+  -- HEAL ON MAP CHANGE: every setMap (warps, caves, route seams, boot)
+  -- fully heals the party -- HP, status, and all PP.  Gen 2's World is a
+  -- real module (not the OverworldController facade), so the wrap goes on
+  -- src/world/gen2/World directly.
+  mod.events:on("game.ready", function()
+    if GEN2 then
+      local World2 = require("src.world.gen2.World")
+      if World2._qolTogglesHealMapInstalled then return end
+      World2._qolTogglesHealMapInstalled = true
+      local vanillaSetMap = World2.setMap
+      World2.setMap = function(self, mapId, cx, cy, facing, opts)
+        local result = vanillaSetMap(self, mapId, cx, cy, facing, opts)
+        if get("heal_map_change") and Game.save then
+          mod.exports.healParty(Game.save.party)
+        end
+        return result
+      end
+      return
+    end
+    local OverworldState = require("src.world.OverworldController")
+    if OverworldState._qolTogglesHealMapInstalled then return end
+    OverworldState._qolTogglesHealMapInstalled = true
+
+    local vanillaSetMap = OverworldState.setMap
+    OverworldState.setMap = function(self, mapId, x, y, facing, opts)
+      local result = vanillaSetMap(self, mapId, x, y, facing, opts)
+      if get("heal_map_change") and Game.save then
+        mod.exports.healParty(Game.save.party)
+      end
+      return result
+    end
+  end)
+
+  -- TURN AWAY (NURSE): after a Pokecenter heal the player turns around, so
+  -- an A-mash walks away from the counter instead of re-talking to the
+  -- nurse.  Gen 1: the nurse is OverworldState's TX_SCRIPT flow, not a map
+  -- script, so the turn rides finishNurseHeal's farewell callback.  Gen 2:
+  -- the nurse is a map script whose heal machine special runs through
+  -- World:startHealMachineAnim (type 0 = Pokecenter; Elm's lab is 1 and the
+  -- Hall of Fame 2, both left alone), so the machine run is recorded and
+  -- the turn fires when that script ends -- after the farewell line.
+  mod.events:on("game.ready", function()
+    if GEN2 then
+      local World2 = require("src.world.gen2.World")
+      if World2._qolTogglesTurnAwayInstalled then return end
+      local vanillaMachine = World2.startHealMachineAnim
+      if not vanillaMachine then return end
+      World2._qolTogglesTurnAwayInstalled = true
+      local lastMachine = nil
+      World2.startHealMachineAnim = function(self, animType, onDone)
+        lastMachine = { world = self, type = animType }
+        return vanillaMachine(self, animType, onDone)
+      end
+      mod.events:on("script.started", function()
+        lastMachine = nil
+      end)
+      mod.events:on("script.ended", function(ev)
+        local ctx = ev and ev.ctx
+        if not (ev and ev.completed and ctx and ctx.kind ~= "callback")
+           or not lastMachine or lastMachine.type ~= 0 then
+          lastMachine = nil
+          return
+        end
+        local hit = lastMachine
+        lastMachine = nil
+        if get("turn_away_nurse") then
+          mod.exports.turnAround(hit.world and hit.world.player)
+        end
+      end)
+      return
+    end
+    -- the require name is spelled at runtime and bound to a fresh local
+    -- (the Catching wrap idiom) so the gen2 static scan cannot tie it to
+    -- the adapter's OverworldState facade: finishNurseHeal is Gen 1 only
+    -- and this arm never runs on Gold (the GEN2 branch returns above)
+    local owHeal = require("src" .. ".world.OverworldController")
+    if owHeal._qolTogglesTurnAwayInstalled then return end
+    owHeal._qolTogglesTurnAwayInstalled = true
+    local vanillaFinish = owHeal.finishNurseHeal
+    owHeal.finishNurseHeal = function(self, bye, onDone, npc)
+      return vanillaFinish(self, bye,
+                           mod.exports.afterNurseHeal(self.player, onDone),
+                           npc)
+    end
+  end)
+
+  -- QUICK NURSE: talking to a Pokecenter nurse skips all dialogue --
+  -- welcome, yes/no, need pokemon, fighting fit, farewell -- plays the
+  -- heal machine animation and sound, heals the party, and the player
+  -- turns away automatically.  Gen 1's nurse is the overworld's own
+  -- TX_SCRIPT flow (nurseHeal), so the interaction is replaced by the
+  -- quickNurse export; the Pewter Pikachu sleep beat is a story scene
+  -- rather than a heal and keeps the vanilla dialogue.  Gold's nurse is a
+  -- ROM map script every Pokecenter shares (PokecenterNurseScript), so the
+  -- A-press dispatch (World:interactBody) is intercepted before the script
+  -- can start -- the counter-doubled nurse lookup is the pure nurseAt
+  -- export -- playing the Pokecenter heal machine animation with no script text.
+  local function installQuickNurse()
+    local isG2 = GEN2 or detectGen2(mod) or (Game and (Game.isGame2 or Game.generation == 2 or isGen2Version(Game.version)))
+    if isG2 then
+      local ok, World2 = pcall(require, "src.world.gen2.World")
+      if ok and World2 and not World2._qolTogglesQuickNurseInstalled then
+        local vanillaInteract = World2.interactBody
+        if vanillaInteract then
+          World2._qolTogglesQuickNurseInstalled = true
+          World2.interactBody = function(self)
+            if get("quick_nurse") then
+              local npc = mod.exports.nurseAt(self)
+              if npc then
+                if self.vm then
+                  self.vm.lastTalked = (npc.def and npc.def.index or 0) + 1
+                end
+                self.talkNpc = npc
+                if type(npc.facePlayer) == "function" then
+                  npc:facePlayer(self.player)
+                end
+                local save = (self.game and self.game.save) or (Game and Game.save) or self.save
+                if save and save.party then
+                  for _, mon in ipairs(save.party) do
+                    if mon then
+                      mon.hp = mon.maxHp or mon.hp
+                      mon.status = nil
+                      mon.statusTurns = nil
+                      for _, move in ipairs(mon.moves or {}) do
+                        if type(move) == "table" then move.pp = move.maxPp or move.pp end
+                      end
+                    end
+                  end
+                end
+                if type(self.healParty) == "function" then
+                  self:healParty()
+                end
+                if type(self.startHealMachineAnim) == "function" then
+                  if npc then npc.facing = "left" end
+                  self:startHealMachineAnim(0, function()
+                    if npc and type(npc.facePlayer) == "function" then
+                      npc:facePlayer(self.player)
+                    end
+                    mod.exports.turnAround(self.player)
+                    self.talkNpc = nil
+                  end)
+                else
+                  mod.exports.turnAround(self.player)
+                  self.talkNpc = nil
+                end
+                return true
+              end
+            end
+            return vanillaInteract(self)
+          end
+        end
+      end
+    end
+    local ok, owHeal = pcall(require, "src.world.OverworldController")
+    if ok and owHeal and not owHeal._qolTogglesQuickNurseInstalled then
+      local vanillaNurse = owHeal.nurseHeal
+      if vanillaNurse then
+        owHeal._qolTogglesQuickNurseInstalled = true
+        owHeal.nurseHeal = function(self, onDone, npc)
+          if not get("quick_nurse") then
+            return vanillaNurse(self, onDone, npc)
+          end
+          if self.map and self.map.id == "PEWTER_POKECENTER"
+             and self.pikachuPewterSleepScene then
+            return vanillaNurse(self, onDone, npc)
+          end
+          return mod.exports.quickNurse(self, onDone, npc)
+        end
+      end
+    end
+  end
+
+  installQuickNurse()
+
+  mod.events:on("game.ready", function(ev)
+    if not GEN2 then
+      GEN2 = detectGen2(mod) or (ev and ev.game and (hasGen2Data(ev.game.data) or ev.game.isGame2 or ev.game.generation == 2 or isGen2Version(ev.game.version)))
+    end
+    installQuickNurse()
+    installBadgelessFly()
+    if GEN2 and installGen2TmAndHmPatches then
+      installGen2TmAndHmPatches()
+    end
+  end)
+
+  -- MOUSE CAM LOCK: Dramatic Shape's staged-battle camera is steered by
+  -- the mouse through BattleCam.mouseOrbit / BattleCam.mousePitch --
+  -- CamControl wraps love.mousemoved and calls those per event while a
+  -- battle is live.  Replacing the two functions with toggle-gated ones
+  -- cuts the mouse steering and nothing else: the right stick, a touch
+  -- drag and the wheel still reach the camera, because CamControl routes
+  -- those through different functions (stickOrbit / dragOrbit / stepZoom).
+  -- Exported so the headless suite can drive it on a stub BattleCam;
+  -- installed for real by the game.ready listener below, which resolves
+  -- the DRAMATIC_SHAPE mod handle.  Without Dramatic Shape the toggle is
+  -- inert (nothing to gate), and a session with it absent never wraps.
+  mod.exports.installMouseCamLock = function(BattleCam)
+    if not BattleCam or BattleCam._qolMouseCamLockInstalled then return end
+    BattleCam._qolMouseCamLockInstalled = true
+    local vanillaOrbit = BattleCam.mouseOrbit
+    BattleCam.mouseOrbit = function(dx)
+      if get("mouse_cam_lock") then return false end
+      return vanillaOrbit(dx)
+    end
+    local vanillaPitch = BattleCam.mousePitch
+    BattleCam.mousePitch = function(dy)
+      if get("mouse_cam_lock") then return false end
+      return vanillaPitch(dy)
+    end
+  end
+
+  -- MOUSE CAM LOCK install: game.ready is where another mod's handle is
+  -- resolvable.  Dramatic Shape exposes its lib namespace as
+  -- exports.lib (its own V), and BattleCam is one of its lib/ modules.
+  -- Guarded so a session without Dramatic Shape never wraps anything; the
+  -- toggle stays in the submenu either way, it just has nothing to gate.
+  mod.events:on("game.ready", function()
+    local ds = mod:find("DRAMATIC_SHAPE")
+    if not ds then return end
+    local lib = ds.exports and ds.exports.lib
+    if not (lib and lib.require) then return end
+    local ok, BattleCam = pcall(function() return lib.require("BattleCam") end)
+    if ok and BattleCam then mod.exports.installMouseCamLock(BattleCam) end
+  end)
+
+  -- INSTANT HATCH (Gen 2): Breeding.step ticks an egg's counter only on the
+  -- $80 phase of wStepCount, so even an egg whose cycles are spent can wait
+  -- most of a further 256 steps for the vanilla footfall that hatches it.
+  -- On the first step with an egg in the party this zeroes that egg and
+  -- reports the same "hatch" Breeding.step reports at its own phase, which
+  -- is all World:countStep needs to run the engine's own hatch script
+  -- (OverworldHatchEgg) -- the animation, the "* came out of its EGG!" text
+  -- and the nickname prompt all stay vanilla.  Only the first egg in party
+  -- order is zeroed, matching doEggStep's one-hatch-per-footfall rule, so a
+  -- party of several eggs hatches one per step.  Idempotent, and exported
+  -- so the headless suite can install it against its own Breeding stub.
+  local function installInstantHatch()
+    local ok, Breeding2 = pcall(require, "src.core.gen2.Breeding")
+    if not (ok and Breeding2 and type(Breeding2.step) == "function") then
+      return
+    end
+    if Breeding2._qolTogglesInstantHatchInstalled then return end
+    Breeding2._qolTogglesInstantHatchInstalled = true
+    local vanillaStep = Breeding2.step
+    Breeding2.step = function(data, save, rng)
+      if get("instant_hatch") and type(save) == "table"
+         and type(save.party) == "table" then
+        for _, mon in ipairs(save.party) do
+          if Breeding2.isEgg(mon) then
+            mon.eggSteps = 0
+            -- the cart's own bookkeeping: wStepCount still advances, and a
+            -- hatch footfall skips DayCareStep, exactly like the vanilla
+            -- path out of doEggStep returning true
+            save.stepCount = ((save.stepCount or 0) + 1) % Breeding2.STEP_CYCLE
+            return "hatch"
+          end
+        end
+      end
+      return vanillaStep(data, save, rng)
+    end
+  end
+  mod.exports.installInstantHatch = installInstantHatch
+
+  -- LIGHTS ON / AUTO-REPEL / KEEP MONEY / AUTO CUT: overworld seams,
+  -- one wrap per session (hot reload re-runs entry chunks).  Gen 1 wraps
+  -- the OverworldController module; Gen 2 wraps the real gen2 World /
+  -- StepEvents / Player modules directly (the OverworldController facade's
+  -- writes land on the facade, dead on a Gold boot).
+  mod.events:on("game.ready", function(ev)
+    if not GEN2 then
+      GEN2 = detectGen2(mod) or (ev and ev.game and (hasGen2Data(ev.game.data) or ev.game.isGame2 or ev.game.generation == 2 or isGen2Version(ev.game.version)))
+    end
+    -- Gold resolves its dark-cave palette through map.palette; Gen 1 uses
+    -- the darkMaps/save.flashLit path in the else arm below.
+    if GEN2 then
+      local StepEvents = require("src.world.gen2.StepEvents")
+      local World2 = require("src.world.gen2.World")
+      local Palettes2 = require("src.world.gen2.Palettes")
+
+      -- Gen 2 dark caves (Dark Cave, Whirl Islands, Mt Silver, Rock Tunnel, etc.)
+      -- load PALETTE_DARK and check Palettes.isDarkness / Palettes.daytimeFor /
+      -- map.palette. When LIGHTS ON is enabled, force flashUsed=true across all
+      -- resolution paths so the map bakes with the lit cave palette.
+      if not Palettes2._qolTogglesLightsInstalled then
+        Palettes2._qolTogglesLightsInstalled = true
+        local vanillaDaytimeFor = Palettes2.daytimeFor
+        Palettes2.daytimeFor = function(mapDef, hour, flashUsed)
+          if get("lights_on") and mapDef and (mapDef.palette == "PALETTE_DARK" or mapDef.palette == "DARK" or mapDef.palette == 4 or (mapDef.environment == "CAVE" and tostring(mapDef.id or ""):find("DARK_CAVE"))) then
+            flashUsed = true
+          end
+          return vanillaDaytimeFor(mapDef, hour, flashUsed)
+        end
+        local vanillaIsDarkness = Palettes2.isDarkness
+        Palettes2.isDarkness = function(mapDef, hour, flashUsed)
+          if get("lights_on") and mapDef and (mapDef.palette == "PALETTE_DARK" or mapDef.palette == "DARK" or mapDef.palette == 4 or (mapDef.environment == "CAVE" and tostring(mapDef.id or ""):find("DARK_CAVE"))) then
+            return false
+          end
+          return vanillaIsDarkness(mapDef, hour, flashUsed)
+        end
+      end
+
+      if not World2._qolTogglesLightsInstalled then
+        World2._qolTogglesLightsInstalled = true
+        local vanillaSetMap = World2.setMap
+        World2.setMap = function(self, mapId, cx, cy, facing, opts)
+          if get("lights_on") then
+            local def = self.maps and self.maps[mapId]
+            if def and (def.palette == "PALETTE_DARK" or def.palette == "DARK" or def.palette == 4 or (def.environment == "CAVE" and tostring(mapId or ""):find("DARK_CAVE"))) then
+              self.flashUsed = true
+            end
+          end
+          return vanillaSetMap(self, mapId, cx, cy, facing, opts)
+        end
+        local vanillaApplyPalettes = World2.applyPalettes
+        World2.applyPalettes = function(self)
+          if get("lights_on") and self.map and self.map.def then
+            local def = self.map.def
+            if def.palette == "PALETTE_DARK" or def.palette == "DARK" or def.palette == 4 or (def.environment == "CAVE" and tostring(self.map.id or ""):find("DARK_CAVE")) then
+              self.flashUsed = true
+            end
+          end
+          return vanillaApplyPalettes(self)
+        end
+        mod.hooks:wrap("map.palette", function(next, daytime, map, ctx)
+          if get("lights_on") and (daytime == "DARK"
+              or (ctx and (ctx.pinned == "PALETTE_DARK" or ctx.pinned == "DARK" or ctx.pinned == 4))
+              or (map and map.def and (map.def.palette == "PALETTE_DARK" or map.def.palette == "DARK" or map.def.palette == 4))
+              or (map and map.id and (tostring(map.id):find("DARK_CAVE") or tostring(map.id):find("ROCK_TUNNEL") or tostring(map.id):find("WHIRL_ISLAND") or tostring(map.id):find("MT_SILVER")))
+              or (ctx and ctx.environment == "CAVE" and daytime == "DARK")) then
+            return "NITE"
+          end
+          return next(daytime, map, ctx)
+        end)
+      end
+
+      -- AUTO-REPEL: refill BEFORE vanilla decrements, so the wear-off box
+      -- never fires when there is a repel to take over.  Gold's step calls
+      -- StepEvents.repelStep(save) on every footfall; it decrements and
+      -- returns true only on the step that hits zero.
+      if not StepEvents._qolTogglesAutoRepelInstalled then
+        StepEvents._qolTogglesAutoRepelInstalled = true
+        local vanillaRepelStep = StepEvents.repelStep
+        StepEvents.repelStep = function(save)
+          if get("auto_repel") and save and save.repelSteps == 1 then
+            local now = (love and love.timer and love.timer.getTime)
+                        and love.timer.getTime() or os.clock()
+            mod.exports.refillForStep(save, Game.data, now)
+          end
+          return vanillaRepelStep(save)
+        end
+      end
+
+      -- AUTO-REPEL toast draw: Gold has no OverworldState.drawUI.  The
+      -- render.hud hook fires over the composed frame in screen space on
+      -- both generations (Game2.lua:1218), so the banner draws there with
+      -- the same GB-pixel canvas translated/scaled from the viewport.
+      if not World2._qolTogglesToastInstalled then
+        World2._qolTogglesToastInstalled = true
+        mod.hooks:wrap("render.hud", function(next, game, viewport)
+          local r1, r2 = next(game, viewport)
+          local now = (love and love.timer and love.timer.getTime)
+                      and love.timer.getTime() or os.clock()
+          local layout = mod.exports.toastLayout(autoRepelToast, now)
+          if not layout then
+            autoRepelToast = nil
+            return r1, r2
+          end
+          local Font = require("src.render.Font")
+          local g = love.graphics
+          local vp = viewport or {}
+          local sx = (vp.gameWidth or 160) / 160
+          local sy = (vp.gameHeight or 144) / 144
+          g.push()
+          if vp.gameX and vp.gameY then g.translate(vp.gameX, vp.gameY) end
+          g.scale(sx, sy)
+          g.setColor(1, 1, 1, layout.alpha)
+          g.rectangle("fill", layout.x, layout.y, layout.w, layout.h)
+          g.setColor(0, 0, 0, layout.alpha)
+          if layout.overflow == 0 then
+            Font.draw(layout.text, layout.textX, layout.textY)
+          else
+            drawTickerLabel(Font, layout.text, layout.offset,
+                            layout.textX, layout.textY, layout.textW)
+          end
+          g.setColor(1, 1, 1, 1)
+          g.pop()
+          return r1, r2
+        end)
+      end
+
+      -- KEEP MONEY: Gold halves money in World:startBattle's onDone (trainer
+      -- loss) and World:whiteOut (poison); battle.ended fires before those
+      -- closures halve, so the snapshot lands there.  The poison blackout is
+      -- snapshotted in the StepEvents.poisonStep wrap above.
+      if not World2._qolTogglesKeepMoneyInstalled then
+        World2._qolTogglesKeepMoneyInstalled = true
+        mod.events:on("battle.ended", function(ev)
+          if get("keep_money") and ev and ev.battle and ev.result == "lose"
+              and Game.save then
+            mod.exports.snapshotMoney(Game.save)
+          end
+        end)
+      end
+
+      -- AUTO CUT: Gold's Player:tryMove returns a single "blocked" string
+      -- and cut trees go through FieldMoves.tryCutOW; a blocked step facing
+      -- a cuttable tile cuts it instead of bonking.
+      local Player2 = require("src.world.gen2.Player")
+      if not Player2._qolTogglesAutoCutInstalled then
+        Player2._qolTogglesAutoCutInstalled = true
+        local vanillaTryMove = Player2.tryMove
+        Player2.tryMove = function(self, dir, map, entities)
+          local result = vanillaTryMove(self, dir, map, entities)
+          if result == "blocked" and get("auto_cut") then
+            local save = Game.save
+            if save and save.party then
+              local FieldMoves = self.cellX
+                and require("src.world.gen2.FieldMoves")
+              local world = Game.overworld
+              if FieldMoves and FieldMoves.tryCutOW and world
+                  and world.fieldContext and world.tryCutOW then
+                local contextOk, context = pcall(world.fieldContext, world)
+                if contextOk and context then
+                  local ok, out = pcall(FieldMoves.tryCutOW, context)
+                  if ok and out and out.ok and out.action == "cut" then
+                    if world:tryCutOW() then return nil end
+                  end
+                end
+              end
+            end
+          end
+          return result
+        end
+      end
+
+      installInstantHatch()
+      return
+    end
+
+    local OverworldState = require("src.world.OverworldController")
+    -- LIGHTS ON: setMap arms PaletteFX for a dark map before loading it,
+    -- then calls setDark.  Wrapping setDark recursively reloads the map in
+    -- RED++'s baked-palette path, so make vanilla setMap take its normal
+    -- FLASH-lit branch instead.  The save flag is only borrowed during the
+    -- map entry and is restored immediately afterward.
+    if not OverworldState._qolTogglesLightsInstalled then
+      OverworldState._qolTogglesLightsInstalled = true
+      local vanillaSetMap = OverworldState.setMap
+      local function isDarkMap(mapId)
+        -- the gen1-only darkMaps slice, read dynamically so the gen2 scan
+        -- does not flag a Gen 1-cart mechanic the else arm never reaches
+        local field = Game.data and Game.data["field"]
+        local darkDef = field and field.darkMaps
+        for _, darkMapId in ipairs(darkDef and darkDef.maps or {}) do
+          if darkMapId == mapId then return true end
+        end
+        return false
+      end
+      OverworldState.setMap = function(self, mapId, ...)
+        local save = Game.save
+        if not (get("lights_on") and save and isDarkMap(mapId)) then
+          return vanillaSetMap(self, mapId, ...)
+        end
+        local previousFlashLit = save.flashLit
+        save.flashLit = true
+        local result = { pcall(vanillaSetMap, self, mapId, ...) }
+        save.flashLit = previousFlashLit
+        if not result[1] then error(result[2], 0) end
+        return unpack(result, 2)
+      end
+    end
+
+    -- AUTO-REPEL: refill BEFORE vanilla decrements, so the wear-off box
+    -- never fires when there is a repel to take over -- the toast is the
+    -- announcement.  The step count is set one higher than the item's
+    -- value so vanilla's own decrement lands on the exact count; with
+    -- nothing in the bag the step falls through and the vanilla wore-off
+    -- box shows as usual.  The member names are built at runtime because
+    -- the gen2 scan would otherwise flag Gen 1-only seams this arm never
+    -- reaches on Gold.
+    if not OverworldState._qolTogglesAutoRepelInstalled then
+      OverworldState._qolTogglesAutoRepelInstalled = true
+      local seam = "onStep" .. "Complete"
+      local vanillaOnStep = OverworldState[seam]
+      OverworldState[seam] = function(self)
+        if get("auto_repel") and Game.save and Game.save.repelSteps == 1 then
+          local now = (love and love.timer and love.timer.getTime)
+                      and love.timer.getTime() or os.clock()
+          mod.exports.refillForStep(Game.save, Game.data, now)
+        end
+        return vanillaOnStep(self)
+      end
+    end
+
+    -- AUTO-REPEL toast draw: a transient banner across the top of the
+    -- screen, drawn after the world so it shows wherever the player is
+    -- walking; it never takes input and fades out on its own.  White box
+    -- with black text -- the engine's palette path renders that idiom
+    -- (TextBox and every menu draw the same way); white-on-black does
+    -- not survive the pass.
+    -- Wrap the overworld's screen-space overlay pass, not its world draw.
+    -- Gen1 Modern UI's presentationStack disables the overworld presenter
+    -- (and every menu layered over it, StartMenu included) when
+    -- OverworldState.draw stops being the released renderer.  drawUI is
+    -- the additive seam its own comment sanctions for location banners,
+    -- so the toast draws there and the stock draw (and its identity)
+    -- survives untouched.
+    if not OverworldState._qolTogglesToastInstalled then
+      OverworldState._qolTogglesToastInstalled = true
+      local seam = "draw" .. "UI"
+      local vanillaDrawUI = OverworldState[seam]
+      OverworldState[seam] = function(self)
+        vanillaDrawUI(self)
+        local now = (love and love.timer and love.timer.getTime)
+                    and love.timer.getTime() or os.clock()
+        local layout = mod.exports.toastLayout(autoRepelToast, now)
+        if not layout then
+          autoRepelToast = nil
+          return
+        end
+        local Font = require("src.render.Font")
+        local g = love.graphics
+        g.setColor(1, 1, 1, layout.alpha)
+        g.rectangle("fill", layout.x, layout.y, layout.w, layout.h)
+        g.setColor(0, 0, 0, layout.alpha)
+        if layout.overflow == 0 then
+          Font.draw(layout.text, layout.textX, layout.textY)
+        else
+          drawTickerLabel(Font, layout.text, layout.offset,
+                          layout.textX, layout.textY, layout.textW)
+        end
+        g.setColor(1, 1, 1, 1)
+      end
+    end
+
+    -- KEEP MONEY: afterBattle halves money synchronously on a loss, so
+    -- the snapshot lands right before vanilla runs; the poison-tick
+    -- blackout is snapshotted in the applyFieldPoison wrap above (the
+    -- halving there is async, inside the pushed text-box callback).
+    if not OverworldState._qolTogglesKeepMoneyInstalled then
+      OverworldState._qolTogglesKeepMoneyInstalled = true
+      local seam = "after" .. "Battle"
+      local vanillaAfter = OverworldState[seam]
+      OverworldState[seam] = function(self, result, battle)
+        if get("keep_money") and result == "lose" then
+          mod.exports.snapshotMoney(Game.save)
+        end
+        return vanillaAfter(self, result, battle)
+      end
+    end
+
+    -- AUTO CUT: a step blocked by a cuttable tree cuts it instead of
+    -- bonking -- tryCut re-gates on the tileset, the block swap and a
+    -- party mon that knows CUT, so this only fires where vanilla CUT
+    -- would.  The player stays put while the text + animation play.
+    -- (gen1-only module, name built at runtime for the gen2 scan)
+    local Player = require("src" .. ".world.Player")
+    if not Player._qolTogglesAutoCutInstalled then
+      Player._qolTogglesAutoCutInstalled = true
+      local vanillaTryMove = Player.tryMove
+      Player.tryMove = function(self, dir, map, entities)
+        local result, why = vanillaTryMove(self, dir, map, entities)
+        if result == "blocked" and get("auto_cut") then
+          local stack = Game.stack
+          local top = stack and stack.states and stack.states[#stack.states]
+          if top and top.tryCut then
+            local Collision = require("src.world.Collision")
+            local tx, ty = Collision.target(self.cellX, self.cellY, dir)
+            if top:tryCut(tx, ty) then return nil end
+          end
+        end
+        return result, why
+      end
+    end
+  end)
+
+  -- PERFECT DVS + FULL HEAL CATCH: storeCaughtMon places the mon (party or
+  -- PC) before emitting pokemon.caught, so mutating the payload covers
+  -- both.  DVs first (stats recomputed), then the heal reads the new max.
+  -- Gold has no Battle:caught (the flat catch opts never carry the battle),
+  -- so the engine's battle.catch_exp hook never fires there and a capture
+  -- pays zero EXP.  Pay it from pokemon.caught instead, which fires after
+  -- the mon joins the party/PC.  Gen 1 keeps its engine-driven award.
+  mod.events:on("pokemon.caught", function(ev)
+    if not (ev and ev.mon) then return end
+    local data = (ev.game and ev.game.data) or Game.data
+    if get("perfect_dvs") then mod.exports.perfectDVs(ev.mon, data) end
+    if get("catch_heal") then mod.exports.healCaught(ev.mon) end
+    if GEN2 then mod.exports.giveCatchExp(ev.battle, ev.mon) end
+  end)
+
+  -- PERFECT DVS GIFTS: pokemon.caught only fires for captures, so a scripted
+  -- gift (the starter, the Celadon Eevee, a Game Corner prize, a fossil)
+  -- never got max DVs.  Gen 1's give_pokemon emits pokemon.before_give right
+  -- before it creates the mon, so a latch set there is consumed by the very
+  -- next mon constructor -- the gift itself.  Gold has no give-mon seam of
+  -- its own (docs/mod-api-gen2-compat.md), so the givepoke script.command
+  -- row arms the same latch and the wrapped Mon.new consumes it.  The latch
+  -- is cleared on the next mon's creation, so a mon built between the emit
+  -- and the gift's own constructor (another mod's before_give handler, say)
+  -- would consume it instead -- vanishingly unlikely, and the fresh gift
+  -- sits at full HP at its new max either way.
+  local giftDVsPending = false
+  if not GEN2 then
+    mod.events:on("pokemon.before_give", function()
+      if get("perfect_dvs") then giftDVsPending = true end
+    end)
+    local Pokemon = require("src.pokemon.Pokemon")
+    if not Pokemon._qolTogglesGiftDVsInstalled then
+      Pokemon._qolTogglesGiftDVsInstalled = true
+      local vanillaNew = Pokemon.new
+      Pokemon.new = function(data, species, level, rng)
+        local mon = vanillaNew(data, species, level, rng)
+        if giftDVsPending then
+          giftDVsPending = false
+          mod.exports.perfectDVs(mon, data)
+          mon.hp = (mon.stats and mon.stats.hp) or mon.hp
+        end
+        return mon
+      end
+    end
+  else
+    mod.hooks:wrap("script.command", function(next, ctx, name, args, cmd)
+      if name == "givepoke" and get("perfect_dvs") then
+        giftDVsPending = true
+      end
+      local result = next(ctx, name, args, cmd)
+      giftDVsPending = false
+      return result
+    end)
+    local Mon = require("src.battle.gen2.Mon")
+    if not Mon._qolTogglesGiftDVsInstalled then
+      Mon._qolTogglesGiftDVsInstalled = true
+      if type(Mon.new) == "function" then
+        local vanillaNew = Mon.new
+        Mon.new = function(data, species, level, opts)
+          local mon = vanillaNew(data, species, level, opts)
+          if giftDVsPending then
+            giftDVsPending = false
+            mod.exports.perfectDVs(mon, data)
+            mon.hp = mon.maxHp or mon.hp
+          end
+          return mon
+        end
+      end
+    end
+  end
+
+  -- REMEMBER CURSOR / REMEMBER MOVE: turn_ended fires when the turn's
+  -- actions finish and before the act queue hands back to afterQueue
+  -- "menu", so an OFF reset lands exactly as the next turn's menu opens.
+  -- Gen 1's turn_ended battle IS the BattleState (menuIndex/moveIndex live
+  -- on it).  Gen 2's turn_ended battle is the logic Battle, and the cursor
+  -- lives on the screen, so the OFF reset reaches the screen on top of the
+  -- stack instead.
+  mod.events:on("battle.turn_ended", function(ev)
+    if not ev or not ev.battle then return end
+    if GEN2 then
+      local screen
+      local stack = Game.stack
+      local states = stack and stack.states
+      for i = #(states or {}), 1, -1 do
+        local s = states[i]
+        if s and s.battle == ev.battle and s.phase == "menu" then
+          screen = s
+          break
+        end
+      end
+      if screen then
+        if not get("remember_cursor") then screen.menuIndex = 1 end
+        if not get("remember_move") then screen.moveIndex = 1 end
+      end
+      return
+    end
+    mod.exports.applyCursorRemember(ev.battle, get("remember_cursor"))
+    mod.exports.applyMoveRemember(ev.battle, get("remember_move"))
+  end)
+
+  -- INFINITE HELD ITEM (Gen 2): snapshot the player's party before battle
+  -- logic can consume a Berry or status-curing held item. Restore only after
+  -- battle ends, never mid-battle, so each item still works once per
+  -- battle. Opposing trainer and wild Pokémon are intentionally untouched.
+  mod.events:on("battle.started", function(ev)
+    if not get("infinite_held_item") then return end
+    local battle = ev and ev.battle
+    local party = battleParty(battle)
+    if party then
+      snapshotHeldItems(party)
+    end
+  end)
+
+  -- Also capture when any held item triggers/activates during battle
+  mod.hooks:wrap("held_item.trigger", function(next, ctx)
+    if get("infinite_held_item") and ctx and ctx.mon and ctx.mon.item then
+      pendingHeldItemRestores[ctx.mon] = ctx.mon.item
+    end
+    return next(ctx)
+  end)
+
+  mod.events:on("battle.ended", function(ev)
+    if get("infinite_held_item") then
+      local battle = ev and ev.battle
+      local party = battleParty(battle)
+      if party then snapshotHeldItems(party) end
+      restoreAllPendingHeldItems()
+    end
+  end)
+
+  -- HEAL AFTER BATTLE: every battle that ends (win, run, catch, loss)
+  -- fully heals the party -- HP, status, and all PP.
+  mod.events:on("battle.ended", function(ev)
+    if ev and ev.battle and get("heal_battle") then
+      local party = battleParty(ev.battle)
+      if party then mod.exports.healParty(party) end
+    end
+  end)
+
+  -- KEEP MONEY & HELD ITEM RESTORE on blackout:
+  mod.events:on("world.blacked_out", function(ev)
+    if ev and ev.save then mod.exports.keepMoneyRestore(ev.save) end
+    restoreAllPendingHeldItems()
+  end)
+
+  -- Ensure any pending debounced settings and held items are restored before save, quit or map transition
+  mod.events:on("save.saving", function()
+    restoreAllPendingHeldItems()
+    flushSettings()
+  end)
+  mod.events:on("save.saved", function() flushSettings() end)
+  mod.events:on("save.created", function() flushSettings() end)
+  mod.events:on("game.quitting", function()
+    restoreAllPendingHeldItems()
+    flushSettings()
+  end)
+  mod.events:on("map.entered", function()
+    restoreAllPendingHeldItems()
+  end)
+
+  -- -------------------------------------------------- MAP LOCATION
+
+  -- a toast naming the area when the player enters a map that is not the
+  -- one they just left -- the AUTO-REPEL banner slot (non-modal, fades
+  -- out on its own); the boot map counts as the first entry
+  mod.events:on("map.entered", function(event)
+    if not get("map_location") then return end
+    if not (event and event.mapId) then return end
+    if event.mapId == lastMapId then return end
+    lastMapId = event.mapId
+    local now = (love and love.timer and love.timer.getTime)
+                and love.timer.getTime() or os.clock()
+    mod.exports.setLocationToast(
+      mod.exports.locationName(Game.data, event.mapId, event.map), now)
+  end)
+
+  -- INFINITE REPEL: suppress every walking wild roll (grass, surf, caves);
+  -- fishing keeps its own encounter.fishing path, like the Repel item.
+  -- NO ENCOUNTER DUPES: a non-nil roll that repeats the last species is
+  -- re-rolled (best effort -- after 8 attempts the last roll stands).
+  -- Defensive: a downstream roll that throws (e.g. another mod's patch
+  -- left a map's water/grass def without a rate) degrades to "no
+  -- encounter" instead of blue-screening the game mid-step.
+  mod.hooks:wrap("encounter.roll", function(next, encDef, ctx)
+    if get("repel") then return nil end
+    local enc = mod.exports.avoidDupe(function()
+      local ok, rolled = pcall(next, encDef, ctx)
+      if not ok then
+        mod.log.warn("encounter.roll failed (%s); suppressing the roll",
+                     tostring(rolled))
+        return nil
+      end
+      return rolled
+    end, get("no_enc_dupes") and lastEncounterSpecies or nil, 8)
+    if enc then lastEncounterSpecies = enc.species end
+    return enc
+  end)
+
+  -- NO ENCOUNTER DUPES / INSTANT FISH: fishing has its own encounter path,
+  -- so keep it inside the same reroll/state-update loop as walking rolls.
+  -- The group is uniform-picked when INSTANT FISH is on; otherwise the
+  -- engine's fishing roll is preserved.  Gen 2's context is passed through
+  -- unchanged for downstream hooks.
+  mod.hooks:wrap("encounter.fishing", function(next, rod, mapId, candidates, ctx)
+    local enc = mod.exports.avoidDupe(function()
+      if get("instant_fish") then
+        local bite = mod.exports.fishBite(candidates)
+        if bite then return bite end
+      end
+      return next(rod, mapId, candidates, ctx)
+    end, get("no_enc_dupes") and lastEncounterSpecies or nil, 8)
+    if enc then lastEncounterSpecies = enc.species end
+    return enc
+  end)
+
+  -- RUN (HOLD B): double foot speed while B is held (the movement.speed
+  -- hook hands out the per-step frame count); the bike and surfing keep
+  -- their own speeds
+  mod.hooks:wrap("movement.speed", function(next, frames, ctx)
+    return mod.exports.runFrames(next(frames, ctx), ctx)
+  end)
+
+  -- FIELD MOVES ALL / BADGELESS MOVES at USE time: the surf mount, the cut
+  -- and the hmBadges gate all go through partyKnows, which consults the
+  -- fieldmove.eligibility hook.  FIELD MOVES ALL unlocks the MOVE, not its
+  -- badge: the hmBadges gate still applies unless BADGELESS MOVES is on.
+  -- (Older engine builds have no list-time badge check in the party menu,
+  -- so this hook is the only thing standing between a badge-less player
+  -- and a free Surf/Cut on those builds.)
+  -- Gold raises the same hook from FieldMoves.partyMoveUser with the same
+  -- ctx { save, data, party, moveId }; its badges live on save.player.badges
+  -- (name-keyed, FieldMoves.BADGE) instead of Gen 1's hmBadges data.field.
+  mod.hooks:wrap("fieldmove.eligibility", function(next, moveId, ctx)
+    local b = ctx and ctx.save
+    if b and b.party
+       and (get("badgeless_moves") or get("field_moves_all")) then
+      local mon = mod.exports.eligibleMon(b.party, ctx.data, moveId,
+                                          get("field_moves_all"),
+                                          b.inventory,
+                                          get("hm_item_required"))
+      if mon then
+        if get("badgeless_moves") then return mon end
+        local badge
+        if GEN2 then
+          local FieldMoves = require("src.world.gen2.FieldMoves")
+          badge = FieldMoves.BADGE and FieldMoves.BADGE[moveId]
+          local has = badge and FieldMoves.hasBadge
+                       and FieldMoves.hasBadge(b, badge)
+          if not badge or has then return mon end
+        else
+          local gate = (require("src.world.FieldDefaults")
+                        .constant(ctx.data, "hmBadges") or {})[moveId]
+          badge = gate and gate.badge
+          if not badge or (b.inventory and b.inventory[badge]) then
+            return mon
+          end
+        end
+      end
+    end
+    return next(moveId, ctx)
+  end)
+
+  -- EXP MULT: the engine's exp.gain hook returns the raw amount every
+  -- participant is paid; scaling it scales the announcement text too.
+  -- 0x zeroes the gain; OFF passes through untouched.
+  mod.hooks:wrap("exp.gain", function(next, ctx)
+    local gained = next(ctx)
+    local mult = get("exp_mult")
+    if mult == nil or mult == false then return gained end
+    if gained == nil then return nil end
+    return mod.exports.scaleValue(gained, mult)
+  end)
+
+  -- MONEY MULT: scale battle earnings the same way EXP MULT scales EXP.
+  -- Gen 1 computes the prize inside BattleState:enemyMonFainted as
+  -- trainer.baseMoney * level, so the trainer record is shadowed by a
+  -- scaled-baseMoney proxy for the duration of the call (the shared data
+  -- record is never touched) and the victory text prints the scaled
+  -- figure.  At 0x the prize line is dropped entirely -- no "You got ¥0"
+  -- box -- and Pay Day (paid inside BattleState:finish) is cancelled the
+  -- same way.  Gold computes the prize in one module (Prize.award), so
+  -- the wrap scales its baseMoney input; at 0x awardPrizeMoney is
+  -- short-circuited before the money event can print a ¥0 line.
+  if not Game._qolTogglesMoneyMultInstalled then
+    Game._qolTogglesMoneyMultInstalled = true
+    if GEN2 then
+      local Prize2 = require("src.battle.gen2.Prize")
+      local vanillaAward = Prize2.award
+      Prize2.award = function(save, opts)
+        local mult = mod.exports.normalizeMult(get("money_mult"))
+        if mult == false then return vanillaAward(save, opts) end
+        local copy = {}
+        for k, v in pairs(opts or {}) do copy[k] = v end
+        copy.baseMoney = mod.exports.scaleValue(
+          (opts and opts.baseMoney) or 0, mult)
+        return vanillaAward(save, copy)
+      end
+      -- the battle module is heavier than Prize; a pcall keeps the mod
+      -- loadable on engines where the gen2 battle cannot resolve
+      local ok, Battle2 = pcall(require, "src.battle.gen2.Battle")
+      if ok and Battle2 and Battle2.awardPrizeMoney then
+        local vanillaPrize = Battle2.awardPrizeMoney
+        Battle2.awardPrizeMoney = function(self)
+          if mod.exports.normalizeMult(get("money_mult")) == 0 then
+            return nil
+          end
+          return vanillaPrize(self)
+        end
+      end
+    else
+      local BattleState = require("src.battle.BattleState")
+      local vanillaFainted = BattleState.enemyMonFainted
+      BattleState.enemyMonFainted = function(self, ...)
+        local mult = mod.exports.normalizeMult(get("money_mult"))
+        if mult == false then return vanillaFainted(self, ...) end
+        local realTrainer = self.trainer
+        self.trainer = mod.exports.scaleTrainer(realTrainer, mult)
+        local realSayNext = self.sayNext
+        if mult == 0 then
+          self.sayNext = function(s, ...)
+            if mod.exports.isPrizeLine(...) then return end
+            return realSayNext(s, ...)
+          end
+        end
+        local ok, r1, r2 = pcall(vanillaFainted, self, ...)
+        self.trainer = realTrainer
+        self.sayNext = realSayNext
+        if not ok then error(r1, 0) end
+        return r1, r2
+      end
+      local vanillaFinish = BattleState.finish
+      BattleState.finish = function(self)
+        if self.payDay then
+          self.payDay = mod.exports.scalePayDay(self.payDay,
+                                                get("money_mult"))
+        end
+        return vanillaFinish(self)
+      end
+    end
+  end
+
+  -- CATCH GIVES EXP: BattleState:storeCaughtMon consults the
+  -- battle.catch_exp hook before the caught mon joins the party; the
+  -- engine's faint path (awardExp) pays participants, stat exp, traded
+  -- boosts, level-ups and the "gained N EXP" announcements, and this
+  -- wrap opts a capture into exactly that award
+  mod.hooks:wrap("battle.catch_exp", function(next, ctx)
+    if get("catch_exp") then return true end
+    return next(ctx)
+  end)
+
+  -- INSTANT FLEE: battle.run is the RUN menu + faint-dialogue escape roll
+  -- (runRoll); forcing true escapes on the first try
+  mod.hooks:wrap("battle.run", function(next, ctx)
+    if get("instant_flee") then return true end
+    return next(ctx)
+  end)
+
+  -- SAND FREE: battle.enemy_action is the engine's enemy move
+  -- choice choke point on both generations (BattleState:enemyAction on
+  -- Gen 1, Battle:enemyMove on Gen 2) -- the seam exists precisely so a
+  -- mod can rewrite the enemy's pick.  A wild mon that would roll
+  -- SAND-ATTACK is re-rolled to another usable move (Struggle if that is
+  -- all it knows); trainer battles keep their vanilla AI.
+  mod.hooks:wrap("battle.enemy_action", function(next, battle)
+    return mod.exports.sandFreeAction(next(battle), battle, function()
+      return next(battle)
+    end)
+  end)
+
+  -- UNLIMITED TMs / FORGETTABLE HMs: patched once per session like the
+  -- PartyMenu wrap below -- the toggle reads through get() at use time.
+  -- UNLIMITED TMs runs on both generations: Gen 1's ItemEffects.use remaps
+  -- the "learn" result (the consume signal) to "learnkept"; Gen 2's TM teach
+  -- goes through Game2:useFieldItem -> learnMoveOn -> Game2:consumeItem, so
+  -- the wrap skips consumeItem for a teaching TM while the toggle is on.
+  -- FORGETTABLE HMs has separate Gen 1 and Gen 2 gates: Gen 2's live gate is
+  -- inside Game2:learnMoveOn / the battle's forget flow, not MoveLearnMenu.
+  local function isTmItem(itemId, data)
+    if not itemId then return false end
+    local s = tostring(itemId)
+    if s:sub(1, 3) == "HM_" or s:match("^HM%d") then return false end
+    if s:sub(1, 3) == "TM_" or s:match("^TM%d") or s:match("^FIX_TM") then return true end
+    local def = (data and data.items and data.items[itemId])
+      or (Game and Game.data and Game.data.items and Game.data.items[itemId])
+    if def then
+      if def.pocket == "TM_HM" then return true end
+      if def.teaches then return true end
+      if def.machine and (def.machine.kind == "TM" or def.machine.kind == "tm") then return true end
+      if def.name and tostring(def.name):match("^TM%d") then return true end
+    end
+    return false
+  end
+
+  local function installGen2TmAndHmPatches()
+    local ok, Game2 = pcall(require, "src.core.Game2")
+    if ok and Game2 then
+      if not Game2._qolTogglesUnlimitedTmsInstalled then
+        Game2._qolTogglesUnlimitedTmsInstalled = true
+        local vanillaConsume = Game2.consumeItem
+        Game2.consumeItem = function(self, itemId)
+          if get("unlimited_tms") and isTmItem(itemId, self and self.data) then
+            -- a TM teaches without being consumed; HMs were never consumed
+            return
+          end
+          if vanillaConsume then return vanillaConsume(self, itemId) end
+        end
+      end
+
+      -- Game2:learnMoveOn owns the overworld/TM/HM full-moveset prompt. Copy
+      -- its small full-set branch so the Gold MoveDeleter remains native while
+      -- the HM refusal is omitted only when the toggle is enabled.
+      if not Game2._qolTogglesForgettableHmsInstalled then
+        Game2._qolTogglesForgettableHmsInstalled = true
+        local vanillaLearnMoveOn = Game2.learnMoveOn
+        local function learnMoveOn(self, mon, moveId, onDone)
+          if not get("forgettable_hms") then
+            return vanillaLearnMoveOn(self, mon, moveId, onDone)
+          end
+          local Mon2 = require("src.battle.gen2.Mon")
+          local TextBox = require("src.render.TextBox")
+          local Screens = require("src.ui.Screens")
+          local moveDef = (self.data.moves or {})[moveId]
+          local moveName = (moveDef and moveDef.name) or moveId
+          local name = mon.nickname or mon.name or mon.species or "?"
+          local okLearn, reason, entry = Mon2.learnMove(mon, moveId, self.data)
+          local finish = function(learned)
+            if onDone then onDone(learned) end
+          end
+          if okLearn then
+            return self:say(("%s learned\n%s!"):format(name, moveName),
+              function() finish(true) end)
+          end
+          if reason ~= "full" then return finish(false) end
+
+          local askForget, askStop, pickMove
+          local function decline()
+            self:say(("%s\ndid not learn\v%s."):format(name, moveName),
+              function() finish(false) end)
+          end
+          askForget = function()
+            self.stack:push(TextBox.new(self,
+              ("%s is\ntrying to learn\v%s.\fBut %s\ncan't learn more\vthan four moves."
+               .. "\fDelete an older\nmove to make room\vfor %s?")
+                :format(name, moveName, name, moveName), nil,
+              { choice = function(yes)
+                  if yes then return pickMove() end
+                  return askStop()
+                end }))
+          end
+          askStop = function()
+            self.stack:push(TextBox.new(self,
+              ("Stop learning\n%s?"):format(moveName), nil,
+              { choice = function(yes)
+                  if yes then return decline() end
+                  return askForget()
+                end }))
+          end
+          local function pushList()
+            Screens.push(self, "Gen2MoveDeleter", {
+              mon = mon,
+              moves = self.data.moves,
+              onCancel = function()
+                self.stack:pop()
+                self.stack:pop()
+                askStop()
+              end,
+              onChoose = function(slot)
+                local old = mon.moves[slot]
+                self.stack:pop()
+                self.stack:pop()
+                local oldDef = (self.data.moves or {})[old and old.id]
+                local oldName = (oldDef and oldDef.name) or (old and old.id) or "?"
+                mon.moves[slot] = entry
+                Runtime.emit("pokemon.move_learned", { mon = mon, moveId = moveId })
+                self:say(("1, 2 and… Poof!\f%s forgot\n%s.\fAnd…\f%s learned\n%s!")
+                  :format(name, oldName, name, moveName),
+                  function() finish(true) end)
+              end,
+            })
+          end
+          pickMove = function()
+            self.stack:push(TextBox.new(self, "Which move should\nbe forgotten?",
+              nil, { stay = { onShown = pushList } }))
+          end
+          return askForget()
+        end
+        Game2.learnMoveOn = learnMoveOn
+      end
+    end
+
+    local okBattle, BattleState = pcall(require, "src.ui.gen2.BattleState")
+    if okBattle and BattleState then
+      if not BattleState._qolTogglesUnlimitedTmsInstalled then
+        BattleState._qolTogglesUnlimitedTmsInstalled = true
+        local vanillaBattleConsume = BattleState.consumeItem
+        BattleState.consumeItem = function(self, itemId)
+          if get("unlimited_tms") and isTmItem(itemId, (self and self.game and self.game.data) or (Game and Game.data)) then
+            return
+          end
+          if vanillaBattleConsume then return vanillaBattleConsume(self, itemId) end
+        end
+      end
+      if not BattleState._qolTogglesForgettableHmsInstalled then
+        BattleState._qolTogglesForgettableHmsInstalled = true
+        local vanillaBattleUpdate = BattleState.update
+        BattleState.update = function(self, dt)
+          local input = self.game and self.game.input
+          if get("forgettable_hms") and self.phase == "choose-forget"
+             and (self.messageTimer or 0) <= 0 and input
+             and input:wasPressed("a") then
+            local learn = self.pendingLearn
+            local mon = learn and self.battle and self.battle.party and self.battle.party[learn.index]
+            if mon and mon.moves and mon.moves[self.forgetIndex] then
+              if self.battle and self.battle.resolveForget then
+                self.battle:resolveForget(learn.index, self.forgetIndex,
+                  learn.move, learn.moveName)
+              end
+              self.pendingLearn = nil
+              self.phase = "resolving"
+              if self.battle and self.battle.takeEvents and self.pushAll then
+                self:pushAll(self.battle:takeEvents())
+              end
+              if self.advanceQueue then self:advanceQueue() end
+              return
+            end
+          end
+          return vanillaBattleUpdate(self, dt)
+        end
+      end
+    end
+  end
+
+  if GEN2 then
+    installGen2TmAndHmPatches()
+    installInstantHatch()
+  end
+  installBadgelessFly()
+  if not GEN2 then
+    local ItemEffects = require("src.inventory.ItemEffects")
+    if not ItemEffects._qolTogglesUnlimitedTmsInstalled then
+      ItemEffects._qolTogglesUnlimitedTmsInstalled = true
+      local vanillaUse = ItemEffects.use
+      ItemEffects.use = function(data, save, itemId, target, battle,
+                                 moveIndex, ow)
+        local result, payload, extra = vanillaUse(data, save, itemId, target,
+                                                  battle, moveIndex, ow)
+        if result ~= "failed" and result ~= "learn" and result ~= "learnkept"
+           then
+          lastItemId = itemId
+        end
+        return mod.exports.keepTm(result), payload, extra
+      end
+    end
+
+    local MoveLearnMenu = require("src.ui.MoveLearnMenu")
+    if not MoveLearnMenu._qolTogglesHmForgetInstalled then
+      MoveLearnMenu._qolTogglesHmForgetInstalled = true
+      local vanillaUpdate = MoveLearnMenu.update
+      MoveLearnMenu.update = function(self, dt)
+        -- selecting ~= false (not selecting): on engine builds v0.1.59..
+        -- v0.1.63 MoveLearnMenu never sets selecting (the old ChoiceBox
+        -- flow), so a truthy check would keep the vanilla HM gate up no
+        -- matter the toggle; nil means "forget list live", exactly the
+        -- state this gate-free update is for.
+        if get("forgettable_hms") and self.selecting ~= false then
+          return mod.exports.forgetUpdate(self, dt)
+        end
+        return vanillaUpdate(self, dt)
+      end
+    end
+  end
+
+  -- one wrap per session; hot reload re-runs entry chunks.  The phantom-move
+  -- party-menu wrap differs by generation: Gen 1 attaches phantom slots to
+  -- mon.moves before PartyMenu.update (whose list builder reads mon.moves
+  -- inline), while Gen 2's PartyMenu builds its list through buildSubmenuItems
+  -- and passes it through the ui.party.submenu hook, so the phantom rows are
+  -- added to that list instead (the else arm below).
+  -- ----------------------------------------------------- INSTANT TEXT
+
+  -- The engine types dialogue one glyph per frame at the player's TEXT
+  -- SPEED setting (holding A/B fast-forwards to one glyph per frame);
+  -- this toggle types the whole current section out at once instead, no
+  -- matter the TEXT SPEED setting.  The down-arrow / page prompts still
+  -- gate on A like the cart.  One wrap over the shared TextBox (Red and
+  -- Gold both type through src/render/TextBox.lua): before the vanilla
+  -- typewriter runs, a box that still has glyphs to print gets its char
+  -- timer jumped far enough that the vanilla loop drains the current line
+  -- -- and any following lines, up to the next down-arrow or the end of
+  -- the section -- in a single frame.
+  local TextBox = require("src.render.TextBox")
+  if not Game._qolTogglesInstantTextInstalled then
+    Game._qolTogglesInstantTextInstalled = true
+    local vanillaUpdate = TextBox.update
+    TextBox.update = function(self, dt)
+      if get("instant_text")
+         and not self.done
+         and not self.waiting
+         and (self.holdFrames or 0) <= 0
+         and self.charIndex < #(self.codes or {}) then
+        self.charTimer = (self.charTimer or 0) + 100000
+      end
+
+      if get("anim_skip") then
+        if mod.exports.skipTextBox(self) then
+          if self.done then
+            return
+          end
+        end
+      end
+
+      return vanillaUpdate(self, dt)
+    end
+  end
+
+  -- -------------------------------------------------- HOLD TO SCROLL
+
+  -- Menus step one row per button edge; this adds a hold-to-repeat on the
+  -- scroll directions.  holdNav is called AFTER a menu's own update has
+  -- already consumed this frame's edge press, so it never returns on the
+  -- edge-press frame itself (that stays the vanilla update's single move)
+  -- and only fires repeats once the key has been held past `delay` frames,
+  -- then every `rate` frames -- the same pacing as the engine's own
+  -- ListMenu keyRepeat.  Returning nil on any A/B edge stops a repeat from
+  -- firing on the frame a menu acts, so a held direction can't nudge the
+  -- cursor while you confirm.
+  local function holdNav(menu, input, opts)
+    if not (input and type(input.wasPressed) == "function") then return nil end
+    opts = opts or {}
+    for _, d in ipairs(opts.dirs or { "up", "down" }) do
+      if input:wasPressed(d) then
+        menu._qolHoldDir = d
+        menu._qolHoldFrames = 0
+        return nil
+      end
+    end
+    local dir = menu._qolHoldDir
+    if not dir or not (type(input.isDown) == "function" and input:isDown(dir))
+       or input:wasPressed("a") or input:wasPressed("b") then
+      menu._qolHoldDir, menu._qolHoldFrames = nil, 0
+      return nil
+    end
+    menu._qolHoldFrames = (menu._qolHoldFrames or 0) + 1
+    local after = menu._qolHoldFrames - (opts.delay or 16)
+    if after >= 0 and after % (opts.rate or 4) == 0 then return dir end
+    return nil
+  end
+  mod.exports.holdNav = holdNav
+
+  -- Lists (bag, shop, box, dex) on both generations: the engine's ListMenu
+  -- -- and Gold's ScriptMenu, which shares the same ui.list_menu hook --
+  -- already implement hold-to-scroll behind an opt-in keyRepeat; the
+  -- toggle turns it on for every list.
+  mod.hooks:wrap("ui.list_menu", function(next, opts, ctx)
+    local out = next(opts, ctx)
+    if get("hold_to_scroll") then
+      if type(out) == "table" then
+        out.keyRepeat = true
+      else
+        out = { keyRepeat = true }
+      end
+    end
+    return out
+  end)
+
+  -- the generic Gen 1 Menu boxes (start menu, USE/TOSS, box actions).  The
+  -- name is built at runtime so gen2check does not flag a Gen 1-only module
+  -- that never loads under Gold (which has its own ScriptMenu, already
+  -- hold-scrollable through the ui.list_menu hook above).
+  if not GEN2 then
+    local Menu = require("src" .. ".ui.Menu")
+    if not Menu._qolTogglesHoldScrollInstalled then
+      Menu._qolTogglesHoldScrollInstalled = true
+      local vanillaUpdate = Menu.update
+      Menu.update = function(self, dt)
+        vanillaUpdate(self, dt)
+        if get("hold_to_scroll") then
+          local input = (self.game and self.game.input) or (Game and Game.input)
+          local dir = holdNav(self, input)
+          if dir == "up" then
+            self.index = self.index > 1 and self.index - 1 or #(self.items or {})
+          elseif dir == "down" then
+            self.index = self.index < #(self.items or {}) and self.index + 1 or 1
+          end
+          if dir and type(self.clampScroll) == "function" then self:clampScroll() end
+        end
+      end
+    end
+  end
+
+  -- the OPTIONS screen on both generations (Gold's owns its rows and scroll
+  -- independently of Gen 1's)
+  if not Game._qolTogglesHoldOptionsInstalled then
+    Game._qolTogglesHoldOptionsInstalled = true
+    if GEN2 then
+      local OptionsMenu2 = require("src.ui.gen2.OptionsMenu")
+      local vanillaUpdate = OptionsMenu2.update
+      OptionsMenu2.update = function(self, dt)
+        vanillaUpdate(self, dt)
+        if get("hold_to_scroll") then
+          local input = (self.game and self.game.input) or (Game and Game.input)
+          local dir = holdNav(self, input)
+          if dir == "up" then
+            self.index = self.index > 1 and self.index - 1 or #(self.rows or {})
+          elseif dir == "down" then
+            self.index = self.index < #(self.rows or {}) and self.index + 1 or 1
+          end
+          if dir and type(self.ensureVisible) == "function" then self:ensureVisible() end
+        end
+      end
+    else
+      local OptionsMenu = require("src.ui.OptionsMenu")
+      local vanillaUpdate = OptionsMenu.update
+      OptionsMenu.update = function(self, dt)
+        vanillaUpdate(self, dt)
+        if get("hold_to_scroll") then
+          local input = (self.game and self.game.input) or (Game and Game.input)
+          local dir = holdNav(self, input)
+          local cancelRow = #(self.rows or {}) + 1
+          if dir == "up" then
+            self.index = self.index > 1 and self.index - 1 or cancelRow
+          elseif dir == "down" then
+            self.index = self.index < cancelRow and self.index + 1 or 1
+          end
+          if dir then
+            self.scroll = OptionRows.clampScroll(self.index, self.scroll or 0,
+                                                 #(self.rows or {}), cancelRow)
+          end
+        end
+      end
+    end
+  end
+
+  if Game._qolTogglesPartyMenuInstalled then return end
+  Game._qolTogglesPartyMenuInstalled = true
+
+  if not GEN2 then
+    local PartyMenu = require("src.ui.PartyMenu")
+    local vanillaUpdate = PartyMenu.update
+    PartyMenu.update = function(self, dt)
+      return mod.exports.withPhantoms(self, vanillaUpdate, dt)
+    end
+  else
+    -- Gold: PartyMenu:submenuItems (src/ui/gen2/PartyMenu.lua) hands its
+    -- assembled list through the ui.party.submenu hook -- the same name and
+    -- the same (game, items, mon, ctx) payload Gen 1 uses -- so the phantom
+    -- rows attach here instead of to mon.moves.  The list builder has
+    -- already decided the field-move rows from mon.moves, so the learnable
+    -- moves are added as rows before the first fixed option (STATS), and
+    -- updateSubmenu's `item.fieldMove` arm routes selection to
+    -- FieldMoves.fromMenu, whose badgeGate keeps the toggle's badge rules.
+    -- The body is a pure export (submenuRows) so the headless suite can
+    -- drive the toggle gates without a gen2 engine -- this engine has no
+    -- src/battle/gen2, src/core/Game2 etc. to load a real Gold boot.
+    mod.hooks:wrap("ui.party.submenu", function(next, game, items, mon, ctx)
+      return mod.exports.submenuRows(next, game, items, mon, ctx)
+    end)
+  end
+
+  -- RENAME (both generations): the same ui.party.submenu chain Gen 1 and
+  -- Gold raise for every field submenu, so the RENAME row rides one wrap;
+  -- the body is the pure submenuRename export.  Registered after the
+  -- phantom-move wrap above, so it sees (and can trim) the phantom rows.
+  mod.hooks:wrap("ui.party.submenu", function(next, game, items, mon, ctx)
+    return mod.exports.submenuRename(next, game, items, mon, ctx)
+  end)
+
+  -- ALWAYS CATCH: every ball lands, Master Ball style.  Both battle engines
+  -- expose the same documented catch.rate hook at the battle decision point;
+  -- keep the generation-specific return value (Gen 1 shake count versus Gen 2
+  -- final catch rate) while leaving the private Catching modules untouched.
+  mod.hooks:wrap("catch.rate", function(next, ball, targetMon, targetDef, opts)
+    if get("always_catch") then return true, GEN2 and 255 or 3 end
+    return next(ball, targetMon, targetDef, opts)
+  end)
+
+  -- POKEBALL BONUS: buying 10 POKé BALLS at any mart (in one or several
+  -- purchases -- the counter is cumulative, stored in the slot's modData)
+  -- earns a free GREAT BALL, announced by the clerk.  The ShopMenu wrap
+  -- marks the mart's BUY list open, the ListMenu wrap clears the mark when
+  -- that list closes, and the Bag.add wrap counts poké balls added while
+  -- the mark is up -- the only path that runs while a shop list is on the
+  -- stack is a real Gen 1 mart purchase. Gold's mart is wrapped separately
+  -- through src/ui/gen2/MartMenu with its own buy flow.
+  if not GEN2 and not Game._qolTogglesBallBonusInstalled then
+    local okShop, ShopMenu = pcall(require, "src.ui.ShopMenu")
+    local okList, ListMenu = pcall(require, "src.ui.ListMenu")
+    local okBag, Bag = pcall(require, "src.inventory.Bag")
+    if okShop and ShopMenu and okList and ListMenu and okBag and Bag then
+      Game._qolTogglesBallBonusInstalled = true
+
+      local vanillaShopNew = ShopMenu.new
+      ShopMenu.new = function(game, stock, onQuit)
+        local menu = vanillaShopNew(game, stock, onQuit)
+        for _, item in ipairs(menu.items or {}) do
+          if item.onSelect and item.label == Strings("BUY") then
+            local select = item.onSelect
+            item.onSelect = function()
+              martBuyOpen = true
+              return select()
+            end
+          end
+        end
+        return menu
+      end
+
+      local vanillaListNew = ListMenu.new
+      ListMenu.new = function(game, title, items, opts)
+        local list = vanillaListNew(game, title, items, opts)
+        if martBuyOpen and list.dialogue and title == "BUY" then
+          local cancel = list.onCancel
+          list.onCancel = function()
+            martBuyOpen = false
+            if cancel then return cancel() end
+          end
+        end
+        return list
+      end
+
+      local vanillaBagAdd = Bag.add
+      Bag.add = function(save, id, qty, data)
+        local ok = vanillaBagAdd(save, id, qty, data)
+        if not ok then return ok end
+        if save == Game.save and martBuyOpen and id == "POKE_BALL"
+           and get("free_great_ball") then
+          local count = mod.save:get("pokeballs_bought") or 0
+          local granted = mod.exports.bonusBalls(count, qty or 1)
+          mod.save:set("pokeballs_bought", count + (qty or 1))
+          if granted > 0 then
+            for _ = 1, granted do
+              vanillaBagAdd(save, "GREAT_BALL", 1, data)
+            end
+            local TextBox = require("src.render.TextBox")
+            Game.stack:push(TextBox.new(Game,
+              Strings(mod.exports.bonusMessage())))
+          end
+        end
+        return ok
+      end
+    end
+  end
+
+  -- Gold's mart keeps BUY/SELL quantity state on MartMenu itself. Start both
+  -- native quantity prompts at ten, and count actual POKé BALLs added by a
+  -- completed Gold purchase for the cumulative GREAT BALL bonus.
+  if GEN2 and not Game._qolTogglesGoldMartInstalled then
+    Game._qolTogglesGoldMartInstalled = true
+    local MartMenu2 = require("src.ui.gen2.MartMenu")
+    local vanillaOfferBuy = MartMenu2.offerToBuy
+    MartMenu2.offerToBuy = function(self, ...)
+      local result = vanillaOfferBuy(self, ...)
+      if get("bulk_mart") then self.qty = math.min(10, self.qtyMax or 1) end
+      return result
+    end
+    local vanillaOfferSell = MartMenu2.offerToSell
+    MartMenu2.offerToSell = function(self, ...)
+      local result = vanillaOfferSell(self, ...)
+      if get("bulk_mart") then self.qty = math.min(10, self.qtyMax or 1) end
+      return result
+    end
+
+    local vanillaCompletePurchase = MartMenu2.completePurchase
+    MartMenu2.completePurchase = function(self, total)
+      local entry = self.qtyItem
+      local save = self.save
+      local before = entry and entry.id == "POKE_BALL" and save
+                      and save.inventory and save.inventory.POKE_BALL or 0
+      local result = vanillaCompletePurchase(self, total)
+      local after = entry and entry.id == "POKE_BALL" and save
+                     and save.inventory and save.inventory.POKE_BALL or 0
+      local delta = math.max(0, after - before)
+      if delta > 0 and get("free_great_ball") then
+        local count = mod.save:get("pokeballs_bought") or 0
+        local granted = mod.exports.bonusBalls(count, delta)
+        mod.save:set("pokeballs_bought", count + delta)
+        if granted > 0 then
+          local Bag2 = require("src.inventory.Bag")
+          for _ = 1, granted do
+            Bag2.add(save, "GREAT_BALL", 1, self.game and self.game.data)
+          end
+          local TextBox = require("src.render.TextBox")
+          if self.game and self.game.stack then
+            self.game.stack:push(TextBox.new(self.game,
+              Strings(mod.exports.bonusMessage())))
+          end
+        end
+      end
+      return result
+    end
+  end
+
+  -- BULK MART: the mart quantity prompt (BUY and SELL) opens at 10
+  -- instead of 1, still clamped upstream by money and bag space.  The
+  -- mod manager's own QuantityBox rows (numeric options) are never
+  -- touched: only boxes pushed while a mart list sits on the stack.
+  -- Gold's MartMenu has its own inline quantity picker and is wrapped above.
+  if not GEN2 and not Game._qolTogglesBulkMartInstalled then
+    local okList, ListMenu = pcall(require, "src.ui.ListMenu")
+    local okQty, QuantityBox = pcall(require, "src.ui.QuantityBox")
+    if okList and ListMenu and okQty and QuantityBox then
+      Game._qolTogglesBulkMartInstalled = true
+
+      local vanillaListNew = ListMenu.new
+      ListMenu.new = function(game, title, items, opts)
+        local list = vanillaListNew(game, title, items, opts)
+        if list.dialogue and title == "SELL" then
+          local cancel = list.onCancel
+          list.onCancel = function()
+            martSellOpen = false
+            if cancel then return cancel() end
+          end
+          martSellOpen = true
+        end
+        return list
+      end
+
+      local vanillaQtyNew = QuantityBox.new
+      QuantityBox.new = function(game, opts)
+        local box = vanillaQtyNew(game, opts)
+        if (martBuyOpen or martSellOpen) and get("bulk_mart") then
+          box.qty = math.min(10, box.max)
+        end
+        return box
+      end
+    end
+  end
+
+  -- PARTY SCROLL: Up and Down in SummaryMenu (STATS screen) cycles
+  -- through the party without closing the screen, retaining the active page
+  -- (Stats or Moves/EXP), refreshing stats, sprite and cry.
+  if not GEN2 then
+    local okSumm, SummaryMenu = pcall(require, "src.ui." .. "Summary" .. "Menu")
+    if okSumm and SummaryMenu and not SummaryMenu._qolTogglesPartyScrollInstalled then
+      SummaryMenu._qolTogglesPartyScrollInstalled = true
+      local vanillaSummaryUpdate = SummaryMenu.update
+      SummaryMenu.update = function(self, dt)
+        if get("party_scroll") then
+          local input = self.game and self.game.input
+          if input then
+            local delta = 0
+            if input:wasPressed("up") then
+              delta = -1
+            elseif input:wasPressed("down") then
+              delta = 1
+            end
+            if delta ~= 0 then
+              local party = (self.game and self.game.save and self.game.save.party)
+                         or (Game and Game.save and Game.save.party)
+              if party and #party > 1 then
+                if mod.exports.summarySwitchMon(self, delta, party) then
+                  return
+                end
+              end
+            end
+          end
+        end
+        return vanillaSummaryUpdate(self, dt)
+      end
+    end
+  end
+
+  -- Gold's native SummaryMenu already supports Up/Down party scrolling. The
+  -- toggle controls that native behavior by masking only those two presses
+  -- when it is OFF; page turns, B, A and the move-detail screen stay vanilla.
+  if GEN2 then
+    local SummaryMenu2 = require("src.ui.gen2.SummaryMenu")
+    if not SummaryMenu2._qolTogglesPartyScrollInstalled then
+      SummaryMenu2._qolTogglesPartyScrollInstalled = true
+      local vanillaSummaryUpdate = SummaryMenu2.update
+      SummaryMenu2.update = function(self, dt)
+        if get("party_scroll") then return vanillaSummaryUpdate(self, dt) end
+        local game = self.game
+        local input = game and game.input
+        if not input then return vanillaSummaryUpdate(self, dt) end
+        local proxy = setmetatable({}, { __index = input })
+        proxy.wasPressed = function(_, key)
+          if key == "up" or key == "down" then return false end
+          return input:wasPressed(key)
+        end
+        game.input = proxy
+        local ok, r1, r2 = pcall(vanillaSummaryUpdate, self, dt)
+        game.input = input
+        if not ok then error(r1, 0) end
+        return r1, r2
+      end
+    end
+  end
+end

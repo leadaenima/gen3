@@ -1,0 +1,649 @@
+{
+  "files": {
+    "assets/backgrounds/beach.png": {
+      "sha256": "965484f781ac1445f345c631bc935937f5025bdeb31082ee34db4d14bc2e83ee",
+      "size": 8016
+    },
+    "assets/backgrounds/beach_2.png": {
+      "sha256": "0df84f754107a92d5eb015cb43d3c9fcdfbb22017b0f82e7908cd1bf474a47ff",
+      "size": 8132
+    },
+    "assets/backgrounds/beach_night.png": {
+      "sha256": "3abd0b578af17d5c158386c9fa54c208dfb8e3535002e8f07b79020c0bd8c062",
+      "size": 8151
+    },
+    "assets/backgrounds/cave.png": {
+      "sha256": "74a4fe04a6b1334815c79902cdcbb88749290f5fc51137b1e2475a5e9c0ccca2",
+      "size": 9335
+    },
+    "assets/backgrounds/cave_2.png": {
+      "sha256": "c2ee5e1c54ad8b5b28a87c192f2823bc1642e8d0a3d160b488e58fafcc82dbb9",
+      "size": 10518
+    },
+    "assets/backgrounds/cave_night.png": {
+      "sha256": "f5f62793650b372283737285bf41080752d158b56ae40bb3e55552a21567a3c9",
+      "size": 9343
+    },
+    "assets/backgrounds/desert.png": {
+      "sha256": "ce361fa590dfc860837274d77de0c82c99767c18bcec69ec6ead8f6db3761ca9",
+      "size": 8474
+    },
+    "assets/backgrounds/desert_night.png": {
+      "sha256": "3652c5a568a2c7da8cb8e3e8479f0518c2e3452c3d045db7a9bbf1b264dab2e1",
+      "size": 8542
+    },
+    "assets/backgrounds/lake.png": {
+      "sha256": "2b6d3bc3259f97a48e99424737b353379d9a99a9bce86429d8c649a042fd55fd",
+      "size": 9960
+    },
+    "assets/backgrounds/lake_night.png": {
+      "sha256": "7643f63b4fadf12b9c30d68678133b132906015fd48f1e67537a3ee9e004e815",
+      "size": 16894
+    },
+    "assets/backgrounds/mountain.png": {
+      "sha256": "f7a27cc0d2cfd3e65e10e223c3e1abdfc5cb0d7dfaccf416184f5df606c0c19c",
+      "size": 12558
+    },
+    "assets/backgrounds/mountain_2.png": {
+      "sha256": "6854aeaf78bf231d55b6f902f347e356f96c7bad4cbc7633941431258bb24662",
+      "size": 12554
+    },
+    "assets/backgrounds/mountain_night.png": {
+      "sha256": "568f3fb721505be991499eb46e6c2bf943aa6b77fe1e9b80b7b285051436b4d9",
+      "size": 12526
+    },
+    "assets/backgrounds/ocean.png": {
+      "sha256": "61380d1f3073b97c07ef17617310817564e11ba96a32d39c2175fcbdda2bd3fc",
+      "size": 8390
+    },
+    "assets/backgrounds/ocean_night.png": {
+      "sha256": "e149d88f4b89a0cf5ae5794a5d5e2c9007ecfd763dda93a63cfd7ce3bfa1ef32",
+      "size": 8615
+    },
+    "assets/backgrounds/path.png": {
+      "sha256": "02f99e1895ab298689acfa21eb13ae88ab4e4c5c5586174bdbbdd0b5b2d12da0",
+      "size": 13079
+    },
+    "assets/backgrounds/path_2.png": {
+      "sha256": "dbf1dcf286044cd7d590d38d73409caf0dc9a2b060794adfa8bd334df0941bff",
+      "size": 13094
+    },
+    "assets/backgrounds/path_night.png": {
+      "sha256": "cc080143790cf6e796904df6e3b22cb474f102e5779de751bccc13dd2f78eeae",
+      "size": 17131
+    },
+    "assets/backgrounds/snow.png": {
+      "sha256": "35923431c94a2656c72d98b2623c4f3ad273a811c0d5e633cd91812f0f0e7325",
+      "size": 8916
+    },
+    "assets/backgrounds/snow_night.png": {
+      "sha256": "f3974b4e82f553ea7c382171d7c244c46d137ea95a73326df9181a8f0e408c9f",
+      "size": 10754
+    },
+    "assets/backgrounds/tall_grass.png": {
+      "sha256": "fb6da12572824ded5733611f72656a08561e2fce69411b37a8be5401897b5213",
+      "size": 15879
+    },
+    "assets/backgrounds/tall_grass_night.png": {
+      "sha256": "5c311c8461358b46b1c1e9b5a0af2c56a4dc1bf3fb8e286feb683ddfd207d5b7",
+      "size": 16401
+    },
+    "assets/backgrounds/underwater.png": {
+      "sha256": "617dac003efde22da862a0233c297f880f253f58fd599c01697899823c1f7f6c",
+      "size": 23394
+    },
+    "assets/sounds/heavy_storm.ogg": {
+      "sha256": "fa854a913bf3852824a6b689c62abde376771d892595c08111f007bfcdece14b",
+      "size": 770402
+    },
+    "assets/sounds/rain.ogg": {
+      "sha256": "994afe4ffba84c2c2bbab8080dae8b09e7d9d04fa0b5671033aeca6d1e3ddb14",
+      "size": 785177
+    },
+    "assets/sounds/rain_heavy.ogg": {
+      "sha256": "86eaadeb0b12a1c3e0608c585e7d7691bfc505b5213732fe4c56337007253c9d",
+      "size": 610009
+    },
+    "assets/sounds/storm.ogg": {
+      "sha256": "23da5700c48d700f31ab5956b56ac02c0ab5361c8e67f658a1c49d2ea946dfe4",
+      "size": 769429
+    },
+    "assets/sounds/thunder_clap.mp3": {
+      "sha256": "51b7b8fe3d2550bd8c1459213c720870e0fa90faf0850f41465d13037b7bfde5",
+      "size": 229041
+    },
+    "assets/sounds/thunder_roll.mp3": {
+      "sha256": "2cdc2246c2740da40cb6a5c8984f79fdc4c9ca7dd310766af75ddf9592d03033",
+      "size": 1920768
+    },
+    "assets/sounds/thunder_zapdos.mp3": {
+      "sha256": "24da8f8532489dd3a616de28e3d04d2ac9e08a77900e54cce8e33bd3567c6935",
+      "size": 174707
+    },
+    "assets/sounds/wind.mp3": {
+      "sha256": "2351722d774c15b9e732befdea533dd02d4a1d10bf3987547d4bbc5d84c489f7",
+      "size": 257462
+    },
+    "assets/sounds/wind_desert.mp3": {
+      "sha256": "7c236d85885ce5375333a070eae240efc2d3603dea0eaa8ba70c796dae38b108",
+      "size": 1036538
+    },
+    "compat/kanto/dramatic_shape_1_7.lua": {
+      "sha256": "b464539994feb5d50e0c379a4b59ff19eb929403f14483677b9a4edef77edfe2",
+      "size": 9580
+    },
+    "compat/kanto/patches/1.7/Sky.patch": {
+      "sha256": "4bd7989a612f7f3e0a9c6a76fabd58654fe0036b29469608da9ae109194b9513",
+      "size": 9403
+    },
+    "compat/kanto/patches/1.7/Voxel3D.patch": {
+      "sha256": "83c60036c71c4a2461f902bee8ba1480b8fe025d469e63fc9ad7b77e7f8f02c9",
+      "size": 12265
+    },
+    "compat/kanto/patches/1.7/VoxelScene.patch": {
+      "sha256": "0ece57c449ae4bbeb923b9d359ac9e97e71428dbc8328569713df11f360146dd",
+      "size": 6128
+    },
+    "compat/patches/1.7/Sky.patch": {
+      "sha256": "4bd7989a612f7f3e0a9c6a76fabd58654fe0036b29469608da9ae109194b9513",
+      "size": 9403
+    },
+    "compat/patches/1.7/Voxel3D.patch": {
+      "sha256": "83c60036c71c4a2461f902bee8ba1480b8fe025d469e63fc9ad7b77e7f8f02c9",
+      "size": 12265
+    },
+    "compat/patches/1.7/VoxelScene.patch": {
+      "sha256": "0ece57c449ae4bbeb923b9d359ac9e97e71428dbc8328569713df11f360146dd",
+      "size": 6128
+    },
+    "config.lua": {
+      "sha256": "cc820fdca6a8f3f1e6eada5015a4a7a4afa1fc1ee0edc9ce787ed8f5a29574dd",
+      "size": 35801
+    },
+    "lib/AccumulationGeometry.lua": {
+      "sha256": "4f498097b85d9963d525bfd2e9d433e15a2979cfccafbd54c84d3a3ec611f44b",
+      "size": 1160
+    },
+    "lib/AcousticModel.lua": {
+      "sha256": "974800fc44c8cbf0a611c62d586bf83763d0ccaa5395947842670644a1b8320f",
+      "size": 2612
+    },
+    "lib/AtmosphereModel.lua": {
+      "sha256": "e999799a113f3687dca347fbe6683a90559231555a6daf3a4310a549dff30682",
+      "size": 4779
+    },
+    "lib/Audio.lua": {
+      "sha256": "c47a3d4fa479cffce81ab1b841180bd64bd5fec12d7919abe749f64ec019b439",
+      "size": 65530
+    },
+    "lib/Aurora.lua": {
+      "sha256": "fc09c03473dedd6334914116783d47fb8088c4e13432d47607d948f875efcd66",
+      "size": 14083
+    },
+    "lib/Backgrounds.lua": {
+      "sha256": "031f942ec583a754355c9410263a488f16eb05136ebfb0b368253cd8d9b83849",
+      "size": 11467
+    },
+    "lib/Battle.lua": {
+      "sha256": "31df399006918ca8c18494bb0197ce95439b4d028553d906527716712fc67ce4",
+      "size": 57149
+    },
+    "lib/BattleDraw.lua": {
+      "sha256": "44ea6d093ba012f066adf986ccd47cff3c13e6e9a39340f92249926f303f5b4c",
+      "size": 15398
+    },
+    "lib/BattleField.lua": {
+      "sha256": "150db230f39a37b2731d2d35d3509928ad9934830516bf0b91b8e456354ccb70",
+      "size": 10514
+    },
+    "lib/Benchmark.lua": {
+      "sha256": "4a1b6f9718f7bfad0090d60d5b3be4c6bf3c512fd94f20e5a01f2d5df74d2457",
+      "size": 18153
+    },
+    "lib/BuildingLight.lua": {
+      "sha256": "e30435834145e96ac406811ab23750cd050cefb790cf1414be6b822d8c3c2d92",
+      "size": 14967
+    },
+    "lib/CelestialBodies.lua": {
+      "sha256": "712600dad8f5aa7f17e8284a94440d0963a01c808711ea59fcd1281326c55438",
+      "size": 17649
+    },
+    "lib/CelestialEngine.lua": {
+      "sha256": "8900c33e0c754a21de5edd78e7ea499836e269a95afcbb42f3d2e2184dcbd3c6",
+      "size": 26379
+    },
+    "lib/CelestialRenderer2.lua": {
+      "sha256": "64545838f81de726943bb747d62725823130b4caca4650777bdf0d8d220f92b0",
+      "size": 2654
+    },
+    "lib/CelestialSim.lua": {
+      "sha256": "a5c81df9a667a9179ec6b8e034cdc57dafcbc26bafac315b9b522f6e19656105",
+      "size": 26922
+    },
+    "lib/CelestialStarField.lua": {
+      "sha256": "33db199c4532c53e54ed44644ff56a873bcd8b337381046d2ea0c165f56775fa",
+      "size": 12582
+    },
+    "lib/ChunkSim.lua": {
+      "sha256": "678e99c22d58e61ea37b24f2c67abc4ff28e00a431d19352dd7eab9d01881dc8",
+      "size": 2604
+    },
+    "lib/CloudField.lua": {
+      "sha256": "6f2eec6fedf96c52c209eaa6da78d91a321b60a101e22cdbe18a34484e139f02",
+      "size": 3780
+    },
+    "lib/Compat.lua": {
+      "sha256": "edd16ea94e70f2cd74eb886aa933df230f68e5135707b52d323ca4a5cf84b958",
+      "size": 1392
+    },
+    "lib/Config.lua": {
+      "sha256": "c14ec53b7a82062f6ea27b4b396c5123993eaef0ad7d82c402a2dc994200790d",
+      "size": 38147
+    },
+    "lib/ConnectedWater.lua": {
+      "sha256": "74aee3d7f2fea9fdcb6c756ef5afd2047e55feaf5e8d1472697aab4e00732836",
+      "size": 37726
+    },
+    "lib/Constellations.lua": {
+      "sha256": "a2444d4c81edbe175fd4a7b8a8d6055afd5c825c6cd0d53eb8eec2e9f5703e9b",
+      "size": 182826
+    },
+    "lib/DebugHUD.lua": {
+      "sha256": "34055f62ea4bd723d85e1048a247b36af92c35e0236fdcda8be790ddd05f93ae",
+      "size": 6786
+    },
+    "lib/DistantWeather.lua": {
+      "sha256": "900f947b10d50b866c02b83d82390834fc4dcdfc1e39be0b95e26d82b6c21244",
+      "size": 8818
+    },
+    "lib/DramalessAtmos.lua": {
+      "sha256": "03dfdb3b0fd4107c2213d5a7eb8f0bb58f3d0bc12bacf6d07d28244e8752060b",
+      "size": 73566
+    },
+    "lib/Draw.lua": {
+      "sha256": "bc39cb3a7d34338ad2c0d7ce7bfcefdfa0adca2d126e2fd333b5e18316b2ae65",
+      "size": 48404
+    },
+    "lib/DynamicLighting.lua": {
+      "sha256": "a6854407506571a7e79d8df2363b911b58865397a61d6cbcd7e683a43a169b8d",
+      "size": 1636
+    },
+    "lib/EcosystemEngine.lua": {
+      "sha256": "328d0d5fb77352df0f77283f754a64c91110e90720f4bd23a677199da1600ea4",
+      "size": 1739
+    },
+    "lib/Encounters.lua": {
+      "sha256": "c8f2cce77a68df899497edb12b123e4f9d2bacc8bc9b020267d758fa84e872e0",
+      "size": 28739
+    },
+    "lib/EngineHealth.lua": {
+      "sha256": "4b4e283db103630c06967b51e197394f15aeb49321d6426734c3778a41590a9b",
+      "size": 1032
+    },
+    "lib/EngineRuntime.lua": {
+      "sha256": "9694526b6693741e3096493dd7266e5920c6e0078d416c61f8f1b3a4f654926a",
+      "size": 19188
+    },
+    "lib/EnvironmentBehavior.lua": {
+      "sha256": "1758b2439985e79e423d612ea7aebfadfa644d131a9abf4ee7a493072bb79440",
+      "size": 1899
+    },
+    "lib/EnvironmentPersistence.lua": {
+      "sha256": "22fe5fd724a93fa02464525f07239e8ae84328bdb02a93d908cf440d74fd1b12",
+      "size": 703
+    },
+    "lib/EnvironmentSDK.lua": {
+      "sha256": "16782d2c500e4feb88f5edb7e4c2314c3e47b4f987d6cacdc0252ebb72f71b0a",
+      "size": 1555
+    },
+    "lib/EnvironmentSurface.lua": {
+      "sha256": "a7651197dc8b24bdb53010ed378c303b24680be68118b2ed0b0829cb28d3389e",
+      "size": 8916
+    },
+    "lib/EnvironmentalEvents.lua": {
+      "sha256": "3fb926bc913f29be21811a5d4181343238137fa79f75b685df56645479f1236e",
+      "size": 1946
+    },
+    "lib/FlatWorldInteraction.lua": {
+      "sha256": "253b9e95c06771fd4c78ff23abe9017b1d5a543a5a13bf4ad729aa8393347b7a",
+      "size": 8736
+    },
+    "lib/Fog.lua": {
+      "sha256": "8e8152f1f9e4147c106b85ffc48d1702aa6817c218a9793c656fe4383dbd5d46",
+      "size": 16424
+    },
+    "lib/Follower.lua": {
+      "sha256": "85f586b82df227915132772d35bd7c0aafee6f42ecd26800dea60ed29db85f87",
+      "size": 4469
+    },
+    "lib/ForecastEngine.lua": {
+      "sha256": "2ef8951fc7f9626aed25d0e6a5d2ca39ad73b46815ab877612f585c5d19943de",
+      "size": 1473
+    },
+    "lib/Fronts.lua": {
+      "sha256": "7ba6b0760d895b482402d95209f326fd1755a0feec88408b0ba579e7f499868b",
+      "size": 19153
+    },
+    "lib/Funnel.lua": {
+      "sha256": "9f4c4a0728803c8e0c3b71d9ba0229a8140abe2e2ff5c9729ab096847ecdee7e",
+      "size": 6302
+    },
+    "lib/GPUWeatherEngine.lua": {
+      "sha256": "53612c363b20a01d68f2ae31ba39e715a161f489bf082b1b4cf727a51f002de1",
+      "size": 1792
+    },
+    "lib/Harden.lua": {
+      "sha256": "d3ffa90393ab5fa481d9bddc76e4cf34bb97387a774cc3ac5c43a27f4d21b928",
+      "size": 1496
+    },
+    "lib/HostAdapter.lua": {
+      "sha256": "fa7f000bb77a333cf0b91ac30a63c0c6c0d1c73686f88f96ef0eddf417995dff",
+      "size": 2136
+    },
+    "lib/Hydrology.lua": {
+      "sha256": "7e903ac0054675d5226f54920fb5d9b81db30d1667d82ce7604a765168c20c18",
+      "size": 4251
+    },
+    "lib/InstanceSeedBuffer.lua": {
+      "sha256": "baaa5ce175f60c2fde2ae90ab0a13ff30bc0d8fa495ef72e9a15681643b59c2e",
+      "size": 1889
+    },
+    "lib/Interop.lua": {
+      "sha256": "a73e161ab7a54b63ce02a1b0a62fbce5c7b3ad16cb7ee690b91ce6d244d62c92",
+      "size": 4906
+    },
+    "lib/Ladder.lua": {
+      "sha256": "cc226b99bd8d74d108dcb68b0124fdfa6fd310ed9a9f262e790c045dafcdbb82",
+      "size": 4626
+    },
+    "lib/LeafPhysics.lua": {
+      "sha256": "0c98b23cd80a48c5c061870942359bf0c92db7da5acedef5364685c597e2c775",
+      "size": 26405
+    },
+    "lib/Legendary.lua": {
+      "sha256": "c3312cd2e409df460ae33ba5b3a7363d6c11319d2afd96fe5f3e4cb68a007046",
+      "size": 10622
+    },
+    "lib/LightProbeGrid.lua": {
+      "sha256": "b90508a6560b66a9e78c6a4c02dba049451f3bef8779a93cce5d7707093429b6",
+      "size": 1435
+    },
+    "lib/Lightning.lua": {
+      "sha256": "05adcacbe422b808a869174e75ea2242709c9f9fc5a868daa8f7da642cfedaae",
+      "size": 12535
+    },
+    "lib/MaterialSystem.lua": {
+      "sha256": "61c8cfe995757ff0252f665c3870daede3c92c4f1efa510e105706f0f9a68a7a",
+      "size": 2265
+    },
+    "lib/MesoscaleField.lua": {
+      "sha256": "17c7e5aef29ec566835634cad6ab7941aed8c0f2c9e48a57f59c12ecbdcc0660",
+      "size": 10667
+    },
+    "lib/Microclimate.lua": {
+      "sha256": "9ee1de18af1220c00a67fe20dcc547c31ba56b089bb9578b23ceffd543a4ebf3",
+      "size": 6248
+    },
+    "lib/NightSky.lua": {
+      "sha256": "155b4cbb7eec838e5862de797ec2fec8d6c87e817720069840de2e470bb46f98",
+      "size": 105579
+    },
+    "lib/ObjectPool.lua": {
+      "sha256": "53fe3ed712d46d0844c206a2b075701d2cd807ddebf0db5d2fbc5c5ba2e59afd",
+      "size": 1569
+    },
+    "lib/ParticleBatcher.lua": {
+      "sha256": "4fa3e2b6dfc1d69863b58ec6dbf410b4ddcc3733c39945f45c52a1be0e531aad",
+      "size": 2322
+    },
+    "lib/Particles.lua": {
+      "sha256": "ea06b0659c7e9e36a4aa7bd49c9ff99ade888d9e10ca6b7c6e83bf4c1ea4f074",
+      "size": 36799
+    },
+    "lib/PerformanceGovernor.lua": {
+      "sha256": "79cc0c3d964302da112e78f6a7a64cc2bccec2de38a0f3c8fd5791b87a562f96",
+      "size": 4487
+    },
+    "lib/Pokegear.lua": {
+      "sha256": "7135f5049415796260ea91e91315af7cb8b48ef4e98daa5d251f69e61e87ac47",
+      "size": 18893
+    },
+    "lib/PredictiveBudget.lua": {
+      "sha256": "b09b42fff13334831da895cb092aace9845068de1fce4e81440cc95b29a5705d",
+      "size": 1217
+    },
+    "lib/ProceduralPrecipField.lua": {
+      "sha256": "535c39ba6d1d961c12613213c62e66e48d2c615eb32567133351ac9a19768926",
+      "size": 12168
+    },
+    "lib/ProceduralSnowField.lua": {
+      "sha256": "02198d16eaaf5c3b4ac44b323bf7f5f9a55d49c3258f1e57616730caba134f4c",
+      "size": 14040
+    },
+    "lib/Psystorm.lua": {
+      "sha256": "8cd93a3c81a24000130f84f7d04dc0b8d26ac2d2ae01343913cb212ceacdec8b",
+      "size": 4387
+    },
+    "lib/Quality.lua": {
+      "sha256": "d8e242fe0b81bb4d804f14454df07e56f35bad0579741f63a55fecf5c8a1c378",
+      "size": 10107
+    },
+    "lib/Rainbow.lua": {
+      "sha256": "bfeeaf96bf2091c8974a5b8b4f957f7377cf64cc202cfc2d6ef396c38fe99277",
+      "size": 3118
+    },
+    "lib/RenderGraph.lua": {
+      "sha256": "0a41f542e19281f34154295e332c673c509b25a51f3483ee9589043dbafa8539",
+      "size": 5397
+    },
+    "lib/SafeCall.lua": {
+      "sha256": "0b2cc7dc936b4ed7f560110f2aa47adc16d234d344d3ea4b531d08459734e700",
+      "size": 2735
+    },
+    "lib/Scene.lua": {
+      "sha256": "eff9ef59de54d53d5ddacc4dfd4c18f1e235351ccfd988505d50c3951dd24e26",
+      "size": 27704
+    },
+    "lib/Seasons.lua": {
+      "sha256": "46078407e2669461a435088c5f365add7a6cd2b75dfcfb0f956b087aef330829",
+      "size": 17449
+    },
+    "lib/Settings.lua": {
+      "sha256": "0a4333a5b4a9cc76c23eb0802c4185d48b975b0eb70f3ae14a2b8a74b8dfc7a1",
+      "size": 70048
+    },
+    "lib/SettingsMenu.lua": {
+      "sha256": "0805bb7a2e6ee436feb87a2e5715ee9dac919347cca2070719fd7993bab1a464",
+      "size": 11180
+    },
+    "lib/SevereWeather.lua": {
+      "sha256": "568a3042251bd609c8fc62ee01006f06741577aae0abde24dc5eaf96077ce060",
+      "size": 1655
+    },
+    "lib/SmoothSky.lua": {
+      "sha256": "38ffaf469ac62b886b7ed173f8b7d3f7e846551bb931e613f331e8664a73edc4",
+      "size": 6164
+    },
+    "lib/SnowPack.lua": {
+      "sha256": "318a4db4dcfbbbdbb9d21cb2d3bd7587559beddfa0f9ae2bb7bcc09e69b7d0ae",
+      "size": 32839
+    },
+    "lib/SpatialIndex.lua": {
+      "sha256": "2672158582d1732efb45551c030b64a7e6124a423ce8eca3d37c01ac06ed2ca5",
+      "size": 4641
+    },
+    "lib/StormCells.lua": {
+      "sha256": "b1c5c5225f703e7cddb600f89da88acb3443fd6240ebea85612f97d7de7c0b56",
+      "size": 16993
+    },
+    "lib/SurfaceVisualState.lua": {
+      "sha256": "a58cf47ffdf090506533291b476d37175a7f1e9a4a594e8ecb284161b8c6b48a",
+      "size": 857
+    },
+    "lib/SurfaceVisuals.lua": {
+      "sha256": "eb1384e54a118f2ef5fba1d149ae7232b12b9a2efe3c660ebb9702290baec592",
+      "size": 1287
+    },
+    "lib/SynopticTransition.lua": {
+      "sha256": "6b7c3ea8ad86f241e5b75e37f7d9c10a857f6c857b9eec36cd54df2d882d8f08",
+      "size": 8192
+    },
+    "lib/SystemProfiler.lua": {
+      "sha256": "cf1b2fd8d98f9ad46556d4dd08a3247fa973db8acacc0291e91243d276706477",
+      "size": 1697
+    },
+    "lib/TerrainPhysics.lua": {
+      "sha256": "ae6a51fad770d323717fffa7991c18e66bd4d6ec2ec8c5a1808fe350a41d89e6",
+      "size": 1166
+    },
+    "lib/TimeOfDay.lua": {
+      "sha256": "5f067018d691610b0a1eb40cc28bfbf5f540fe98ed9762b4c153aec52a027e9a",
+      "size": 23008
+    },
+    "lib/Tornado.lua": {
+      "sha256": "0b42ec8f999cde1c8a1321b0b6c63b8a5e1db89c2a1814806bd8faf6db0b928c",
+      "size": 40328
+    },
+    "lib/Types.lua": {
+      "sha256": "7e2fd1c510fb481b0704e55241c25dcbb491652be9a01280fe15299360bfc77a",
+      "size": 24126
+    },
+    "lib/UnifiedLighting.lua": {
+      "sha256": "1c4543f586ade76e7ee055989e0035bc6143615e24b78579946ab32148c07d6f",
+      "size": 1494
+    },
+    "lib/VolumetricRenderer.lua": {
+      "sha256": "7169499cb8b136d384bddf4f725fcddaf95e473775788989cba2f8666287d2d6",
+      "size": 1632
+    },
+    "lib/VolumetricWeather.lua": {
+      "sha256": "39316613e2f056bcf4de8889676a8fe749e9c3e234159c86762828ac39b95034",
+      "size": 2398
+    },
+    "lib/VoxelAtmosBridge.lua": {
+      "sha256": "ab546284212a6545cf26ba988b5efe40c00efabe0b3f1af1f656104b867fe038",
+      "size": 4264
+    },
+    "lib/WeatherPluginRegistry.lua": {
+      "sha256": "9ab9990e4d95dae89a496d3f14a24570873f698afc9a763a9dbf3fa3278d43b7",
+      "size": 1041
+    },
+    "lib/WeatherShadowMap.lua": {
+      "sha256": "ccc6190dae3f25051f359258acb29bf78a70dc47fc54517343995f2f9fc6c695",
+      "size": 21213
+    },
+    "lib/WeatherSimulation.lua": {
+      "sha256": "6f8ba14213092871608b9a181b1f5eb06553d0cf0b5adcd82cc70c7f308a7cc6",
+      "size": 4704
+    },
+    "lib/WeatherState.lua": {
+      "sha256": "c6f007a7557508ea4345c620a159547a6f89a3040ff5d4f553b7bbfd70f1b610",
+      "size": 60731
+    },
+    "lib/WeatherWorldSpace.lua": {
+      "sha256": "fb5c3481b13120b3f508457014afc2c0879d42ebb61107cf9a11d9d6afa9f886",
+      "size": 3122
+    },
+    "lib/WindEngine.lua": {
+      "sha256": "237bd41265e87efb577e4c8917290a72a45f8b9c1401295ccaf53eb51a38091a",
+      "size": 10005
+    },
+    "lib/WindFlow.lua": {
+      "sha256": "dcc4c33278e01d7eab6b8e1e2b8144fd1418e9dbd6120624e0343823b224e0ea",
+      "size": 3744
+    },
+    "lib/WindPlayer.lua": {
+      "sha256": "8f047248c685eb2657a313c5a635db7354cc7de673dc5460b15c2ba9081e598b",
+      "size": 3693
+    },
+    "lib/WorkloadRouter.lua": {
+      "sha256": "d90c8c190c611dde44483a115d3a8b65a45ba444643ad99ca1f75198b60ba279",
+      "size": 1996
+    },
+    "lib/WorldClimate.lua": {
+      "sha256": "90adb7317314e4825425947f8f097223278868904f6fab58b6a89069cc8cbe8b",
+      "size": 7208
+    },
+    "lib/WorldStreamer.lua": {
+      "sha256": "5637a0cd8d56379fccfc0ccaa4b1451a3f487f306d0381d1377b4da38b256c03",
+      "size": 1540
+    },
+    "lib/voxel_atmos/CinematicAtmos.lua": {
+      "sha256": "245275c8ac1823d46e0732769c74d539ec23a14a1f5fb031f966f4b5a3480d70",
+      "size": 236190
+    },
+    "lib/voxel_atmos/ConnectedWater3D.lua": {
+      "sha256": "2dfdd05e7735c8adee447d407c102f83d2664a79473202a68d6b3250dfb25c21",
+      "size": 69063
+    },
+    "lib/voxel_atmos/DistantWorld.lua": {
+      "sha256": "e3a502e70792ac6fb37a443c1d4e1dfba7bffb7ed3d18ef785230c759b199e85",
+      "size": 3171
+    },
+    "lib/voxel_atmos/HorizonApron.lua": {
+      "sha256": "6557bd5d61cfb2985e1b78c47c9ecf007ef93256b9f8549f4dd3e90af6ef9dff",
+      "size": 6479
+    },
+    "lib/voxel_atmos/LICENSE-kanto-dynamic-weather": {
+      "sha256": "9eb0c8648a0745964cdec9acc80371805ee6dc1927e984f5358b75ac3da5887a",
+      "size": 1260
+    },
+    "lib/voxel_atmos/NpcLightning.lua": {
+      "sha256": "639e795ccb49e05a92660c08ccfd2bc78be7b7230f43c53342f820711926d490",
+      "size": 30341
+    },
+    "lib/voxel_atmos/Rainbow3D.lua": {
+      "sha256": "bb4be40931fa3778e7d53f91e09f5fe1231841261e49e454eb62c66f942f34d0",
+      "size": 5264
+    },
+    "lib/voxel_atmos/Tornado3D.lua": {
+      "sha256": "df19d4755b339a760a1d8ee45bfe60360de82e13489889ce42956fab467ee113",
+      "size": 12726
+    },
+    "lib/voxel_atmos/WeatherSetting.lua": {
+      "sha256": "39b7c1e4671610c40b06105a1fe21204ae41990dd61d4f8606a7728da460863d",
+      "size": 2852
+    },
+    "lib/voxel_atmos/WorldCelestialLighting.lua": {
+      "sha256": "1875b90a4573104a7d995322d767f0e1d9974ebbec5b30d5c4aa1dec4b1a5ddc",
+      "size": 5343
+    },
+    "lib/voxel_atmos/WorldLighting.lua": {
+      "sha256": "4707d030639c11c6cc49bc363b0d33ba46976be84ed5ea777ec7048f815e33e5",
+      "size": 6597
+    },
+    "lib/voxel_atmos/WorldLightning.lua": {
+      "sha256": "2ca52aef55cc95453849f2d9fdfd432a9863698d9a9dfb88eea6684e39a975bb",
+      "size": 29807
+    },
+    "lib/voxel_atmos/WorldPrecip.lua": {
+      "sha256": "1fcc91916a86eeed5296dd4e7c124ac09cabd325db42afbf8374f0db1f071846",
+      "size": 196235
+    },
+    "lib/voxel_atmos/stubs/ForestAtmos.lua": {
+      "sha256": "7e25c1bf6a10d11d7cc04063b06afe18a2573997d0b0f3f15383dc946ce4d010",
+      "size": 1250
+    },
+    "lib/voxel_atmos/stubs/Mat4.lua": {
+      "sha256": "3afae42bbd1048a6138bbc26751adfc5550028c700e83f6943d2b831ae96c115",
+      "size": 1970
+    },
+    "lib/voxel_atmos/stubs/SpriteBillboards.lua": {
+      "sha256": "eccd4f7df1b48cbc84e2f749f922e8579156a1a9eeb763e146a10618f65ea101",
+      "size": 116
+    },
+    "lib/voxel_atmos/stubs/TerrainAtlas.lua": {
+      "sha256": "7af8ea28e0205936a991dca8e74bb330a6f57cd48ce2d35dcb4757bb95a2b112",
+      "size": 109
+    },
+    "lib/voxel_atmos/stubs/TileShape.lua": {
+      "sha256": "6a8f915ba98ed152cd73e2385fe1522811e11488863c01a6f33ce97da988a867",
+      "size": 99
+    },
+    "main.lua": {
+      "sha256": "5f2220b86e7b74c19c6b28735d03a748b83efbd0399357b9c84edb5ec78093e1",
+      "size": 48461
+    }
+  },
+  "version": "8.1.45"
+}

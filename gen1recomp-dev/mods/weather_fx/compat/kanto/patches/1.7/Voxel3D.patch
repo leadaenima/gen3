@@ -1,0 +1,261 @@
+--- lib/Voxel3D.lua
++++ lib/Voxel3D.lua
+@@ -34,6 +34,8 @@
+ local DayNight = V.require("DayNight")
+ local GlassMask = V.require("GlassMask")
+ local PixelCanvas = V.require("PixelCanvas")
++local DistantWorld = V.require("DistantWorld")
++local HorizonApron = V.require("HorizonApron")
+ 
+ local Voxel3D = {}
+ 
+@@ -73,6 +75,11 @@
+   varying float vShade;
+   varying vec3 vSun;          // this fragment's place in the sun's view
+   varying float vFog;         // how deep into the map's haze it stands
++  // World position for the cinematic moving cloud-shadow field. Unlike the
++  // optional diorama varying below this is intentionally available in every
++  // VOXEL scene: it costs one vec3 and lets clouds shade roofs, trees and
++  // ground coherently instead of painting a screen overlay.
++  varying LOVE_HIGHP_OR_MEDIUMP vec3 vAtmosWorld;
+ #ifdef VOXEL_CULL
+   // where this fragment stands in the FLAT world, for the diorama's
+   // viewport to measure. Same precision reasoning as vGrid below: a
+@@ -106,6 +113,7 @@
+     vGrid = vertex_position.xyz;
+ #endif
+     vec4 w = model * vertex_position;
++    vAtmosWorld = w.xyz;
+     // The shadow lookup runs off `sunModel`, not `model`. For terrain the
+     // two are the same matrix, but a character is drawn as a slab LEANING
+     // back by the camera's pitch -- a trick played on the viewer, which
+@@ -278,6 +286,26 @@
+   uniform float glassPhase;   // the glint's phase: advances with TRAVEL
+   uniform float glassGlint;   // and its strength: 0 while standing still
+   uniform float glassOn;      // 0 for sprite-sheet draws (see Voxel3D.glass)
++  uniform float atmosCloud;   // moving cloud-shadow strength; 0 = disabled
++  uniform float atmosTime;
++  uniform vec2 atmosWind;
++  // Stylised puddle reflection mask.  Ordinary scene draws leave radius at
++  // zero.  Character reflections set one world-space puddle ellipse at a
++  // time, so the reflection can exist continuously under the map while only
++  // the water surface reveals it.  This avoids a touch/overlap trigger and
++  // needs no stencil attachment on mobile.
++  uniform vec4 puddleMask;       // center XZ, radius XZ; radius 0 = disabled
++  uniform vec2 puddleMaskState;  // seed, wetness
++
++  float cinematicCloud(vec2 worldXZ) {
++    if (atmosCloud <= 0.0) return 0.0;
++    vec2 q = worldXZ * 0.016 + atmosWind * atmosTime;
++    float n1 = 0.5 + 0.5 * sin(q.x * 2.9 + q.y * 1.2 + 0.7);
++    float n2 = 0.5 + 0.5 * sin(q.x * 1.1 - q.y * 3.7 + 2.2);
++    float n3 = 0.5 + 0.5 * sin((q.x + q.y) * 2.0 - 1.1);
++    float n = n1 * 0.46 + n2 * 0.34 + n3 * 0.20;
++    return smoothstep(0.52, 0.78, n);
++  }
+ 
+   vec4 effect(vec4 color, Image tex, vec2 tc, vec2 sc) {
+     vec4 p = Texel(tex, tc);
+@@ -285,6 +313,23 @@
+     // blending keeps those texels out of the depth buffer, so a model never
+     // carves a transparent hole out of whatever stands behind it
+     if (p.a < 0.5) discard;
++    // W7.8: the puddle is a WINDOW onto a reflection that always exists
++    // beneath the map.  Clip the reflected card by the exact same authored
++    // ellipse/edge-noise model as the visible puddle surface.  Nothing here
++    // asks whether a character touched water; if the under-map reflection
++    // crosses a puddle, that portion is simply visible.
++    if (puddleMask.z > 0.001 && puddleMask.w > 0.001) {
++      float wet = clamp(puddleMaskState.y, 0.0, 1.0);
++      float scale = mix(0.06, 1.0, pow(wet, 0.63));
++      vec2 local = (vAtmosWorld.xz - puddleMask.xy)
++                   / max(puddleMask.zw * scale, vec2(0.001));
++      float d = length(local);
++      float seed = puddleMaskState.x;
++      float warp = 0.065 * sin(local.x * 7.2 + local.y * 5.7 + seed * 41.0)
++                 + 0.040 * sin(local.x * 12.0 - local.y * 8.0 + seed * 19.0);
++      float edge = 1.0 - smoothstep(0.82 + warp, 1.03 + warp, d);
++      if (edge <= 0.002) discard;
++    }
+     // and the same for anything the diorama's viewport has faded out
+     // entirely: past the rim there is no world, and a fully faded fragment
+     // that still wrote depth would punch a hole in the sky behind it
+@@ -297,6 +342,10 @@
+     // the hour's tint multiplies like the sun terms do: it is LIGHT, the
+     // same warm or moonlit cast on every surface, not a palette swap
+     vec3 rgb = p.rgb * vShade * sunlight(vSun) * dayTint;
++    // Broad, slow cloud shadows crossing the WORLD, not the screen. They
++    // multiply the existing direct-light answer and therefore compound
++    // naturally with real cast shadows instead of replacing them.
++    rgb *= 1.0 - atmosCloud * cinematicCloud(vAtmosWorld.xz);
+ #ifdef VOXEL_GRID
+     // darken what is there rather than painting a colour, so a seam across
+     // dark grass and one across a white roof each stay in their own palette
+@@ -884,7 +933,6 @@
+   if not m then return end
+   local hl = math.sqrt(b.dx * b.dx + b.dz * b.dz)
+   if hl < 1e-6 then return end
+-  -- right = horizontal, perpendicular to the direction; up completes it
+   local rx, rz = b.dz / hl, -b.dx / hl
+   local ux = -rz * b.dy
+   local uy = rz * b.dx - rx * b.dz
+@@ -893,33 +941,57 @@
+   if ul < 1e-6 then return end
+   ux, uy, uz = ux / ul, uy / ul, uz / ul
+   if uy < 0 then ux, uy, uz = -ux, -uy, -uz end
+-  -- apparent size is an ANGLE, the same fraction of the view the flat
+-  -- screen's disc takes of its frame; the low sun looms exactly as there
++
+   local ang = Sky.DISC_FRAC * (Voxel3D.fovY or 1)
+   if Sky.discLooming(amt, b.moon) then ang = ang * 1.4 end
+   local k = math.tan(ang)
+-  local verts = {}
+   local corners = { { -1, -1, 0, 1 }, { 1, -1, 1, 1 },
+                     { 1, 1, 1, 0 }, { -1, 1, 0, 0 } }
+-  for i, c in ipairs(corners) do
+-    local vx = b.dx + (rx * c[1] + ux * c[2]) * k
+-    local vy = b.dy + (uy * c[2]) * k
+-    local vz = b.dz + (rz * c[1] + uz * c[2]) * k
+-    local x = m[1] * vx + m[2] * vy + m[3] * vz
+-    local y = m[5] * vx + m[6] * vy + m[7] * vz
+-    local ww = m[13] * vx + m[14] * vy + m[15] * vz
+-    if ww <= 1e-6 then return end
+-    verts[i] = { (x / ww * 0.5 + 0.5) * w, (y / ww * 0.5 + 0.5) * h,
+-                 c[3], c[4] }
+-  end
++
++  local function quadVerts(mult)
++    local verts = {}
++    local kk = k * (mult or 1)
++    for i, c in ipairs(corners) do
++      local vx = b.dx + (rx * c[1] + ux * c[2]) * kk
++      local vy = b.dy + (uy * c[2]) * kk
++      local vz = b.dz + (rz * c[1] + uz * c[2]) * kk
++      local x = m[1] * vx + m[2] * vy + m[3] * vz
++      local y = m[5] * vx + m[6] * vy + m[7] * vz
++      local ww = m[13] * vx + m[14] * vy + m[15] * vz
++      if ww <= 1e-6 then return nil end
++      verts[i] = { (x / ww * 0.5 + 0.5) * w, (y / ww * 0.5 + 0.5) * h,
++                   c[3], c[4] }
++    end
++    return verts
++  end
++
++  local verts = quadVerts(1)
++  if not verts then return end
+   pcall(function()
+-    if not discMesh then
+-      discMesh = love.graphics.newMesh(4, "fan", "stream")
++    if not discMesh then discMesh = love.graphics.newMesh(4, "fan", "stream") end
++    local g = love.graphics
++    local oldBlend, oldAlpha
++    if g.getBlendMode then oldBlend, oldAlpha = g.getBlendMode() end
++
++    local glow = Sky.discGlowImage and Sky.discGlowImage(b.moon) or nil
++    if glow then
++      local gv = quadVerts(b.moon and 4.2 or 6.2)
++      if gv then
++        discMesh:setVertices(gv)
++        discMesh:setTexture(glow)
++        if g.setBlendMode then g.setBlendMode("add", "alphamultiply") end
++        if b.moon then g.setColor(0.64, 0.76, 1.0, 0.16)
++        else g.setColor(1.0, 0.78, 0.38, 0.34 + math.min(0.18, (amt or 0) * 0.20)) end
++        g.draw(discMesh)
++      end
+     end
++
+     discMesh:setVertices(verts)
+     discMesh:setTexture(img)
+-    love.graphics.setColor(1, 1, 1, 1)
+-    love.graphics.draw(discMesh)
++    if g.setBlendMode then g.setBlendMode("alpha", "alphamultiply") end
++    g.setColor(1, 1, 1, 1)
++    g.draw(discMesh)
++    if g.setBlendMode and oldBlend then g.setBlendMode(oldBlend, oldAlpha) end
+   end)
+ end
+ 
+@@ -1030,7 +1102,29 @@
+   else
+     love.graphics.clear(0, 0, 0, 0, true, true)
+   end
++
++  -- DISTANT KANTO: after the generated sky/celestial body but before the live
++  -- depth-tested map. The backdrop provides only a flat atmospheric ground
++  -- continuation; every real voxel in the loaded map naturally paints over it.
++  -- It is skipped for chroma-key/MR and indoor/transparent scenes.
++  if (not key) and sky and sky.bands then
++    pcall(DistantWorld.draw, w, h, Voxel3D.skyEdge, sky, cx, cy)
++  end
++
++  -- W8.1 FLAT CONTINUATION: the far painter above solves the horizon, but
++  -- without a middle-distance surface the real map still ends as a visible
++  -- cliff and the painted world can be seen underneath it.  Draw a coarse,
++  -- non-playable 3D apron now, into the SAME depth buffer as the map.  It
++  -- starts fractionally below y=0, uses the same globe bend, and the real
++  -- terrain drawn next simply overwrites it.
+   love.graphics.setDepthMode("lequal", true)
++  if (not key) and sky and sky.bands and Voxel3D.horizonApron then
++    local placed = Voxel3D.camera
++    local curveK = (placed and placed.curve) or WorldCurve.k(vh)
++    pcall(HorizonApron.draw, Voxel3D.horizonApron, Voxel3D.vp, Voxel3D.eye,
++          { cx, cy, curveK }, sky, cx, cy)
++  end
++
+   -- models mirror on X for right-facing and alternate walk steps, which
+   -- flips winding; hidden faces are already culled at build time, so there
+   -- is nothing to gain from backface culling and a real bug to avoid
+@@ -1029,5 +1029,29 @@
+   local fog = Voxel3D.fog
++  local fogStart = fog and (fog.start or 0) or 0
++  -- CinematicAtmos can anchor its light extinction bed to the camera focus
++  -- rather than to the eye.  The orbit's eye distance changes with viewport
++  -- height (portrait backs the camera away), which made a fixed `start` look
++  -- dramatically thicker in portrait.  Authored map fog does not set this
++  -- field and therefore keeps its original behaviour byte-for-byte.
++  if fog and fog.startFromFocus and Voxel3D.eye and Voxel3D.focus then
++    local dx = Voxel3D.eye[1] - Voxel3D.focus[1]
++    local dy = Voxel3D.eye[2] - Voxel3D.focus[2]
++    local dz = Voxel3D.eye[3] - Voxel3D.focus[3]
++    local focusDistance = math.sqrt(dx * dx + dy * dy + dz * dz)
++    fogStart = math.max(0, focusDistance + fog.startFromFocus)
++  end
+   pcall(sh.send, sh, "fogColor", (fog and fog.color) or { 0, 0, 0 })
+   pcall(sh.send, sh, "fogInfo", fog and
+-        { fog.density or 0, fog.start or 0, fog.heightK or 0, 0 }
++        { fog.density or 0, fogStart, fog.heightK or 0, 0 }
+         or { 0, 0, 0, 0 })
++  -- Moving cloud shadows for the cinematic atmosphere. The geometry pass
++  -- supplies visible clouds and shafts later; these uniforms only modulate
++  -- surfaces so a cloud can visibly travel across roofs, trees and ground.
++  local ca = Voxel3D.cinematicAtmos
++  pcall(sh.send, sh, "atmosCloud", ca and ca.cloudShadow or 0)
++  pcall(sh.send, sh, "atmosTime", ca and ca.time or 0)
++  pcall(sh.send, sh, "atmosWind", ca and ca.wind or { 0, 0 })
++  -- Off for every ordinary scene draw.  A reflection pass opts into a
++  -- puddle-shaped mask explicitly and resets it immediately afterwards.
++  pcall(sh.send, sh, "puddleMask", { 0, 0, 0, 0 })
++  pcall(sh.send, sh, "puddleMaskState", { 0, 0 })
+@@ -1366,6 +1484,22 @@
+ function Voxel3D.glass(on)
+   if not (active and activeShader) then return end
+   pcall(activeShader.send, activeShader, "glassOn", on and 1 or 0)
++end
++
++-- Clip subsequent ordinary scene-shader fragments to one stylised puddle.
++-- `nil` disables the mask.  Kept in Voxel3D rather than a bespoke shader so
++-- reflected sprites keep the exact live texture/palette path as characters.
++function Voxel3D.puddleMask(puddle, wetness)
++  if not (active and activeShader) then return end
++  if puddle then
++    pcall(activeShader.send, activeShader, "puddleMask",
++          { puddle.wx or 0, puddle.wz or 0, puddle.rx or 0, puddle.rz or 0 })
++    pcall(activeShader.send, activeShader, "puddleMaskState",
++          { puddle.seed or 0, wetness or 1 })
++  else
++    pcall(activeShader.send, activeShader, "puddleMask", { 0, 0, 0, 0 })
++    pcall(activeShader.send, activeShader, "puddleMaskState", { 0, 0 })
++  end
+ end
+ 
+ function Voxel3D.endGhost()

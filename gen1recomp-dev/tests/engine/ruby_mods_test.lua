@@ -7,9 +7,13 @@
 --   * the loader is constructed on a Ruby boot, with the game as its owner;
 --   * a mod is gated on claiming a Gen 3 game, so one written for Red is
 --     listed and skipped rather than half-applied;
---   * every content registry is gated on Gen 3 EXCEPT render_pipelines, so a
---     content mod reports "no Gen 3 target" instead of merging a Red-shaped
---     record into a Hoenn table;
+--   * content registries are routed onto Ruby's OWN record stores, which sit
+--     one level below the name the registry uses (data.pokemon is a namespace
+--     holding byIndex/names/counts, not a species table), and reading is
+--     opened separately from writing: a routed registry reads Ruby's records
+--     immediately, but only one that carries a Gen 3 record shape may be
+--     written, so an undescribed one still reports a drop instead of merging
+--     a Red-shaped record into a Hoenn table;
 --   * the world pass goes through Pipelines, which is the half that is inert
 --     on Gold and is not inert here.
 package.path = "./?.lua;./?/init.lua;" .. package.path
@@ -95,24 +99,88 @@ check(not ModTargets.supports({ gen2compat = true }, nil, 3),
 -- checked would merge a Red-shaped record into a Hoenn table and report
 -- success. The table is therefore gated by default.
 do
-  local total, gated = 0, 0
+  local total, gated, routed = 0, 0, 0
   for name in pairs(Schemas.REGISTRIES) do
     total = total + 1
     if Schemas.gatedFor(name, 3) then gated = gated + 1 end
+    if Schemas.GEN3[name] then routed = routed + 1 end
   end
   check(total > 40, "the catalog is the full one, not a stub")
-  eq(gated, total - 1, "every registry but one is gated on Gen 3")
+  -- the default is still refusal: most of the catalog has no Ruby home at all
+  check(gated > total / 2, "most of the catalog is still gated on Gen 3")
+  check(routed >= 8, "but the core content registries are routed")
+  -- and routing is never a blanket: a registry is opened one at a time, with
+  -- its path read off the live data
+  check(routed < total, "routing is per-registry, not a blanket ungate")
+end
+
+-- READ IS NOT WRITE.  Every routed registry resolves a target (so the loader
+-- installs its base and `get` folds against Ruby's own records); only the ones
+-- that describe a Gen 3 record may be written.  A registry that were writable
+-- without a shape would have its records judged against Red's fields.
+do
+  local readOnly = Schemas.readOnlyFor(3)
+  check(#readOnly > 0, "some registries are readable but not yet writable")
+  for _, name in ipairs(readOnly) do
+    local spec = Schemas.REGISTRIES[name]
+    check(Schemas.targetFor(name, spec, 3) ~= nil,
+      name .. " resolves a Gen 3 target, so it can be read")
+    check(Schemas.gatedFor(name, 3),
+      name .. " is still refused for writes until it has a Gen 3 shape")
+  end
+  -- and nothing claims to be read-only on the generations that own their own
+  eq(#Schemas.readOnlyFor(1), 0, "Red has no read-only registries")
+  eq(#Schemas.readOnlyFor(2), 0, "nor does Gold")
+end
+
+-- The routed paths are Ruby's real sub-paths, not the registry's own name:
+-- routing `pokemon` at `pokemon` would fold a species in beside `count` and
+-- `dexOffset`, where nothing reads it.
+do
+  eq(Schemas.targetFor("pokemon", Schemas.REGISTRIES.pokemon, 3),
+    "pokemon.byIndex", "pokemon routes to the species store, not the namespace")
+  eq(Schemas.targetFor("encounters", Schemas.REGISTRIES.encounters, 3),
+    "encounters.byMap", "encounters route to the per-map store")
+  eq(Schemas.targetFor("maps", Schemas.REGISTRIES.maps, 3),
+    "maps.maps", "maps route to the map store")
+  -- The table is SPARSE, the way Gen2Recomped's registries are: a name absent
+  -- from it keeps the shared target, and only an explicit `false` refuses.
+  -- So a row is either a path Ruby stores it at, or a refusal -- and a row
+  -- that is neither is a typo that would route content into nowhere.
+  for name, path in pairs(Schemas.GEN3) do
+    check(Schemas.REGISTRIES[name] ~= nil,
+      "GEN3 routes " .. name .. ", which is a real registry")
+    check(path == false or (type(path) == "string" and path ~= ""),
+      "GEN3's row for " .. name .. " is a path or an explicit refusal")
+    if path == false then
+      check(Schemas.gatedFor(name, 3),
+        "GEN3's refusal of " .. name .. " is honoured")
+    end
+  end
 end
 check(not Schemas.gatedFor("render_pipelines", 3),
   "render_pipelines is the exception: Game3:load installs Pipelines on the "
   .. "merged data, so data.render_pipelines is the table it reads")
 eq(Schemas.targetFor("render_pipelines", Schemas.REGISTRIES.render_pipelines, 3),
   "render_pipelines", "and it keeps the shared target rather than a Gen 3 one")
--- a few named ones, so the gate is not just a count
-check(Schemas.gatedFor("pokemon", 3), "pokemon is gated (Gen 3 record shape)")
-check(Schemas.gatedFor("maps", 3), "maps is gated (Gen3MapPack owns them)")
+-- a few named ones, so the rule is not just a count
+check(not Schemas.gatedFor("pokemon", 3),
+  "pokemon is writable: it carries a Gen 3 record shape")
+check(not Schemas.gatedFor("maps", 3), "so are maps")
+check(not Schemas.gatedFor("encounters", 3), "and encounters")
+check(not Schemas.gatedFor("moves", 3),
+  "moves are writable now: they carry a Gen 3 record shape too")
+-- and the ones that still carry none stay readable-but-not-writable, which is
+-- a different answer from "no home at all"
+check(Schemas.gatedFor("tilesets", 3),
+  "tilesets are readable but not writable -- no Gen 3 record shape yet")
+check(Schemas.targetFor("tilesets", Schemas.REGISTRIES.tilesets, 3) ~= nil,
+  "...which is why they still resolve a target to read from")
 check(Schemas.gatedFor("transitions", 3),
-  "transitions is gated -- Ruby's are Game3BattleTransition, not data.transitions")
+  "transitions stay fully gated -- Ruby's are Game3BattleTransition, not "
+  .. "data.transitions, so there is nothing to read either")
+eq(Schemas.targetFor("transitions", Schemas.REGISTRIES.transitions, 3), nil,
+  "and a fully gated registry resolves no target at all")
 
 -- the other two generations are untouched by any of this
 eq(Schemas.targetFor("maps", Schemas.REGISTRIES.maps, 2), "gen2Maps",
@@ -159,13 +227,41 @@ do
   check(byId.kanto ~= nil, "so is the Gen 1 one -- skipped is not hidden")
   eq((byId.hoenn or {}).state, "loaded",
     "the mod that claims Gen 3 actually runs on Ruby")
+  -- THE GATE IS ModGens', ported from Gen2Recomped, and it reads
+  -- `generations` -- NOT `games`.
+  --
+  -- A manifest that states no `generations` list is allowed everywhere, so a
+  -- mod whose only claim is `games: ["gen1"]` now LOADS on Ruby rather than
+  -- being skipped.  That is deliberate: it is what lets free_fly, weather_fx
+  -- and johto_radar run here without the player reaching for TRY HERE ANYWAY,
+  -- and it is the same answer Gen2Recomped gives them under Emerald.  Ruby's
+  -- old `games`-only gate refused all three even though Gen3Compat and the
+  -- Game3 hooks could host them.
+  -- ...and one that states NO generations is still judged by `games`, the
+  -- finer vocabulary, exactly as it always was.  Only a stated generations
+  -- list overrides it -- which is the half an Emerald-authored mod carries.
   eq((byId.kanto or {}).state, "wrong_generation",
-    "and the Gen 1 one is refused for the right reason")
-  -- the manager shows this line, so it has to name the game rather than
-  -- leaving the player to guess why nothing happened
+    "a mod that states no generations is still gated by its games claim")
   eq((byId.kanto or {}).note, "For Gen 1, not Ruby",
     "with a note that says which game it was made for and which this is")
   GameVersion.set(was)
+end
+
+-- ...and the gate still bites when a mod actually states where it runs, which
+-- is the half that would otherwise go untested once the `games`-only refusal
+-- above stopped firing.
+do
+  local ModGens = require("src.mods.ModGens")
+  local statesGen12 = { generations = { 1, 2 } }
+  local statesGen3 = { generations = { 3 } }
+  local statesNothing = {}
+  check(not ModGens.allows(statesGen12, 3),
+    "a mod that states generations 1 and 2 is refused on Ruby")
+  check(ModGens.allows(statesGen12, 2), "and still allowed on Gold")
+  check(ModGens.allows(statesGen3, 3), "one that states 3 is allowed here")
+  check(ModGens.allows(statesNothing, 3),
+    "and one that states nothing is allowed anywhere -- the Emerald default")
+  check(ModGens.allows(statesNothing, 1), "on every generation, not just this")
 end
 
 -- ---------------------------------------- Game3 publishes what it must
@@ -434,8 +530,12 @@ check(Gen3Compat.serves("src.core.Game"),
   -- because a plausible value could be supplied for it.
   eq(Gen3Compat.memberStatus("src.core.Game", 'overworld'), 'backed',
     '.overworld is a constructed shape over the live Game3')
-  eq(Gen3Compat.memberStatus("src.core.Game", 'renderer'), 'absent',
-    'and no Renderer holding a world override')
+  -- `renderer` was absent while nothing built it; it is backed now that the
+  -- facade answers with a live seam onto Game3.worldOverride. Same rule as
+  -- .overworld: backed because it reads and writes live state, not because a
+  -- plausible object could be handed over.
+  eq(Gen3Compat.memberStatus("src.core.Game", 'renderer'), 'backed',
+    'and a Renderer seam that really sets the world override')
   eq(Gen3Compat.COVERAGE_VERSION, Gen2Compat.COVERAGE_VERSION,
     'both arms publish the same coverage contract version')
 end)()
@@ -485,8 +585,8 @@ end)()
   local Game = Gen3Compat.resolve("src.core.Game", 'test')
   check(Game.overworld ~= nil,
     '.overworld is served now -- a constructed shape over live state')
-  eq(Game.renderer, nil,
-    'but .renderer is still nil, not fabricated: Ruby draws the world in '
+  check(Game.renderer ~= nil,
+    'and .renderer is a live seam onto Game3.worldOverride, which is what '
     .. 'Game3:drawWorldBody with no Renderer holding an override')
   local notes = Gen3Compat.coverage("src.core.Game").notes
   check(notes.overworld ~= nil and #notes.overworld > 0,
@@ -762,12 +862,19 @@ end)()
   eq(Map.isOutdoor({ mapType = Game3.MAP_TYPE_ROUTE, outdoor = false }), false,
     'an explicit flag wins, the way Gen 1 lets it')
   eq(Map.isOutdoor(nil), false, 'and a missing def is not outdoors')
-  -- Map.new has no Gen 3 object to construct, so it is absent rather than
-  -- returning something Gen 1 shaped
-  eq(Map.new, nil, 'Map.new is not served')
+  -- Map.new answers the LIVE map view when the def it is handed matches a
+  -- real map, and a stub with empty blocks when it does not.  That is why it
+  -- is warned rather than backed: half of it is the real thing and half is
+  -- not, and an author needs to know which half they got.
+  check(type(Map.new) == 'function', 'Map.new is served')
+  local stub = Map.new({ id = 'g0_9', width = 4, height = 3 })
+  check(type(stub) == 'table', 'and answers a table for an unknown def')
+  eq(stub.width, 4, 'carrying the dimensions it was given')
+  eq(stub.height, 3, 'in both axes')
   eq(Gen3Compat.memberStatus('src.world.Map', 'isOutdoor'), 'backed',
     'and coverage says which is which')
-  eq(Gen3Compat.memberStatus('src.world.Map', 'new'), 'absent', 'both ways')
+  eq(Gen3Compat.memberStatus('src.world.Map', 'new'), 'warned',
+    'with new marked degraded, not promised whole')
 end)()
 
 
@@ -967,11 +1074,22 @@ end)()
   eq(Game.world.map.id, Game.overworld.map.id, 'and agree')
   eq(Gen3Compat.memberStatus('src.core.Game', 'overworld'), 'backed',
     'coverage says backed rather than absent now')
-  -- the renderer object genuinely does not exist and stays absent: Ruby draws
-  -- the world in Game3:drawWorldBody with no Renderer holding an override
-  eq(Game.renderer, nil, 'renderer is still absent, not fabricated')
-  eq(Gen3Compat.memberStatus('src.core.Game', 'renderer'), 'absent',
-    'and coverage still says so')
+  -- the renderer is a real seam, not a fabricated object: setWorldOverride
+  -- writes the field Game3:drawWorldBody composites from, so a mod that hands
+  -- over a canvas actually gets it drawn
+  check(Game.renderer ~= nil, 'a renderer seam is published')
+  eq(type(Game.renderer.setWorldOverride), 'function', 'carrying the one name '
+    .. 'a world mod calls')
+  local canvas = love.graphics.newCanvas(8, 8)
+  Game.renderer:setWorldOverride(canvas)
+  eq(g.worldOverride, canvas, 'and it writes the live field, not a copy')
+  Game.renderer:setWorldOverride(nil)
+  eq(g.worldOverride, nil, 'and clears it')
+  -- anything that is not a canvas is refused rather than composited
+  Game.renderer:setWorldOverride('not a canvas')
+  eq(g.worldOverride, nil, 'a non-canvas override is dropped')
+  eq(Gen3Compat.memberStatus('src.core.Game', 'renderer'), 'backed',
+    'and coverage says backed')
 end)()
 
 
@@ -1014,10 +1132,20 @@ end)()
   local g = owGame()
   local other = { id = 'NEIGHBOUR', width = 1, height = 1, grid = { 42 },
     tileset = 'pair_a', mapType = Game3.MAP_TYPE_ROUTE }
+  -- resolution goes through the MAP PACK first, deliberately: a diorama
+  -- neighbour can sit further than CONNECTION_DRAW_HOPS, which is all
+  -- mapPlacements gathers, and those views still have to resolve.
+  g.data.maps = { maps = { NEIGHBOUR = other } }
   g.mapPlacements = function() return { { map = g.map, ox = 0, oy = 0 },
     { map = other, ox = 4, oy = 0 } } end
   eq(g:modResolveMap(g:modMapView(other)), other,
     "a neighbour's view resolves to that neighbour")
+  -- and a view for a map in no pack and no layout falls back to the active
+  -- map rather than answering nil
+  local stranger = { id = 'NOWHERE', width = 1, height = 1, grid = { 1 },
+    tileset = 'pair_a', mapType = Game3.MAP_TYPE_ROUTE }
+  eq(g:modResolveMap(g:modMapView(stranger)), g.map,
+    'a view for a map nothing knows falls back to the active map')
   eq(g:modResolveMap(g:modMapView(g.map)), g.map,
     'and the active map to itself')
   eq(g:modResolveMap(nil), g.map, 'nil means the active map')
@@ -1465,7 +1593,11 @@ end)()
   check(sprite ~= nil, 'pose returns a sprite object')
   eq(px, 16, 'and the pixel x, derived at 16px a cell')
   eq(py, 16, 'and y')
-  eq(facing, 'east', 'and the facing')
+  -- THE PAD VOCABULARY, not the compass. The consumer indexes Gen 1's sheet
+  -- tables with this (SR.STAND.left / .right below), and those are keyed
+  -- up/down/left/right -- a compass name matched no row and left every actor
+  -- on whatever frame came last.
+  eq(facing, 'right', 'and the facing, in the pad names the sheet rows use')
   eq(phase, 0, 'phase 0 -- see walker below')
   eq(flip, false, 'and no stride mirror')
   eq(type(sprite.resolveImage), 'function', 'the sprite resolves its image')
@@ -1479,15 +1611,19 @@ end)()
   eq(def.trueColor, true,
     'flagged true-colour: Ruby overworld art is GBA and must not be run '
     .. 'through a palette pass')
-  eq(def.big, true, 'a 32px sprite is taller than its cell')
+  -- NOT height > 16. Flagging every 16x32 walker big made SpriteBillboards
+  -- cache one mesh per sheet and hold every actor on frame 0; the card takes
+  -- its size from frameWidth/frameHeight instead.
+  eq(def.big, false, 'big is declined: the card is sized from its frame')
 
-  -- WALKER IS FALSE, and it is the one deliberate loss. The consumer picks a
-  -- sheet row from Gen 1's tables: STAND {down=0,up=1,left=2,right=2} and
-  -- WALK {down=3,up=4,left=5,right=5}. Ruby's standing rows are IDENTICAL, so
-  -- with walker false every direction and its mirror is exactly right. Its
-  -- walking rows are not -- south [3,0,4,0], north [5,1,6,1], west [7,2,8,2] --
-  -- so Gen 1's single WALK row lands on south's second step for north and on
-  -- north's first for west. A correct still beats a wrong stride.
+  -- WALKER IS FALSE, and the stride is recovered elsewhere. The consumer
+  -- picks a sheet row from Gen 1's tables: STAND {down=0,up=1,left=2,right=2}
+  -- and WALK {down=3,up=4,left=5,right=5}. Ruby's standing rows are
+  -- IDENTICAL, so with walker false every direction and its mirror is exactly
+  -- right. Its walking rows are not -- south [3,0,4,0], north [5,1,6,1], west
+  -- [7,2,8,2] -- so Gen 1's single WALK row lands on south's second step for
+  -- north and on north's first for west. Claiming walker would buy one wrong
+  -- frame per direction; `fixedFrame` below states the right one outright.
   eq(def.walker, false, 'walker is declined on purpose')
   local SR = require('src.render.SpriteRenderer')
   eq(SR.STAND.down, 0, "Gen 1's standing rows...")
@@ -1499,8 +1635,154 @@ end)()
 
   -- an actor is its own npc, so a consumer reaching either way lands here
   eq(ow.npcs[1].npc, ow.npcs[1], 'an actor is its own npc')
-  eq(select(4, ow.npcs[1]:pose()), 'west', 'and poses with its own facing')
+  eq(select(4, ow.npcs[1]:pose()), 'left',
+    'and poses with its own facing, likewise in pad names')
 end)()
+
+-- THE SHEET IS HANDED OVER IN THE LAYOUT THE RENDERER READS.
+--
+-- Ruby's overworld sheets run ACROSS: ow_9.png is 144x32, nine 16x32 frames
+-- side by side. Every build of the voxel mod reads a stated frame box DOWN
+-- the sheet -- `fy = frame * fh`, clamped back to 0 when it runs past the
+-- bottom -- and a Ruby sheet is exactly one frame tall, so EVERY frame
+-- clamped to frame 0. NPCs neither animated nor turned to face where they
+-- walked, while the flat path had them right the whole time. Stating the
+-- frame does not help on its own: the number arrives and is then read off
+-- the wrong axis.
+;(function()
+  local Assets = require('src.render.Assets')
+  local g = Game3.new()
+  pcall(function() g:load() end)
+  g.phase = 'play'
+  g.map = { id = 'M', width = 4, height = 4,
+    grid = { 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1 },
+    tileset = 't', mapType = Game3.MAP_TYPE_ROUTE }
+  g.data.tilesets = { byId = { t = { behavior = {}, layerType = {} } },
+    atlasCols = 32, atlasRows = 32 }
+  g.data.sprites = { byId = { [0] = { id = 0, path = 'ow_0.png',
+    width = 16, height = 32, frameCount = 9 } } }
+  g.playerX, g.playerY, g.facing = 1, 1, 'south'
+  g.npcByMap = { M = { { localId = 1, x = 2, y = 2, facing = 'west',
+    graphicsId = 0 } } }
+  g.playerGraphicsId = function() return 0 end
+
+  -- a source sheet shaped like the extractor's: nine frames ACROSS
+  local function fakeData(w, h)
+    return { getWidth = function() return w end,
+             getHeight = function() return h end,
+             getDimensions = function() return w, h end }
+  end
+  local realImageData = Assets.imageData
+  Assets.imageData = function() return fakeData(144, 32) end
+
+  local sprite = select(1, g:modOverworld().npcs[1]:pose())
+  eq(sprite.def.image, 'gen3/stacked/ow_0.png',
+    'the consumer is pointed at a stacked sheet, not the strip on disk')
+  eq(Assets.provides('gen3/stacked/ow_0.png'), true,
+    'and Assets answers for that path, so nothing is written to disk')
+  eq(sprite.def.frameWidth, 16, 'the frame box is unchanged...')
+  eq(sprite.def.frameHeight, 32, '...in both directions')
+
+  -- WHAT THE BUILDER ACTUALLY DOES, without needing a pixel store: each
+  -- frame moves from its column in the source to its row in the target.
+  local realNew = love.image.newImageData
+  local pastes, madeW, madeH = {}, nil, nil
+  love.image.newImageData = function(w, h)
+    madeW, madeH = w, h
+    return { getWidth = function() return w end,
+             getHeight = function() return h end,
+             getDimensions = function() return w, h end,
+             paste = function(_, _, dx, dy, sx, sy, pw, ph)
+               pastes[#pastes + 1] = { dx = dx, dy = dy, sx = sx, sy = sy,
+                                       w = pw, h = ph }
+             end }
+  end
+  pcall(Assets.image, 'gen3/stacked/ow_0.png')
+  love.image.newImageData = realNew
+
+  eq(madeW, 16, 'the stacked sheet is one frame wide')
+  eq(madeH, 32 * 9, 'and as many frames tall as the strip was wide')
+  eq(#pastes, 9, 'every frame is carried over')
+  eq(pastes[1].sx, 0, 'frame 0 comes from the first column...')
+  eq(pastes[1].dy, 0, '...and lands on the first row')
+  eq(pastes[4].sx, 3 * 16, 'frame 3 comes from the fourth column...')
+  eq(pastes[4].dy, 3 * 32, '...and lands on the fourth row, which is the fix')
+  eq(pastes[9].sx, 8 * 16, 'and the last frame likewise')
+  eq(pastes[9].dy, 8 * 32, '...')
+  eq(pastes[4].w, 16, 'a frame box is copied, not the whole sheet')
+  eq(pastes[4].h, 32, '...')
+
+  -- A SHEET THAT IS ALREADY STACKED IS LEFT ALONE. Berry trees ship as a
+  -- vertical strip, and a rule that "fixed" those would break them.
+  local g2 = Game3.new()
+  pcall(function() g2:load() end)
+  g2.phase = 'play'
+  g2.map, g2.data.tilesets = g.map, g.data.tilesets
+  g2.data.sprites = { byId = { [0] = { id = 0, path = 'berry.png',
+    width = 16, height = 32, frameCount = 6 } } }
+  g2.playerX, g2.playerY, g2.facing = 1, 1, 'south'
+  g2.npcByMap = { M = { { localId = 1, x = 2, y = 2, graphicsId = 0 } } }
+  g2.playerGraphicsId = function() return 0 end
+  Assets.imageData = function() return fakeData(16, 32 * 6) end
+  local berry = select(1, g2:modOverworld().npcs[1]:pose())
+  eq(berry.def.image, 'berry.png', 'a vertical sheet is handed over as it is')
+
+  Assets.imageData = realImageData
+end)()
+
+-- NO STATED FRAME, AND THAT IS THE POINT.
+--
+-- `fixedFrame` is honoured by the renderer's statedFrame path and outranks
+-- everything else -- including the first-person remap that turns each card to
+-- the viewer's position. Publishing it made NPCs animate in the diorama and
+-- face the wrong way through the lens: a Route 110 cyclist facing south was
+-- drawn frame 0 (their front) with the eye standing north of them, where the
+-- remap picks frame 1 (their back). The rows resolve correctly from the
+-- stacked sheet without it, so the choice stays the renderer's.
+;(function()
+  local Assets = require('src.render.Assets')
+  local g = Game3.new()
+  pcall(function() g:load() end)
+  g.phase = 'play'
+  g.map = { id = 'M', width = 4, height = 4,
+    grid = { 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1 },
+    tileset = 't', mapType = Game3.MAP_TYPE_ROUTE }
+  g.data.tilesets = { byId = { t = { behavior = {}, layerType = {} } },
+    atlasCols = 32, atlasRows = 32 }
+  g.data.sprites = { byId = { [0] = { id = 0, path = 'ow_0.png',
+    width = 16, height = 32, frameCount = 9,
+    face = { south = { frame = 0 }, north = { frame = 1 },
+             west = { frame = 2 }, east = { frame = 2, flip = true } },
+    walk = { south = { { frame = 3 }, { frame = 0 }, { frame = 4 }, { frame = 0 } },
+             west  = { { frame = 7 }, { frame = 2 }, { frame = 8 }, { frame = 2 } } } } } }
+  g.playerX, g.playerY, g.facing = 1, 1, 'south'
+  local npc = { localId = 1, x = 2, y = 2, facing = 'west', graphicsId = 0 }
+  g.npcByMap = { M = { npc } }
+  g.playerGraphicsId = function() return 0 end
+  local realImageData = Assets.imageData
+  Assets.imageData = function()
+    return { getWidth = function() return 144 end,
+             getHeight = function() return 32 end,
+             getDimensions = function() return 144, 32 end }
+  end
+
+  local ow = g:modOverworld()
+  local actor = ow.npcs[1]
+  npc.cooldown = Game3.WALK_PERIOD * 0.9
+  local sprite, _, _, facing, phase = actor:pose()
+  eq(actor.fixedFrame, nil, 'a walking NPC states no frame')
+  eq(ow.player.fixedFrame, nil, 'and neither does the player')
+
+  -- what IS published is everything the renderer needs to pick the row
+  -- itself, in either camera
+  eq(sprite.def.walk.west[1].frame, 7, 'the walk rows are on the def...')
+  eq(sprite.def.face.west.frame, 2, '...beside the standing rows...')
+  eq(sprite.def.image, 'gen3/stacked/ow_0.png', '...on a sheet it can index...')
+  eq(facing, 'left', '...with the facing in the pad names its tables use...')
+  check(phase > 0 and phase <= 1, '...and the walk progress as phase')
+  Assets.imageData = realImageData
+end)()
+
 
 -- IDENTITY WITHIN A STATE. The proxy rebuilds on demand so a reader always
 -- sees the live game -- but rebuilding on every READ gave two fields of one
@@ -1734,7 +2016,10 @@ end)()
   pcall(function() g:load() end)
   g.phase = 'play'
   -- cell 0 tall grass, 1 deep water, 2 plain with a warp on it
-  g.map = { id = 'M', width = 3, height = 1, grid = { 10, 11, 12 },
+  -- cell 1 is water by ELEVATION (1), which is how a Gen 3 map says water --
+  -- see isWaterCell. Its behaviour byte still names the KIND of water.
+  g.map = { id = 'M', width = 3, height = 1,
+    grid = { 10, 11 + 4096, 12 },
     tileset = 't', border = { 1, 2, 3, 4 }, mapType = Game3.MAP_TYPE_ROUTE,
     warps = { { x = 2, y = 0, dest = 'X' } } }
   g.data.tilesets = { byId = { t = { behavior = {
@@ -1763,7 +2048,34 @@ end)()
   eq(m:behaviorAt(0, 0), Game3.MB_TALL_GRASS, 'the behaviour byte reads')
   eq(m:isGrassCell(0, 0), true, 'tall grass is grass')
   eq(m:isGrassCell(1, 0), false, 'water is not')
-  eq(m:isWaterCell(1, 0), true, 'deep water is surfable, so it is water')
+  eq(m:isWaterCell(1, 0), true, 'elevation 1 is water')
+  eq(Game3.elevationOf(g.map.grid[2]), 1, 'which is what the cell states')
+
+  -- AND THE TWO RULES ARE TOLD APART. Elevation decides, not the behaviour
+  -- byte: a water-drawn shoreline at elevation 0 is NOT water (it was, and
+  -- every coast came out as a stepped band above the surface), and a cell at
+  -- elevation 1 is water whatever it is drawn as.
+  local g2 = Game3.new()
+  g2.phase = 'play'
+  g2.map = { id = 'W', width = 2, height = 1,
+    -- cell 0: water BEHAVIOUR, elevation 0.  cell 1: elevation 1, plain
+    -- behaviour.  Neither cell satisfies both rules, so a fixture that
+    -- confuses them cannot pass.
+    grid = { 20, 21 + 4096 },
+    tileset = 't', border = { 1, 2, 3, 4 }, mapType = Game3.MAP_TYPE_ROUTE }
+  g2.data.tilesets = { byId = { t = { behavior = {
+    [20] = Game3.MB_DEEP_WATER, [21] = 0 }, layerType = {} } },
+    atlasCols = 32, atlasRows = 32 }
+  g2.npcByMap = {}
+  local m2 = g2:modOverworld().map
+  eq(m2:isWaterCell(0, 0), false,
+    'a water-drawn cell at elevation 0 is shoreline, not water')
+  eq(m2:isWaterCell(1, 0), true,
+    'and a plain-drawn cell at elevation 1 is water')
+  -- collision still disqualifies, as Emerald's rule does
+  g2.map.grid[2] = 21 + 4096 + 1024
+  eq(g2:modOverworld().map:isWaterCell(1, 0), false,
+    'a blocked cell at elevation 1 is not surfable water')
   eq(m:isWaterCell(0, 0), false, 'and grass is not')
 
   -- cellTile answers the BEHAVIOUR BYTE of a walkable cell (0xFF if blocked),
@@ -3266,10 +3578,15 @@ end)()
     .. 'could not tell them apart')
   eq(m:isWalkableCell(1, 0), false, 'and water is NOT walkable on foot')
 
-  -- surfing changes the answer, which is what the caller relies on
+  -- AND IT DOES NOT MOVE WITH THE PLAYER. isWalkableCell is the dry-land
+  -- verdict about a CELL: the structure passes ask it of arbitrary cells while
+  -- the player stands elsewhere, so folding in the avatar's elevation, facing
+  -- or surf flag made every terrace at another height read impassable and left
+  -- ridges as sheer walls. Surfing is granted by the caller through
+  -- isWaterCell, not by this answer changing underneath it.
   g.surfing = true
-  eq(g:modOverworld().map:isWalkableCell(1, 0), true,
-    'a surfing player may enter the same cell')
+  eq(g:modOverworld().map:isWalkableCell(1, 0), false,
+    'water is still not dry land, even while surfing')
   g.surfing = false
   eq(g:modOverworld().map:isWalkableCell(1, 0), false, 'and not otherwise')
 
@@ -3291,27 +3608,36 @@ end)()
 ;(function()
   local Pipelines = require('src.render.Pipelines')
   local seen = {}
-  local throwOnce = true
+  local throwing = true
   -- registration is the content registry's job; install() reads that table
   Pipelines.install({ render_pipelines = { standdown_test = {
     label = 'TEST', levels = { 'OFF', 'ON' }, priority = 1,
     update = function(dt, level)
       seen[#seen + 1] = level
-      if throwOnce then throwOnce = false error('boom') end
+      if throwing then error('boom') end
     end,
     drawWorld = function() return nil end,
   } } })
   Pipelines.setLevel('standdown_test', 1)
 
+  -- ONE THROW IS A HICCUP, NOT A DEATH. Retirement takes MAX_FAILURES
+  -- consecutive failures (Emerald counts the same way); retiring on the first
+  -- flattened VOXEL for a whole session after a single bad frame.
   Pipelines.update(1 / 60)
   eq(seen[1], 1, 'the first tick carries the live level')
-  eq(seen[2], 0, 'and the throw is followed immediately by a stand-down at 0')
+  eq(#seen, 1, 'and one throw does not retire it')
+  for _ = 2, 9 do Pipelines.update(1 / 60) end
+  eq(#seen, 9, 'nine consecutive failures still keep it alive')
+  Pipelines.update(1 / 60)
+  eq(seen[10], 1, 'the tenth call carries the live level too')
+  eq(seen[11], 0,
+    'and the failure that retires it is followed at once by a stand-down at 0')
 
   -- and never again: the pipeline threw, and calling it forever is what the
   -- retirement exists to prevent
   Pipelines.update(1 / 60)
   Pipelines.update(1 / 60)
-  eq(#seen, 2, 'no further calls after the stand-down')
+  eq(#seen, 11, 'no further calls after the stand-down')
   Pipelines.install(nil)
 end)()
 

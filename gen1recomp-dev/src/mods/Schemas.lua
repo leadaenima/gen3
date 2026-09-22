@@ -521,6 +521,10 @@ Schemas.GEN2 = {
   -- its walkability as `collision` where Gen 1 says `walkable`.
   maps = "gen2Maps", tilesets = "gen2Tilesets", sprites = "gen2Sprites",
   text = "gen2Text",
+  -- Label-keyed engine prose is extracted separately from the VM's
+  -- bank:address script text.  Keep a distinct public registry name while
+  -- landing it on the shared RomText helper's data.text lookup table.
+  rom_text = "text",
   -- Namespaced AND differently shaped, and the shape is what these waited on.
   -- Each carries a Gen 2 record schema in its catalog entry now, so the id
   -- space is the one Gold actually keys by: the encounter KIND (.grass), the
@@ -636,69 +640,78 @@ Schemas.GEN2 = {
 Schemas.GEN1 = {
   held_items = false, phone_contacts = false, decorations = false,
   apricorns = false, landmarks = false, radio_channels = false,
+  rom_text = false,
 }
 
--- ------- Gen 3
+-- WHERE A REGISTRATION LANDS ON RUBY, and nowhere else.
 --
--- Ruby's tables are the GBA cartridge's own layout and are read through
--- src/core/Game3.lua, which is a separate game object from Gen 1's -- main.lua
--- says so in as many words: "The three never branch into each other."  So a
--- registry's Gen 1 target is NOT automatically a Gen 3 target, and until a
--- registry's Gen 3 record shape has actually been checked, routing it would
--- merge a Red-shaped record into a Hoenn table and call it a success.
+-- THE TARGET STATE FOR THIS TABLE IS EMPTY.  Every registry's base target is
+-- already identical to Gen2Recomped's (pokemon -> "pokemon", maps -> "maps",
+-- and so on for all forty they share), so a row here is not a Gen 3 fact --
+-- it is a GAME3 STORAGE QUIRK: Game3.lua keeps its records one level down,
+-- in `data.pokemon.byIndex` rather than `data.pokemon`.  Each row below says
+-- which quirk it is paying for.  Normalise that storage and the row is
+-- deleted; when every row is gone this table is `{}` and Ruby routes content
+-- exactly like every other version, which is what makes moving Ruby onto a
+-- shared Gen 3 core a deletion rather than a reconciliation.
 --
--- This table is therefore the conservative direction, and deliberately starts
--- nearly empty: everything is gated (`false`) except what this engine has been
--- verified to read at the shared path.  A gated registry REPORTS -- the
--- manager shows "no Gen 3 target" -- which is the outcome the rest of this
--- file already prefers over a silent drop or a silent wrong merge.
+-- A path, not a namespace, for a reason that is easy to get wrong.  The base
+-- a Registry folds against is `resolvePath(data, target)` and a plain
+-- `base[id]` lookup (src/mods/Registry.lua:baseValue), so the target has to
+-- name the table that HOLDS THE RECORDS.  Pointing at the namespace above
+-- them -- `maps` instead of `maps.maps` -- puts a mod's record beside the
+-- namespace's own counters and offsets, where nothing reads it.
 --
---   render_pipelines  NOT gated.  src/core/Game3.lua:load calls
---                     Pipelines.install(self.data) after the merge, exactly
---                     as Gen 1 and Gen 2 do, so data.render_pipelines is the
---                     merged table a pipeline mod registered into, and
---                     Game3:drawWorldBody hands the world pass to
---                     Pipelines.drawWorld.  Verified by construction: the
---                     install call and the draw hook land in the same change
---                     as this row.
---
--- Every other registry is gated for one of two reasons, and both are honest
--- "not yet" rather than "never":
---
---   * the system exists on Ruby but is not driven by the registry -- battle
---     transitions are src/core/Game3BattleTransition.lua, not data.transitions;
---     text is a cartridge pointer space; maps come from Gen3MapPack;
---   * or the record shape is a Gen 3 shape nobody has written a gen3Fields
---     layer for yet, so validating a mod's record would judge it against
---     Red's schema.
---
--- Ungating a row means: confirm Game3 reads that Data path, add a gen3* shape
--- beside the Gen 1 one if the records differ, and pin it with a test.  One row
--- at a time, each with its own evidence -- which is how Schemas.GEN2 above got
--- to be as short as it is.
--- Built on first use rather than here: the catalog (Schemas.REGISTRIES) is
--- assembled further down this file, so an eager loop would see an empty one
--- and gate nothing at all -- which is the exact silent-wrong-merge this table
--- exists to prevent.  Lazy also means a registry added later is gated by
--- default without anyone having to remember this list.
-local GEN3_UNGATED = { render_pipelines = true }
-local gen3Routing
+-- These paths were measured against a live Ruby boot, not inferred: 412
+-- species at pokemon.byIndex, 355 moves at moves.byId, 394 maps at maps.maps,
+-- 694 trainers at trainers.byId, 97 encounter sets at encounters.byMap.
+Schemas.GEN3 = {
+  pokemon = "pokemon.byIndex",
+  moves = "moves.byId",
+  items = "items.byId",
+  maps = "maps.maps",
+  sprites = "sprites.byId",
+  tilesets = "tilesets.byId",
+  encounters = "encounters.byMap",
+  trainers = "trainers.byId",
+  -- Ruby has no `audio.sfx` at all: an effect here is a NUMBERED MP2K track,
+  -- played by Game3:playSe out of the same audio.songs table the music uses.
+  music = "audio.songs",
+  cries = "audio.cries",
+  -- No row for text, strings, screens or render_pipelines ON PURPOSE: Game3
+  -- stores those exactly where the shared target already points, so they are
+  -- four registries that need no Gen 3 knowledge at all.  That is the shape
+  -- every row above is trying to reach.
+  --
+  -- Still no Ruby home.  Each of these is a system Game3 does not read
+  -- through a registry, so a routed row would merge into a table nothing
+  -- consults -- which is worse than a reported refusal, because it looks
+  -- like success.
+  --   sfx           numbered MP2K tracks; `music` is the route that means
+  --                 something on this cart
+  --   map_scripts   Game3 runs the cart's own script bytecode, not a Lua
+  --                 row list
+  --   transitions   Game3 draws its own battle intro
+  --   rom_text      declared with no target on any generation yet
+  sfx = false, map_scripts = false, transitions = false, rom_text = false,
+  font = false, audio = false, map_songs = false, tokens = false,
+  palettes = false, icons = false, battle_anims = false, constants = false,
+  statuses = false, move_effects = false, item_effects = false,
+  balls = false, ai_classes = false, evolution_methods = false,
+  growth_rates = false, type_chart = false, battle_sprite_scales = false,
+  rulesets = false, field = false, text_pointers = false, link_fields = false,
+  held_items = false, phone_contacts = false, decorations = false,
+  apricorns = false, landmarks = false, radio_channels = false,
+}
 
-function Schemas.gen3Routing()
-  if gen3Routing then return gen3Routing end
-  gen3Routing = {}
-  for name in pairs(Schemas.REGISTRIES) do
-    if not GEN3_UNGATED[name] then gen3Routing[name] = false end
-  end
-  return gen3Routing
-end
+
 -- The routing table for a generation: which one is consulted is the only
--- difference between the three directions.  An unknown generation routes
+-- difference between the two directions.  An unknown generation routes
 -- nothing, so every registry keeps its catalog target.
 local NO_ROUTING = {}
 
 function Schemas.routing(generation)
-  if generation == 3 then return Schemas.gen3Routing() end
+  if generation == 3 then return Schemas.GEN3 end
   if generation == 2 then return Schemas.GEN2 end
   if generation == 1 then return Schemas.GEN1 end
   return NO_ROUTING
@@ -714,8 +727,52 @@ end
 
 -- true when the registry exists but this generation has nowhere to put it,
 -- which is a different diagnostic from a registry that has no target at all
+-- READING AND WRITING ARE SEPARATE QUESTIONS ON RUBY.
+--
+-- A routed registry can be READ the moment it has a path -- the base folds
+-- against Game3's own records, which is all a mod like the encounter radar
+-- ever wanted.  WRITING into one of those live tables is a bigger claim: a
+-- Gen 1-shaped record merged into the table Game3 draws from is a silent
+-- wrong merge sitting where the engine reads a Ruby one, and a reported
+-- refusal is strictly better than that.
+--
+-- The list is EXPLICIT rather than derived from "does it carry a gen3 shape",
+-- because that rule gets `sprites` wrong: it describes no Gen 3 record and yet
+-- Wilds of Kanto's ~395 sheets merge into sprites.byId correctly today, judged
+-- by the shared schema.  A derived rule would refuse them.  Measured, not
+-- inferred: every row below is one a live Ruby boot is observed to accept.
+local GEN3_WRITABLE = {
+  -- carry a gen3 record shape, so a write is judged against Ruby's own record
+  pokemon = true, moves = true, items = true, encounters = true,
+  trainers = true, maps = true,
+  -- no gen3 shape, but the shared schema already distinguishes a Ruby sheet
+  -- from a Gen 1 one (id/path/width/height/frameCount), and the drops are
+  -- reported per mod
+  sprites = true,
+}
+
+-- true when the registry exists but this generation has nowhere to put it, or
+-- has somewhere to READ it and no agreed shape to WRITE there
 function Schemas.gatedFor(name, generation)
-  return Schemas.routing(generation)[name] == false
+  local routed = Schemas.routing(generation)[name]
+  if routed == false then return true end
+  if generation ~= 3 then return false end
+  -- absent from Schemas.GEN3 means Ruby stores it exactly where the shared
+  -- target points, so the shared shape governs and there is nothing to gate
+  if routed == nil then return false end
+  return not GEN3_WRITABLE[name]
+end
+
+-- Which routed-but-unwritable registries exist, for the message the manager
+-- shows and for the suite that pins the two lists against each other.
+function Schemas.readOnlyFor(generation)
+  local out = {}
+  if generation ~= 3 then return out end
+  for name, path in pairs(Schemas.GEN3) do
+    if path and not GEN3_WRITABLE[name] then out[#out + 1] = name end
+  end
+  table.sort(out)
+  return out
 end
 
 -- ------- per-generation record shapes
@@ -731,9 +788,10 @@ end
 --
 -- So beside `value` / `fields` / `keys` / `keyValue` a spec may carry
 -- `gen2Value` / `gen2Fields` / `gen2Keys` / `gen2KeyValue`, and beside
--- `semantics` / `extra` / `write` / `baseAt` / `baseIds` / `example` /
--- `notes` the matching `gen2*`.  Absent means "the Gen 1 shape is right here
--- too", which is the common case and why most registries carry none of this.
+-- `semantics` / `extra` / `write` / `baseAt` / `baseIds` / `reservedIds` /
+-- `example` / `notes` the matching `gen2*`.  Absent means "the Gen 1 shape is
+-- right here too", which is the common case and why most registries carry
+-- none of this.
 -- The registry NAME, the verbs and (wherever the id space allows it) the ids
 -- stay shared, exactly as the routing table keeps them shared.
 --
@@ -750,13 +808,23 @@ end
 -- resolve is one table lookup after the first call.  Everything downstream --
 -- Schemas.check, Registry's fold and baseAt, the loader's merge and write --
 -- then reads one spec and never learns about generations.
-local GEN2_SHAPE = {
-  gen2Value = "value", gen2Fields = "fields", gen2Keys = "keys",
-  gen2KeyValue = "keyValue", gen2Extra = "extra",
-  gen2Semantics = "semantics", gen2Write = "write",
-  gen2BaseAt = "baseAt", gen2BaseIds = "baseIds",
-  gen2Example = "example", gen2Notes = "notes",
+local SHAPE_SLOTS = {
+  Value = "value", Fields = "fields", Keys = "keys",
+  KeyValue = "keyValue", Extra = "extra",
+  Semantics = "semantics", Write = "write",
+  BaseAt = "baseAt", BaseIds = "baseIds",
+  ReservedIds = "reservedIds",
+  Example = "example", Notes = "notes",
 }
+
+local SHAPES = {}
+for _, generation in ipairs({ 2, 3 }) do
+  local map = {}
+  for suffix, slot in pairs(SHAPE_SLOTS) do
+    map["gen" .. generation .. suffix] = slot
+  end
+  SHAPES[generation] = map
+end
 
 -- Schemas.check reads these four in a fixed order (keys/keyValue, then value,
 -- then fields), so a Gen 2 shape that describes its records with `keys` must
@@ -770,34 +838,49 @@ local VALUE_SLOTS = { value = true, fields = true, keys = true, keyValue = true 
 -- registry its own table -- the two ALIASES resolve to the canonical name
 -- before anything reaches here, and `target` is the only name-dependent
 -- field a derived spec carries.
-local derivedSpecs = setmetatable({}, { __mode = "k" })
+local derivedSpecs = {}
+for generation in pairs(SHAPES) do
+  derivedSpecs[generation] = setmetatable({}, { __mode = "k" })
+end
 
--- does this registry describe its Gen 2 records differently at all?
-function Schemas.hasGen2Shape(spec)
-  if type(spec) ~= "table" then return false end
-  for source in pairs(GEN2_SHAPE) do
+function Schemas.hasShape(spec, generation)
+  local map = SHAPES[generation]
+  if type(spec) ~= "table" or not map then return false end
+  for source in pairs(map) do
     if spec[source] ~= nil then return true end
   end
   return false
 end
 
+-- does this registry describe its Gen 2 records differently at all?
+function Schemas.hasGen2Shape(spec)
+  return Schemas.hasShape(spec, 2)
+end
+
+function Schemas.hasGen3Shape(spec)
+  return Schemas.hasShape(spec, 3)
+end
+
 -- The spec to validate and merge `name` with under `generation`.  Idempotent:
 -- a derived spec carries no gen2* keys, so resolving one again returns it.
 function Schemas.shapeFor(name, spec, generation)
-  if generation ~= 2 or not Schemas.hasGen2Shape(spec) then return spec end
-  local hit = derivedSpecs[spec]
+  local map = SHAPES[generation]
+  if not map or not Schemas.hasShape(spec, generation) then return spec end
+  local hit = derivedSpecs[generation][spec]
   if hit then return hit end
   local out = {}
   for key, value in pairs(spec) do out[key] = value end
   local replacesValue = false
-  for source, slot in pairs(GEN2_SHAPE) do
+  for source, slot in pairs(map) do
     if spec[source] ~= nil and VALUE_SLOTS[slot] then replacesValue = true end
   end
   if replacesValue then
     for slot in pairs(VALUE_SLOTS) do out[slot] = nil end
   end
-  for source, slot in pairs(GEN2_SHAPE) do
-    out[source] = nil
+  for _, other in pairs(SHAPES) do
+    for source in pairs(other) do out[source] = nil end
+  end
+  for source, slot in pairs(map) do
     -- `or nil` is the clear: gen2Write = false leaves the slot empty
     if spec[source] ~= nil then out[slot] = spec[source] or nil end
   end
@@ -805,12 +888,962 @@ function Schemas.shapeFor(name, spec, generation)
   -- holding it alone never reads the Gen 1 path by accident.  targetFor stays
   -- authoritative and stays idempotent over the result.
   out.target = Schemas.targetFor(name, spec, generation)
-  derivedSpecs[spec] = out
+  derivedSpecs[generation][spec] = out
   return out
 end
 
 local R = {}
 Schemas.REGISTRIES = R
+
+-- Some generated Gen 2 modules keep extractor metadata beside their public
+-- record maps. These callbacks are the registry normalization boundary: the
+-- metadata remains available to engine consumers through Data, but is not an
+-- id a mod can read or overwrite through the record registry.
+local function recordMapExcept(...)
+  local excluded = {}
+  for index = 1, select("#", ...) do excluded[select(index, ...)] = true end
+  return function(base, id)
+    if excluded[id] then return nil end
+    return base[id]
+  end, function(base)
+    local ids = {}
+    for id in pairs(base) do
+      if not excluded[id] then ids[#ids + 1] = id end
+    end
+    return ids
+  end, excluded
+end
+
+local pokemonGen2BaseAt, pokemonGen2BaseIds, pokemonGen2ReservedIds =
+  recordMapExcept("growthRates", "tmhmMoves")
+local movesGen2BaseAt, movesGen2BaseIds, movesGen2ReservedIds =
+  recordMapExcept("generation", "source")
+local itemsGen2BaseAt, itemsGen2BaseIds, itemsGen2ReservedIds =
+  recordMapExcept("generation", "source", "pockets")
+
+local G3 = {}
+Schemas.gen3View = G3
+
+-- THE SECOND GAME3 STORAGE QUIRK, and the last one standing between Ruby and
+-- an empty Schemas.GEN3.
+--
+-- Ruby keys pokemon/moves/items/trainers by the CART'S OWN NUMBER -- byIndex
+-- and byId are 0..411, 0..354, 0..348 -- while a mod spells the id the way
+-- every other version stores it, by name: `mod.content.pokemon:get("MEW")`.
+-- So the id space, not just the path, needs one translation.
+--
+-- This is a quirk of how Game3.lua stores its records, NOT a fact about Gen 3,
+-- which is why it lives here beside the routing table rather than in the
+-- registry catalogue: normalise the storage and both go together.
+--
+-- Cheap after the first call.  The name index is built once per base table and
+-- held weakly, so a rebuilt dataset drops its entry instead of pinning it.
+local nameKeyCache = setmetatable({}, { __mode = "k" })
+
+local function nameKeyIndex(base)
+  local hit = nameKeyCache[base]
+  if hit then return hit end
+  local index = {}
+  for key, record in pairs(base) do
+    if type(record) == "table" then
+      -- `name` is what the cart calls it (BULBASAUR, POUND); `id` is carried
+      -- too on some tables and is worth accepting when it is a string
+      local name = record.name
+      if type(name) == "string" and index[name] == nil then index[name] = key end
+      local rid = record.id
+      if type(rid) == "string" and index[rid] == nil then index[rid] = key end
+    end
+  end
+  nameKeyCache[base] = index
+  return index
+end
+
+-- base[id] first, so a mod that already speaks Ruby's numbers pays nothing and
+-- a table that happens to be string-keyed needs no special case at all.
+function G3.numberedById(base, id)
+  if type(base) ~= "table" or id == nil then return nil end
+  local direct = base[id]
+  if direct ~= nil then return direct end
+  local n = tonumber(id)
+  if n ~= nil then
+    local hit = base[n]
+    if hit ~= nil then return hit end
+  end
+  if type(id) ~= "string" then return nil end
+  local key = nameKeyIndex(base)[id]
+  if key == nil then return nil end
+  return base[key]
+end
+
+-- AND THE WRITE SIDE OF THE SAME TRANSLATION, which is not optional.
+--
+-- Translating only the READ is worse than translating neither.  With reads
+-- translated, `mod.content.pokemon:get("MEW")` hands back Ruby's real species;
+-- the mod edits it and calls `:override("MEW", ...)`; and the default merge
+-- writes `target["MEW"]`.  The result is a 413th entry under a STRING key in
+-- a table Game3 reads by number -- the mod's change is invisible, the real Mew
+-- at key 151 is untouched, and nothing reports a problem because the write
+-- succeeded.  That is exactly what example_mew_starter did once its `get`
+-- started working.
+--
+-- Same shape as the loader's own default branch (src/mods/Loader.lua), with
+-- the id resolved to the key it belongs on first.  An id that resolves to
+-- nothing existing keeps the id the mod chose, so registering something NEW
+-- still works.
+function G3.numberedWrite(target, registry)
+  if type(target) ~= "table" then return end
+  local function keyFor(id)
+    if target[id] ~= nil then return id end
+    local n = tonumber(id)
+    if n ~= nil and target[n] ~= nil then return n end
+    if type(id) == "string" then
+      local key = nameKeyIndex(target)[id]
+      if key ~= nil then return key end
+    end
+    return id
+  end
+  local tombstones = {}
+  for id in pairs(registry.ops) do
+    local key = keyFor(id)
+    local value = registry:get(id)
+    if value == nil then
+      tombstones[#tombstones + 1] = key
+    else
+      target[key] = value
+    end
+  end
+  for _, key in ipairs(tombstones) do target[key] = nil end
+  -- the pass may have introduced names the index was built before
+  nameKeyCache[target] = nil
+end
+
+-- The ids a mod may ask for: the cart's names where records carry one, so
+-- `:each()` reads the same way `:get()` does.
+function G3.numberedIds(base)
+  if type(base) ~= "table" then return {} end
+  local out = {}
+  for name in pairs(nameKeyIndex(base)) do out[#out + 1] = name end
+  table.sort(out)
+  return out
+end
+
+
+G3.TYPES = {
+  [0] = "NORMAL", "FIGHTING", "FLYING", "POISON", "GROUND", "ROCK", "BUG",
+  "GHOST", "STEEL", "MYSTERY", "FIRE", "WATER", "GRASS", "ELECTRIC",
+  "PSYCHIC", "ICE", "DRAGON", "DARK",
+}
+G3.GROWTH = {
+  [0] = "MEDIUM_FAST", "ERRATIC", "FLUCTUATING", "MEDIUM_SLOW", "FAST", "SLOW",
+}
+G3.EVOLUTIONS = {
+  "EVO_FRIENDSHIP", "EVO_FRIENDSHIP_DAY", "EVO_FRIENDSHIP_NIGHT",
+  "EVO_LEVEL", "EVO_TRADE", "EVO_TRADE_ITEM", "EVO_ITEM",
+  "EVO_LEVEL_ATK_GT_DEF", "EVO_LEVEL_ATK_EQ_DEF", "EVO_LEVEL_ATK_LT_DEF",
+  "EVO_LEVEL_SILCOON", "EVO_LEVEL_CASCOON", "EVO_LEVEL_NINJASK",
+  "EVO_LEVEL_SHEDINJA", "EVO_BEAUTY",
+}
+local EVO_LEVEL_METHODS = { [4] = true, [8] = true, [9] = true, [10] = true,
+                            [11] = true, [12] = true, [13] = true, [14] = true }
+local EVO_ITEM_METHODS = { [6] = true, [7] = true }
+local PHYSICAL_TYPES = { [0] = true, [1] = true, [2] = true, [3] = true,
+                         [4] = true, [5] = true, [6] = true, [7] = true,
+                         [8] = true }
+G3.SPRITE_ROOT = "data/generated/gba/pokemon"
+
+local function reverse(list)
+  local out = {}
+  for num, name in pairs(list) do out[name] = num end
+  return out
+end
+local TYPE_NUMS = reverse(G3.TYPES)
+local GROWTH_NUMS = reverse(G3.GROWTH)
+local EVO_NUMS = reverse(G3.EVOLUTIONS)
+
+function G3.idOf(name)
+  if type(name) ~= "string" then return nil end
+  local s = name:gsub("\195\169", "E"):gsub("\195\137", "E")
+    :gsub("\226\153\128", "_F"):gsub("\226\153\130", "_M"):gsub("'", "")
+  s = s:upper():gsub("[^%w]+", "_"):gsub("^_+", ""):gsub("_+$", "")
+  if s == "" then return nil end
+  return s
+end
+
+function G3.vanillaSprite(side, species)
+  return ("%s/%s/%d.rgba"):format(G3.SPRITE_ROOT,
+    side == "back" and "back" or "front", species)
+end
+
+local function tableAt(base, ...)
+  if type(base) ~= "table" then return nil end
+  for i = 1, select("#", ...) do
+    local value = rawget(base, (select(i, ...)))
+    if value == nil then value = base[(select(i, ...))] end
+    if type(value) == "table" then return value end
+  end
+  return nil
+end
+
+local bound = setmetatable({}, { __mode = "k" })
+local ROOT_KEYS = { "gen3Pokemon", "gen3Moves", "gen3Items", "gen3Encounters",
+                    "gen3Trainers", "gen3Text", "gen3Scripts" }
+local LIVE_MODULES = {
+  gen3Pokemon = "src.core.game3.pokemon",
+  gen3Moves = "src.core.game3.battle.moves",
+  gen3Items = "src.core.game3.items_data",
+  gen3Encounters = "src.core.game3.encounters",
+  gen3Trainers = "src.core.game3.scripting.trainers",
+}
+
+function Schemas.bindGen3(data)
+  if type(data) == "table" then bound[data] = true end
+end
+
+local function sibling(base, key)
+  for data in pairs(bound) do
+    for _, root in ipairs(ROOT_KEYS) do
+      if base ~= nil and rawget(data, root) == base then
+        local value = data[key]
+        if value ~= nil then return value end
+      end
+    end
+  end
+  return package.loaded[LIVE_MODULES[key] or ""]
+end
+
+local indexCache = { species = setmetatable({}, { __mode = "k" }),
+                     moves = setmetatable({}, { __mode = "k" }),
+                     items = setmetatable({}, { __mode = "k" }),
+                     abilities = setmetatable({}, { __mode = "k" }) }
+local EMPTY_INDEX = { ids = {}, num = {}, id = {} }
+
+local function nameIndex(kind, source, field)
+  if type(source) ~= "table" then return EMPTY_INDEX end
+  local cache = indexCache[kind]
+  local hit = cache[source]
+  if hit then return hit end
+  local nums = {}
+  for key in pairs(source) do
+    if type(key) == "number" and key > 0 then nums[#nums + 1] = key end
+  end
+  table.sort(nums)
+  local out = { ids = {}, num = {}, id = {} }
+  for _, num in ipairs(nums) do
+    local entry = source[num]
+    local id = G3.idOf(field and type(entry) == "table" and entry[field] or entry)
+    if id and not out.num[id] then
+      out.num[id], out.id[num] = num, id
+      out.ids[#out.ids + 1] = id
+    end
+  end
+  cache[source] = out
+  return out
+end
+
+local function toNum(index, id)
+  if type(id) == "number" then return id end
+  return index.num[id] or tonumber(id)
+end
+
+local function toId(index, num)
+  num = tonumber(num)
+  if not num or num == 0 then return nil end
+  return index.id[num] or tostring(num)
+end
+
+local function monTables(base)
+  return {
+    names = tableAt(base, "_names", "names"),
+    types = tableAt(base, "_types", "types"),
+    stats = tableAt(base, "_stats", "stats"),
+    abilities = tableAt(base, "_abilities", "abilities"),
+    abilityNames = tableAt(base, "_abilityNames", "abilityNames"),
+    meta = tableAt(base, "_speciesMeta", "speciesMeta", "meta"),
+    learnsets = tableAt(base, "_learnsets", "learnsets"),
+    eggMoves = tableAt(base, "_eggMoves", "eggMoves"),
+    evolutions = tableAt(base, "_evolutions", "evolutions"),
+    tmhm = tableAt(base, "_tmhm", "tmhm"),
+    dex = tableAt(base, "_dex", "dex"),
+    national = tableAt(base, "_national", "national"),
+    moveNames = tableAt(base, "_moveNames", "moveNames"),
+    battleMoves = tableAt(base, "_battleMoves", "battleMoves"),
+  }
+end
+
+local function itemRows(base)
+  if type(base) ~= "table" then return nil end
+  if type(base.ensureLoaded) == "function" or type(base.info) == "function" then
+    if type(rawget(base, "_byId")) ~= "table" then
+      pcall(base.ensureLoaded or base.info, 1)
+    end
+    return tableAt(base, "_byId")
+  end
+  local byId = rawget(base, "_byId")
+  if type(byId) == "table" then return byId end
+  local items = rawget(base, "items")
+  if type(items) == "table" then return items end
+  return base
+end
+
+local function moveRows(base)
+  if type(base) ~= "table" then return nil end
+  if type(base.romReady) == "function" then
+    if type(rawget(base, "_rom")) ~= "table" then pcall(base.romReady) end
+    return tableAt(base, "_rom")
+  end
+  local rom = rawget(base, "_rom")
+  if type(rom) == "table" then return rom end
+  local moves = rawget(base, "moves")
+  if type(moves) == "table" then return moves end
+  rom = rawget(base, "rom")
+  if type(rom) == "table" then
+    return type(rom.moves) == "table" and rom.moves or rom
+  end
+  return base
+end
+
+local function trainerRows(base)
+  if type(base) ~= "table" then return nil end
+  if type(base.pack) == "function" then
+    local pack = rawget(base, "_pack")
+    if pack == nil then
+      local ok, loaded = pcall(base.pack)
+      pack = ok and loaded or nil
+    end
+    return type(pack) == "table" and pack.trainers or nil
+  end
+  local pack = rawget(base, "_pack")
+  if type(pack) == "table" then return pack.trainers end
+  local trainers = rawget(base, "trainers")
+  if type(trainers) == "table" then return trainers end
+  return base
+end
+
+local function encounterRows(base)
+  if type(base) ~= "table" then return nil end
+  local tables = rawget(base, "_tables")
+  if type(tables) == "table" then return tables end
+  return base
+end
+
+local function speciesIndex(base)
+  local pokemon = sibling(base, "gen3Pokemon")
+  return nameIndex("species", monTables(pokemon).names)
+end
+
+local function moveNamesFor(base, moveNames)
+  if moveNames then return moveNames end
+  local own = tableAt(base, "_moveNames", "moveNames", "names")
+  if own then return own end
+  return monTables(sibling(base, "gen3Pokemon")).moveNames
+end
+
+local function moveIndexFor(base, moveNames)
+  return nameIndex("moves", moveNamesFor(base, moveNames))
+end
+
+local function itemIndex(base)
+  return nameIndex("items", itemRows(sibling(base, "gen3Items")), "name")
+end
+
+G3.itemRows, G3.moveRows, G3.trainerRows = itemRows, moveRows, trainerRows
+G3.encounterRows, G3.monTables = encounterRows, monTables
+
+function G3.speciesNum(pokemonBase, id)
+  return toNum(nameIndex("species", monTables(pokemonBase).names), id)
+end
+
+function G3.speciesId(pokemonBase, num)
+  return toId(nameIndex("species", monTables(pokemonBase).names), num)
+end
+
+function G3.moveNum(base, id) return toNum(moveIndexFor(base), id) end
+function G3.moveId(base, num) return toId(moveIndexFor(base), num) end
+function G3.itemNum(base, id) return toNum(itemIndex(base), id) end
+function G3.itemId(base, num) return toId(itemIndex(base), num) end
+
+local function bitSet(lo, hi, bit)
+  local word = bit < 32 and (lo or 0) or (hi or 0)
+  local shift = bit < 32 and bit or bit - 32
+  return math.floor(word / 2 ^ shift) % 2 == 1
+end
+
+local function monRecord(base, id)
+  local t = monTables(base)
+  local index = nameIndex("species", t.names)
+  local num = index.num[id]
+  local stats = num and t.stats and t.stats[num]
+  local meta = num and t.meta and t.meta[num]
+  if not (stats and meta) then return nil end
+  local moveIndex = moveIndexFor(sibling(base, "gen3Moves"), t.moveNames)
+  local items = itemIndex(base)
+  local national = t.national and t.national.toNational
+    and t.national.toNational[num]
+  if national == nil and num <= 251 then national = num end
+  local record = {
+    id = id, name = t.names[num], index = num, dex = national,
+    baseStats = { hp = stats.hp, attack = stats.atk, defense = stats.def,
+                  speed = stats.spe, specialAttack = stats.spa,
+                  specialDefense = stats.spd },
+    catchRate = meta.catchRate, baseExp = meta.expYield,
+    growthRate = G3.GROWTH[meta.growthRate] or tostring(meta.growthRate),
+    genderRatio = meta.genderRatio, eggCycles = meta.eggCycles,
+    friendship = meta.friendship,
+    eggGroups = { meta.eggGroup1 or 0, meta.eggGroup2 or 0 },
+    itemCommon = toId(items, meta.itemCommon),
+    itemRare = toId(items, meta.itemRare),
+    spriteFront = G3.vanillaSprite("front", num),
+    spriteBack = G3.vanillaSprite("back", num),
+  }
+  local pair = t.types and t.types[num]
+  local types = {}
+  if pair then
+    types[1] = G3.TYPES[pair[1]] or tostring(pair[1])
+    if pair[2] ~= nil and pair[2] ~= pair[1] then
+      types[2] = G3.TYPES[pair[2]] or tostring(pair[2])
+    end
+  end
+  record.types = types
+  local abilityPair = t.abilities and t.abilities[num]
+  if abilityPair then
+    local abilityIndex = nameIndex("abilities", t.abilityNames)
+    local abilities = {}
+    for slot = 1, 2 do
+      local ability = abilityPair[slot]
+      if ability and ability ~= 0 then
+        abilities[#abilities + 1] = abilityIndex.id[ability] or ability
+      end
+    end
+    record.abilities = abilities
+  end
+  local learnset = {}
+  for _, row in ipairs(t.learnsets and t.learnsets[num] or {}) do
+    local level = row[1] or row.level
+    local move = row[2] or row.move
+    if level and move and move ~= 0 then
+      learnset[#learnset + 1] = { level = level, move = toId(moveIndex, move) }
+    end
+  end
+  record.learnset = learnset
+  -- gEggMoves is sparse: a species with no egg move has no key at all.
+  local eggMoves = {}
+  for _, move in ipairs(t.eggMoves and t.eggMoves[num] or {}) do
+    local id = toId(moveIndex, move)
+    if id then eggMoves[#eggMoves + 1] = id end
+  end
+  if #eggMoves > 0 then record.eggMoves = eggMoves end
+  local evolutions = {}
+  for _, row in ipairs(t.evolutions and t.evolutions[num] or {}) do
+    local method = row.method or row[1]
+    local param = row.param or row[2] or 0
+    local entry = {
+      method = G3.EVOLUTIONS[method] or tostring(method),
+      species = toId(index, row.target or row[3]) or "0",
+    }
+    if EVO_LEVEL_METHODS[method] then
+      entry.level = param
+    elseif EVO_ITEM_METHODS[method] then
+      entry.item = toId(items, param)
+    else
+      entry.param = param
+    end
+    evolutions[#evolutions + 1] = entry
+  end
+  record.evolutions = evolutions
+  local tmhm = t.tmhm
+  if tmhm and type(tmhm.machines) == "table" and type(tmhm.learnsets) == "table" then
+    local bits = tmhm.learnsets[num]
+    local list = {}
+    if bits then
+      for bit = 0, 63 do
+        local move = tmhm.machines[bit]
+        if move == nil then break end
+        if move ~= 0 and bitSet(bits.lo, bits.hi, bit) then
+          list[#list + 1] = toId(moveIndex, move)
+        end
+      end
+    end
+    record.tmhm = list
+  end
+  local entry = national and t.dex and t.dex[national]
+  if entry then
+    record.dexEntry = { kind = entry.category or "", height = entry.height or 0,
+                        weight = entry.weight or 0 }
+  end
+  return record
+end
+
+local function monIds(base)
+  local t = monTables(base)
+  local ids = {}
+  for _, id in ipairs(nameIndex("species", t.names).ids) do
+    local num = nameIndex("species", t.names).num[id]
+    if t.stats and t.stats[num] and t.meta and t.meta[num] then
+      ids[#ids + 1] = id
+    end
+  end
+  return ids
+end
+
+local function sideTable(target, key)
+  local side = rawget(target, key)
+  if type(side) ~= "table" then
+    side = {}
+    rawset(target, key, side)
+  end
+  return side
+end
+
+local function ensureSlot(t, key)
+  if t[key] == nil then t[key] = {} end
+  return t[key]
+end
+
+local function writeMon(target, t, num, value)
+  local moveIndex = moveIndexFor(sibling(target, "gen3Moves"), t.moveNames)
+  local items = itemIndex(target)
+  if type(value.name) == "string" and t.names then t.names[num] = value.name end
+  if type(value.types) == "table" and t.types then
+    local first = TYPE_NUMS[value.types[1]] or tonumber(value.types[1]) or 0
+    local second = TYPE_NUMS[value.types[2]] or tonumber(value.types[2]) or first
+    t.types[num] = { first, second }
+  end
+  if type(value.baseStats) == "table" and t.stats then
+    local old = t.stats[num] or {}
+    local s = value.baseStats
+    t.stats[num] = {
+      hp = s.hp or old.hp, atk = s.attack or old.atk, def = s.defense or old.def,
+      spe = s.speed or old.spe, spa = s.specialAttack or old.spa,
+      spd = s.specialDefense or old.spd,
+    }
+  end
+  if t.meta then
+    local meta = {}
+    for key, v in pairs(t.meta[num] or {}) do meta[key] = v end
+    if value.catchRate ~= nil then meta.catchRate = value.catchRate end
+    if value.baseExp ~= nil then meta.expYield = value.baseExp end
+    if value.growthRate ~= nil then
+      meta.growthRate = GROWTH_NUMS[value.growthRate]
+        or tonumber(value.growthRate) or meta.growthRate
+    end
+    for _, key in ipairs({ "genderRatio", "eggCycles", "friendship" }) do
+      if value[key] ~= nil then meta[key] = value[key] end
+    end
+    if type(value.eggGroups) == "table" then
+      meta.eggGroup1 = value.eggGroups[1] or 0
+      meta.eggGroup2 = value.eggGroups[2] or meta.eggGroup1
+    end
+    meta.itemCommon = value.itemCommon and toNum(items, value.itemCommon) or 0
+    meta.itemRare = value.itemRare and toNum(items, value.itemRare) or 0
+    t.meta[num] = meta
+  end
+  if type(value.abilities) == "table" and t.abilities then
+    local abilityIndex = nameIndex("abilities", t.abilityNames)
+    local pair = {}
+    for slot = 1, 2 do
+      pair[slot] = toNum(abilityIndex, value.abilities[slot]) or 0
+    end
+    t.abilities[num] = pair
+  end
+  if type(value.learnset) == "table" and t.learnsets then
+    local rows = {}
+    for _, row in ipairs(value.learnset) do
+      rows[#rows + 1] = { row.level, toNum(moveIndex, row.move) or 0 }
+    end
+    t.learnsets[num] = rows
+  end
+  if type(value.eggMoves) == "table" and t.eggMoves then
+    local list = {}
+    for _, move in ipairs(value.eggMoves) do
+      local moveNum = toNum(moveIndex, move)
+      if moveNum then list[#list + 1] = moveNum end
+    end
+    t.eggMoves[num] = list
+  end
+  if type(value.evolutions) == "table" and t.evolutions then
+    local rows = {}
+    for _, row in ipairs(value.evolutions) do
+      local method = EVO_NUMS[row.method] or tonumber(row.method) or 0
+      local param = row.param or 0
+      if row.level ~= nil then param = row.level end
+      if row.item ~= nil then param = toNum(items, row.item) or 0 end
+      rows[#rows + 1] = { method = method, param = param,
+        target = G3.speciesNum(target, row.species) or 0 }
+    end
+    t.evolutions[num] = rows
+  end
+  local tmhm = t.tmhm
+  if type(value.tmhm) == "table" and tmhm and type(tmhm.machines) == "table"
+      and type(tmhm.learnsets) == "table" then
+    local slotOf = {}
+    for bit, move in pairs(tmhm.machines) do slotOf[move] = bit end
+    local lo, hi = 0, 0
+    for _, move in ipairs(value.tmhm) do
+      local bit = slotOf[toNum(moveIndex, move)]
+      if bit and bit < 32 then lo = lo + 2 ^ bit
+      elseif bit then hi = hi + 2 ^ (bit - 32) end
+    end
+    tmhm.learnsets[num] = { lo = lo, hi = hi }
+  end
+  local national = value.dex or (num <= 251 and num or nil)
+  if type(value.dexEntry) == "table" and t.dex and national then
+    local old = t.dex[national] or {}
+    t.dex[national] = {
+      category = value.dexEntry.kind or old.category,
+      height = value.dexEntry.height or old.height,
+      weight = value.dexEntry.weight or old.weight,
+    }
+  end
+  local sprites = sideTable(target, "spriteOverrides")
+  local front = value.spriteFront ~= G3.vanillaSprite("front", num)
+    and value.spriteFront or nil
+  local back = value.spriteBack ~= G3.vanillaSprite("back", num)
+    and value.spriteBack or nil
+  if front or back then
+    sprites[num] = { front = front, back = back }
+  else
+    sprites[num] = nil
+  end
+end
+
+local function monWrite(target, registry)
+  local t = monTables(target)
+  local index = nameIndex("species", t.names)
+  local records = sideTable(target, "modRecords")
+  for id in pairs(registry.ops) do
+    local value = registry:get(id)
+    local num = index.num[id]
+    if value == nil then
+      records[id] = nil
+    else
+      if not num and type(value.index) == "number" and index ~= EMPTY_INDEX then
+        num = value.index
+        index.num[id], index.id[num] = id, id
+        index.ids[#index.ids + 1] = id
+      end
+      if num then writeMon(target, t, num, value) end
+      records[id] = value
+    end
+  end
+end
+
+local function moveRecord(base, id)
+  local names = moveNamesFor(base)
+  local index = nameIndex("moves", names)
+  local num = index.num[id]
+  local rows = moveRows(base)
+  local row = num and rows and rows[num]
+  if type(row) ~= "table" then return nil end
+  local category = PHYSICAL_TYPES[row.type] and "physical" or "special"
+  if (row.power or 0) == 0 then category = "status" end
+  return {
+    id = id, name = names[num] or id, index = num,
+    type = G3.TYPES[row.type] or tostring(row.type),
+    power = row.power or 0, accuracy = row.accuracy or 0, pp = row.pp or 0,
+    effect = row.effect, secondaryChance = row.secondaryChance,
+    target = row.target, priority = row.priority, flags = row.flags,
+    category = category,
+  }
+end
+
+local function moveIds(base)
+  local rows = moveRows(base)
+  local ids = {}
+  if not rows then return ids end
+  local index = moveIndexFor(base)
+  for _, id in ipairs(index.ids) do
+    if type(rows[index.num[id]]) == "table" then ids[#ids + 1] = id end
+  end
+  return ids
+end
+
+local function moveWrite(target, registry)
+  local rows = moveRows(target)
+  if not rows then return end
+  local names = moveNamesFor(target)
+  local index = nameIndex("moves", names)
+  local pokemon = monTables(sibling(target, "gen3Pokemon"))
+  local extra = pokemon.battleMoves ~= rows and pokemon.battleMoves or nil
+  local records = sideTable(target, "modRecords")
+  for id in pairs(registry.ops) do
+    local value = registry:get(id)
+    local num = index.num[id]
+    if value == nil then
+      records[id] = nil
+    else
+      if not num and type(value.index) == "number" and index ~= EMPTY_INDEX then
+        num = value.index
+        index.num[id], index.id[num] = id, id
+        index.ids[#index.ids + 1] = id
+      end
+      if num then
+        local row = {}
+        for key, v in pairs(type(rows[num]) == "table" and rows[num] or {}) do
+          row[key] = v
+        end
+        for _, key in ipairs({ "power", "accuracy", "pp", "effect",
+                               "secondaryChance", "target", "priority",
+                               "flags" }) do
+          if value[key] ~= nil then row[key] = value[key] end
+        end
+        if value.type ~= nil then
+          row.type = TYPE_NUMS[value.type] or tonumber(value.type) or row.type
+        end
+        rows[num] = row
+        if extra then extra[num] = row end
+        if names and type(value.name) == "string" then names[num] = value.name end
+      end
+      records[id] = value
+    end
+  end
+end
+
+local function itemRecord(base, id)
+  local rows = itemRows(base)
+  local index = nameIndex("items", rows, "name")
+  local num = index.num[id]
+  local row = num and rows and rows[num]
+  if type(row) ~= "table" then return nil end
+  local record = Merge.deepCopy(row)
+  record.id, record.index = id, num
+  record.price = record.price or 0
+  return record
+end
+
+local function itemIds(base)
+  return nameIndex("items", itemRows(base), "name").ids
+end
+
+local function itemWrite(target, registry)
+  local rows = itemRows(target)
+  if not rows then return end
+  local index = nameIndex("items", rows, "name")
+  local records = sideTable(target, "modRecords")
+  for id in pairs(registry.ops) do
+    local value = registry:get(id)
+    local num = index.num[id]
+    if value == nil then
+      records[id] = nil
+    else
+      if not num and type(value.index) == "number" and index ~= EMPTY_INDEX then
+        num = value.index
+        index.num[id], index.id[num] = id, id
+        index.ids[#index.ids + 1] = id
+      end
+      if num then
+        local row = Merge.deepCopy(value)
+        row.id, row.index = nil, nil
+        rows[num] = row
+      end
+      records[id] = value
+    end
+  end
+end
+
+local function encounterArea(area, translate)
+  if type(area) ~= "table" then return area end
+  local out = Merge.deepCopy(area)
+  local slots = out.slots or out.mons or (#out > 0 and out) or nil
+  for _, slot in ipairs(slots or {}) do
+    if type(slot) == "table" then
+      if slot.species ~= nil then slot.species = translate(slot.species)
+      elseif slot[1] ~= nil then slot[1] = translate(slot[1]) end
+    end
+  end
+  return out
+end
+
+local AREA_KEYS = { "land", "grass", "water", "rocks", "fishing" }
+
+local function encounterRecord(base, id)
+  local rows = encounterRows(base)
+  local row = rows and rows[id]
+  if type(row) ~= "table" then return nil end
+  local index = speciesIndex(base)
+  local record = Merge.deepCopy(row)
+  for _, key in ipairs(AREA_KEYS) do
+    if record[key] ~= nil then
+      record[key] = encounterArea(row[key], function(num)
+        return toId(index, num) or "0"
+      end)
+    end
+  end
+  return record
+end
+
+local function encounterIds(base)
+  local ids = {}
+  for key, value in pairs(encounterRows(base) or {}) do
+    if type(key) == "string" and type(value) == "table" then ids[#ids + 1] = key end
+  end
+  table.sort(ids)
+  return ids
+end
+
+local function encounterWrite(target, registry)
+  local rows = encounterRows(target)
+  if not rows then return end
+  local index = speciesIndex(target)
+  local function toRow(value)
+    local row = Merge.deepCopy(value)
+    for _, key in ipairs(AREA_KEYS) do
+      if row[key] ~= nil then
+        row[key] = encounterArea(value[key], function(id)
+          return toNum(index, id) or 0
+        end)
+      end
+    end
+    return row
+  end
+  local function aliasesOf(id, row)
+    local out = {}
+    if type(row) ~= "table" or row.mapGroup == nil or row.mapNum == nil then
+      return out
+    end
+    for key, other in pairs(rows) do
+      if key ~= id and registry.ops[key] == nil and type(other) == "table"
+          and other.mapGroup == row.mapGroup and other.mapNum == row.mapNum then
+        out[#out + 1] = key
+      end
+    end
+    return out
+  end
+  local writes, tombstones = {}, {}
+  for id in pairs(registry.ops) do
+    local value = registry:get(id)
+    if value == nil then
+      tombstones[#tombstones + 1] = id
+    else
+      writes[id] = toRow(value)
+    end
+  end
+  for id, row in pairs(writes) do
+    for _, alias in ipairs(aliasesOf(id, rows[id] or row)) do rows[alias] = row end
+    rows[id] = row
+  end
+  for _, id in ipairs(tombstones) do
+    for _, alias in ipairs(aliasesOf(id, rows[id])) do rows[alias] = nil end
+    rows[id] = nil
+  end
+end
+
+local function trainerRecord(base, id)
+  local rows = trainerRows(base)
+  local num = tonumber(id)
+  local row = num and tostring(num) == id and rows and rows[num]
+  if type(row) ~= "table" then return nil end
+  local species = speciesIndex(base)
+  local moves = moveIndexFor(sibling(base, "gen3Moves"))
+  local items = itemIndex(base)
+  local record = Merge.deepCopy(row)
+  record.id = id
+  record.name = record.name or ""
+  record.party = record.party or {}
+  for _, mon in ipairs(record.party) do
+    mon.species = toId(species, mon.species) or "0"
+    mon.heldItem = toId(items, mon.heldItem)
+    if type(mon.moves) == "table" then
+      local list = {}
+      for _, move in ipairs(mon.moves) do
+        local moveId = toId(moves, move)
+        if moveId then list[#list + 1] = moveId end
+      end
+      mon.moves = list
+    end
+  end
+  return record
+end
+
+local function trainerIds(base)
+  local nums = {}
+  for key, value in pairs(trainerRows(base) or {}) do
+    if type(key) == "number" and type(value) == "table" then nums[#nums + 1] = key end
+  end
+  table.sort(nums)
+  local ids = {}
+  for i, num in ipairs(nums) do ids[i] = tostring(num) end
+  return ids
+end
+
+local function trainerWrite(target, registry)
+  local rows = trainerRows(target)
+  if not rows then return end
+  local species = speciesIndex(target)
+  local moves = moveIndexFor(sibling(target, "gen3Moves"))
+  local items = itemIndex(target)
+  for id in pairs(registry.ops) do
+    local num = tonumber(id)
+    if num then
+      local value = registry:get(id)
+      if value == nil then
+        rows[num] = nil
+      else
+        local row = Merge.deepCopy(value)
+        row.id = nil
+        for _, mon in ipairs(row.party or {}) do
+          mon.species = toNum(species, mon.species) or 0
+          mon.heldItem = mon.heldItem and toNum(items, mon.heldItem) or nil
+          if type(mon.moves) == "table" then
+            local list = {}
+            for i = 1, math.max(4, #mon.moves) do
+              list[i] = mon.moves[i] and toNum(moves, mon.moves[i]) or 0
+            end
+            mon.moves = list
+          end
+        end
+        row.partySize = #(row.party or {})
+        rows[num] = row
+      end
+    end
+  end
+end
+
+function G3.textIr(value)
+  if type(value) ~= "string" then return value end
+  local ir = {}
+  local rest = value
+  while rest ~= "" do
+    local cut, token, width
+    local para = rest:find("\n\n", 1, true)
+    local line = rest:find("\n", 1, true)
+    if para and para == line then
+      cut, token, width = para, "para", 2
+    elseif line then
+      cut, token, width = line, "nl", 1
+    end
+    if not cut then
+      ir[#ir + 1] = { t = "text", s = rest }
+      break
+    end
+    if cut > 1 then ir[#ir + 1] = { t = "text", s = rest:sub(1, cut - 1) } end
+    ir[#ir + 1] = { t = token }
+    rest = rest:sub(cut + width)
+  end
+  ir[#ir + 1] = { t = "eos" }
+  return ir
+end
+
+local function textWrite(target, registry)
+  local tombstones = {}
+  for id in pairs(registry.ops) do
+    local value = registry:get(id)
+    if value == nil then
+      tombstones[#tombstones + 1] = id
+    else
+      target[id] = G3.textIr(value)
+    end
+  end
+  for _, id in ipairs(tombstones) do target[id] = nil end
+end
+
+G3.monRecord, G3.monIds, G3.monWrite = monRecord, monIds, monWrite
+G3.moveRecord, G3.moveIds, G3.moveWrite = moveRecord, moveIds, moveWrite
+G3.itemRecord, G3.itemIds, G3.itemWrite = itemRecord, itemIds, itemWrite
+G3.encounterRecord, G3.encounterIds = encounterRecord, encounterIds
+G3.encounterWrite = encounterWrite
+G3.trainerRecord, G3.trainerIds, G3.trainerWrite =
+  trainerRecord, trainerIds, trainerWrite
+G3.textWrite = textWrite
 
 -- ------- shared Gen 2 leaves
 --
@@ -833,7 +1866,12 @@ local gen2Color = f.list(f.int(0, 255))
 local gen2PaletteRow = f.list(gen2Color)
 
 R.pokemon = {
+  -- Ruby numbers these; a mod names them (see G3.numberedById).
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
+  gen3Write = G3.numberedWrite,
   semantics = "record", target = "pokemon",
+  gen2BaseAt = pokemonGen2BaseAt, gen2BaseIds = pokemonGen2BaseIds,
+  gen2ReservedIds = pokemonGen2ReservedIds,
   fields = {
     id = f.str, name = f.str, dex = f.int(1),
     index = f.opt(f.int(0, 255)),
@@ -851,14 +1889,19 @@ R.pokemon = {
                                item = f.opt(f.id("items")),
                                species = f.id("pokemon") }),
     spriteFront = f.path, spriteBack = f.path, frontSize = f.int(1, 7),
+    -- text2 is the #DEX entry's second description page (Pokedex_asm's bare
+    -- `page` macro, engine/pokedex/pokedex.asm): PokedexMenu:drawEntryBody
+    -- shows `entry.text` on page 1 and `entry.text2` on page 2, so a
+    -- translation needs both to cover the whole entry.
     dexEntry = f.opt(f.rec{ kind = f.str, heightFt = f.int(0),
                             heightIn = f.int(0, 11), weight = f.num,
                             heightM = f.opt(f.num), weightKg = f.opt(f.num),
-                            text = f.str }),
+                            text = f.str, text2 = f.opt(f.str) }),
     icon = f.opt(f.union{ f.str, f.rec{ image = f.path,
                                         frames = f.opt(f.int(1)) } }),
     cry = f.opt(f.id("cries")), palette = f.opt(f.id("palettes")),
     trueColor = f.opt(f.bool),
+    battleTheme = f.opt(f.id("music")),
     -- battle-pic scale overrides for this species' own pics: front is the
     -- enemy pic (default 1x), back is the player pic (default 2x).  An
     -- image-level battle_sprite_scales entry for the same path beats these.
@@ -915,16 +1958,57 @@ R.pokemon = {
     spriteFront = f.path, spriteBack = f.path, picSize = f.int(1, 7),
     source = f.opt(f.str),
     cry = f.opt(f.id("cries")), trueColor = f.opt(f.bool),
+    battleTheme = f.opt(f.id("music")),
     battleScaleFront = f.opt(f.numRange(0.25, 4.0)),
     battleScaleBack = f.opt(f.numRange(0.25, 4.0)),
   },
   example = 'mod.content.pokemon:patch("MEW", { baseStats = { attack = 120 } })',
   gen2Example = 'mod.content.pokemon:patch("TOTODILE", '
     .. '{ baseStats = { specialAttack = 80 } })',
+  -- THE RECORD GAME3 ACTUALLY STORES, which is the cart's own row.
+  --
+  -- This used to describe a SYNTHESISED species -- baseStats as a record,
+  -- types as type_chart ids, spriteFront/spriteBack paths -- because it was
+  -- written beside a resolver that built exactly that shape on the way out.
+  -- With the registry routed straight at data.pokemon.byIndex there is no
+  -- such translation: a mod reads, and writes back, the row the extractor
+  -- produced.  Validating against the synthesised shape refused every honest
+  -- record and admitted one the engine cannot read, which is the wrong way
+  -- round twice.
+  --
+  -- Required: the identity and the battle numbers, which every row carries.
+  -- Optional: everything the extractor fills in that a hand-written record
+  -- need not restate.
+  gen3Fields = {
+    id = f.int(0), name = f.str,
+    hp = f.int(0, 255), atk = f.int(0, 255), def = f.int(0, 255),
+    spa = f.int(0, 255), spd = f.int(0, 255), spe = f.int(0, 255),
+    -- the cart's own type numbers (G3.TYPES indexes them), not chart ids
+    type1 = f.int(0, 255), type2 = f.int(0, 255),
+    catchRate = f.int(0, 255), expYield = f.int(0, 255),
+    genderRatio = f.int(0, 255), eggCycles = f.int(0, 255),
+    eggGroup1 = f.int(0, 255), eggGroup2 = f.int(0, 255),
+    ability1 = f.int(0, 255), ability2 = f.int(0, 255),
+    growthRate = f.int(0, 255), bodyColor = f.int(0, 255),
+    height = f.int(0), weight = f.int(0),
+    category = f.opt(f.str),
+    dexPage1 = f.opt(f.str), dexPage2 = f.opt(f.str),
+    hoennDex = f.opt(f.int(0)), nationalDex = f.opt(f.int(0)),
+    learnset = f.opt(f.any), tmhm = f.opt(f.any), evolutions = f.opt(f.any),
+    pokemonOffset = f.opt(f.num), pokemonScale = f.opt(f.num),
+    trainerOffset = f.opt(f.num), trainerScale = f.opt(f.num),
+  },
+  gen3Example = 'mod.content.pokemon:patch("MEW", '
+    .. '{ baseStats = { specialAttack = 120 } })',
 }
 
 R.moves = {
+  -- Ruby numbers these; a mod names them (see G3.numberedById).
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
+  gen3Write = G3.numberedWrite,
   semantics = "record", target = "moves",
+  gen2BaseAt = movesGen2BaseAt, gen2BaseIds = movesGen2BaseIds,
+  gen2ReservedIds = movesGen2ReservedIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),
@@ -945,10 +2029,26 @@ R.moves = {
     counterable = f.opt(f.bool),
   },
   example = 'mod.content.moves:patch("BLIZZARD", { accuracy = 70 })',
+  -- the row at data.moves.byId, keyed and numbered the cart's way
+  gen3Fields = {
+    id = f.int(0), name = f.str,
+    type = f.int(0, 255),
+    power = f.int(0, 255), accuracy = f.int(0, 100), pp = f.int(0, 64),
+    effect = f.opt(f.int(0, 255)),
+    -- the cart calls this `secondary`, and it is a percentage
+    secondary = f.opt(f.int(0, 100)),
+    target = f.opt(f.int(0, 255)), priority = f.opt(f.int(-7, 7)),
+    flags = f.opt(f.int(0)),
+  },
 }
 
 R.items = {
+  -- Ruby numbers these; a mod names them (see G3.numberedById).
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
+  gen3Write = G3.numberedWrite,
   semantics = "record", target = "items",
+  gen2BaseAt = itemsGen2BaseAt, gen2BaseIds = itemsGen2BaseIds,
+  gen2ReservedIds = itemsGen2ReservedIds,
   fields = {
     id = f.str, name = f.str,
     index = f.opt(f.int(0, 255)),
@@ -961,6 +2061,16 @@ R.items = {
     needsTarget = f.opt(f.bool),
   },
   example = 'mod.content.items:patch("POTION", { price = 100 })',
+  gen3Fields = {
+    id = f.str, name = f.str,
+    index = f.opt(f.int(1, 1023)),
+    price = f.int(0),
+    pocket = f.opt(f.str), fieldUse = f.opt(f.str),
+    holdEffect = f.opt(f.int(0, 255)), holdEffectParam = f.opt(f.int(0, 255)),
+    importance = f.opt(f.int(0, 255)), registrability = f.opt(f.int(0, 255)),
+    battleUsage = f.opt(f.int(0, 255)), secondaryId = f.opt(f.int(0)),
+    description = f.opt(f.str),
+  },
 }
 
 R.maps = {
@@ -1010,6 +2120,31 @@ R.maps = {
     end
   end,
   example = 'mod.content.maps:register("MY_CAVE", { tileset = "CAVERN", ... })',
+  gen3Fields = {
+    id = f.opt(f.str), name = f.opt(f.str),
+    width = f.opt(f.int(0)), height = f.opt(f.int(0)),
+    -- THE MAP BODY, and the one field that is not optional.
+    --
+    -- Ruby's body is `grid` -- one packed 16-bit word per cell, metatile +
+    -- collision + elevation -- where Red's is `blocks`, a quarter the
+    -- resolution and a different meaning per entry.  With every field
+    -- optional a Red body validated clean and merged into data.maps.maps,
+    -- where Game3 then read a grid that was not one.  Requiring `grid` is
+    -- what makes that a reported refusal instead.
+    --
+    -- Game3.lua:9736 copies it to `baseGrid` after load (the pristine copy a
+    -- warp restores from), so that key is accepted but never required of a
+    -- record a mod is registering.
+    grid = f.list(f.int(0)),
+    baseGrid = f.opt(f.list(f.int(0))),
+    border = f.opt(f.list(f.int(0))),
+    mapType = f.opt(f.int(0)),
+    tileset = f.opt(f.any),
+    warps = f.opt(f.list(f.any)), objects = f.opt(f.list(f.any)),
+    connections = f.opt(f.any),
+  },
+  gen3Extra = false,
+  gen3Example = 'mod.content.maps:patch("FR_PALLET_TOWN", { weather = 2 })',
 }
 
 R.tilesets = {
@@ -1071,6 +2206,21 @@ local gen2WaterRow = f.rec{
   map = f.opt(f.str), rate = f.int(0, 255), slots = f.list(gen2Slot),
 }
 
+-- A Gen 3 slot names its species by the cart's NUMBER -- which is how the
+-- rows at data.encounters.byMap are actually written -- so a registry id is
+-- accepted beside it rather than instead of it.  Requiring the id form
+-- refused every record Ruby itself produced.
+local gen3Area = f.partial{
+  rate = f.int(0, 255),
+  -- f.rec, not f.partial: a Gen 3 slot has a level RANGE and no `level`, and
+  -- f.rec rejects any key it does not name.  That is what refuses a Red slot
+  -- honestly -- for the field it carries, rather than as a side effect of the
+  -- species id form, which is the reason the old schema appeared to catch it.
+  slots = f.list(f.rec{ species = f.union{ f.int(0), f.id("pokemon") },
+                        minLevel = f.opt(f.int(0, 255)),
+                        maxLevel = f.opt(f.int(0, 255)) }),
+}
+
 R.encounters = {
   semantics = "record", target = "encounters",
   fields = {
@@ -1113,7 +2263,11 @@ R.encounters = {
     trees = f.map(f.str, f.str),
     rocks = f.map(f.str, f.str),
     treeSets = f.map(f.str, f.rec{ common = f.list(gen2TreeSlot),
-                                   rare = f.list(gen2TreeSlot) }),
+                                   rare = f.opt(f.list(gen2TreeSlot)) }),
+    -- ../pokecrystal/data/wild/treemons_asleep.asm:3 AsleepTreeMonsNite
+    treeMonsAsleep = f.opt(f.rec{ MORN = f.list(f.id("pokemon")),
+                                  DAY = f.list(f.id("pokemon")),
+                                  NITE = f.list(f.id("pokemon")) }),
     -- the Bug-Catching Contest pool (min/max level, not one level per slot)
     bugContest = f.list(f.rec{ species = f.id("pokemon"),
                                min = f.int(1), max = f.int(1),
@@ -1125,9 +2279,23 @@ R.encounters = {
   example = 'mod.content.encounters:patch("ROUTE_1", { grass = { rate = 30 } })',
   gen2Example = 'mod.content.encounters:patch("grass", '
     .. '{ ROUTE_29 = { rates = { NITE = 40 } } })',
+  gen3Fields = {
+    id = f.opt(f.str),
+    mapGroup = f.opt(f.int(0)), mapNum = f.opt(f.int(0)),
+    land = f.opt(gen3Area), grass = f.opt(gen3Area), water = f.opt(gen3Area),
+    rocks = f.opt(gen3Area),
+    -- `fish` is the key the extractor writes; `fishing` stays accepted so an
+    -- already-published record keeps validating
+    fish = f.opt(gen3Area), fishing = f.opt(gen3Area),
+  },
+  gen3Example = 'mod.content.encounters:patch("FR_ROUTE_1", '
+    .. '{ land = { rate = 30 } })',
 }
 
 R.trainers = {
+  -- Ruby numbers these; a mod names them (see G3.numberedById).
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
+  gen3Write = G3.numberedWrite,
   semantics = "record", target = "trainers",
   fields = {
     id = f.str, name = f.str,
@@ -1137,14 +2305,18 @@ R.trainers = {
     -- Full-color portrait: skip the 4-shade SGB/GBC remap, same flag pokemon
     -- and sprites already carry.
     trueColor = f.opt(f.bool),
+    palette = f.opt(f.id("palettes")),
     -- Optional Advanced-mode OBJ palette source for a custom trainer portrait.
     -- It follows the same ROM crosswalk form as sprites.paletteSource.
     paletteSource = f.opt(f.str),
     -- Reuse a base trainer class's portrait without redistributing its asset.
     basePic = f.opt(f.id("trainers")),
     baseMoney = f.opt(f.int(0)),
+    -- data/trainers/special_moves.asm:5
     parties = f.list(f.list(f.rec{ level = f.int(1),
-                                   species = f.id("pokemon") })),
+                                   species = f.id("pokemon"),
+                                   moves = f.opt(f.list(f.id("moves"))) })),
+    partyNames = f.opt(f.map(f.int(1), f.str)),
     aiMods = f.opt(f.any),
     aiClass = f.opt(f.id("ai_classes")),
     brain = f.opt(f.fn),
@@ -1194,10 +2366,11 @@ R.trainers = {
     -- trainers and pokemon already carry.
     trueColor = f.opt(f.bool),
     baseMoney = f.opt(f.int(0)),
-    -- the class's battle theme; Gen 1 spells the same idea `battleTheme`,
-    -- but this is the extractor's own key and a strict rename would reject
-    -- every one of Gold's 66 classes
+    -- data/trainers/encounter_music.asm: the walk-up jingle, not the
+    -- battle theme; the extractor's own key, and a strict rename would
+    -- reject every one of Gold's 66 classes
     encounterMusic = f.opt(f.id("music")),
+    battleTheme = f.opt(f.id("music")),
     -- the items the class's AI may use mid-battle, and the seven raw AI
     -- bytes behind them (pokegold data/trainers/attributes.asm)
     items = f.opt(f.list(f.id("items"))),
@@ -1216,9 +2389,50 @@ R.trainers = {
   },
   example = 'mod.content.trainers:patch("OPP_BROCK", { baseMoney = 99 })',
   gen2Example = 'mod.content.trainers:patch("BEAUTY", { baseMoney = 99 })',
+  gen3Fields = {
+    id = f.opt(f.str), name = f.str,
+    class = f.opt(f.int(0, 255)), className = f.opt(f.str),
+    pic = f.opt(f.int(0, 255)), gender = f.opt(f.int(0, 255)),
+    doubleBattle = f.opt(f.bool), aiFlags = f.opt(f.int(0)),
+    items = f.opt(f.list(f.int(0))),
+    party = f.list(f.partial{ species = f.id("pokemon"),
+                              level = f.int(1, 100),
+                              heldItem = f.opt(f.id("items")),
+                              moves = f.opt(f.list(f.id("moves"))) }),
+    dialogs = f.opt(f.any),
+  },
+  gen3Example = 'mod.content.trainers:patch("326", '
+    .. '{ party = { { species = "MEW", level = 5 } } })',
 }
 
 R.sprites = {
+  -- THE SHEET RUBY ACTUALLY STORES, at data.sprites.byId.
+  --
+  -- Without this a Ruby sheet was judged by Red's schema, which refused it,
+  -- while a Red sheet (image/frames) sailed through and merged into the table
+  -- Game3 draws from -- wrong in both directions at once.  Wilds of Kanto is
+  -- the case that proved it matters: one Gen 1-shaped placeholder took the mod
+  -- down the moment Ruby could validate sprites at all.
+  gen3Fields = {
+    id = f.int(0), path = f.path,
+    width = f.int(1), height = f.int(1), frameCount = f.int(1),
+    -- The per-facing FRAME INDEX, and the walk pair.  Typed rather than
+    -- f.any because the mistake this catches is a real one: a face table of
+    -- sheet NAMES instead of frame numbers loads clean and then draws the
+    -- wrong row for every facing, which reads as an engine bug.  f.rec also
+    -- rejects a facing it does not name, so a typo is caught at registration.
+    face = f.opt(f.rec{ down = f.opt(f.int(0)), up = f.opt(f.int(0)),
+                        left = f.opt(f.int(0)), right = f.opt(f.int(0)) }),
+    walk = f.opt(f.rec{ down = f.opt(f.list(f.int(0))),
+                        up = f.opt(f.list(f.int(0))),
+                        left = f.opt(f.list(f.int(0))),
+                        right = f.opt(f.list(f.int(0))) }),
+    big = f.opt(f.bool),
+  },
+  -- sprites.byId carries BOTH the cart's numbers and a mod's
+  -- SPRITE_* names, and numberedById tries base[id] before it tries
+  -- anything else, so the same resolver serves both without a branch.
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
   semantics = "record", target = "sprites",
   fields = {
     id = f.opt(f.str),
@@ -1230,6 +2444,27 @@ R.sprites = {
     -- top-left in pixels (default: bottom-center).
     frameWidth = f.opt(f.int(1)),
     frameHeight = f.opt(f.int(1)),
+    -- how many frames to skip from the start of the sheet, for art whose
+    -- usable frames do not begin at index 0
+    frameOffset = f.opt(f.int(0)),
+    -- frames per sheet row; 1 (the default) is the vanilla vertical strip
+    frameColumns = f.opt(f.int(1)),
+    -- Multi-part frames: `cells` is one list per animation frame, and each
+    -- cell blits a piece of the sheet at an offset inside the frame.  A sprite
+    -- whose parts move independently (a head over a body) is assembled here
+    -- rather than being baked into the sheet.  cellWidth/cellHeight give the
+    -- piece size and cellColumns how many pieces a sheet row holds, so `tile`
+    -- is an index into that grid.
+    cells = f.opt(f.list(f.list(f.rec{
+      tile = f.int(0),
+      dx = f.opt(f.int(-256, 256)),
+      dy = f.opt(f.int(-256, 256)),
+      flipX = f.opt(f.bool),
+      flipY = f.opt(f.bool),
+    }))),
+    cellWidth = f.opt(f.int(1)),
+    cellHeight = f.opt(f.int(1)),
+    cellColumns = f.opt(f.int(1)),
     anchorX = f.opt(f.num),
     anchorY = f.opt(f.num),
     trueColor = f.opt(f.bool),
@@ -1270,6 +2505,19 @@ R.text = {
   semantics = "record", target = "text",
   value = f.str,
   example = 'mod.content.text:override("_PalletTownText1", "HELLO!")',
+  gen3Value = f.union{ f.str, f.list(f.any) },
+  gen3Write = G3.textWrite,
+  gen3Example = 'mod.content.text:override("Text_BootedUpPC", "HELLO!")',
+}
+
+-- Gen 2's data/generated/text.lua is VM script text keyed by bank:address;
+-- data/generated/rom_text.lua is engine prose keyed by disassembly label.
+-- They deliberately do not share a registry: `text` keeps targeting
+-- data.gen2Text on Gold, while this Gen 2-only surface targets data.text.
+R.rom_text = {
+  semantics = "record",
+  value = f.str,
+  example = 'mod.content.rom_text:override("_WokeUpText", "%s se réveille !")',
 }
 
 -- The engine's own authored text, the half of the game `text` does not
@@ -1293,6 +2541,10 @@ local chipProgram = f.rec{
 -- value union dispatched per def shape: rom chip ref, file-backed song, or
 -- an authored chip program (ChipAsm)
 R.music = {
+  -- audio.songs / audio.cries are keyed by the cart's track number,
+  -- so a mod naming a track needs the same translation the species
+  -- tables need.  Read only -- these stay write-gated.
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
   semantics = "record", target = "audio.songs",
   value = f.union{
     f.rec{ address = f.int(0), bank = f.int(0), engine = f.opt(f.num) },
@@ -1340,6 +2592,10 @@ R.map_scripts = {
     priority = f.opt(f.num),
   },
   example = 'mod.content.map_scripts:register("PALLET_TOWN", { talk = { ... } })',
+  gen3Semantics = "record",
+  gen3Value = f.list(f.any),
+  gen3Example = 'mod.content.map_scripts:override("EventScript_BufferItemsPocket", '
+    .. '{ { op = "return" } })',
 }
 
 R.screens = {
@@ -1401,15 +2657,28 @@ R.statuses = {
 
 -- run is optional because the "full" effects are steered from inside the
 -- damage pipeline and have no standalone handler to register yet; M7 gives
--- them the effect context that makes one possible
+-- them the effect context that makes one possible.
+--
+-- A "primary" handler returns its messages as an array.  Set `failed = true`
+-- on that table when the effect did not land ("But, it failed!", "Nothing
+-- happened!", a target that was already asleep...): the battle suppresses the
+-- move's success animation on that flag alone, the way the cart prints those
+-- refusals with no animation.  It is not a field of the record, so it has no
+-- entry below.
 R.move_effects = {
   semantics = "record", target = "move_effects",
   fields = {
     kind = f.enum{ "primary", "secondary", "full" },
     accuracyChecked = f.opt(f.bool),
+    missText = f.opt(f.enum{ "didntAffect", "butItFailed", "evadedAttack" }),
     run = f.opt(f.fn),
   },
   example = 'mod.content.move_effects:register("DRAIN_PP_EFFECT", { kind = "primary", run = fn })',
+  notes = 'A "primary" handler returns its messages as an array. Set '
+    .. '`failed = true` on that table when the effect did not land ("But, it '
+    .. 'failed!", "Nothing happened!", a target already asleep): the battle '
+    .. "suppresses the move's success animation on that flag, the way the cart "
+    .. 'prints those refusals with no animation.',
 }
 
 R.item_effects = {
@@ -1716,6 +2985,10 @@ R.sfx = {
 -- base names the species whose header a derived cry borrows, so it resolves
 -- against this same registry (13.9)
 R.cries = {
+  -- audio.songs / audio.cries are keyed by the cart's track number,
+  -- so a mod naming a track needs the same translation the species
+  -- tables need.  Read only -- these stay write-gated.
+  gen3BaseAt = G3.numberedById, gen3BaseIds = G3.numberedIds,
   semantics = "record", target = "audio.cries",
   value = f.union{
     f.rec{ header = f.any, pitch = f.int(0, 255), length = f.int(0, 255) },
@@ -1810,14 +3083,19 @@ end
 
 R.icons = {
   semantics = "record", target = "icons.bySpecies",
-  value = f.union{ f.str, f.rec{ image = f.path, frames = f.opt(f.int(1)) } },
+  -- trueColor is the same 4-shade opt-out the pokemon and trainers records
+  -- carry: flagged art skips the OBP bake and reports its rect so the SGB
+  -- pass re-blits it unshaded, instead of being bucketed by red channel.
+  value = f.union{ f.str, f.rec{ image = f.path, frames = f.opt(f.int(1)),
+                                 trueColor = f.opt(f.bool) } },
   gen2Value = f.union{
     -- the assignment form: a species id mapped to a sheet name
     f.str,
     -- the sheet form: width/height are the sheet's pixel size, and every
     -- vanilla sheet is a 16x32 two-frame strip
     f.rec{ id = f.opt(f.str), index = f.opt(f.int(0, 255)), image = f.path,
-           width = f.int(1), height = f.int(1), frames = f.int(1) },
+           width = f.int(1), height = f.int(1), frames = f.int(1),
+           trueColor = f.opt(f.bool) },
   },
   gen2Extra = function(id, value)
     if gen2IconIsSheet(id) then
@@ -2062,7 +3340,8 @@ R.field = {
       cursorOrder = f.opt(f.list(f.str)),
       locations = f.opt(f.map(f.str, f.rec{ x = f.int(0), y = f.int(0),
                                             name = f.opt(f.str) })),
-      nest = f.opt(f.any) },
+      nest = f.opt(f.any),
+      upArrow = f.opt(f.any) },
     flyOrder = f.list(f.str),
     -- the player's own trainer art (FieldDefaults.PLAYER_PICS): the battle
     -- back pic, the catch tutorial's old man, Yellow's PROF.OAK variant of
@@ -2157,6 +3436,11 @@ R.phone_contacts = {
     -- name are looked up by
     number = f.opt(f.int(0, 255)),
     class = f.opt(f.str), member = f.opt(f.str),
+    -- Optional display override.  The four non-trainer rows seed this from
+    -- NonTrainerCallerNames; trainer rows normally resolve their name from
+    -- the trainer table, but a translation or content mod may override it
+    -- without replacing the trainer identity used by rematches.
+    name = f.opt(f.str),
     map = f.opt(f.id("maps")),
     -- the SCRIPT1 / SCRIPT2 time masks: MORN | DAY | NITE, 0 for "never"
     calleeTime = f.opt(f.int(0, 7)), callerTime = f.opt(f.int(0, 7)),
@@ -2239,9 +3523,12 @@ R.landmarks = {
 R.radio_channels = {
   semantics = "record",
   fields = {
-    channel = f.int(0, 255),
-    -- the name quoted in the text box; without one the Pokegear's own
-    -- STATION_NAMES row is used, which is where the vanilla eight get theirs
+    -- MAPRADIO_* position for a wall-radio station.  Pokegear-only signals
+    -- (POKE_FLUTE_RADIO / EVOLUTION_RADIO) have no such byte and carry just
+    -- their display name.
+    channel = f.opt(f.int(0, 255)),
+    -- the name quoted in the text box; every vanilla Pokegear signal seeds
+    -- one, including the two that have no wall-radio channel
     name = f.opt(f.str),
   },
   example = 'mod.content.radio_channels:register("PIRATE_RADIO", '

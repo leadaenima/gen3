@@ -1,0 +1,43 @@
+{
+  "affects_link": false,
+  "api": 2,
+  "category": "GRAPHICS",
+  "conflicts": [],
+  "credits": "Battle backdrops: CDRX73, DerxwnaKapsyla, http404error, Game Freak. Rain/storm loops: Relic Castle weather tutorial pack. Thunder and wind: Pixabay (royalty-free). 3D atmosphere integration adapted from Kanto Dynamic Weather by Campo (1-Camp0-1).",
+  "dependencies": [],
+  "description": "Dynamic weather for overworld and battles \u2014 Weather FX owns AUTO/fronts, typed residuals, buffs/nerfs, seasons, day/night, celestial systems, audio, and 2D/3D atmosphere. WX Pok\u00e9mon variants are now supplied by the separate Weather FX - WX Pok\u00e9mon add-on.",
+  "entry": "main.lua",
+  "experimental": false,
+  "game_version": "0.0.0-dev || >=0.1.37 <2.0.0",
+  "games": [
+    "gen1",
+    "gen2"
+  ],
+  "github": "MrKrisSatan/Weather-fx",
+  "id": "weather_fx",
+  "incompatible": [],
+  "name": "Weather FX",
+  "optional_dependencies": [
+    "BATTLE_ART_VOXEL_FORK",
+    "DRAMATIC_SHAPE",
+    "DRAMALESS_SHAPE",
+    "STADIUM_BATTLE_FX",
+    "Kanto-Reforged",
+    "FOLLOWERS_EX",
+    "pokegear_cards",
+    "potato_voxel",
+    "POTATO_VOXEL",
+    "STADIUM2_OVERWORLD_MODELS",
+    "gen3_battle_ui",
+    "CRYSTAL_251",
+    "kanto_companion",
+    "colosseum_ui_overhaul",
+    "ds_fp_ceiling",
+    "anime_realism"
+  ],
+  "permissions": [
+    "engine_internals"
+  ],
+  "priority": 5,
+  "profile": "content"
+}

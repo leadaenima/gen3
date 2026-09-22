@@ -144,6 +144,91 @@ do
   eq(complaints(), mid, "the arity complaint is not repeated")
 end
 
+-- ------- the same seam on Ruby
+--
+-- Hoenn used to get neither half.  src/mods/Gen3Compat.lua served
+-- src.core.Strings with a soft stub, so a mod that required it got a table
+-- with no __call and `Strings("...")` raised; and Schemas.GEN3 is a DENSE
+-- routing table, where an absent row gates rather than keeping the shared
+-- target, so `strings` had no Gen 3 home to merge into either.
+--
+-- Both are closed, and this asserts the second -- the one a passing require
+-- would not reveal.  A callable module whose catalog never loads is an
+-- identity function forever, which looks exactly like success.
+do
+  local GameVersion = require("src.core.GameVersion")
+  local was = GameVersion.get()
+  GameVersion.set("ruby")
+
+  local rubyFiles = {
+    ["mods/fr3/manifest.json"] =
+      [[{"id":"fr3","name":"fr3","version":"1.0.0","entry":"main.lua",]]
+      .. [["games":["ruby"],"dependencies":[]}]],
+    ["mods/fr3/main.lua"] = [[
+return function(mod)
+  mod.content.strings:override("But, it failed!", "Mais cela echoue !")
+end
+]],
+  }
+  local rubyData = { strings = {} }
+  local rubyLoader = Loader.new({ fs = memfs(rubyFiles) })
+  eq(rubyLoader.generation, 3, "the loader is running Ruby")
+  check(rubyLoader:load(rubyData) == true, "the translation mod loads on Ruby")
+  eq(rubyData.strings["But, it failed!"], "Mais cela echoue !",
+     "and its entry lands in data.strings rather than being gated away")
+
+  -- the payload, not the join: the merged table has to reach the module
+  Strings.load(rubyData)
+  check(Strings.active(), "the catalog activates from Ruby's merged data")
+  eq(Strings("But, it failed!"), "Mais cela echoue !",
+     "so a Gen 3 boot draws the translation")
+
+  GameVersion.set(was)
+end
+
+-- ------- rom_text: the OTHER engine prose, and a Gen 2 surface only
+--
+-- Gold has two text stores and they deliberately do not share a registry:
+-- data/generated/text.lua is VM script text keyed by bank:address, which
+-- `text` targets as data.gen2Text, while data/generated/rom_text.lua is engine
+-- prose keyed by its disassembly label.  So "rom_text" routes to data.text on
+-- Gold -- the shared target the other generation's `text` would have used --
+-- and has no home at all on Red or Ruby.
+do
+  local GameVersion = require("src.core.GameVersion")
+  local Schemas = require("src.mods.Schemas")
+  local was = GameVersion.get()
+  GameVersion.set("gold")
+
+  local spec = Schemas.REGISTRIES["rom_text"]
+  check(spec ~= nil, [[the "rom_text" registry is declared]])
+  eq(spec.target, nil, "it has no shared target: Red has no such store")
+  eq(Schemas.targetFor("rom_text", spec, 2), "text",
+    "on Gold it routes to data.text")
+  eq(Schemas.targetFor("rom_text", spec, 1), nil, "and nowhere on Red")
+  eq(Schemas.targetFor("rom_text", spec, 3), nil, "nor on Ruby")
+
+  local romFiles = {
+    ["mods/prose/manifest.json"] =
+      [[{"id":"prose","name":"prose","version":"1.0.0","entry":"main.lua",]]
+      .. [["generations":[2],"dependencies":[]}]],
+    ["mods/prose/main.lua"] = [[
+return function(mod)
+  mod.content.rom_text:override("_WokeUpText", "Tu te reveilles !")
+end
+]],
+  }
+  local romData = { text = { _WokeUpText = "You woke up!" } }
+  local romLoader = Loader.new({ fs = memfs(romFiles) })
+  eq(romLoader.generation, 2, "the loader is running Gold")
+  check(romLoader:load(romData) == true, "the prose mod loads on Gold")
+  -- the payload, not the join
+  eq(romData.text["_WokeUpText"], "Tu te reveilles !",
+     "and its override reaches data.text, where Game2 reads engine prose")
+
+  GameVersion.set(was)
+end
+
 -- The catalog is module state, and the aggregator runs every suite in one
 -- Lua process: leaving it loaded translated the battle text underneath the
 -- suites that run after this one (parity_J asserted on "But, it failed!"

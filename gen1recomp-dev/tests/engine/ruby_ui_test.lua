@@ -516,14 +516,51 @@ eq(Ui.NAMING_SHEETS[4].pal, 1,
 -- ------------------------------------------- cart art stays out of git
 --
 -- pack_love.sh only excludes assets/generated, so a PNG baked anywhere else
--- under assets/ ships in the APK. These twelve used to live in assets/naming.
+-- under assets/ ships in the APK. The twelve OBJ sheets used to live in
+-- assets/naming, and so did the four BG screens and the two box icons --
+-- the last pokeruby art in the tree. All of it is read from the cart now,
+-- so the directory itself must be gone: a file that reappears there ships.
 ;(function()
-  local baked = 0
-  for _, spec in ipairs(Ui.NAMING_SHEETS) do
-    local f = io.open("assets/naming/" .. spec.name .. ".png", "r")
-    if f then f:close(); baked = baked + 1 end
+  local baked = {}
+  local function check(path)
+    local f = io.open(path, "r")
+    if f then f:close(); baked[#baked + 1] = path end
   end
-  eq(baked, 0, "no naming sprite is baked outside assets/generated")
+  for _, spec in ipairs(Ui.NAMING_SHEETS) do
+    check("assets/naming/" .. spec.name .. ".png")
+  end
+  for _, spec in ipairs(Ui.NAMING_SCREENS) do
+    check("assets/naming/" .. spec.name .. ".png")
+  end
+  check("assets/naming/menu.png")
+  check("assets/naming/pc_icon/0.png")
+  check("assets/naming/pc_icon/1.png")
+  eq(#baked, 0,
+    "nothing is baked outside assets/generated: " .. table.concat(baked, " "))
+end)()
+
+-- ...and what replaces them is read at the offsets naming_screen.c uses.
+-- The stride is the part that is not guessable: sub_80B7698 walks a keyboard
+-- page 30 entries to the row and sub_80B76E0 walks the frame 32, and reading
+-- the frame at 30 drifts two tiles a row into a diagonal band.
+eq(#Ui.NAMING_SCREENS, 4, "three keyboard pages and the frame")
+;(function()
+  local byName = {}
+  for _, spec in ipairs(Ui.NAMING_SCREENS) do byName[spec.name] = spec end
+  eq(byName.bg_stripes.map, 0xE86258, "the frame is gUnknown_08E86258...")
+  eq(byName.bg_stripes.stride, 32, "...at 32 entries to the row")
+  eq(byName.keyboard_lower.map, 0x3CE748, "lower is gUnknown_083CE748...")
+  eq(byName.keyboard_lower.stride, 30, "...at 30")
+  eq(byName.keyboard_upper.map, 0x3CEBF8, "upper is gUnknown_083CEBF8")
+  eq(byName.keyboard_others.map, 0x3CF0A8, "others is gUnknown_083CF0A8")
+  eq(Ui.NAMING_BG_GFX, 0xE85998, "all four paint from gNamingScreenMenu_Gfx")
+  eq(Ui.NAMING_BG_GFX_SIZE, 0x800, "which is 64 tiles, as DmaCopy16 says")
+  eq(#Ui.NAMING_PC_ICONS, 2, "and the box icon has two frames")
+  eq(Ui.NAMING_PC_ICONS[1], 0x3CE094, "frame 0")
+  eq(Ui.NAMING_PC_ICONS[2], 0x3CE154, "frame 1, one 2x3 sheet later")
+  eq(Ui.NAMING_PC_ICONS[2] - Ui.NAMING_PC_ICONS[1],
+    Ui.NAMING_PC_COLS * Ui.NAMING_PC_ROWS * Ui.TILE_BYTES,
+    "they sit back to back in the ROM")
 end)()
 
 

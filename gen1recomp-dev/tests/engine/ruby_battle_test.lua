@@ -477,10 +477,19 @@ ok, msg = field:switchTo(2)
 check(not ok, "cannot send the mon already out")
 
 field.party[1].hp = field.party[1].maxHp
-ok, msg = field:switchTo(1)
+local extra
+ok, msg, extra = field:switchTo(1)
 check(ok, "a healthy bench mon can switch in")
 eq(field.battle.player.species, 280, "Torchic is sent out")
-check(msg:find("TORCHIC", 1, true) ~= nil, "switch announces the send-out")
+-- A SWITCH IS TWO LINES, and the first one is about the mon LEAVING.
+-- battle_party_menu shows "{outgoing}, come back!" while the recall plays,
+-- then "Go! {incoming}!" as the new one lands; switchTo returns the recall
+-- as its message and the send-out at the head of `extra`. This checked the
+-- returned message for the incoming name, which was right only while the
+-- recall beat did not exist.
+eq(msg, "WURMPLE, come back!", "the message names the mon being recalled")
+check(extra and extra[1] and tostring(extra[1]):find("TORCHIC", 1, true) ~= nil,
+  "and the line after it announces the send-out")
 
 ;(function()
   local egg = field:makeMon(360, 5)
@@ -1383,8 +1392,37 @@ scripted._scriptNpc = {
 check(scripted:scriptTrainerBattle({
   trainerId = 1, intro = "Go!", defeat = "Arrgh, I lost...",
 }), "trainerbattle starts a scripted fight")
+-- ...but the trainer SPEAKS FIRST, on the overworld. EventScript_DoTrainerBattle
+-- is ShowTrainerIntroSpeech / waitmessage / waitbuttonpress / trainerbattlebegin,
+-- so the challenge is a field message and the fight begins when it is dismissed.
+-- This asserted the battle was already up, from when the intro was hung on
+-- battle.text and shown inside the battle screen instead.
+check(not scripted:inBattlePhase(), "the world is still up while he talks")
+eq(scripted.field and scripted.field.kind, "talk", "his line is a field message")
+eq(scripted.field.text, "Go!", "which is the trainerbattle intro pointer")
+check(scripted:beginPendingTrainerBattle(), "the button press begins the battle")
 check(scripted:inBattlePhase(), "rival and team scripts enter battle")
-eq(scripted.battle.text, "Go!", "intro text is kept")
+eq(scripted.battle.defeat, "Arrgh, I lost...",
+  "and the defeat line is still carried into it")
+
+-- EventScript_DoNoIntroTrainerBattle skips the speech entirely (the rival,
+-- Wally, the Elite Four): no field message, straight to the fight.
+local noIntro = Game3.new()
+noIntro.phase = "play"
+noIntro.party = { noIntro:makeMon(280, 5) }
+noIntro._scriptNpc = {
+  trainerId = 2, trainerName = "WALLY", trainerClass = "RIVAL",
+  party = { { species = 288, level = 5 } },
+}
+check(noIntro:scriptTrainerBattle({
+  trainerId = 2, kind = Game3.TRAINER_BATTLE_NO_INTRO, intro = "unused",
+}), "a no-intro trainerbattle starts")
+check(noIntro:inBattlePhase(), "and goes straight into the fight")
+eq(noIntro.field, nil, "with nothing said on the overworld")
+-- The battle's own opening line is the standard one; the trainer's
+-- challenge was said on the overworld before the fight, not inside it.
+eq(scripted.battle.text, "YOUNGSTER CALVIN would like to battle!",
+  "the battle opens with the standard line")
 eq(scripted.battle.defeat, "Arrgh, I lost...",
   "trainerbattle keeps the ROM lose text")
 scripted.battle.enemy.hp = 0
@@ -5558,6 +5596,14 @@ eq(boy.scriptVars[intro], 5, "2F ON_TRANSITION sets intro 5")
 boy.playerX, boy.playerY = 5, 2
 boy.facing = "north"
 check(boy:tryTalk(), "A on the stopped clock")
+-- players_house.inc: the stopped-clock script msgboxes, calls StartWallClock
+-- and only then sets VAR_LITTLEROOT_INTRO_STATE to 6 -- so talking to the
+-- clock opens the face, and the state moves when a time is confirmed. (The
+-- block above says the same thing; this one still expected the old stub that
+-- applied every side effect on the talk.)
+eq(boy.field.kind, "clock_set", "the cart opens the wall clock face")
+eq(boy.scriptVars[intro], 5, "and the state has not moved yet")
+boy:confirmWallClock()
 eq(boy.scriptVars[intro], 6, "clock writes intro 6")
 
 local girl = Game3.new()
@@ -11119,7 +11165,13 @@ g.daycare = { { mon = female, steps = 0 }, { mon = male, steps = 0 } }
 eq(g:daycareCompatibility(), 50, "same species, same OT is 50")
 male.otId = 2
 eq(g:daycareCompatibility(), 70, "same species, different OT is 70")
-male.otId = nil
+-- Put it back to the OT it was BORN with, not to nil. makeMon stamps a real
+-- trainer id, so nil is not "the default" -- it is a third value, and
+-- GetDaycareCompatibilityScore compares the two ids for equality: a stamped
+-- id against a missing one is "different OT", which is 70. The pair stayed
+-- mismatched for the rest of the block, and special 185 read out the 70 line.
+male.otId = female.otId
+eq(g:daycareCompatibility(), 50, "and restoring the OT is 50 again")
 local male2 = g:makeMon(280, 5)
 male2.pid = 200
 g.daycare[1].mon = male
@@ -12905,6 +12957,10 @@ local ops = {
   { op = "end" },
 }
 g:runNpcScript(ops)
+-- Roxanne says her line on the gym floor first (ShowTrainerIntroSpeech /
+-- waitbuttonpress); the fight starts when it is dismissed.
+eq(g.field and g.field.text, "Show me.", "the gym leader speaks first")
+check(g:beginPendingTrainerBattle(), "and the button press starts the fight")
 check(g:inBattlePhase(), "kind 1 starts the gym fight")
 eq(g._scriptPause.ops[1].op, "setflag", "pause is RoxanneDefeated")
 eq(g.flags[Game3.FLAG_BADGE01_GET], nil, "badge waits for the win")
@@ -12967,6 +13023,10 @@ local ops = {
   { op = "end" },
 }
 g:runNpcScript(ops)
+-- Roxanne says her line on the gym floor first (ShowTrainerIntroSpeech /
+-- waitbuttonpress); the fight starts when it is dismissed.
+eq(g.field and g.field.text, "Show me.", "the gym leader speaks first")
+check(g:beginPendingTrainerBattle(), "and the button press starts the fight")
 check(g:inBattlePhase(), "kind 1 starts the gym fight")
 g.pendingEvo = {
   {
@@ -13684,6 +13744,10 @@ check(g:scriptTrainerBattle({
   defeat = "We lost...",
   cannot = cannot,
 }), "two mons start Gina")
+-- EventScript_TryDoDoubleTrainerBattle ends in the same DoTrainerBattle, so
+-- the pair speak on the overworld before the double starts.
+eq(g.field and g.field.text, "We battle together!", "the pair speak first")
+check(g:beginPendingTrainerBattle(), "and the button press starts it")
 check(g:inBattlePhase(), "the fight begins")
 check(g.battle.doubles, "as a doubles battle")
 eq(g.battle.enemy2.species, 290, "both twins send a mon")
@@ -16534,7 +16598,13 @@ check(g:screenFadeAlpha() >= 0.99, "script FADE_TO_BLACK is opaque")
 g:startWallClock()
 eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
   "StartWallClock fades in like WallClockInit")
-check(g:fieldShowsWorld(), "clock HUD draws over the bedroom, not under the veil")
+-- ...and it fades in onto its OWN screen, not onto the bedroom. Ruby's
+-- LoadWallClockGraphics wipes every BG register, DmaFill16Larges all of
+-- VRAM, clears OAM and the palette and then loads gMiscClock_Gfx: there is
+-- nothing of the field left behind the clock face. This asserted the
+-- opposite, from a time when the clock was drawn as a HUD over the world.
+check(not g:fieldShowsWorld(),
+  "the wall clock is its own screen -- LoadWallClockGraphics clears VRAM")
 g:confirmWallClock()
 eq(g.screenFade and g.screenFade.mode, Game3.FADE_FROM_BLACK,
   "YES returns through CB2_ReturnToField's fade-in")
@@ -17920,9 +17990,18 @@ eq(g.field and g.field.kind, "hof", "the Hall of Fame screen opens first")
 eq(g.map.id, "g16_11", "and you are still in the Hall of Fame while it plays")
 while g.field and g.field.stage ~= "team" do g:stepHofCinema(1) end
 g:hofCinemaPressed()
-check(not g:scriptWaiting(),
-  "and the wait is released when it ends, so releaseall can run")
-eq(g.map.id, "g1_1", "warps to the bedroom heal once it is done")
+-- THE TEAM BOARD IS NOT THE END OF THE CHAIN. hall_of_fame.c hands off with
+-- SetMainCallback2(CB2_StartCreditsSequence), and credits.c ends in a
+-- SoftReset back to the title -- so pressing A on the board starts the
+-- credits rather than returning control to the overworld. The player reaches
+-- the bedroom by CONTINUING the save GameClear flushed, which is why
+-- gameClear arms specialSaveWarp and setBedroomHeal before any of this.
+-- These two asserted the older flow, where the board was the last beat.
+eq(g.field and g.field.kind, "credits", "the credits follow the team board")
+check(g:scriptWaiting(), "and the script is still parked behind them")
+eq(g.map.id, "g16_11", "the player has not left the Hall of Fame yet")
+eq(g.specialSaveWarp, true, "but Continue is armed to use warp1/heal...")
+eq(g.lastHeal and g.lastHeal.mapId, "g1_1", "...which is the bedroom")
 eq(torchic.hp, torchic.maxHp, "heals the party")
 check(torchic.championRibbon, "Champion ribbon")
 check(not egg.championRibbon, "eggs skip SANITY_BIT3")
@@ -21408,7 +21487,9 @@ eq(p:hofCinemaPressed(), false, "a press mid-presentation is ignored")
 eq(p.field and p.field.kind, "hof", "the screen stays up")
 while p.field.stage ~= "team" do p:stepHofCinema(1) end
 check(p:hofCinemaPressed(), "once the team is up, a press moves on")
-eq(p.field, nil, "the screen closes")
+-- ...on to the credits, not to nothing: CB2_StartCreditsSequence is what the
+-- Hall of Fame hands off to, so the board is replaced rather than closed.
+eq(p.field and p.field.kind, "credits", "the board gives way to the credits")
 end)()
 
 -- battle_main.c TryRunFromBattle. Running used to be unconditional: the RUN

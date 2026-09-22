@@ -2,7 +2,8 @@
 -- Three keyboard pages (UPPER / LOWER / OTHERS), PAGE/BACK/OK on the right
 -- column, SELECT cycles pages, START jumps to OK, B deletes.
 --
--- Chrome sprites live in assets/naming/ (shipped, not ROM-generated).
+-- Chrome sprites and BG layers are read out of the cart into
+-- assets/generated/naming; nothing is shipped inside the APK.
 -- Letters use Game3 Font3 the way Menu_PrintText does on the cart.
 -- Decomp PNGs bake GBA color 0 as opaque black; we key it transparent.
 
@@ -67,16 +68,18 @@ local SIDE_Y = { 0, 1, 2 } -- maps to PAGE / BACK / OK
 -- keyboard button had its transparency inverted (a hole in a white block
 -- instead of a rounded chip) and several were tinted off the wrong palette.
 --
--- Still baked, still to do: bg_stripes, the three keyboard grids and menu
--- (BG tilemaps at 0x3CE748 / 0x3CEBF8 / 0x3CF0A8 and 0xE86258) and the two
--- pc_icon frames.
+-- The BG LAYERS COME OFF THE CART TOO NOW, so nothing under assets/naming
+-- is left to ship. renderNamingScreen paints them from gNamingScreenMenu_Gfx
+-- (0xE85998, 64 tiles, palette 0) through naming_screen.c's four tilemaps --
+-- the three keyboard pages at 30 entries to the row (sub_80B7698) and the
+-- frame at 32 (sub_80B76E0) -- and the two box icons come from 0x3CE094 /
+-- 0x3CE154. `menu` is gone with them: it was the tile sheet, consumed at
+-- extraction time, and nothing here ever drew it.
 local ASSET = {
-  menu = "assets/naming/menu.png",
-  -- Pret tilemaps painted offline (naming_screen.c BG3 + BG1/BG2 maps).
-  bg = "assets/naming/bg_stripes.png",
-  kbUpper = "assets/naming/keyboard_upper.png",
-  kbLower = "assets/naming/keyboard_lower.png",
-  kbOthers = "assets/naming/keyboard_others.png",
+  bg = "assets/generated/naming/bg_stripes.png",
+  kbUpper = "assets/generated/naming/keyboard_upper.png",
+  kbLower = "assets/generated/naming/keyboard_lower.png",
+  kbOthers = "assets/generated/naming/keyboard_others.png",
   ok = "assets/generated/naming/ok_button.png",
   back = "assets/generated/naming/back_button.png",
   pageBox = "assets/generated/naming/change_keyboard_box.png",
@@ -89,8 +92,8 @@ local ASSET = {
   cursorBig = "assets/generated/naming/active_cursor_big.png",
   caret = "assets/generated/naming/right_pointing_triangle.png",
   under = "assets/generated/naming/underscore.png",
-  pc0 = "assets/naming/pc_icon/0.png",
-  pc1 = "assets/naming/pc_icon/1.png",
+  pc0 = "assets/generated/naming/pc_icon_0.png",
+  pc1 = "assets/generated/naming/pc_icon_1.png",
 }
 
 local imgCache = {}

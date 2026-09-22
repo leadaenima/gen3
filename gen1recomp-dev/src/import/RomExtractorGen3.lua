@@ -2848,6 +2848,15 @@ function RomExtractorGen3:extractBattle()
   local tmhmOff = BattleData.findTmhmLearnsets(self.data)
   if not tmhmOff then error("TM/HM learnsets not found") end
   local tmhmLearnsets = BattleData.parseTmhmLearnsets(self.data, tmhmOff)
+  -- The move animations and the particle images they need, together: the
+  -- plans name every (sheet, size) their createsprites draw, and only those
+  -- are rendered.
+  local animPlans, animWanted = {}, {}
+  if BattleData.parseMoveAnimPlans then
+    animPlans, animWanted = BattleData.parseMoveAnimPlans(self.data)
+  end
+  local animFrames = BattleData.extractAnimFrames
+    and BattleData.extractAnimFrames(self.data, animWanted) or {}
   self:tick("Battle", #ids, #ids)
   return {
     starterSpecies = BattleData.STARTER_SPECIES,
@@ -2868,8 +2877,8 @@ function RomExtractorGen3:extractBattle()
     goldStars = goldStars,
     animSheets = BattleData.extractAnimSheets
       and BattleData.extractAnimSheets(self.data) or {},
-    animPlans = BattleData.parseMoveAnimPlans
-      and BattleData.parseMoveAnimPlans(self.data) or {},
+    animPlans = animPlans,
+    animFrames = animFrames,
     trainerFronts = BattleData.extractTrainerFronts
       and BattleData.extractTrainerFronts(self.data) or {},
     trainerCard = BattleData.extractTrainerCard
@@ -3130,6 +3139,7 @@ function RomExtractorGen3:run()
     bgs = battle.bgs,
     animSheets = battle.animSheets,
     animPlans = battle.animPlans,
+    animFrames = battle.animFrames,
   })
   self:write("moves", battle.moves)
   self:write("trainers", battle.trainers or { byId = {}, count = 0 })

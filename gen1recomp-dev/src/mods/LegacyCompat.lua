@@ -75,6 +75,31 @@ local function flatten(path)
   return table.concat(parts, "/")
 end
 
+-- Where a mod's own write actually lands, published so the engine can put a
+-- BIG file in the same place without going through the shimmed file handle.
+--
+-- That handle is correct and quadratic: bufferWrite rebuilds the whole buffer
+-- on every call and file:write flushes it to disk each time, so streaming a
+-- 400 MB vertex cache through it copies tens of gigabytes.  Fine for the save
+-- files and settings mods actually write; useless for a mesh.  A caller that
+-- needs to stream resolves the target here and writes it properly, and the
+-- mod's own reads still find it because this is the same mapping classify()
+-- and overlayPath() use.
+--
+-- Plain relative paths only.  An absolute path, a virtual-root path or a path
+-- into the mod's own directory answers nil rather than being guessed at, and
+-- the caller falls back to the ordinary handle.
+function LegacyCompat.overlayTarget(modId, path)
+  if type(modId) ~= "string" or modId == "" then return nil end
+  path = normalize(path)
+  if not path then return nil end
+  if path:sub(1, 1) == "/" or path:match("^%a:") then return nil end
+  if path:find("%.%.") then return nil end
+  local key = flatten(path)
+  if not key then return nil end
+  return ROOT .. "/" .. modId .. "/" .. key
+end
+
 local function storageKey(key)
   local parts = {}
   for segment in key:gmatch("[^/]+") do parts[#parts + 1] = segment end

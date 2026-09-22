@@ -1,0 +1,784 @@
+# Changelog
+
+## [1.31.0] - 2026-09-12
+
+### Added
+
+- **INSTANT HATCH (Gen 2)**: A new toggle that hatches any egg in the party on
+  your next step.  The engine ticks an egg's counter only on one phase of the
+  256-step cycle, so even an egg whose cycles are spent could wait most of a
+  further cycle; with the toggle ON the first footfall zeroes the party's first
+  egg and the vanilla hatch script runs as usual -- animation, "* came out of
+  its EGG!" and the nickname prompt are untouched.  A party of several eggs
+  hatches one per step, matching the cart's one-hatch-per-footfall rule.
+  Ships OFF.
+- **BADGELESS HMs: every FLY destination**: With BADGELESS HMs on, FLY now
+  lists every native city/fly point even before you have visited it, on
+  Red/Blue/Yellow and Gold alike.  The engine keeps its own region and landing
+  rules, and the real save is never marked up to do it -- the visited set is
+  cloned just for the list.
+
+### Changed
+
+- **QUICK NURSE on Gold**: The nurse is now found by her sprite, script key or
+  object name instead of one hard-coded script key, so the no-dialogue heal
+  works at Gold's Pokecenters.  The heal also restores Gold party members
+  properly -- HP, status and PP, which the Gen 1 heal path never did for mons
+  with no stat block -- and the nurse turns to face the heal machine during the
+  animation and back to you when it finishes.
+
+### Fixed
+
+- **NO ENCOUNTER DUPES now covers fishing**: A bite that repeats the previous
+  species is re-rolled like a walking encounter (best effort, at most 8 tries)
+  instead of fishing sailing past the toggle.  Walking and fishing share the
+  one remembered species.
+- **EXP BAR growth curves on Gen 2 data**: Growth-rate ids such as
+  `MEDIUM_FAST` are normalised before the curve lookup, so Gold's uppercase ids
+  resolve to the correct EXP curve instead of the generic formula.
+- **A missing optional engine module no longer takes the mod down**: The shop,
+  list, bag, quantity-box, overworld and Gen 2 seams now load defensively, and
+  the generation is re-resolved when the game is ready, so a module a build
+  does not ship (or a generation that is only known at boot) no longer costs
+  you the whole toggle set.
+
+## [1.30.8] - 2026-08-28
+
+### Fixed
+
+- **Fixed Disappearing Held Items (Gen 2)**: Rebuilt the Infinite Held Items system to reliably restore all consumed Berries and battle items when a battle ends. Restores items across party reordering, mid-battle switches, team wipes/blackouts, and direct game saves.
+
+## [1.30.7] - 2026-08-27
+
+### Fixed & Improved
+
+- **Fixed Poison Crash on iOS & Android (Gen 2)**: Fixed an overworld crash when taking poison damage while walking in Gold, Silver, and Crystal.
+- **Zero-Delay Menu Toggles**: Eliminated delay and frame stutter when turning toggles on or off in the Options menu by optimizing storage saves.
+- **Infinite TMs in Gen 2**: Fixed Unlimited TMs so TMs are never consumed when teaching moves in Gold, Silver, and Crystal.
+- **Heal After Battle in Gen 2**: Fixed Heal After Battle to properly restore party HP, status, and PP in Gen 2 battles.
+- **Badgeless HMs**: Renamed toggle to *BADGELESS HMs* and updated the START info text to show all Gen 2 HMs (including Waterfall and Whirlpool) when playing Gold, Silver, or Crystal.
+- **START Info Texts**: Added START button help popups for *EXP BAR* and *MODERN TYPES*.
+
+## [1.30.6] - 2026-08-26
+
+### Fixed
+
+- **LIGHTS ON in Crystal**: Fixed Gen 2 engine lineage and version detection for Crystal so the `map.palette` hook and dark cave palette overrides install properly during Crystal's boot.
+- **Immediate Palette Refresh**: Toggling `LIGHTS ON` in the Options menu while currently inside a cave or dark area immediately re-bakes and applies the overworld map palettes without needing to re-enter the map.
+
+## [1.30.5] - 2026-08-26
+
+### Changed
+
+- AUTO BATTLER moved into the standalone Auto Battler mod. Existing
+  `qol_toggles.auto_battler` settings migrate to the new mod's option bucket
+  when no explicit `auto_battler.enabled` value exists.
+
+## [1.30.4] - 2026-08-26
+
+### Fixed
+
+- Gen 2 detection now trusts the live game owner during boot and ignores
+  leftover Gen 2 namespaces on a reused Gen 1 data table.
+
+## [1.30.3] - 2026-08-26
+
+### Fixed
+
+- AUTO BATTLER now recognizes Crystal from the live Gen 2 game data during
+  boot, so the toggle selects and submits Palace-style moves in Crystal
+  battles even when the process-wide version value is briefly stale.
+
+## [1.30.2] - 2026-08-26
+
+### Fixed
+
+- Gen 2 detection now recognizes Silver and Crystal, so their native QOL
+  compatibility paths install correctly.
+- ALWAYS CATCH now uses the shared Gen 2 catch-rate hook and guarantees catches
+  in Silver and Crystal.
+- UNLIMITED TMs now preserves teaching machines in Silver and Crystal.
+- Gen 2 install guards are cleared on mod reload, preventing stale hooks.
+
+## [1.30.1] - 2026-08-23
+
+### Fixed
+
+- EXP BAR now detects wide battle layouts and anchors its fill at the right
+  edge of the player's wide HUD (`x = 291`), preventing a stray 2D pixel line
+  from being rendered over the 3D battle diorama.
+
+## [1.30.0] - 2026-08-22
+
+### Added
+
+- Gold compatibility for the complete toggle set. Gold now keeps every row
+  visible and routes the previously Gen 1-only behaviors through its native
+  BattleState, MartMenu, Game2 item flow, SummaryMenu, Gen2Compat talk seam,
+  map palette seam and script-backed world data: QUICK SHIP, LAST ITEM,
+  POKEBALL BONUS, BULK MART, BULK COINS, LIGHTS ON, AUTO BATTLER, EXP BAR,
+  PARTY SCROLL and FORGETTABLE HMs.
+- The Gen 2 checker is clean of compatibility errors; the remaining notes are
+  dynamic-require/static-analysis notes or documented Gold input behavior.
+- Added the Gen 2-only INFINITE HELD ITEM toggle: consumed party held items
+  are restored after battle, never during the battle.
+
+## [1.29.0] - 2026-08-20
+
+### Added
+
+- SAND FREE: a new toggle that stops wild Pokémon from ever using
+  SAND-ATTACK.  When a wild enemy would roll SAND-ATTACK, its move choice is
+  re-rolled from its other usable moves instead (max 8 attempts); a wild mon
+  whose only usable move is SAND-ATTACK Struggles rather than throw sand, so
+  the move is never used against you in a wild battle.
+  - Wild battles only: trainer battles keep their vanilla AI untouched.
+  - The move is not removed from the wild mon's moveset, so a caught
+    Sandshrew, Pidgey or Geodude still knows it for your own use.
+  - Works on Red/Blue/Yellow and Gold alike: one wrap over the engine's
+    battle.enemy_action choke point (BattleState:enemyAction on Gen 1,
+    Battle:enemyMove on Gen 2) covers both generations.
+  - Ships OFF.  Toggle it in OPTIONS → QOL TOGGLES.
+
+## [1.28.1] - 2026-08-20
+
+### Added
+
+- ANIM SKIP: extended to overworld item events (e.g. "Red got Oak's Parcel",
+  found items, gifted items, Key Items, TMs/HMs) and fanfare textboxes,
+  allowing pressing A to immediately skip the item fanfare and advance/close
+  the textbox without waiting for the audio to finish.
+
+## [1.28.0] - 2026-08-20
+
+### Added
+
+- ANIM SKIP: a new toggle that lets the player skip battle animations,
+  Pokémon cries, and level up/learning jingles by pressing A during battle:
+  - Battle animations: pressing A immediately completes the move animation,
+    applies damage/hit effects, and advances the turn without waiting.
+  - Pokémon cries: entrance cries and battle cries are force-stopped on A-press,
+    instantly unblocking the battle queue.
+  - Level up & jingles: level up messages, fanfares, and move learning jingles
+    can be dismissed immediately with A.
+  - Audio overlap prevention: whenever audio overlap would occur, the first
+    sound is force-stopped before the next sound begins playing, eliminating
+    audio stacking.
+  - Works on Red/Blue/Yellow and Gold. Ships OFF.
+
+## [1.27.0] - 2026-08-19
+
+### Added
+
+- INSTANT TEXT: a new toggle that types all dialogue and menus out at once
+  instead of the engine's typewriter pace, overriding the TEXT SPEED
+  setting entirely.  The down-arrow / page prompts still gate on A like the
+  cart.  One wrap over the shared TextBox (src/render/TextBox.lua) covers
+  both Red and Gold.  Ships OFF.
+- HOLD TO SCROLL: a new toggle that adds hold-to-repeat to menu scrolling,
+  so holding Up or Down (and Left/Right on the QOL TOGGLES card grid) keeps
+  stepping instead of tapping per step.  Enables the engine's opt-in
+  ListMenu/ScriptMenu keyRepeat through the ui.list_menu hook (bag, shop,
+  box, Pokédex), and drives the generic Gen 1 Menu boxes, both OPTIONS
+  screens and the QOL TOGGLES submenu through a shared holdNav helper.
+  Works on Red and Gold alike.  Ships OFF.
+
+## [1.26.0] - 2026-08-19
+
+### Added
+
+- PARTY SCROLL: a new toggle allowing the player to press Up and Down in the
+  Pokémon STATS / Summary screen (`SummaryMenu`) to cycle through party
+  Pokémon without closing the screen, updating the sprite, stats and cry while
+  retaining the active page (Page 1: Stats, Page 2: Moves & EXP). Ships ON.
+- EXP BAR: a new toggle rendering an animated, Gen 2-style battle experience
+  bar below the player's HP bar in Gen 1 battles, filling the arrow/underline
+  groove in solid black as the active Pokémon earns EXP towards its next level.
+  Smoothly animates during battle, loops through level-ups, and shows a full
+  bar at Level 100. Ships OFF (Gen 1 only; Gold natively renders its own EXP bar).
+- MAP LOCATION: added horizontal ticker text and extended display duration
+  for long map and building names (like ROCK TUNNEL POKECENTER) that exceed
+  the toast window width.
+
+### Changed
+
+- QUICK NURSE: updated to play the healing machine animation and sound while
+  skipping all dialogue (welcome, yes/no prompt, fighting fit, farewell), then
+  automatically turning the player away from the counter.
+- MODERN TYPES: fixed Fire resisting Ice (Ice vs Fire = 0.5x resisted) in
+  Gen 1, injecting the modern matchup row into the type chart.
+
+## [1.24.1] - 2026-08-16
+
+### Fixed
+
+- B FOR QUICK FLEE no longer jumps the battle menu cursor to RUN in
+  trainer battles, where neither engine allows running.  The toggle
+  still works in wild battles; the exclusion covers both the Gen 1
+  battle state (kind/trainer fields) and the Gen 2 battle model (the
+  screen's `.battle` table).
+
+## [1.24.0] - 2026-08-16
+
+### Added
+
+- MODERN TYPES: the Gen VI+ type chart (minus FAIRY) replaces the cart's
+  chart.  On Red/Blue/Yellow it fixes the three Gen 1-only quirks -- GHOST
+  hits PSYCHIC super effectively (the famous Gen 1 pointer bug made it
+  immune), BUG no longer beats POISON, and POISON no longer beats BUG.  On
+  Gold the only change is the Gen VI update where STEEL stopped resisting
+  GHOST and DARK.  Every other matchup is already identical, so the toggle
+  swaps just those rows; the vanilla chart is snapshotted and restored on
+  OFF.  Works on Red/Blue/Yellow and Gold.  Ships OFF.
+
+- Thanks to [@ProprietaryWeakness](https://github.com/ProprietaryWeakness)
+  for suggesting the MODERN TYPES toggle.
+
+## [1.23.1] - 2026-08-16
+
+### Fixed
+
+- PERFECT DVS now applies to scripted-gift Pokémon too (the starter, the
+  Celadon Eevee, Game Corner prizes, fossils), not just captures.  Gen 1
+  arms the latch on pokemon.before_give; Gold arms it on the givepoke
+  script command, and the wrapped mon constructors consume it, so a gift
+  gets 15s across the board with stats recomputed and sits at full HP.
+
+## [1.23.0] - 2026-08-16
+
+### Added
+
+- QUICK NURSE: talking to a Pokécenter nurse heals instantly -- no
+  welcome dialogue, no yes/no, no machine animation -- and the player
+  turns away automatically.  The nurse still faces you, the center is
+  remembered as the last-heal point, and the Pewter Pikachu sleep scene
+  keeps its vanilla dialogue (it is a story beat, not a heal).  On Red
+  the nurse's whole TX_SCRIPT interaction is replaced; on Gold the
+  A-press dispatch is intercepted before the shared PokecenterNurseScript
+  can start, so the party heals with no script at all.  Ships OFF.
+
+## [1.22.0] - 2026-08-16
+
+### Added
+
+- MONEY MULT: battle earnings scale by a selectable multiplier (0x,
+  1.5x, 2x, 3x or 4x) -- trainer prize money and Pay Day both.  The
+  victory and "picked up" texts print the scaled figure; at 0x the
+  prize line is dropped entirely (no "You got ¥0" box) and Pay Day is
+  cancelled.  Works on Red/Blue/Yellow and Gold (Gold scales the prize
+  through its Prize.award module).  Ships OFF.
+
+### Changed
+
+- EXP x2 becomes EXP MULT: the toggle now cycles 0x, 1.5x, 2x, 3x and
+  4x instead of a fixed double.  Fractions floor like the cart's EXP
+  splits, and the "gained N EXP" text shows the scaled amount.  A save
+  that already set the old toggle reads as 2x, so nothing is lost.
+  Still ships OFF.
+
+## [1.21.0] - 2026-08-14
+
+### Added
+
+- RENAME: the party submenu gains a RENAME row that opens the naming
+  screen for the selected Pokémon, so nicknames can be changed on the
+  fly without visiting the Name Rater.  The current nickname pre-fills
+  and an empty or unchanged confirm keeps it, the Name Rater's own
+  decline rule.  The row never appears in battle or on an egg, and when
+  the eight-row submenu box is full the CANCEL row (then the last
+  field-move row) gives up its seat so RENAME stays visible.  Works on
+  Red/Blue/Yellow and Gold.  Ships ON.
+
+## [1.20.1] - 2026-08-14
+
+### Fixed
+
+- Added compatibility with the upcoming Grandma's Kitchen update and its
+  sandboxed mod runtime. Toggle settings now use the public mod options API
+  and scoped mod storage instead of opening the engine's raw options
+  filesystem.
+- The development test runner no longer uses environment-variable access, so
+  the repository passes the same sandbox audit as the shipped mod.
+
+## [1.20.0] - 2026-08-14
+
+### Added
+
+- The QOL TOGGLES menu now uses a paginated 2×2 card layout, showing four
+  switches at a time.
+- The D-pad moves between cards, A toggles the selected switch, B exits, and
+  START or P opens the selected switch's help text.
+
+### Changed
+
+- Long card labels keep whole words together. Individual lines that are too
+  wide now scroll horizontally inside their card instead of splitting words
+  across lines.
+- The battle shortcut is labelled B FOR QUICK FLEE for clarity.
+
+## [1.19.1] - 2026-08-14
+
+### Fixed
+
+- B TO RUN works on Gold. The toggle reads the battle cursor at the menu
+  root, but Gold's battle screen keeps the active Pokemon on the battle
+  model (battle.battle.player) instead of Gen 1's battle.player.mon, so
+  the guard bailed on every Gold battle and B never moved the cursor
+  (issue #11).  Gold's tutorial and Bug Contest menus are now skipped the
+  same way the old man's demo and Safari are on Red.
+- The Gen 2 field-move submenu no longer overflows the screen.  A Pokemon
+  that can learn more field moves than the menu can render (Feraligatr's
+  CUT/SURF/STRENGTH/WATERFALL/WHIRLPOOL/ROCK_SMASH, for example) pushed
+  rows past the top border of the party menu (issue #10).  Phantom rows
+  now respect the cart's own eight-row limit: they displace the CANCEL
+  row first, then the excess is trimmed -- the same rule the cart applies
+  to a full moveset.  Gen 1's party menu is capped the same way (the
+  cart's four-move field-row maximum).
+
+### Added
+
+- TURN AWAY (NURSE).  A new toggle makes the player turn away from the
+  counter after a Pokecenter heal, so mashing A walks you off instead of
+  locking you back into the nurse's dialogue (issue #12).  Ships OFF.
+  On Red the turn rides the end of the nurse's farewell dialogue; on Gold
+  it fires when the nurse's map script ends, and the Elm's-lab and
+  Hall-of-Fame heal machines are left alone.
+
+## [1.19.0] - 2026-08-13
+
+### Added
+
+- B TO RUN. A new toggle makes B at the root of the battle menu move the
+  cursor to RUN; A still confirms the escape. Vanilla Gen 1 has no B branch
+  at the menu root (B only backs out of move select), so the shortcut takes
+  nothing away. It rides the shared `BattleState.update` seam on both
+  generations and never fires in the old man's demo battle, a Safari battle,
+  a link or spectated battle, or while a locked action (Thrash, Rage,
+  recharge) owns the turn. Ships OFF.
+
+## [1.18.2] - 2026-08-12
+
+### Fixed
+
+- CATCH GIVES EXP works on Gold. Catching a Pokémon now awards the EXP you
+  earned for the capture — the bar crawl, "grew to level" lines, move-learn
+  prompts and post-battle evolution all show as they do on Red. Previously a
+  Gold capture paid zero EXP because the engine never consulted the hook the
+  toggle uses.
+- FIELD MOVES ALL works on Gold. The party menu now lists field moves your
+  Pokémon can learn but hasn't learned yet, not just the ones it already
+  knows. The same HM ITEM REQUIRED and badge rules as Red apply, and Gold's
+  Waterfall and Whirlpool are recognized as HM items.
+- POISON SAVE works on Gold. A poisoned Pokémon no longer faints from step
+  damage while the toggle is on — it is clamped at 1 HP just like on Red.
+  Previously the toggle had no effect on Gold because it didn't recognize
+  Gold's status spellings.
+- Toggle settings persist across restarts on Gold. Flipping a toggle in the
+  QOL TOGGLES submenu and restarting no longer resets your choices — they are
+  saved on both generations.
+
+## [1.18.1] - 2026-08-11
+
+### Fixed
+
+- UNLIMITED TMs is back on Gold. The first 1.18.0 Gen 2 port shipped it
+  gated to Gen 1 — the toggle was missing from the QOL TOGGLES submenu on a
+  Gold boot — because Gold's TM teach consumes the machine through
+  `Game2:consumeItem` rather than Gen 1's `ItemEffects.use`. It now works on
+  both generations: on Gen 2 the toggle skips `Game2:consumeItem` for a TM
+  (an item whose record teaches a move, non-HM) while it is on, so the
+  machine is kept; off, HMs and non-TM items consume exactly as vanilla.
+
+## [1.18.0] - 2026-08-11
+
+### Added
+
+- Gold (Gen 2) support. The manifest now declares `"games": ["gen1",
+  "gen2"]`, and the toggles that have a Gen 2 home are ported to Gold's
+  second engine: POISON SAVE (wraps `StepEvents.poisonStep`), HEAL ON MAP
+  CHANGE (wraps `gen2.World:setMap`), AUTO-REPEL (wraps
+  `StepEvents.repelStep`), the AUTO-REPEL / MAP LOCATION toast (draws via
+  the `render.hud` hook), KEEP MONEY (snapshot on `battle.ended`),
+  AUTO CUT (wraps `gen2.Player:tryMove` + `FieldMoves.tryCutOW`),
+  ALWAYS CATCH (wraps `gen2.Catching.attempt(opts)`), REMEMBER CURSOR /
+  REMEMBER MOVE (reset the Gen 2 battle screen's menu/move cursors), FULL
+  HEAL CATCH / PERFECT DVS / HEAL AFTER BATTLE (Gen 2 Mon's heal/stat
+  shapes), FIELD MOVES ALL / BADGELESS MOVES (Gen 2's
+  `save.player.badges` gate), and UNLIMITED TMs (Gen 2's
+  `Game2:consumeItem` skips teaching TMs while the toggle is on). The
+  submenu renders its rows on Gold without the Gen 1-only OptionRows module.
+- The toggles that are Gen 1-cart mechanics Gold does not have — QUICK
+  S.S. ANNE, BULK COINS, LIGHTS ON, MOUSE CAM LOCK, LAST ITEM (M),
+  AUTO BATTLER, POKEBALL BONUS, BULK MART and FORGETTABLE HMs — no longer
+  appear in the QOL TOGGLES submenu on a Gold boot (they stay on
+  Red/Blue/Yellow). Gold's mart, battle-item and HM-forget APIs are
+  structurally different, so those toggles have no honest Gen 2 equivalent
+  yet.
+
+## [1.17.2] - 2026-08-07
+
+### Changed
+
+- AUTO BATTLER: a Pokémon with no usable moves (all PP spent) now
+  Struggles like vanilla Gen 1 instead of skipping the turn with the
+  "is incapable of using its power!" message — the same action shape the
+  engine's own no-PP path and trainer AI use, recoil included.  The
+  incapability message can no longer appear in normal play.
+
+## [1.17.1] - 2026-08-07
+
+### Fixed
+
+- AUTO BATTLER no longer spams "is incapable of using its power!": the
+  move grouping now classifies Gen 1 self-targeting moves (stat boosts,
+  recovery, Substitute, Splash, Transform, Conversion, Mist, Light
+  Screen, Reflect, Focus Energy) as the Palace's Defense category via
+  their effect field.  The extractor omits the ROM target data Emerald's
+  GetBattlePalaceMoveGroup groups by, which left Defense structurally
+  empty — every Defense roll (and Support rolls on all-attack movesets)
+  hit the empty-category 50% incapability roll and wasted the turn.  An
+  empty category now falls back to a usable move instead; the Emerald
+  turn-skip remains available to callers that explicitly ask for it.
+
+## [1.17.0] - 2026-08-07
+
+### Added
+
+- AUTO BATTLER: when enabled, the player's Pokémon chooses its own move
+  using the Pokémon Emerald Battle Palace's Attack / Defense / Support
+  category probabilities, including the below-half-HP table and the
+  category-missing fallback. The selected category is passed through Gen 1's
+  normal AI scoring. Because Gen 1 has no Nature field, a transparent
+  approximate Palace style is derived from the four Gen 1 DVs and stat EXP.
+  Trainer AI, items, switching, and forced multi-turn actions remain
+  unchanged. Ships OFF.
+- MAP LOCATION: entering a new area shows its name in the AUTO-REPEL
+  toast style (non-modal, fades out on its own), with the town map's
+  names and a corrected name for the Route 10 PokeCenter (the town map
+  data calls it "ROCK TUNNEL").  Ships ON.
+
+### Notes
+
+- The Emerald source keeps the original Palace category table in
+  `src/battle_script_commands.c` and the chooser in
+  `src/battle_gfx_sfx_util.c`; the Gen 1 port preserves those thresholds but
+  maps each mon's DV/stat-EXP spread to an approximate style. Emerald does
+  not define a DV-to-Nature mapping, so this part is intentionally a mod
+  design approximation. Emerald's exact static target metadata is not
+  exposed by the current Gen 1 extractor, so move grouping uses the closest
+  available target/effect representation. The low-HP profile latches until
+  switch-out. An empty selected category follows Emerald's random fallback,
+  50% incapability roll, and incapability message; turning the toggle off
+  preserves the originally selected Gen 1 action.
+
+- The engine's existing `battle.enemy_action` hook remains trainer-side;
+  AUTO BATTLER is installed through a guarded player-side `BattleState.update`
+  wrapper, while items, switches, link battles, and locked multi-turn actions
+  remain on their existing paths. The wrapper marks its own resolution to
+  avoid selecting twice if the battle update is re-entered by a caller.
+
+## [1.16.4] - 2026-08-07
+
+### Fixed
+
+- Start menu compatibility with Gen1 Modern UI: the auto-repel toast wrapped
+  `OverworldState.draw`, which Gen1 Modern UI's `presentationStack` treats as
+  proof that the released overworld renderer was replaced — disabling its
+  overworld presenter, and with it every menu layered over the overworld
+  (StartMenu included). The toast now draws through the additive
+  `OverworldState.drawUI` overlay seam, which Gen1 Modern UI explicitly
+  sanctions for location banners, so the stock `draw` (and its identity)
+  survives untouched and the Start menu opens normally. No Gen1 Modern UI
+  change is required — QoL Toggles also leaves `Game:gamepadpressed`
+  dispatch untouched, so the engine opens the native Start menu on
+  controller START with Gen1 Modern UI enabled.
+
+## [1.16.1] - 2026-08-07
+
+### Fixed
+
+- Fixed controller START handling so the overworld Start menu remains visible
+  when QoL Toggles is enabled.
+- Stored the QUICK S.S. ANNE prompt flag per save instead of globally, so
+  separate save files no longer share progress.
+
+## [1.16.0] - 2026-08-07
+
+### Added
+
+- BULK COINS: the Celadon Game Corner clerk greets you, asks
+  "Would you like to purchase some COINS?" and offers 50, 500 or
+  9,999 coins at a time (¥1000 / ¥10000 / ¥199980, the vanilla
+  20¥-per-coin rate) instead of the fixed 50, plus a CUSTOM row that
+  opens a four-box digit picker (up/down cycles each digit 0-9,
+  left/right moves between boxes) for any amount from 1 to 9,999.
+  Tiers that would overflow the 9,999 coin cap drop out of the list,
+  and with the toggle OFF the clerk is byte-for-byte vanilla.  Ships
+  OFF.
+
+## [1.15.0] - 2026-08-07
+
+### Added
+
+- NO ENCOUNTER DUPES: a wild roll never gives the same species twice in
+  a row (re-rolled until it differs, best effort on single-species
+  areas).  Ships OFF.
+- INSTANT FISH: the rod always bites on the first try — the candidate
+  group is uniform-picked instead of run through the rejection loop.
+  Maps with no fishing group still have nothing to catch; the Old
+  Rod's always-catch is unchanged.  Ships OFF.
+- HEAL AFTER BATTLE: every battle that ends (win, run, catch, loss)
+  fully heals the party — HP, status, all PP.  Ships OFF.
+- AUTO-REPEL: a worn-off repel is replaced from the bag automatically,
+  strongest first (MAX > SUPER > plain), announced by an on-screen
+  toast — the usual "effect wore off" text is skipped when a refill
+  happens, and with nothing left it just wears off.  Ships ON.
+- BULK MART: mart quantity prompts (BUY and SELL) open at 10 instead
+  of 1, still capped by money and bag space; the mod manager's numeric
+  option boxes are untouched.  Ships OFF.
+- LIGHTS ON: dark caves and tunnels render fully lit, no FLASH needed
+  (FLASH itself still works and is harmless).  Ships OFF.
+- REMEMBER MOVE: the FIGHT move cursor stays on the last move used
+  across turns, the sibling of REMEMBER CURSOR; OFF restores the
+  vanilla first-move default.  Ships ON.
+- KEEP MONEY: blacking out no longer costs half your money, from
+  poison steps or a battle loss.  Ships OFF.
+- AUTO CUT: walking into a cut tree cuts it when a party mon knows
+  CUT, with exactly the vanilla tileset/block/CUT gates; the player
+  stays put while the text and animation play.  FIELD MOVES ALL does
+  not extend to auto-cut.  Ships OFF.
+- RUN (HOLD B): hold B to move twice as fast on foot; the bike and
+  surfing keep their own speeds.  Ships OFF.
+
+## [1.14.0] - 2026-08-06
+
+### Added
+
+- MOUSE CAM LOCK: with Dramatic Shape Voxel Mod installed, the battle
+  camera no longer follows the mouse.  Only the mouse steering is cut --
+  the right stick, a touch drag and the zoom still work.  The toggle is
+  inert (nothing to gate) when Dramatic Shape is absent.
+
+## [1.13.0] - 2026-08-05
+
+### Fixed
+
+- FORGETTABLE HMs did nothing on engine builds v0.1.59..v0.1.63: those
+  builds ran the old ChoiceBox forget flow, where MoveLearnMenu never
+  sets the `selecting` field the toggle gated on, so the gate-free
+  update never engaged and the vanilla "HM techniques can't be
+  deleted!" message appeared even with the toggle ON.  The toggle now
+  treats a missing `selecting` (old flow) as "forget list live", so
+  teaching any move over an HM works on every engine build.
+
+## [1.12.0] - 2026-08-04
+
+### Changed
+
+- The OPTIONS row is renamed from USEFUL TOGGLES to QOL TOGGLES, matching
+  the mod's name everywhere (README, mod card, index).
+
+## [1.11.0] - 2026-08-04
+
+### Added
+
+- POKEBALL BONUS: a toggle that, when ON, earns a free GREAT BALL every
+  time you buy your tenth POKé BALL at any mart — in one purchase or
+  across several, since the counter is cumulative and stored with the
+  save.  The clerk announces it: "Thanks for your support, please take
+  this free Great Ball."  Only balls actually bought count (Oak's five
+  starter balls and found balls never do, because the bonus keys off the
+  mart's BUY screen).  Ships OFF.
+
+## [1.10.0] - 2026-08-04
+
+### Added
+
+- LAST ITEM (M): a toggle that, when ON, makes M in battle use the last
+  item you used from the bag — balls throw at the foe, healing opens the
+  party screen so you pick the mon (ETHERs/PP UP then ask for the move),
+  targetless battle items (X items, POKé FLUTE, POKé DOLL) work as usual.
+  A failed use shows the vanilla refusal text and does not spend the
+  turn; with nothing remembered the bag opens.  M is detected by and
+  rebindable from the Mods Hotkeys submenu.  Ships OFF.
+
+## [1.9.1] - 2026-08-03
+
+### Added
+
+- CATCH GIVES EXP: capturing a wild Pokémon pays out the same EXP its
+  defeat would — split among the mons that fought, with stat exp, traded
+  boosts, level-ups and the "gained N EXP" announcement.  Ships OFF.
+
+## [1.9.0] - 2026-08-03
+
+### Added
+
+- START on a controller (or P on the keyboard) on any toggle row opens a
+  full-screen help popup (the Mods Hotkeys capture idiom) with an in-depth
+  explanation of what that toggle does.  B or another START/P closes it;
+  B still exits the submenu.
+- A description taller than the popup box scrolls vertically, slowly
+  (one line per second, holding at each end), scissored to the box so it
+  never bleeds over the border.
+
+## [1.8.0] - 2026-08-03
+
+### Added
+
+- Toggle labels longer than the row's label window now scroll as a ticker
+  (hold at the start, scroll to the end, hold, scroll back — the
+  MoveRelearn name ticker) instead of bleeding over the box border.
+
+## [1.7.0] - 2026-08-03
+
+### Changed
+
+- UNLIMITED TMs/HMs splits into two switches: UNLIMITED TMs (TMs teach
+  without breaking) and FORGETTABLE HMs (HM moves can be forgotten when
+  a Pokémon learns a new move).  Both ship ON.
+
+### Added
+
+- HM ITEM REQUIRED: the FIELD MOVES ALL extras for HM moves (CUT, FLY,
+  SURF, STRENGTH, FLASH) only appear once the player holds the HM item
+  -- no CUT on the Cascade Badge alone when the CUT HM is still on the
+  S.S. Anne.  Applies to the party-menu list and the use-time
+  eligibility both; moves a Pokémon already knows are never gated, and
+  item-less field moves (DIG, TELEPORT, SOFTBOILED) are unaffected.
+  Ships ON.
+
+## [1.6.0] - 2026-08-03
+
+### Added
+
+- REMEMBER CURSOR: the battle FIGHT/BAG/PKMN/RUN cursor stays where it
+  was left across turns (use BAG to heal, and the cursor is still on
+  BAG next turn).  OFF restores the vanilla fresh-FIGHT default at the
+  end of every turn.  Ships ON.
+
+## [1.5.0] - 2026-08-03
+
+### Added
+
+- UNLIMITED TMs/HMs: TMs teach their move without breaking, and HM
+  moves can be forgotten when a Pokémon learns a new move.  Ships ON.
+
+## [1.4.1] - 2026-08-03
+
+### Fixed
+
+- Using an Ether, Max Ether or PP Up on a Pokémon no longer crashes the
+  game when FIELD MOVES ALL is on: phantom field-move slots were being
+  attached to the target picker's moveset, and the "Which move?" list
+  tripped on their missing PP (blue screen, BagMenu "number expected,
+  got nil").  Target pickers are now exempt from phantom moves and badge
+  injection.
+
+## [1.4.0] - 2026-08-02
+
+### Added
+
+- QUICK S.S. ANNE: the Vermilion dock sailor prompts for the ticket once;
+  every later pass onto the gangway walks straight through with no
+  dialogue and no stop.  The ship-left guard and the no-ticket walk-back
+  stay vanilla.  Ships OFF.
+
+## [1.3.0] - 2026-08-02
+
+### Added
+
+- HEAL ON MAP CHANGE: every map transition (routes, caves, warps,
+  connections, boot) fully heals the party — HP, status, and all PP.
+  Ships OFF.
+
+## [1.2.2] - 2026-08-02
+
+### Fixed
+
+- FIELD MOVES ALL no longer bypasses badge gates at use time: on engine
+  builds without a list-time badge check in the party menu, a mon that
+  could learn Surf/Cut could use it without the badge or the HM.  The
+  fieldmove.eligibility wrap now applies the hmBadges gate itself
+  (FLY/CUT need their badge, SURF needs the Soul Badge, STRENGTH the
+  Rainbow Badge, FLASH the Boulder Badge) unless BADGELESS MOVES is on.
+
+## [1.2.1] - 2026-08-02
+
+### Fixed
+
+- Blue screen on Route 13 while surfing: another mod's encounter patch
+  can leave a map's water/grass def without a `rate`, which crashed the
+  encounter roll mid-step.  The encounter.roll wrap now degrades a
+  throwing roll to "no encounter" (logged) instead of crashing the game.
+
+## [1.2.0] - 2026-08-02
+
+### Added
+
+- BADGELESS MOVES: FLY / SURF / CUT / STRENGTH / FLASH work without
+  their badges — the party-menu list and the use-time gates both (the
+  engine's own fieldmove.eligibility hook, which also lets FIELD MOVES
+  ALL surf-mount and cut trees with a mon that only can learn the move).
+- ALWAYS CATCH: every ball catches, Master Ball style (full three-shake
+  chain).
+- PERFECT DVS: caught Pokémon get 15s across the board; stats are
+  recomputed to match.
+- EXP x2: double battle EXP via the engine's exp.gain hook — the gain
+  text shows the doubled amount too.
+- INSTANT FLEE: wild battles always escape on the first try, via the
+  engine's battle.run hook (RUN menu and the faint dialogue's NO
+  branch).
+- All five ship OFF by default; the original four keep their defaults.
+
+## [1.1.3] - 2026-08-02
+
+### Changed
+
+- POISON SAVE, FULL HEAL CATCH and FIELD MOVES ALL now ship ON by default;
+  INFINITE REPEL still ships OFF.  A stored toggle always wins over the
+  default, so existing settings are untouched.
+
+## [1.1.2] - 2026-08-02
+
+### Fixed
+
+- Toggles now persist: they live in options.lua (the mod-options bucket the
+  mod manager uses) instead of the per-save modData, which NEW GAME and
+  CONTINUE replace outright.  A toggle flipped from the title screen used
+  to be silently discarded on start/continue, and an unsaved session lost
+  it on quit; both are gone now.
+
+## [1.1.1] - 2026-08-02
+
+### Fixed
+
+- FIELD MOVES ALL actually works: the party menu builds its field-move
+  list before the ui.party.submenu hook fires, so the phantom moves are
+  now attached to the selected Pokémon before the vanilla update runs
+  (wrapping PartyMenu.update instead).  Badge gates and context rules
+  still apply exactly as before.
+
+## [1.1.0] - 2026-08-02
+
+### Added
+
+- FIELD MOVES ALL: any Pokémon that can learn a field move (level-up or
+  TM/HM) can use it out of battle even without knowing it — Pidgey can FLY,
+  Clefable can TELEPORT.  Badge gates and context rules (FLY/TELEPORT
+  outdoors, FLASH in the dark, DIG's tilesets) apply exactly as for a known
+  move.
+
+### Changed
+
+- The OPTIONS row is now USEFUL TOGGLES, with the on-count shown as a
+  running total (e.g. "2/4 ON").
+
+## [1.0.0] - 2026-08-02
+
+### Added
+
+- OPTIONS → TOGGLES submenu with three per-save switches.
+- POISON SAVE: poisoned party members survive at 1 HP; the poison subsides with "X's poison has subsided!".
+- FULL HEAL CATCH: captured Pokémon are fully healed (HP, status, PP) in the party or a PC box.
+- INFINITE REPEL: blocks all wild walking encounters while active.

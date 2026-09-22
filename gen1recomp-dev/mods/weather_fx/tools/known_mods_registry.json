@@ -1,0 +1,210 @@
+{
+  "schema_version": 1,
+  "description": "Known Gen1Recomp mods Weather FX must stay compatible with. Expanded every revision.",
+  "voxel_hosts_mutex": [
+    "DRAMALESS_SHAPE",
+    "potato_voxel",
+    "POTATO_VOXEL",
+    "PotatoVoxel",
+    "BATTLE_ART_VOXEL_FORK",
+    "DRAMATIC_SHAPE",
+    "dramatic_shape",
+    "Gen2Recomped-DramaticShapes"
+  ],
+  "mods": [
+    {
+      "id": "DRAMALESS_SHAPE",
+      "kind": "voxel_host",
+      "hooks": [
+        "exports.lib",
+        "Voxel3D",
+        "DayNight"
+      ],
+      "our_markers": [
+        "DRAMALESS_SHAPE",
+        "HOSTS"
+      ],
+      "notes": "Primary 3D host; only one voxel host at a time"
+    },
+    {
+      "id": "potato_voxel",
+      "kind": "voxel_host",
+      "aliases": [
+        "POTATO_VOXEL",
+        "PotatoVoxel"
+      ],
+      "hooks": [
+        "exports.lib"
+      ],
+      "our_markers": [
+        "potato_voxel"
+      ],
+      "notes": "Performance voxel fork"
+    },
+    {
+      "id": "BATTLE_ART_VOXEL_FORK",
+      "kind": "voxel_host",
+      "aliases": [
+        "DRAMATIC_SHAPE",
+        "dramatic_shape",
+        "Gen2Recomped-DramaticShapes"
+      ],
+      "hooks": [
+        "exports.lib",
+        "exports.battlePresentation",
+        "exports.battleStage"
+      ],
+      "our_markers": [
+        "BATTLE_ART_VOXEL_FORK"
+      ],
+      "notes": "Dramatic Shape lineage"
+    },
+    {
+      "id": "STADIUM2_OVERWORLD_MODELS",
+      "kind": "voxel_host",
+      "hooks": [
+        "exports.lib"
+      ],
+      "our_markers": [
+        "STADIUM2_OVERWORLD_MODELS"
+      ],
+      "notes": "Gen2 3D sprites / stadium overworld"
+    },
+    {
+      "id": "CRYSTAL_251",
+      "kind": "overhaul",
+      "hooks": [
+        "battle.weather",
+        "battle.damage"
+      ],
+      "our_markers": [
+        "crystal",
+        "CRYSTAL",
+        "CRYSTAL_251"
+      ],
+      "risk": "overlapping weather rules \u2014 we must stand down seeding",
+      "notes": "Own weather; our FX/DMG toggles separate"
+    },
+    {
+      "id": "kanto_companion",
+      "kind": "ui",
+      "hooks": [
+        "render.letterbox",
+        "render.hud",
+        "core.update",
+        "input.pointer",
+        "mod.options"
+      ],
+      "forbidden_shared_hooks": [
+        "render_pipelines:register"
+      ],
+      "option_keys": [
+        "overlay_transparency",
+        "keep_overlay_opaque",
+        "touch_btn_transparency",
+        "touch_icon_buttons",
+        "touch_nav_buttons",
+        "debug_input_hud"
+      ],
+      "risk": "UI stacking: dim overlay + weather veil; busy battle",
+      "notes": "No shared option keys; different draw hooks"
+    },
+    {
+      "id": "gen3_battle_ui",
+      "kind": "ui",
+      "hooks": [
+        "battle.overlay",
+        "battle"
+      ],
+      "our_markers": [
+        "gen3",
+        "overlay"
+      ],
+      "risk": "battle overlay coexistence",
+      "notes": "Coexist via battle.overlay priority/guards"
+    },
+    {
+      "id": "gen1_modern_ui",
+      "kind": "ui",
+      "hooks": [
+        "ui.options",
+        "render.hud"
+      ],
+      "risk": "options rows / HUD",
+      "notes": "We only append our pipeline row idempotently"
+    },
+    {
+      "id": "kanto_dynamic_weather",
+      "kind": "weather_peer",
+      "risk": "duplicate weather authority",
+      "notes": "Prefer only ONE weather mod enabled"
+    },
+    {
+      "id": "Campo@kanto_dynamic_weather",
+      "kind": "weather_peer",
+      "risk": "duplicate weather",
+      "notes": "Peer weather mod \u2014 mutex recommended"
+    },
+    {
+      "id": "free_fly",
+      "kind": "gameplay",
+      "hooks": [],
+      "risk": "low \u2014 flight vs outdoor weather still OK",
+      "notes": "No shared hooks expected"
+    },
+    {
+      "id": "qol_toggles",
+      "kind": "qol",
+      "risk": "low",
+      "notes": "Separate options"
+    },
+    {
+      "id": "translucent_ui",
+      "kind": "ui",
+      "risk": "visual stacking with fog/veil",
+      "notes": "Presentation only"
+    },
+    {
+      "id": "colosseum_ui_overhaul",
+      "kind": "ui",
+      "hooks": [
+        "battle.overlay",
+        "render.hud",
+        "render.zones",
+        "ui.start_menu.items"
+      ],
+      "risk": "High-priority battle.overlay (9000); weather must call next_ and draw under UI",
+      "notes": "Colosseum Inspired UI Overhaul \u2014 same overlay pattern as gen3_battle_ui"
+    },
+    {
+      "id": "ds_fp_ceiling",
+      "kind": "voxel_companion",
+      "aliases": [
+        "kanto-first-person",
+        "Kanto in First Person"
+      ],
+      "hooks": [],
+      "risk": "Own rain/clouds/stars \u2014 FP 1.60.1+ stands down when weather_fx present",
+      "notes": "Patches Dramatic Shape family; interiors only conflict-free with WX"
+    }
+  ],
+  "our_forbidden": {
+    "assign_love_draw": true,
+    "write_save_options": true,
+    "edit_other_mod_files": true,
+    "shared_option_keys_with_ui_mods": true
+  },
+  "our_required_hosts": [
+    "DRAMALESS_SHAPE",
+    "potato_voxel",
+    "BATTLE_ART_VOXEL_FORK",
+    "DRAMATIC_SHAPE",
+    "STADIUM2_OVERWORLD_MODELS",
+    "Gen2Recomped-DramaticShapes"
+  ],
+  "our_required_hooks_ok": [
+    "ui.options.rows",
+    "render_pipelines:register",
+    "battle.overlay"
+  ]
+}

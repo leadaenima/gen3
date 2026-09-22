@@ -526,6 +526,23 @@ function BT.attach(Game3)
       else
         self:armIntroCinema(mode)
       end
+      -- Mods (autosave_timer, surround_audio, …) listen for battle.started.
+      -- Emit here — the single choke every wild/trainer/tower start shares —
+      -- with Ruby's mon-as-battler shape (enemy.species, not enemy.mon.species).
+      pcall(function()
+        local Runtime = require("src.mods.Runtime")
+        local enemy = b and b.enemy
+        local npc = b and b.npc
+        -- pcall(Runtime.emit, ...) form keeps the source check in
+        -- gen3_mod_hooks_test looking for the comma-split call.
+        pcall(Runtime.emit, "battle.started", {
+          kind = (b and b.isTrainer and "trainer") or mode or "wild",
+          species = enemy and enemy.species,
+          level = enemy and enemy.level,
+          trainerId = npc and (npc.trainerId or npc.id),
+          battle = b,
+        })
+      end)
     end
 
     -- Battle Scene OFF skips the fancy field wipe (task requirement /

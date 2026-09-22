@@ -1,0 +1,21 @@
+local pass,fail=0,0
+local function ok(v,msg) if v then pass=pass+1;print('PASS '..msg) else fail=fail+1;print('FAIL '..msg) end end
+local function read(p) local f=assert(io.open(p,'rb'));local s=f:read('*a');f:close();return s end
+local wp=read('lib/voxel_atmos/WorldPrecip.lua')
+local ca=read('lib/voxel_atmos/CinematicAtmos.lua')
+local rt=read('lib/EngineRuntime.lua')
+local sdk=read('lib/EnvironmentSDK.lua')
+local main=read('main.lua')
+ok(wp:find('WorldInteractionPrecip.spawnRoof',1,true)~=nil,'WorldPrecip routes raised rain contacts into roof runoff')
+ok(wp:find('WorldInteractionPrecip.spawnCanopy',1,true)~=nil,'WorldPrecip routes canopy catches into delayed canopy drips')
+ok(wp:find('impactProfile(kind,class,art)',1,true)~=nil,'WorldPrecip uses material-aware impact profiles')
+ok(wp:find('material~="water"',1,true)~=nil,'water can splash without creating a fake persistent wet deposit')
+ok(ca:find('keepInteraction',1,true)~=nil and ca:find('roofDrip',1,true)~=nil,'3D atmosphere stays alive long enough to render post-rain drips')
+ok(ca:find('lightIntensity=lightIntensity*(1+.55*postRainShaft)',1,true)~=nil,'existing cloud-aware rays receive bounded post-rain optical gain')
+ok(ca:find('0.09*max(0,min(1,tonumber(frame.postRainShaft)',1,true)~=nil,'post-rain clearing modestly increases shaft opportunities')
+ok(ca:find('"gust-front"',1,true)~=nil and ca:find('GustFront',1,true)~=nil,'travelling gust front is in the depth-tested 3D pass')
+ok(rt:find('"weather_world_interaction"',1,true)~=nil,'interaction state is integrated as an environment runtime stage')
+ok(sdk:find('local SDK={version=5}',1,true)~=nil and sdk:find('weatherInteraction',1,true)~=nil,'environment SDK v5 publishes the new interop snapshot')
+ok(main:find('weatherWorldInteraction',1,true)~=nil,'companion mods have a read-only weather-world interaction export')
+print(string.format('Terrarium-inspired integration contract 8.1.88: %d passed, %d failed',pass,fail))
+os.exit(fail==0 and 0 or 1)

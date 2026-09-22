@@ -1,0 +1,22 @@
+from pathlib import Path
+R=Path(__file__).resolve().parents[1]
+checks=[]
+def ck(v,n): checks.append((bool(v),n)); print(('PASS ' if v else 'FAIL ')+n)
+ws=(R/'lib/WeatherWorldSpace.lua').read_text(); sc=(R/'lib/StormCells.lua').read_text(); er=(R/'lib/EngineRuntime.lua').read_text(); da=(R/'lib/DramalessAtmos.lua').read_text(); ca=(R/'lib/voxel_atmos/CinematicAtmos.lua').read_text(); wp=(R/'lib/voxel_atmos/WorldPrecip.lua').read_text(); to=(R/'lib/Tornado.lua').read_text(); st=(R/'lib/WeatherState.lua').read_text(); me=(R/'lib/MesoscaleField.lua').read_text()
+ck('originX+ox' in ws and 'neighborOrigins' in ws,'connected-map canonical weather coordinates')
+ck('WeatherWorldSpace' in er and 'S.toWorld' in er,'runtime climate samples canonical world coordinates')
+ck('WeatherWorldSpace' in da and 'observeVoxelState' in da,'voxel neighbor transforms feed weather space')
+ck('formation' in sc and 'growth' in sc and 'mature' in sc and 'weakening' in sc and 'dissipation' in sc,'five-stage storm cell lifecycle')
+ck('edge^1.55' in sc and 'cloudReach=1.55' in sc and 'local warp=1' in sc,'irregular pronounced rain edge plus larger directional cloud precursor')
+ck('280+rand()*240' in sc and '500+rand()*360' in sc and '760+rand()*520' in sc and '1050+rand()*760' in sc and '2500+rand()*1900' in sc,'cell sizes support localized through multi-map synoptic storms')
+ck('c.x=c.x+c.vx*c.speed*dt' in sc,'storm centers advect through world')
+ck('StormCells' in st and 'SPATIAL_AMPLITUDE' in st,'weather channels consume physical cell strength')
+ck('Kinematic channels' in st,'edge scaling explicitly leaves particle kinematics unchanged')
+ck('StormCells' in me and 'cellCloud' in me,'mesoscale field consumes finite cells and cloud precursor')
+ck('weatherFxSpatialStrength' in da and 'weatherFxSpatialStrength' in ca,'strict 3D cloud deck knows localized front state')
+ck('cloudHeightScale()' in ca and 'heightScale = CinematicAtmos._cloudHeightScale()' in ca,'visible cloud bank altitude is runtime-selectable while retaining raised default')
+ck('122*math.max' in to and 'cloudHeightScale' in to,'tornado fallback follows selected cloud height')
+ck('RAIN_CEIL = 26' in wp and 'SNOW_CEIL = 96' in wp and 'cloudHeightScale()' in wp,'precipitation fallbacks preserve original bases with selectable 100/150 percent scale')
+ck('boltDeck' in ca and 'cloudHeightScale()' in ca[ca.find('boltDeck'):ca.find('boltDeck')+600],'lightning fallback follows selected cloud deck')
+ck('localizedSpatial and 9 or 6' in ca and 'min(10' in ca and 'min(7' in ca,'approaching storms expand horizon search while ordinary weather keeps baseline budget')
+fail=sum(not x for x,_ in checks);print(f'8.1.22 world weather contract: {len(checks)-fail}/{len(checks)} passed');raise SystemExit(1 if fail else 0)

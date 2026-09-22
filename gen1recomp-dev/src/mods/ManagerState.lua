@@ -51,7 +51,17 @@ local PERMISSION_ROWS = {
   filesystem = { glyph = "!", text = "READS/WRITES FILES" },
 }
 
-local OPTION_TYPES = { toggle = true, choice = true, number = true, text = true }
+-- `action` is the odd one out: it stores no value, so it is not a setting the
+-- player is choosing but a button on the settings page.  It is here rather
+-- than anywhere else because a mod's long-running job (DRAMATIC_SHAPE's
+-- terrain prebake) has no other place to be started from, and the row it
+-- reports progress on is the one that started it.
+local OPTION_TYPES = { toggle = true, choice = true, number = true, text = true,
+                       action = true }
+-- Everything in OPTION_TYPES except the valueless kinds; RESET DEFAULTS walks
+-- this rather than OPTION_TYPES, or it would write row.default (nil) over an
+-- action row's non-existent stored value and count it as a setting restored.
+local VALUE_TYPES = { toggle = true, choice = true, number = true, text = true }
 
 local function wrap(text, width)
   local lines = {}
@@ -995,6 +1005,20 @@ function ManagerState:optionValue(modId, row)
   return v
 end
 
+-- What an action row shows on its right.  The provider is the MOD's, handed
+-- over by mod.options:status, and it runs while the settings page is being
+-- drawn -- so it is pcall'd: a mod whose progress function raises should grey
+-- its own row, not take the manager down with it.
+function ManagerState:optionStatus(modId, key)
+  local loader = self.game.mods
+  local byMod = loader and loader.optionStatus and loader.optionStatus[modId]
+  local fn = byMod and byMod[key]
+  if type(fn) ~= "function" then return nil end
+  local ok, text = pcall(fn)
+  if not ok then return nil end
+  return text
+end
+
 function ManagerState:setOption(modId, key, value)
   if Runtime.safeMode then
     self:notify("SAFE MODE ACTIVE")
@@ -1141,6 +1165,29 @@ function ManagerState:buildOptionRows(m, schema)
             end,
           }))
         end }
+    elseif row.type == "action" then
+      -- No value and no step: left/right do nothing, A fires it.  The label
+      -- on the right is whatever the mod last said about the job -- it is a
+      -- function, so it is re-read on every redraw and a count climbs while
+      -- the page is open -- falling back to the row's own verb before the mod
+      -- has said anything at all.
+      rows[#rows + 1] = { id = row.key, label = row.label or row.key,
+        value = function()
+          local text = self:optionStatus(modId, row.key)
+          if type(text) == "string" and text ~= "" then return text end
+          return tostring(row.action or "START")
+        end,
+        activate = function()
+          if Runtime.safeMode then
+            self:notify("SAFE MODE ACTIVE")
+            return
+          end
+          local loader = self.game.mods
+          if loader and loader.events then
+            loader.events:emit("mod.option_action",
+              { mod = modId, key = row.key })
+          end
+        end }
     end
   end
   rows[#rows + 1] = { id = "__reset", label = Strings("RESET DEFAULTS"),
@@ -1148,7 +1195,7 @@ function ManagerState:buildOptionRows(m, schema)
     activate = function()
       for _, row in ipairs(schema) do
         if type(row) == "table" and type(row.key) == "string"
-            and OPTION_TYPES[row.type] then
+            and VALUE_TYPES[row.type] then
           self:setOption(modId, row.key, row.default)
         end
       end

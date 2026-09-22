@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+from pathlib import Path
+import re,sys
+R=Path(__file__).resolve().parents[1];c=[]
+def ck(v,m): c.append(bool(v));print(('PASS ' if v else 'FAIL ')+m)
+draw=(R/'lib/Draw.lua').read_text(); light=(R/'lib/Lightning.lua').read_text(); flat=(R/'lib/NpcLightning2D.lua').read_text(); world=(R/'lib/voxel_atmos/NpcLightning.lua').read_text(); main=(R/'main.lua').read_text(); cfg=(R/'lib/Config.lua').read_text()
+ck('NpcLightning2D' in draw,'flat NPC-lightning module connected to Draw')
+ck('Lightning.strikeSerial' in draw and '_lastNpc2dStrikeSerial' in draw,'2D targeting follows real scheduled strike serial')
+ck('Draw._lastNpc2dStrikeSerial=tonumber(Lightning.strikeSerial) or 0' in draw,'renderer invalidation cannot replay a stale strike serial')
+ck('not use3dLightning()' in draw,'2D NPC targeting stands down under 3D lightning ownership')
+ck('n.visible=="world"' in draw and 'n.outdoor==true' in draw and 'not n.indoors' in draw,'2D NPC targeting is outdoor-overworld gated')
+ck('Lightning.retarget(' in draw,'Draw retargets the already scheduled visible bolt')
+ck('function L.retarget(' in light and 'makeBolt(' in light,'Lightning exposes endpoint-only live retarget')
+ck('local ok,S=pcall(V.require,"Scene")' in flat and 'S.overworld' in flat,'2D target resolves live engine overworld at call time')
+ck('for _,e in ipairs(ow.npcs or {})' in flat and 'for _,e in ipairs(ow.entities or {})' in flat,'2D target scans real NPC/entity collections')
+ck('e==player' in flat and 'BOULDER' in flat and 'POKE_BALL' in flat,'player and obvious field objects are excluded')
+ck('targetRect' in flat and 'S.viewport' in flat and 'hx/160*rw' in flat,'2D strike endpoint respects actual letterboxed game viewport')
+ck('drawSkeleton' in flat and 'drawEyes' in flat,'2D cartoon electrocution/charred reaction exists')
+ck('SMOKE_DELAY = 0.18' in flat and 'for j=0,5 do' in flat and 'r=.90+1.25*u' in flat,'2D smoke is delayed and visibly large at source resolution')
+ck('Draw.npcLightningActive' in draw and 'Draw.npcLightningActive()' in main,'post-strike 2D reaction keeps compositor alive')
+ck('SMOKE_DELAY = 0.18' in world and 'for j=0,5 do' in world,'3D smoke uses six delayed puffs')
+ck('half=1.35+1.75*t' in world and '.14,.14,.16' in world and '.58,.58,.62' in world,'3D smoke is large dual-contrast geometry')
+ck('dx*1.15' in world and 'dz*1.15' in world,'3D smoke offsets slightly toward camera to avoid actor depth swallowing')
+ck('smokeVerts = tonumber(N._lastSmokeVerts)' in world,'3D smoke publishes submitted-geometry diagnostic')
+ck('chance=0.10' in cfg.replace(' ', '') or 'chance = 0.10' in cfg,'shared default character strike chance remains 10 percent')
+ck('duration=3.0' in cfg.replace(' ', '') or 'duration = 3.0' in cfg,'shared default charred/smoke duration remains 3 seconds')
+print(f'8.1.60 NPC lightning contract: {sum(c)}/{len(c)} passed')
+sys.exit(0 if all(c) else 1)

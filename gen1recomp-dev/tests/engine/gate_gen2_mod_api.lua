@@ -2,9 +2,20 @@
 --
 -- The rule this file exists to hold: hook names, event names and registry
 -- names are SHARED across generations, and the only things that differ are
--- where a registry's content lands and whether the mod runs at all.  A mod
--- opts into Gen 2 with `gen2compat` in its manifest and is left out of a Gold
--- boot entirely without it, because a mod that half-applies reads as broken.
+-- where a registry's content lands and whether the mod runs at all.
+--
+-- WHICH GENERATIONS A MOD RUNS ON IS ITS OWN `generations` CLAIM, and that is
+-- the vocabulary Gen2Recomped uses too -- its Manifest knows `generations` and
+-- has never heard of our `games` or `gen2compat`.  A mod authored there and
+-- brought here is gated identically in both engines, which is the whole point
+-- of using their word for it.  Stating nothing means every generation, so a
+-- mod that predates the field keeps working exactly as it did; stating a list
+-- that excludes this game is final, and only the player's force chip opens it.
+--
+-- `gen2compat` is still accepted so existing manifests keep validating, but it
+-- no longer gates: an Emerald-authored mod would never carry it, and refusing
+-- one for lacking a flag that exists only in this tree is precisely the
+-- forward-incompatibility this rule exists to avoid.
 --
 -- Runs ROM-free: the generation is injected through the loader rather than by
 -- booting Gold (T.sdk.loadMods opts.generation).
@@ -618,7 +629,8 @@ local GEN1_ONLY = {
     "name": "Fixture Gen 1 Only",
     "version": "1.0.0",
     "entry": "main.lua",
-    "api": 2
+    "api": 2,
+    "generations": [1]
   }]],
   ["mods/fix_gen1_only/main.lua"] = [[
     local mod = ...
@@ -690,8 +702,8 @@ do
   local skipped = statusOf(run, "fix_gen1_only")
   T.eq(skipped.state, "wrong_generation",
     "Gen 2: a mod with no gen2compat is not loaded")
-  T.check(skipped.note ~= nil and skipped.note:match("gen2compat"),
-    "Gen 2: the skip says why")
+  T.check(skipped.note ~= nil and skipped.note:match("generation"),
+    "Gen 2: the skip says why, naming the generation it was made for")
   T.eq(skipped.error, nil,
     "Gen 2: a skip is not reported as a failure")
   T.eq(skipped.enabled, true,
@@ -930,7 +942,9 @@ do
     "Gen 2: a dependent of a gate-skipped mod is skipped, not failed")
   T.eq(dependent.error, nil,
     "Gen 2: the dependent's skip is not reported as a failure")
-  T.check(dependent.note ~= nil and dependent.note:match("gen2compat"),
+  -- the reason is now the dependency's own generation claim, carried through
+  -- so the manager still explains the whole chain rather than just the end
+  T.check(dependent.note ~= nil and dependent.note:match("generation"),
     "Gen 2: the dependent's skip names the dependency's reason")
   T.eq(#run.errors, 0, "Gen 2: neither mod contributes a boot error")
   run.release()
@@ -965,7 +979,8 @@ do
       "name": "Fixture Broken",
       "version": "1.0.0",
       "entry": "missing.lua",
-      "api": 2
+      "api": 2,
+      "generations": [1]
     }]],
   }
   local run = T.sdk.loadMods({ "mods/fix_broken" },

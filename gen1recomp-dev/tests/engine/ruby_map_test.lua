@@ -2766,6 +2766,29 @@ check(g:mapNeedsEvilTeamGfx(b2f), "Magma Hideout B2F needs evil-team gfx")
 g:enterMap(b2f, 0, 0, true)
 eq(g:resolveGraphicsId(Game3.GFX_VAR_1), Game3.GFX_MAGMA_MEMBER_M,
   "B2F enterMap sets Magma M")
+-- ...and an id no script has painted still draws SOMEBODY.
+-- GetObjectEventGraphicsInfo ends with
+--     if (graphicsId >= NUM_OBJ_EVENT_GFX) graphicsId = OBJ_EVENT_GFX_LITTLE_BOY_1;
+-- The clamp belongs to the GRAPHICS LOOKUP, not to resolution: the ROM leaves
+-- the raw id on the object event (so "is this still a var id" stays a truthful
+-- question) and substitutes only when it goes to fetch the art. Without it the
+-- raw 240..255 matched no sprite record and the card was skipped entirely --
+-- the object event drew as nothing at all.
+eq(g:varGet(Game3.VAR_OBJ_GFX_ID_0 + 3), 0,
+  "VAR_OBJ_GFX_ID_3 is one SetupEvilTeamGfxIds does not paint")
+eq(g:resolveGraphicsId(Game3.GFX_VAR_0 + 3), Game3.GFX_VAR_0 + 3,
+  "resolution leaves an unset var id alone, as the ROM does")
+local spritePack = { byId = {
+  [Game3.GFX_LITTLE_BOY_1] = { id = Game3.GFX_LITTLE_BOY_1, path = "boy.png" },
+  [Game3.GFX_MAGMA_MEMBER_M] = { id = Game3.GFX_MAGMA_MEMBER_M, path = "m.png" },
+} }
+local fallback = Game3.spriteSpec(spritePack, Game3.GFX_VAR_0 + 3)
+check(fallback ~= nil, "but the graphics lookup still answers with a sheet")
+eq(fallback.id, Game3.GFX_LITTLE_BOY_1, "the ROM fallback, LITTLE_BOY_1")
+eq(Game3.spriteSpec(spritePack, Game3.GFX_MAGMA_MEMBER_M).id,
+  Game3.GFX_MAGMA_MEMBER_M, "an id inside the table is untouched")
+check(Game3.GFX_LITTLE_BOY_1 < Game3.NUM_OBJ_EVENT_GFX,
+  "and the fallback is itself inside the table")
 local npcs = g:npcsFor(b2f)
 eq(#npcs, 2, "Tabitha and the submarine both spawn")
 eq(npcs[1].graphicsId, Game3.GFX_MAGMA_MEMBER_M, "grunt sprite resolves")
@@ -5016,12 +5039,29 @@ local function press(g, key)
   Input.wasPressed = old
 end
 
+-- The list will not take a second move until the first one's scroll
+-- animation has run: pokedex.c holds the input off while the ball orbit
+-- plays, and stepDexList keeps that with scrollTimer. Two presses on
+-- consecutive frames are one move on the cart too, so the idle frames here
+-- are the animation, not a workaround.
+local function settle(g)
+  local old = Input.wasPressed
+  Input.wasPressed = function() return false end
+  for _ = 1, 20 do g:stepField() end
+  Input.wasPressed = old
+end
+
 local g = Game3.new()
 g.phase = "play"
 for i = 1, 12 do g:markSeen(i) end
 g:openDex()
 eq(#(g.field.list or {}), 12, "twelve seen entries")
-press(g, "down"); press(g, "down")
+press(g, "down")
+eq(g.field.cursor, 1, "one move per scroll")
+press(g, "down")
+eq(g.field.cursor, 1, "a press during the scroll is swallowed, as on the cart")
+settle(g)
+press(g, "down")
 eq(g.field.cursor, 2, "cursor moved")
 press(g, "start")
 eq(g.field.kind, "dex_start", "START opens the popup, not the main menu")
@@ -6022,10 +6062,34 @@ local want = {}
 for _, p in ipairs(truth:connectedLayout(maps[chainId(4)], 4)) do
   want[p.map.id] = p.ox .. "," .. p.oy
 end
+-- A FRESH LAYOUT ONLY GATHERS WHAT IS ON SCREEN, so it stops at g9_2 here
+-- whatever hop count it is given -- g9_1 is a full map further west than the
+-- view reaches. That map is precisely the one stickiness exists to keep, so
+-- comparing every carried placement against the fresh set asked the fresh
+-- set for a map it can never hold, and read nil.
+--
+-- What has to hold is: every map BOTH layouts know sits at the same offset,
+-- and the carried one beyond the view is still in line with the chain.
+local shared = 0
 for _, p in ipairs(g:mapPlacements(maps[chainId(4)])) do
-  eq(p.ox .. "," .. p.oy, want[p.map.id],
-    "carried map " .. p.map.id .. " sits where a real walk puts it")
+  if want[p.map.id] then
+    shared = shared + 1
+    eq(p.ox .. "," .. p.oy, want[p.map.id],
+        "carried map " .. p.map.id .. " sits where a real walk puts it")
+  end
 end
+eq(shared, 3, "the fresh layout reaches three of the four")
+;(function()
+  local carried = {}
+  for _, p in ipairs(g:mapPlacements(maps[chainId(4)])) do
+    carried[p.map.id] = { ox = p.ox, oy = p.oy }
+  end
+  check(carried[chainId(1)], "and the one it cannot reach is still carried")
+  eq(carried[chainId(1)].oy, carried[chainId(2)].oy,
+    "on the same row as its neighbour")
+  eq(carried[chainId(2)].ox - carried[chainId(1)].ox, 20,
+    "one map width further west, which is where walking left it")
+end)()
 
 -- Off by default? No -- but it must be switchable, and off must behave as
 -- before: only the current map and its direct neighbours.
@@ -6050,6 +6114,167 @@ for i = 1, 12 do goTo(lg, long, chainId(i)) end
 local list = lg:mapPlacements(long[chainId(12)])
 check(#list <= Game3.STICKY_LAYOUT_MAX + 4,
   "the carried set stays bounded across a long walk")
+end)()
+
+-- ------- the object events that take their step from the player
+--
+-- MovementType_CopyPlayer has no clock of its own: it runs when the PLAYER
+-- leaves a tile, mapping the player's direction through state_to_direction
+-- (gUnknown_08375767). With DIR_SOUTH 1 / NORTH 2 / WEST 3 / EAST 4 the four
+-- initial facings give the identity, the reverse, and the two quarter turns.
+-- The _IN_GRASS variants pass MetatileBehavior_IsPokeGrass as the tile
+-- callback, so they step only onto tall grass and otherwise only turn.
+--
+-- All eight types did nothing at all before: stepNpcs drives wander types and
+-- these are not wander types, so they stood where they spawned.
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.COPY_PLAYER_TURN.same.south, "south", "COPY_PLAYER walks as you do")
+eq(Game3.COPY_PLAYER_TURN.opposite.south, "north", "OPPOSITE mirrors it")
+eq(Game3.COPY_PLAYER_TURN.ccw.south, "east", "COUNTERCLOCKWISE turns south to east")
+eq(Game3.COPY_PLAYER_TURN.ccw.east, "north", "...and east to north")
+eq(Game3.COPY_PLAYER_TURN.cw.south, "west", "CLOCKWISE turns south to west")
+eq(Game3.COPY_PLAYER_TURN.cw.west, "north", "...and west to north")
+eq(Game3.COPY_PLAYER_MODES[0x35][1], "same", "0x35 is the plain copy")
+eq(Game3.COPY_PLAYER_MODES[0x3C][1], "opposite", "0x3C is opposite, in grass")
+eq(Game3.COPY_PLAYER_MODES[0x3C][2], true, "and is gated on the grass")
+eq(Game3.COPY_PLAYER_MODES[0x35][2], false, "while 0x35 is not")
+
+local function world(behaviorFill)
+  local g = Game3.new()
+  g.phase = "play"
+  local w, h = 8, 8
+  local map = { id = "g_copy", width = w, height = h, grid = {}, behavior = {},
+    tileset = "t", mapType = Game3.MAP_TYPE_ROUTE, objects = {} }
+  for i = 1, w * h do
+    map.grid[i] = 1
+    map.behavior[i] = behaviorFill or 0
+  end
+  g.data.maps = { maps = { g_copy = map } }
+  g.data.tilesets = { byId = { t = { behavior = {}, layerType = {} } } }
+  g.map = map
+  g.playerX, g.playerY, g.facing = 4, 4, "south"
+  return g, map
+end
+
+-- a plain copier walks the way the player just did
+local g, map = world(0)
+-- gRangedMovementTypes lists the copy types, so a copier is clamped to its
+-- template's range exactly like a wanderer; these fixtures carry one.
+local npc = { localId = 1, x = 1, y = 1, homeX = 1, homeY = 1,
+  rangeX = 3, rangeY = 3, facing = "south",
+  movementType = 0x35, graphicsId = 0 }
+g.npcByMap = { g_copy = { npc } }
+eq(g:stepCopyPlayerNpcs("south"), 1, "the copier takes a step")
+eq(npc.y, 2, "south, like the player")
+eq(npc.x, 1, "and not sideways")
+
+-- ...and it is the PLAYER's direction that drives it, not a fixed one
+npc.cooldown = 0
+npc.x, npc.y = 3, 3
+npc.homeX, npc.homeY = 3, 3
+eq(g:stepCopyPlayerNpcs("west"), 1, "the copier steps on a westward step too")
+eq(npc.x, 2, "west, like the player")
+eq(npc.y, 3, "and not south")
+npc.cooldown = 0
+npc.movementType = 0x36
+eq(g:stepCopyPlayerNpcs("west"), 1, "the opposite copier steps")
+eq(npc.x, 3, "east, against the player")
+
+-- the quarter turns
+npc.cooldown = 0
+npc.x, npc.y, npc.homeX, npc.homeY = 1, 1, 1, 1
+npc.movementType = 0x37
+eq(g:stepCopyPlayerNpcs("south"), 1, "the counterclockwise one steps too")
+eq(npc.x, 2, "east, a quarter turn from the player's south")
+npc.cooldown = 0
+npc.x, npc.y, npc.homeX, npc.homeY = 2, 2, 2, 2
+eq(g:stepCopyPlayerNpcs("east"), 1, "and it turns every direction, not just south")
+eq(npc.y, 1, "north, a quarter turn from the player's east")
+
+-- IN GRASS: the same movement, but only onto tall grass
+local g2, map2 = world(0)
+local grassy = { localId = 1, x = 1, y = 1, homeX = 1, homeY = 1,
+  rangeX = 3, rangeY = 3, facing = "south",
+  movementType = 0x3B, graphicsId = 0 }
+g2.npcByMap = { g_copy = { grassy } }
+eq(g2:stepCopyPlayerNpcs("south"), 0, "no grass to step into, so no step")
+eq(grassy.y, 1, "it stays put...")
+eq(grassy.facing, "south", "...and only turns to the mapped direction")
+for i = 1, map2.width * map2.height do map2.behavior[i] = Game3.MB_TALL_GRASS end
+g2.behaviorCache = nil
+eq(g2:stepCopyPlayerNpcs("south"), 1, "in tall grass it walks")
+eq(grassy.y, 2, "one tile south")
+
+-- a copier never walks through the player or off the map
+local g3, map3 = world(0)
+local blocked = { localId = 1, x = 4, y = 3, homeX = 4, homeY = 3,
+  rangeX = 3, rangeY = 3, facing = "south",
+  movementType = 0x35, graphicsId = 0 }
+g3.npcByMap = { g_copy = { blocked } }
+eq(g3:stepCopyPlayerNpcs("south"), 0, "the player's own tile blocks it")
+eq(blocked.y, 3, "so it holds its ground")
+eq(blocked.facing, "south", "facing the way it tried to go")
+end)()
+
+-- ------- the prefetch radius, and what it must not touch
+--
+-- A renderer that BUILDS a map before it can show it needs the map while it
+-- is still off screen: handed Route 101 two tiles before the player steps on
+-- it, the mesher is still working when they arrive and the seam goes flat.
+-- connectedLayout takes a margin for that. The draw path must keep the tight
+-- one -- every extra map it gathers is overdraw -- and a wide gather must not
+-- become STICKY either, or those maps are carried into the draw list on the
+-- next frame anyway, which is the same cost by a longer route.
+;(function()
+local Game3 = require("src.core.Game3")
+eq(Game3.LAYOUT_PREFETCH_TILES, 24, "the prefetch radius is a screen's worth")
+local function chainId(i) return "g9_" .. i end
+local maps = {}
+for i = 1, 3 do
+  local id = chainId(i)
+  -- 10x10 maps: the third one then sits ~20 tiles out, inside the prefetch
+  -- radius and outside the drawing one, which is the band being tested
+  maps[id] = { id = id, group = 9, index = i, width = 10, height = 10,
+    grid = {}, connections = {} }
+  for j = 1, 100 do maps[id].grid[j] = 0 end
+end
+for i = 1, 2 do
+  local a, b = maps[chainId(i)], maps[chainId(i + 1)]
+  a.connections[#a.connections + 1] =
+    { dir = "east", offset = 0, mapGroup = 9, mapNum = i + 1 }
+  b.connections[#b.connections + 1] =
+    { dir = "west", offset = 0, mapGroup = 9, mapNum = i }
+end
+local g = Game3.new()
+g.phase = "play"
+g.data.maps = { maps = maps }
+g.viewW, g.viewH = 240, 160
+g:enterMap(maps[chainId(1)], 1, 1, true)
+g:clampCamera()
+
+local function ids(list)
+  local out = {}
+  for i = 1, #list do out[#out + 1] = list[i].map.id end
+  table.sort(out)
+  return table.concat(out, " ")
+end
+g.connectedLayoutCache = nil
+local tight = ids(g:connectedLayout(maps[chainId(1)], 4))
+g.connectedLayoutCache = nil
+local wide = ids(g:connectedLayout(maps[chainId(1)], 4,
+  Game3.LAYOUT_PREFETCH_TILES))
+check(#wide >= #tight, "the prefetch gather reaches at least as far")
+check(wide:find("g9_3", 1, true) ~= nil,
+  "and far enough to hand over the map two hops out, before it is on screen")
+check(tight:find("g9_3", 1, true) == nil,
+  "which the drawing gather does not, because it would be drawing it")
+
+-- ...and the wide gather leaves no trace in the sticky set: the next tight
+-- gather is the same as if it had never run.
+g.connectedLayoutCache = nil
+local afterWide = ids(g:connectedLayout(maps[chainId(1)], 4))
+eq(afterWide, tight, "a prefetch does not widen the next drawing gather")
 end)()
 
 -- One void for the whole world. Each map used to answer for the space past

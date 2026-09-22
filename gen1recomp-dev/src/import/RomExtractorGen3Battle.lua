@@ -1548,6 +1548,71 @@ function Battle.renderAnimSheet(data, picOff, palOff)
   return image
 end
 
+-- THE SHEETS AGAIN, THIS TIME IN FRAMES.
+--
+-- renderAnimSheet lays the cart's tiles out eight to a row, which is the
+-- order they are STORED in, not the picture they make: a 32x32 particle is
+-- sixteen tiles in 1D order, and eight-to-a-row cuts it in half and puts the
+-- halves on two rows. Nothing could draw a particle from that, which is part
+-- of why the old renderer settled for one scaled smear.
+--
+-- Given the frame size a template asks for, the same tiles compose properly:
+-- frame k is (w/8)*(h/8) consecutive tiles filling a w x h box, and the
+-- frames sit left to right. One image per (sheet, size) pair the scripts
+-- actually use -- the size is the template's, so a sheet used at two sizes
+-- gets two images, which is what the createsprites ask for.
+function Battle.animFramedPath(id, w, h)
+  return ("assets/generated/battle/anims/%d_%dx%d.png"):format(id, w, h)
+end
+
+function Battle.renderAnimSheetFramed(data, picOff, palOff, w, h)
+  local _, gfxOff = romPtr(data, picOff)
+  local _, palDataOff = romPtr(data, palOff)
+  if not (gfxOff and palDataOff) then return nil end
+  local raw = GbaLz77.decompress(data, gfxOff)
+  local palBytes = GbaLz77.decompress(data, palDataOff)
+  if not raw or #raw < 32 or not palBytes or #palBytes < 32 then return nil end
+  local pal = {}
+  for c = 0, 15 do pal[c] = { bgr555(GbaBin.u16(palBytes, c * 2)) } end
+  local tw, th = math.floor(w / 8), math.floor(h / 8)
+  local per = tw * th
+  if per < 1 then return nil end
+  local tiles = math.floor(#raw / Battle.TILE_BYTES)
+  local frames = math.floor(tiles / per)
+  if frames < 1 then return nil end
+  local image = ImageWriter.blank(frames * w, h, 0, 0, 0, 0)
+  for f = 0, frames - 1 do
+    for t = 0, per - 1 do
+      local src = f * per + t
+      blitTile(image,
+        f * w + (t % tw) * 8, math.floor(t / tw) * 8,
+        raw:sub(src * Battle.TILE_BYTES + 1, (src + 1) * Battle.TILE_BYTES), pal)
+    end
+  end
+  return image, frames
+end
+
+-- `wanted` is the set of (sheet, w, h) the move scripts ask for, gathered by
+-- parseMoveAnimPlans; nothing else is rendered, so a sheet no move draws
+-- costs nothing.
+function Battle.extractAnimFrames(data, wanted)
+  local out = {}
+  for key in pairs(wanted or {}) do
+    local id, w, h = key:match("^(%d+)|(%d+)|(%d+)$")
+    id, w, h = tonumber(id), tonumber(w), tonumber(h)
+    if id and w and h then
+      local img, frames = Battle.renderAnimSheetFramed(data,
+        Battle.ANIM_PIC_TABLE + id * 8, Battle.ANIM_PAL_TABLE + id * 8, w, h)
+      if img then
+        local path = Battle.animFramedPath(id, w, h)
+        ImageWriter.save(img, path)
+        out[key] = { path = path, w = w, h = h, frames = frames }
+      end
+    end
+  end
+  return out
+end
+
 function Battle.extractAnimSheets(data)
   local sheets = {}
   for i = 0, Battle.ANIM_PIC_COUNT - 1 do
@@ -1562,22 +1627,182 @@ function Battle.extractAnimSheets(data)
   return sheets
 end
 
+-- A MOVE ANIMATION IS A PROGRAM, not a sheet.
+--
+-- gBattleAnims_Moves (0x1C7168, confirmed against pokeruby's own
+-- `gBattleAnims_Moves:: @ 81C7168`) holds one script pointer per move, and
+-- battle_anim.c runs it a command at a time. This used to read the FIRST
+-- BYTE of that script, keep a sprite tag if one happened to be there, and
+-- hand the renderer a single sheet id -- which is why every move in Hoenn
+-- drew the same expanding smear whatever it was.
+--
+-- The walk below is the cart's own: every length is what the matching
+-- ScriptCmd_* in battle_anim.c advances sBattleAnimScriptPtr by, and the
+-- opcodes are its sScriptCmdTable in order. `call`/`return` keep a stack,
+-- `goto` follows, and the three conditional jumps -- jumpifmoveturn,
+-- jumpargeq, jumpifcontest -- FALL THROUGH, which is the ordinary arm: the
+-- first turn of a two-turn move, the default variant, not a contest.
+--
+-- Verified move by move against pokeruby: all 355 pointers equal the decomp
+-- label addresses, and walking data/battle_anim_scripts.s the same way gives
+-- the same createsprite count and the same total delay for all 355.
+Battle.ANIM_CMD_LEN = {
+  [0x00] = 3, [0x01] = 3, [0x04] = 2, [0x05] = 1, [0x09] = 3, [0x0A] = 2,
+  [0x0B] = 2, [0x0C] = 3, [0x0D] = 1, [0x10] = 4, [0x12] = 6, [0x14] = 2,
+  [0x15] = 1, [0x16] = 1, [0x17] = 1, [0x18] = 2, [0x19] = 4, [0x1A] = 2,
+  [0x1B] = 7, [0x1C] = 6, [0x1D] = 5, [0x1E] = 3, [0x20] = 1, [0x22] = 2,
+  [0x23] = 2, [0x24] = 5, [0x25] = 4, [0x26] = 7, [0x27] = 7, [0x28] = 2,
+  [0x29] = 1, [0x2A] = 2, [0x2B] = 2, [0x2C] = 2, [0x2D] = 2, [0x2E] = 2,
+  [0x2F] = 1,
+}
+Battle.ANIM_END = { [0x08] = true, [0x06] = true, [0x07] = true }
+Battle.ANIM_MAX_STEPS = 4000
+Battle.ANIM_MAX_DEPTH = 24
+Battle.ANIM_MAX_EVENTS = 64
+-- An argument past a battler's own box is not a pixel offset, whatever else
+-- the template's callback reads it as.
+Battle.ANIM_MAX_OFFSET = 64
+
+-- OBJ size by the OAM's shape and size bits. The hardware's table, not a
+-- choice: shape 0 is square, 1 wide, 2 tall.
+Battle.ANIM_OBJ_DIM = {
+  [0] = { { 8, 8 }, { 16, 16 }, { 32, 32 }, { 64, 64 } },
+  [1] = { { 16, 8 }, { 32, 8 }, { 32, 16 }, { 64, 32 } },
+  [2] = { { 8, 16 }, { 8, 32 }, { 16, 32 }, { 32, 64 } },
+}
+
+-- How big the particle this template spawns actually is. The size belongs to
+-- the TEMPLATE, not to the sheet: 242 of the createsprites in Hoenn draw a
+-- sheet at a size some other template draws it at differently, so a
+-- per-sheet answer would be wrong for one of them.
+local function animFrameSize(data, tmpl)
+  if not GbaBin.isRomPtr(tmpl, #data) then return nil end
+  local oam = GbaBin.u32(data, tmpl - GbaBin.ROM_BASE + 4)
+  if not GbaBin.isRomPtr(oam, #data) then return nil end
+  local off = oam - GbaBin.ROM_BASE
+  local shape = math.floor(GbaBin.u16(data, off) / 0x4000) % 4
+  local size = math.floor(GbaBin.u16(data, off + 2) / 0x4000) % 4
+  local row = Battle.ANIM_OBJ_DIM[shape]
+  local wh = row and row[size + 1]
+  if not wh then return nil end
+  return wh[1], wh[2]
+end
+
+-- struct SpriteTemplate is { u16 tileTag, u16 paletteTag, ptr oam, ... }, so
+-- the sheet a createsprite draws from is the tag at the template's first
+-- halfword, and ANIM_TAG_BASE (0x2710 = ANIM_TAG_BONE) makes it an index
+-- into the particle sheets we already extract.
+local function animSheetOf(data, tmpl)
+  if not GbaBin.isRomPtr(tmpl, #data) then return nil end
+  local tag = GbaBin.u16(data, tmpl - GbaBin.ROM_BASE)
+  local id = tag - Battle.ANIM_TAG_BASE
+  if id >= 0 and id < Battle.ANIM_PIC_COUNT then return id end
+  return nil
+end
+
+function Battle.walkMoveAnim(data, entry)
+  local pc, frame, steps = entry, 0, 0
+  local stack, events = {}, {}
+  while steps < Battle.ANIM_MAX_STEPS do
+    steps = steps + 1
+    if pc < 0 or pc + 1 > #data then return nil, "ran off the rom" end
+    local op = data:byte(pc + 1)
+    if Battle.ANIM_END[op] then
+      return events, nil, frame
+    elseif op == 0x02 then                       -- createsprite
+      local tmpl = GbaBin.u32(data, pc + 1)
+      local battler = data:byte(pc + 6) or 0
+      local argc = data:byte(pc + 7) or 0
+      local x, y
+      if argc >= 2 then
+        local ax = GbaBin.u16(data, pc + 7)
+        local ay = GbaBin.u16(data, pc + 9)
+        if ax >= 0x8000 then ax = ax - 0x10000 end
+        if ay >= 0x8000 then ay = ay - 0x10000 end
+        if ax <= Battle.ANIM_MAX_OFFSET and ax >= -Battle.ANIM_MAX_OFFSET
+            and ay <= Battle.ANIM_MAX_OFFSET and ay >= -Battle.ANIM_MAX_OFFSET then
+          x, y = ax, ay
+        end
+      end
+      local fw, fh = animFrameSize(data, tmpl)
+      if #events < Battle.ANIM_MAX_EVENTS then
+        events[#events + 1] = {
+          f = frame,
+          sheet = animSheetOf(data, tmpl),
+          w = fw, h = fh,
+          battler = battler % 0x80,
+          -- bit 7 is ANIMSPRITE_IS_TARGET: Cmd_createsprite reads it for a
+          -- SUBPRIORITY, not a place, so it is recorded and not used to
+          -- decide whose side the particle lands on.
+          target = battler >= 0x80 or nil,
+          x = x, y = y,
+        }
+      end
+      pc = pc + 7 + argc * 2
+    elseif op == 0x03 then                       -- createvisualtask
+      pc = pc + 7 + (data:byte(pc + 7) or 0) * 2
+    elseif op == 0x1F then                       -- createsoundtask
+      pc = pc + 6 + (data:byte(pc + 6) or 0) * 2
+    elseif op == 0x04 then                       -- delay
+      frame = frame + (data:byte(pc + 2) or 0)
+      pc = pc + 2
+    elseif op == 0x0E then                       -- call
+      local dest = GbaBin.u32(data, pc + 1)
+      if not GbaBin.isRomPtr(dest, #data) then return nil, "bad call pointer" end
+      if #stack >= Battle.ANIM_MAX_DEPTH then return nil, "call depth" end
+      stack[#stack + 1] = pc + 5
+      pc = dest - GbaBin.ROM_BASE
+    elseif op == 0x0F then                       -- return
+      if #stack < 1 then return nil, "return with no call" end
+      pc = stack[#stack]
+      stack[#stack] = nil
+    elseif op == 0x13 then                       -- goto
+      local dest = GbaBin.u32(data, pc + 1)
+      if not GbaBin.isRomPtr(dest, #data) then return nil, "bad goto pointer" end
+      pc = dest - GbaBin.ROM_BASE
+    elseif op == 0x11 then                       -- choosetwoturnanim
+      pc = pc + 9
+    elseif op == 0x21 then                       -- jumpargeq
+      pc = pc + 8
+    else
+      local n = Battle.ANIM_CMD_LEN[op]
+      if not n then return nil, ("unknown command 0x%02X"):format(op) end
+      pc = pc + n
+    end
+  end
+  return nil, "step cap"
+end
+
+-- Returns the plans and, beside them, the set of (sheet, w, h) their events
+-- draw -- which is exactly what extractAnimFrames has to render.
 function Battle.parseMoveAnimPlans(data)
   local plans = {}
+  local wanted = {}
   for i = 0, Battle.MOVE_COUNT - 1 do
     local ptr = GbaBin.u32(data, Battle.ANIM_SCRIPT_TABLE + i * 4)
     if GbaBin.isRomPtr(ptr, #data) then
-      local off = ptr - GbaBin.ROM_BASE
+      local events, err, frames = Battle.walkMoveAnim(data, ptr - GbaBin.ROM_BASE)
+      -- A script that does not walk cleanly is reported, not guessed at: the
+      -- old single-sheet reading is kept so the move still shows something.
       local sheet
-      if data:byte(off + 1) == 0 then
-        local tag = GbaBin.u16(data, off + 1)
-        local id = tag - Battle.ANIM_TAG_BASE
-        if id >= 0 and id < Battle.ANIM_PIC_COUNT then sheet = id end
+      for _, e in ipairs(events or {}) do
+        if e.sheet then sheet = e.sheet break end
       end
-      plans[i] = { sheet = sheet or 0, delay = 16, sprites = {} }
+      for _, e in ipairs(events or {}) do
+        if e.sheet and e.w and e.h then
+          wanted[("%d|%d|%d"):format(e.sheet, e.w, e.h)] = true
+        end
+      end
+      plans[i] = {
+        sheet = sheet or 0,
+        delay = 16,
+        frames = frames or 0,
+        events = events or {},
+        error = err,
+      }
     end
   end
-  return plans
+  return plans, wanted
 end
 
 -- gTrainerFrontPicTable @ 0x1EC53C (cinema comment / front_pic_table.inc).

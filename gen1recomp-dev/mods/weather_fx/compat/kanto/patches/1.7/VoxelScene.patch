@@ -1,0 +1,139 @@
+--- lib/VoxelScene.lua
++++ lib/VoxelScene.lua
+@@ -24,6 +24,7 @@
+ local Water = V.require("Water")
+ local VoxelGrid = V.require("VoxelGrid")
+ local DayNight = V.require("DayNight")
++local CinematicAtmos = V.require("CinematicAtmos")
+ local FirstPerson = V.require("FirstPerson")
+ local BattleBillboard = V.require("BattleBillboard")
+ local Pokedex = V.require("Pokedex")
+@@ -150,7 +151,57 @@
+ local function skyFor(map)
+   local sky = VoxelScene.skyColor(map, skyStrength(Voxel.angle))
+   if not sky then return nil end
+-  return Sky.dress(sky)
++  sky = Sky.dress(sky)
++
++  -- Weather W2: a sealed cloud deck also changes the light reaching the sky
++  -- beneath it.  Blend the generated blue bands toward a cool grey for
++  -- Overcast/Rain/Thunderstorm so tiny feather gaps never read as clear sky.
++  -- The visible cloud cover is still world-space geometry; this is the colour
++  -- of the atmosphere behind it, analogous to the diffuse light under a real
++  -- continuous ceiling.
++  local ws = CinematicAtmos.skyWeather and CinematicAtmos.skyWeather() or nil
++  if ws and ws.color and ws.blend and ws.blend > 0 then
++    local t = math.max(0, math.min(1, ws.blend))
++    local c = ws.color
++    local function blend3(v)
++      return {
++        v[1] * (1 - t) + c[1] * t,
++        v[2] * (1 - t) + c[2] * t,
++        v[3] * (1 - t) + c[3] * t,
++      }
++    end
++    local fill = blend3(sky)
++    sky[1], sky[2], sky[3] = fill[1], fill[2], fill[3]
++    if sky.bands then
++      local bands = {}
++      for i = 1, #sky.bands do bands[i] = blend3(sky.bands[i]) end
++      sky.bands = bands
++    end
++  end
++
++  -- Thunderstorm lightning is atmospheric illumination, not a 2D white card.
++  -- Brighten the generated sky bands toward a cold electric blue-white during
++  -- each irregular flash; the voxel world receives the matching light pulse
++  -- below through CinematicAtmos.worldTint().
++  if ws and ws.flash and ws.flash > 0.001 then
++    local t = math.max(0, math.min(0.82, ws.flash * 0.72))
++    local c = { 0.84, 0.91, 1.00 }
++    local function flash3(v)
++      return {
++        v[1] * (1 - t) + c[1] * t,
++        v[2] * (1 - t) + c[2] * t,
++        v[3] * (1 - t) + c[3] * t,
++      }
++    end
++    local fill = flash3(sky)
++    sky[1], sky[2], sky[3] = fill[1], fill[2], fill[3]
++    if sky.bands then
++      local bands = {}
++      for i = 1, #sky.bands do bands[i] = flash3(sky.bands[i]) end
++      sky.bands = bands
++    end
++  end
++  return sky
+ end
+ 
+ VoxelScene._skyFor = skyFor           -- named for the suite
+@@ -904,8 +955,32 @@
+   -- the rig stays at noon and no sky is painted, but the hour's tint still
+   -- falls through the leaves -- night reaches a forest floor.
+   local outdoor = state.map.def and Map.isOutdoor(state.map.def) or false
++
++  -- W8.1: bounds of every loaded map body in this outdoor neighbourhood.
++  -- Voxel3D uses this only to place the non-playable continuation terrain
++  -- underneath/outside the real geometry; it never changes collision or map
++  -- streaming.  A broad union is intentional -- any holes between irregular
++  -- neighbours should read as distant land, not as a view under the diorama.
++  if outdoor and state.map.def then
++    local minX, minZ = 0, 0
++    local maxX = (state.map.def.width or 1) * 32
++    local maxZ = (state.map.def.height or 1) * 32
++    for _, nb in ipairs(state.neighbors or {}) do
++      if nb.map and nb.map.def then
++        local x0, z0 = nb.ox or 0, nb.oy or 0
++        local x1 = x0 + (nb.map.def.width or 1) * 32
++        local z1 = z0 + (nb.map.def.height or 1) * 32
++        minX, minZ = math.min(minX, x0), math.min(minZ, z0)
++        maxX, maxZ = math.max(maxX, x1), math.max(maxZ, z1)
++      end
++    end
++    Voxel3D.horizonApron = { bounds = { minX, minZ, maxX, maxZ } }
++  else
++    Voxel3D.horizonApron = nil
++  end
+   DayNight.applyRig(outdoor)
+-  Voxel3D.tint = DayNight.tint(outdoor or DayNight.isCanopy(state.map))
++  local dayTint = DayNight.tint(outdoor or DayNight.isCanopy(state.map))
++  Voxel3D.tint = CinematicAtmos.worldTint and CinematicAtmos.worldTint(dayTint, outdoor) or dayTint
+   -- and the window glass: the tileset's own panes (found in its art --
+   -- GlassMask), lit after dark. Outdoors only, like everything the clock
+   -- touches, which also keeps any pane-shaped art in an interior tileset
+@@ -919,8 +994,15 @@
+   -- the scene shader folds every surface into, in the hour's colour.
+   -- nil for every map without an entry -- a clear day, exactly as before.
+   local ForestAtmos = V.require("ForestAtmos")
+-  local atmos = ForestAtmos.frame(state.map)
+-  Voxel3D.fog = atmos and atmos.fog or nil
++  local authoredAtmos = ForestAtmos.frame(state.map)
++  local cinematicAtmos = CinematicAtmos.frame(state.map, outdoor)
++  -- Authored map weather remains authoritative (Viridian Forest today).
++  -- Everywhere else outdoors gets the lighter cinematic Kanto atmosphere.
++  Voxel3D.fog = (authoredAtmos and authoredAtmos.fog)
++                or (cinematicAtmos and cinematicAtmos.fog) or nil
++  -- The terrain shader reads this for slow moving cloud shadows. It is set
++  -- before beginScene binds the shader and cleared when render() finishes.
++  Voxel3D.cinematicAtmos = cinematicAtmos
+   -- and the DIORAMA modes' viewport and chroma key (lib/Diorama, driven by
+   -- the headset -- lib/VR sets them for the length of one frame). Both are
+   -- put back to nil at the end of this function, so no other pass in the
+@@ -1174,6 +1256,7 @@
+   -- should fall across and inside drawScene so VR gets them per eye. On
+   -- the one map that has any, today.
+   ForestAtmos.draw(state.map)
++  CinematicAtmos.draw(state.map, outdoor, state.neighbors, posed, state.player)
+ 
+   -- The VR pokedex in the player's left hand, last of all: a prop over
+   -- the world drawn with real depth, so leaning it into a wall still
+@@ -1262,7 +1345,9 @@
+   -- function, whichever way it leaves (see where they are set)
+   local function done(result)
+     Voxel3D.cull, Voxel3D.keyColor = nil, nil
++    Voxel3D.cinematicAtmos = nil
++    Voxel3D.horizonApron = nil
+     ViewBox.stop()
+     return result
+   end
+ 

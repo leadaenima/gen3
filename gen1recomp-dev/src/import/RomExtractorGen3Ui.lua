@@ -632,6 +632,95 @@ Ui.NAMING_SHEETS = {
   { name = 'underscore', cols = 1, pal = 3 },
 }
 
+-- THE NAMING SCREEN'S BG LAYERS AND PC ICONS, off the cart.
+--
+-- These five were the last art in the tree baked from pokeruby rather than
+-- read from the ROM, and they shipped inside the APK (pack_love.sh only
+-- excludes assets/generated).
+--
+-- naming_screen.c paints them from one tile sheet, gNamingScreenMenu_Gfx
+-- (0x800 = 64 tiles, palette 0 of gNamingScreenPalettes), through two
+-- painters that do NOT agree on stride: sub_80B7698 walks a keyboard page
+-- 30 entries to the row, sub_80B76E0 walks the frame 32 to the row. Reading
+-- the frame at 30 drifts two tiles per row and draws a diagonal band across
+-- the screen -- which is how the stride was found.
+--
+-- Both add gMenuMessageBoxContentTileOffset, the VRAM base the sheet is
+-- loaded at, so the ids are relative to the sheet and a standalone render
+-- reads them straight.
+--
+-- Verified against the cart: bg_stripes, keyboard_upper and keyboard_lower
+-- come out identical to the baked PNGs they replace, to the pixel.
+-- keyboard_others differs in 94 pixels, which are the symbols
+-- PrintKeyboardCharacters draws with the font at runtime -- the baked file
+-- had them painted in; we draw them with Font3, like the cart.
+Ui.NAMING_BG_GFX = 0xE85998
+Ui.NAMING_BG_GFX_SIZE = 0x800
+Ui.NAMING_SCREEN_COLS = 30
+Ui.NAMING_SCREEN_ROWS = 20
+Ui.NAMING_SCREENS = {
+  { name = 'bg_stripes', map = 0xE86258, stride = 32 },
+  { name = 'keyboard_upper', map = 0x3CEBF8, stride = 30 },
+  { name = 'keyboard_lower', map = 0x3CE748, stride = 30 },
+  { name = 'keyboard_others', map = 0x3CF0A8, stride = 30 },
+}
+
+function Ui.renderNamingScreen(data, index)
+  local spec = Ui.NAMING_SCREENS[index]
+  if not spec then return nil end
+  local tiles = data:sub(Ui.NAMING_BG_GFX + 1,
+    Ui.NAMING_BG_GFX + Ui.NAMING_BG_GFX_SIZE)
+  if #tiles < Ui.NAMING_BG_GFX_SIZE then return nil end
+  local pals = {}
+  for p = 0, 5 do
+    pals[p] = readPal(data, Ui.RUBY_US.namingPal0 + p * 32, 16)
+  end
+  if not pals[0] then return nil end
+  local cols, rows = Ui.NAMING_SCREEN_COLS, Ui.NAMING_SCREEN_ROWS
+  local need = (spec.stride * (rows - 1) + cols) * 2
+  local map = data:sub(spec.map + 1, spec.map + need)
+  if #map < need then return nil end
+  local image = ImageWriter.blank(cols * Ui.TILE, rows * Ui.TILE, 0, 0, 0, 0)
+  local maxTiles = math.floor(#tiles / Ui.TILE_BYTES)
+  for ty = 0, rows - 1 do
+    for tx = 0, cols - 1 do
+      local entry = GbaBin.u16(map, (ty * spec.stride + tx) * 2)
+      local tid = entry % 1024
+      local bank = math.floor(entry / 0x1000) % 16
+      if tid < maxTiles then
+        blitTile(image, tx * Ui.TILE, ty * Ui.TILE, tiles, tid,
+          pals[bank] or pals[0],
+          math.floor(entry / 0x400) % 2 == 1,
+          math.floor(entry / 0x800) % 2 == 1, true)
+      end
+    end
+  end
+  return image
+end
+
+-- The two PC-box icon frames the BOX NAME template shows. Plain 4bpp, two
+-- tiles across and three down at palette 0, one after the other in the ROM.
+Ui.NAMING_PC_ICONS = { 0x3CE094, 0x3CE154 }
+Ui.NAMING_PC_COLS = 2
+Ui.NAMING_PC_ROWS = 3
+
+function Ui.renderNamingPcIcon(data, index)
+  local off = Ui.NAMING_PC_ICONS[index]
+  if not off then return nil end
+  local cols, rows = Ui.NAMING_PC_COLS, Ui.NAMING_PC_ROWS
+  local size = cols * rows * Ui.TILE_BYTES
+  local tiles = data:sub(off + 1, off + size)
+  if #tiles < size then return nil end
+  local pal = readPal(data, Ui.RUBY_US.namingPal0, 16)
+  if not pal then return nil end
+  local image = ImageWriter.blank(cols * Ui.TILE, rows * Ui.TILE, 0, 0, 0, 0)
+  for t = 0, cols * rows - 1 do
+    blitTile(image, (t % cols) * Ui.TILE, math.floor(t / cols) * Ui.TILE,
+      tiles, t, pal, false, false, true)
+  end
+  return image
+end
+
 -- One naming-screen OBJ sheet. Tiles are 1D: row-major at the sprite's own
 -- width, which is why `cols` is part of the table rather than guessed.
 function Ui.renderNamingSheet(data, index)
@@ -759,6 +848,16 @@ function Ui.extract(data)
       for i, spec in ipairs(Ui.NAMING_SHEETS) do
         paths[spec.name] = save(safe(Ui.renderNamingSheet, data, i),
           'assets/generated/naming/' .. spec.name .. '.png')
+      end
+      -- the BG layers and the box icons, which used to be baked PNGs
+      for i, spec in ipairs(Ui.NAMING_SCREENS) do
+        paths[spec.name] = save(safe(Ui.renderNamingScreen, data, i),
+          'assets/generated/naming/' .. spec.name .. '.png')
+      end
+      for i = 1, #Ui.NAMING_PC_ICONS do
+        paths['pc_icon_' .. (i - 1)] = save(
+          safe(Ui.renderNamingPcIcon, data, i),
+          ('assets/generated/naming/pc_icon_%d.png'):format(i - 1))
       end
       return paths
     end)(),

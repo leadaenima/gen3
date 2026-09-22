@@ -1,0 +1,53 @@
+{
+    "id":  "weather_fx",
+    "name":  "Weather FX",
+    "version":  "8.2.14",
+    "api":  2,
+    "entry":  "main.lua",
+    "profile":  "content",
+    "category":  "GRAPHICS",
+    "game_version":  "0.0.0-dev || \u003e=0.1.37 \u003c2.0.0",
+    "priority":  5,
+    "dependencies":  [
+
+                     ],
+    "optional_dependencies":  [
+                                  "BATTLE_ART_VOXEL_FORK",
+                                  "DRAMATIC_SHAPE",
+                                  "DRAMALESS_SHAPE",
+                                  "STADIUM_BATTLE_FX",
+                                  "Kanto-Reforged",
+                                  "FOLLOWERS_EX",
+                                  "pokegear_cards",
+                                  "potato_voxel",
+                                  "POTATO_VOXEL",
+                                  "Gen2Recomped-DramaticShapes",
+                                  "STADIUM2_OVERWORLD_MODELS",
+                                  "gen3_battle_ui",
+                                  "CRYSTAL_251",
+                                  "kanto_companion",
+                                  "colosseum_ui_overhaul",
+                                  "ds_fp_ceiling",
+                                  "anime_realism"
+                              ],
+    "conflicts":  [
+
+                  ],
+    "incompatible":  [
+
+                     ],
+    "experimental":  false,
+    "affects_link":  false,
+    "permissions":  [
+                        "engine_internals"
+                    ],
+    "description":  "Dynamic weather for overworld and battles — Weather FX owns AUTO/fronts, typed residuals, buffs/nerfs, seasons, day/night, celestial systems, audio, and 2D/3D atmosphere. WX Pokémon variants are now supplied by the separate Weather FX - WX Pokémon add-on.",
+    "github":  "MrKrisSatan/Weather-fx",
+    "credits":  "Battle backdrops: CDRX73, DerxwnaKapsyla, http404error, Game Freak. Rain/storm loops: Relic Castle weather tutorial pack. Thunder and wind: Pixabay (royalty-free). 3D atmosphere integration adapted from Kanto Dynamic Weather by Campo (1-Camp0-1).",
+    "baselineNote":  "8.2.14 removes the former RAVE weather mode from Weather FX. The manual weather catalogue entry, RAVE settings, music ownership, 3D rave cloud/laser/fog/floor rendering, battle carryover, RaveMusic runtime module, and bundled rave soundtrack assets are removed. All ordinary weather, Gen1/Gen2 support, 2D/3D rendering, snow, clouds, lightning, tornadoes, water, seasons, audio, battles, and performance systems remain.",
+    "games":  [
+                  "gen1",
+                  "gen2",
+                  "ruby"
+              ]
+}

@@ -46,10 +46,20 @@ g:stepBoot(0.2)
 eq(g.boot.kind, Game3.BOOT_INTRO, "then the intro cinema opens")
 press(g, "b")
 eq(g.boot.kind, Game3.BOOT_TITLE, "any key skips the intro")
+-- title_screen.c runs the title in three tasks, and a key press in the first
+-- two only advances to the next one: Phase1 takes A/B/START/SELECT to
+-- Phase2, Phase2 takes the same set to Phase3, and ONLY Phase3 reads A or
+-- START as "open the menu". So the presses that skip the animation are spent
+-- on the animation -- this asserted the menu one press early.
+eq(g.boot.titlePhase, 1, "the title opens on Phase1")
 press(g, "select")
 eq(g.boot.kind, Game3.BOOT_TITLE, "SELECT does not leave the title")
+eq(g.boot.titlePhase, 2, "it skips Phase1 instead")
 press(g, "start")
-eq(g.boot.kind, Game3.BOOT_MENU, "START opens the main menu")
+eq(g.boot.kind, Game3.BOOT_TITLE, "and the next press only reaches Phase3")
+eq(g.boot.titlePhase, 3, "...which is where the menu becomes reachable")
+press(g, "start")
+eq(g.boot.kind, Game3.BOOT_MENU, "START opens the main menu from Phase3")
 eq(g:menuActions()[1], "new", "no save: NEW GAME is first")
 eq(g:menuActions()[2], "option", "then OPTION")
 press(g, "b")
@@ -119,7 +129,13 @@ end)()
 local GameSpeed = require("src.core.GameSpeed")
 local g = Game3.new()
 g.persistDisplayOptions = function() end
-eq(#g:optionMenuSpec(), 11, "OPTION has cart rows plus GAME SPEED and VOID FILL")
+-- The cartridge four (TEXT SPEED, BATTLE SCENE, BATTLE STYLE, SOUND), the
+-- three GAME SPEED rows, ZOOM, TILT, VOID FILL, the MODS row OPTION keeps so
+-- the manager is reachable from the cart path, and CANCEL last.
+eq(#g:optionMenuSpec(), 12,
+  "OPTION has the cart rows plus GAME SPEED, VOID FILL, MODS and CANCEL")
+eq(g:optionMenuSpec()[#g:optionMenuSpec()][3], "cancel",
+  "and CANCEL is last, where a mod's row hook cannot reach it")
 eq(g:optionMenuSpec()[5][3], "speedOverworld", "OVERWORLD SPEED follows SOUND")
 eq(g:logicSpeed(), 1, "boot is menu speed at 1X")
 g.phase = "play"

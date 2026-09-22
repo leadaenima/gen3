@@ -1,0 +1,32 @@
+{
+    "id":  "autosave_timer",
+    "name":  "Autosave Timer",
+    "version":  "0.1.4",
+    "api":  2,
+    "entry":  "main.lua",
+    "profile":  "content",
+    "game_version":  "\u003e=0.0.0-dev \u003c1.0.0",
+    "category":  "GAMEPLAY",
+    "priority":  100,
+    "dependencies":  [
+
+                     ],
+    "optional_dependencies":  [
+
+                              ],
+    "conflicts":  [
+
+                  ],
+    "incompatible":  [
+
+                     ],
+    "experimental":  false,
+    "description":  "Automatically saves the game on a timer (1/3/5 min), skipping battles. Toggleable on/off from Options.",
+    "github":  "blackwing182/autosave_timer",
+    "gen2compat":  true,
+    "games":  [
+                  "gen1",
+                  "gen2",
+                  "ruby"
+              ]
+}

@@ -187,6 +187,56 @@ check(Assets.resolve("assets/generated/tilesets/overworld.png")
 check(Assets.resolve("assets/generated/battle/back/redb.png")
       == "save/mod-derived/skin/battle/back/redb.png",
       "a transform's derived output resolves under the override dir")
+
+-- THE ANSWER IS REMEMBERED, and forgotten when the mod set moves.
+--
+-- resolve asks the filesystem whether each enabled mod overrides this asset,
+-- and it runs before Assets.image's cache -- so every texture paid a getInfo
+-- per mod, every frame. Profiling the voxel diorama put this at the top of
+-- the samples and the whole frame in draw (3.76ms of 3.86ms); remembering the
+-- answer took the frame to 0.51ms. What must stay true is that the memory
+-- cannot outlive the thing it depends on.
+check(Assets.resolve("assets/generated/tilesets/overworld.png")
+      == "mods/skin/overrides/tilesets/overworld.png",
+      "a second ask gives the same answer")
+Assets.installLoader(nil)
+check(Assets.resolve("assets/generated/tilesets/overworld.png")
+      == "assets/generated/tilesets/overworld.png",
+      "and dropping the loader drops the override, not a stale cached path")
+Assets.installLoader({
+  loaded = { { manifest = { id = "skin" }, path = "mods/skin" } },
+})
+check(Assets.resolve("assets/generated/tilesets/overworld.png")
+      == "mods/skin/overrides/tilesets/overworld.png",
+      "installing it again brings the override back")
+Assets.invalidate()
+check(Assets.resolve("assets/generated/tilesets/overworld.png")
+      == "mods/skin/overrides/tilesets/overworld.png",
+      "and a hot-reload flush re-asks rather than answering blank")
+
+-- The case the nil-loader path does not cover: ONE MOD SET REPLACED BY
+-- ANOTHER, with no flush in between. installLoader(nil) happens to invalidate
+-- on its way through, so only this swap proves the memory is dropped when the
+-- mods change under it.
+seedFile("mods/skin2/overrides/tilesets/overworld.png", "png")
+Assets.installLoader({
+  loaded = { { manifest = { id = "skin2" }, path = "mods/skin2" } },
+})
+check(Assets.resolve("assets/generated/tilesets/overworld.png")
+      == "mods/skin2/overrides/tilesets/overworld.png",
+      "swapping the mod set swaps the override, with no stale answer kept")
+
+-- ...and the flush itself. A path with no override resolves to itself and is
+-- remembered as such; drop an override next to it, flush the way hot reload
+-- does, and the next ask has to SEE it rather than repeat the old answer.
+check(Assets.resolve("assets/generated/ui/late_override.png")
+      == "assets/generated/ui/late_override.png",
+      "no override yet, so the generated path stands")
+seedFile("mods/skin2/overrides/ui/late_override.png", "png")
+Assets.invalidate()
+check(Assets.resolve("assets/generated/ui/late_override.png")
+      == "mods/skin2/overrides/ui/late_override.png",
+      "and after a flush the new override is found, not the remembered miss")
 check(Assets.resolve("assets/generated/fonts/font.png")
       == "assets/generated/fonts/font.png",
       "no override means the generated path, unchanged")

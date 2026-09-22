@@ -294,6 +294,110 @@ local FixedStep = require("src.core.FixedStep")
 local Game3 = {}
 Game3.__index = Game3
 
+-- THE MOD BUS, or nothing.
+--
+-- Ruby reaches the mod runtime the same way the world.block_replaced emit
+-- above does: through package.loaded, because Game3 must keep booting when no
+-- loader ran at all (headless, the importer, a test fixture).  Hoisted here
+-- because the hook and event sites below all need the same three checks, and
+-- a missing bus has to be silence rather than a crash.
+--
+-- WHY THIS EXISTS AT ALL.  The engine's hook and event names are the mod API,
+-- and until these calls were added Game3 fired almost none of them: nine
+-- community mods wrapped twenty-seven hook names between them and a Ruby boot
+-- reached exactly one.  The mods loaded, registered, and then sat inert,
+-- because the points they attach to are in Gen 1's and Gen 2's code paths and
+-- a Ruby boot runs neither.
+local function modBus()
+  -- Gen 1 loads Runtime as src.mods.Runtime; a partial tree may use
+  -- src.mods.Runtime.  Check both so a wrapper installed by the test
+  -- harness (or the live loader) is visible either way.
+  local Runtime = package.loaded["src.mods.Runtime"]
+    or package.loaded["src.mods.Runtime"]
+  if type(Runtime) ~= "table" then return nil end
+  return Runtime
+end
+
+-- `vanilla` is what the engine would have answered; a wrapper may replace it,
+-- pass it through, or return nil to suppress.
+--
+-- VALUE HOOKS (music.select, encounter.roll, …) pass a non-function vanilla.
+-- With no wrapper it is returned as-is; with a wrapper it is exposed via
+-- `function() return vanilla end` so next() yields the value.
+--
+-- CONTINUATION HOOKS (render.hud, battle.exp_award, …) pass a FUNCTION as
+-- vanilla -- the same shape Gen 1 hands Runtime.call.  Hooks:call invokes
+-- that function with the remaining args when a wrapper calls next(...), so
+-- we must NOT wrap it again as `function() return vanilla end` (that would
+-- make next(ctx) return the function instead of running it).  With no
+-- wrapper the continuation still runs once so side-effect vanillas (exp
+-- apply) fire.
+local function modCall(name, vanilla, ...)
+  local Runtime = modBus()
+  local isCont = type(vanilla) == "function"
+  local unpack = table.unpack or unpack
+  if not (Runtime and type(Runtime.wantsHook) == "function"
+          and Runtime.wantsHook(name)) then
+    if isCont then return vanilla(...) end
+    return vanilla
+  end
+  local vanillaFn = isCont and vanilla or function() return vanilla end
+  -- Pack so battle.damage's (dmg, info) multi-return survives the pcall.
+  -- A single `ok, result = pcall(...)` would drop every value after the first
+  -- and silently discard a mod's typeMult / crit rewrite.
+  local packed = { pcall(Runtime.call, name, vanillaFn, ...) }
+  if not packed[1] then
+    if isCont then return vanilla(...) end
+    return vanilla
+  end
+  return unpack(packed, 2, #packed)
+end
+
+local function modEmit(name, payload)
+  local Runtime = modBus()
+  if not (Runtime and type(Runtime.wants) == "function"
+          and Runtime.wants(name)) then
+    return
+  end
+  pcall(Runtime.emit, name, payload)
+end
+
+-- script.command: Gen 1 ScriptRunner fires per opcode.  When Gen3Script
+-- exposes a per-op entry (runCommand / execCommand / dispatch / runOp),
+-- wrap it so qol can observe / rewrite / skip.  If none exists, leave the
+-- runner alone -- see handover "script.command skip" (no clean seam).
+-- MUST sit below modCall (Lua upvalues bind at definition time).
+do
+  local unpack = table.unpack or unpack
+  local execName, execFn
+  for _, name in ipairs({ "runCommand", "execCommand", "dispatch", "execOp", "runOp" }) do
+    local fn = Gen3Script[name]
+    if type(fn) == "function" then
+      execName, execFn = name, fn
+      break
+    end
+  end
+  if execFn and not Gen3Script._modCommandWrapped then
+    Gen3Script._modCommandWrapped = true
+    Gen3Script[execName] = function(game, op, ...)
+      local n = select("#", ...)
+      local extra = { ... }
+      local cmd = type(op) == "table" and (op.op or op.cmd or op[1]) or op
+      local args = type(op) == "table" and op.args or nil
+      return modCall("script.command", function()
+        return execFn(game, op, unpack(extra, 1, n))
+      end, {
+        game = game,
+        command = cmd,
+        args = args,
+        op = op,
+        name = type(cmd) == "string" and cmd or "modcommand",
+      })
+    end
+  end
+end
+
+
 Game3.SCREEN_W = 240
 Game3.SCREEN_H = 160
 Game3.TILE = 16
@@ -347,6 +451,10 @@ Game3.START_TOP = 0
 Game3.START_RIGHT = 29
 Game3.START_TEXT_COL = 23
 Game3.START_TEXT_ROW = 2
+-- Cap visible start-menu rows so mod inserts cannot push the window past
+-- the 160px screen. Vanilla n*2+3 with n<=8 fits (bottom tile <= 19).
+-- Extra rows scroll; cursor still reaches every label.
+Game3.START_MAX_ROWS = 8
 Game3.SAFARI_STOCK_RIGHT = 10
 Game3.SAFARI_STOCK_BOTTOM = 5
 -- pokeruby menu.c windows are 8x8 tiles. yesnobox 20, 8 is Std_MsgboxYesNo.
@@ -1163,6 +1271,10 @@ Game3.GFX_MAGMA_MEMBER_F = 120
 Game3.GFX_ARCHIE = 195
 Game3.GFX_MAXIE = 196
 Game3.GFX_KECLEON_1 = 204
+-- include/constants/event_objects.h: the graphics table is 218 entries long
+-- and GetObjectEventGraphicsInfo sends anything past it to LITTLE_BOY_1.
+Game3.GFX_LITTLE_BOY_1 = 5
+Game3.NUM_OBJ_EVENT_GFX = 218
 Game3.GFX_VAR_0 = 240
 Game3.GFX_VAR_1 = 241
 Game3.GFX_VAR_F = 255
@@ -3675,6 +3787,31 @@ Game3.MOVEMENT_TYPE_INVISIBLE = 0x4C
 -- 48 frames (gClockwiseDirections / gCounterclockwiseDirections).
 Game3.MOVEMENT_TYPE_ROTATE_COUNTERCLOCKWISE = 0x17
 Game3.MOVEMENT_TYPE_ROTATE_CLOCKWISE = 0x18
+-- MOVEMENT_TYPE_COPY_PLAYER family. These object events take their step from
+-- the PLAYER's: MovementType_CopyPlayer runs on the frame the player leaves a
+-- tile and feeds the player's direction through
+-- state_to_direction(gInitialMovementTypeFacingDirections[type], 1, dir),
+-- which indexes gUnknown_08375767. With DIR_SOUTH 1 / NORTH 2 / WEST 3 /
+-- EAST 4 those rows come out as: COPY_PLAYER (initial NORTH) the identity,
+-- OPPOSITE (SOUTH) the reverse, COUNTERCLOCKWISE (WEST) and CLOCKWISE (EAST)
+-- the two quarter turns. The _IN_GRASS four are the same movement with
+-- MetatileBehavior_IsPokeGrass as the tile callback, so they step only onto
+-- tall grass and otherwise just turn.
+Game3.MOVEMENT_TYPE_COPY_PLAYER = 0x35
+Game3.MOVEMENT_TYPE_COPY_PLAYER_IN_GRASS = 0x3B
+Game3.COPY_PLAYER_TURN = {
+  same     = { south = "south", north = "north", west = "west",  east = "east"  },
+  opposite = { south = "north", north = "south", west = "east",  east = "west"  },
+  ccw      = { south = "east",  north = "west",  west = "south", east = "north" },
+  cw       = { south = "west",  north = "east",  west = "north", east = "south" },
+}
+-- type -> { turn, grassOnly }
+Game3.COPY_PLAYER_MODES = {
+  [0x35] = { "same", false }, [0x36] = { "opposite", false },
+  [0x37] = { "ccw", false },  [0x38] = { "cw", false },
+  [0x3B] = { "same", true },  [0x3C] = { "opposite", true },
+  [0x3D] = { "ccw", true },   [0x3E] = { "cw", true },
+}
 Game3.ROTATE_NPC_DELAY = 48 / 60
 Game3.GRASS_RUSTLE = 0.32
 Game3.EVOLVE_ANIM = 1.4
@@ -4798,7 +4935,11 @@ function Game3:showEasyChatBoard()
   -- ShowFieldAutoScrollMessage puts the board on screen and the script carries
   -- on, so this queues the line the way every other printing special does.
   if text and text ~= "" then self:sayScript(text) end
-  return 1 + (Game3.POKENAV_ROWS_MAX - 1) * Game3.POKENAV_ROW_STAGGER
+  -- 1 means the board ran, the same 0/1 every other special here answers
+  -- with. This returned `1 + (POKENAV_ROWS_MAX - 1) * POKENAV_ROW_STAGGER`
+  -- -- a row-stagger delay from the Pokenav that has no business in a
+  -- script special -- so a valid board answered 1.48.
+  return 1
 end
 
 function Game3:setDynamicWarp(group, num, warpId, x, y)
@@ -5485,6 +5626,68 @@ Game3.TRADE_GBA_SCREEN_H = 32
 
 -- The pump has to tick at a steady 60 Hz no matter what the field logic is
 -- doing, so it runs before update's boot-phase early return.
+-- Gen 1 Music.applyVolume contract on Ruby's Mp2k bus.
+-- music.volume receives an absolute source volume (Gen 1: VOLUME*optionScale
+-- ≈ 0.7 * musicVol/7) plus ctx { song, mapId, x, y, tod, fading, optionScale }.
+-- Re-applied every frame while wrapped so distance/indoor muffling works.
+-- Prefer Mp2kAudio.setVolume(float) when present; else map onto setVolumeLevel.
+function Game3:applyMusicVolume()
+  local Runtime = modBus()
+  if not (Runtime and type(Runtime.wantsHook) == "function"
+          and Runtime.wantsHook("music.volume")) then
+    return
+  end
+  local opts = self.options
+  if type(opts) ~= "table" then
+    local ok, SaveData = pcall(require, "src.core.SaveData")
+    if ok and type(SaveData) == "table" and SaveData.loadOptions then
+      local got
+      ok, got = pcall(SaveData.loadOptions)
+      if ok and type(got) == "table" then opts = got end
+    end
+  end
+  local musicVol = tonumber(opts and opts.musicVol) or 7
+  local optionScale = math.max(0, math.min(7, musicVol)) / 7
+  local VOLUME = 0.7 -- Gen 1 Music.lua constant; keep the hook contract identical
+  local vol = VOLUME * optionScale
+  local song = nil
+  if Mp2kAudio and type(Mp2kAudio.currentSong) == "function" then
+    song = Mp2kAudio.currentSong()
+  end
+  local map = self.map
+  local ctx = {
+    song = song,
+    mapSong = map and map.music,
+    mapId = map and map.id,
+    x = self.playerX,
+    y = self.playerY,
+    tod = self.tod or (self.world and self.world.tod),
+    onBike = self.onBike and true or false,
+    surfing = self.surfing and true or false,
+    fading = self.fadeMusicLeft ~= nil,
+    optionScale = optionScale,
+    game = self,
+  }
+  vol = modCall("music.volume", vol, vol, ctx)
+  vol = tonumber(vol) or (VOLUME * optionScale)
+  if vol < 0 then vol = 0 end
+  if not Mp2kAudio then return end
+  if type(Mp2kAudio.setVolume) == "function" then
+    pcall(Mp2kAudio.setVolume, vol)
+  elseif type(Mp2kAudio.setMasterVolume) == "function" then
+    pcall(Mp2kAudio.setMasterVolume, vol)
+  elseif type(Mp2kAudio.setVolumeLevel) == "function" then
+    -- Map absolute Gen 1 volume back onto the 0-7 discrete level. Continuous
+    -- attenuation is lossy here; setVolume is the preferred seam when present.
+    local level = math.floor(vol / VOLUME * 7 + 0.5)
+    if level < 0 then level = 0 elseif level > 7 then level = 7 end
+    if self._modMusicVolLevel ~= level then
+      self._modMusicVolLevel = level
+      pcall(Mp2kAudio.setVolumeLevel, level)
+    end
+  end
+end
+
 function Game3:updateMusic(dt)
   local step = 1 / 60
   self.audioAccum = math.min((self.audioAccum or 0) + (tonumber(dt) or 0), 0.25)
@@ -5494,18 +5697,40 @@ function Game3:updateMusic(dt)
     -- drives the sound engine, so the two share this pump and cannot drift.
     self.vblank = ((self.vblank or 0) + 1) % 3600
     Mp2kAudio.update()
+    -- music.volume per-frame while wrapped (Gen 1 Music.update parity)
+    self:applyMusicVolume()
   end
 end
 
 function Game3:playSong(songId, loop)
   songId = tonumber(songId)
   if not songId then return nil end
+  -- music.select lets a mod retarget a song id before the engine plays it
+  -- (Gen 1 Music.lua identity passthrough).  Applied ahead of the MUS_NONE /
+  -- POSITION_DEPENDENT sentinels so a wrapper can still cancel or redirect
+  -- those, and a non-number answer falls back to the vanilla id so a broken
+  -- mod cannot silence every track.
+  do
+    local selected = modCall("music.select", songId, songId, {
+      game = self, loop = loop,
+    })
+    if type(selected) == "number" then songId = selected end
+  end
   if songId == Game3.MUS_NONE then
     Mp2kAudio.stop()
     return nil
   end
   if songId == Game3.MUS_POSITION_DEPENDENT then return Mp2kAudio.currentSong() end
-  return Mp2kAudio.playSong(self.data, songId, loop)
+  -- Return the (possibly retargeted) id so music.select replacements are
+  -- observable; callers that ignore the return are unchanged.
+  Mp2kAudio.playSong(self.data, songId, loop)
+  -- surround_audio listens for music.started after a real song begins
+  -- (not MUS_NONE / POSITION_DEPENDENT, which returned above).
+  modEmit("music.started", { song = songId, game = self, loop = loop })
+  -- Apply music.volume once on start so a muffling mod is heard immediately
+  -- rather than waiting for the next updateMusic tick.
+  self:applyMusicVolume()
+  return songId
 end
 
 function Game3:mapMusic(map)
@@ -6149,7 +6374,10 @@ function Game3:optionMenuSpec()
       value = ok and got or ""
     end
     local key = row.id
-    if type(row.step) == "function" then
+    -- step OR activate: both are mod-owned rows. Boot's cart cycle only
+    -- knows cartridge ids; tagging them extra: keeps Desktop Boot from
+    -- treating A as "close" when our post-attach wrap is absent.
+    if type(row.step) == "function" or type(row.activate) == "function" then
       key = "extra:" .. tostring(row.id)
     end
     rows[#rows + 1] = { row.label or row.id, tostring(value or ""),
@@ -8069,10 +8297,23 @@ end
 function Game3:writeSave()
   if self:inBattlePhase() then return false, "Can't save now." end
   if self:inSafariMode() then return false, "Can't save now." end
+  -- free_fly (and any tool session) may veto before capture/persist.
+  -- Continuation-aware: vanilla is function() return true end; extra arg is game.
+  if modCall("save.write", function() return true end, self) == false then
+    return false, "Can't save now."
+  end
   local fs = self:saveFs()
   if not (fs and fs.write) then return false, "Save failed." end
   self:ensureSaveSlot()
   self:incrementGameStat(Game3.GAME_STAT_SAVED_GAME)
+  -- BEFORE the snapshot is taken, which is the whole point: a listener that
+  -- wants its own state in the file has to write it while there is still a
+  -- save table to write into.  Gen 1 emits at the same instant.
+  local savePayload = { save = self.save, meta = self.save and self.save.meta,
+                        game = self }
+  modEmit("save.writing", savePayload)
+  -- qol_toggles also listens for Gen 1's save.saving / save.saved names
+  modEmit("save.saving", savePayload)
   local encoded = SaveSerializer.encode(self:snapshotSave())
   local main = SaveData.saveFilename("ruby")
   local bak, tmp = main .. ".bak", main .. ".tmp"
@@ -8088,6 +8329,7 @@ function Game3:writeSave()
   if not ok then return false, "Save failed." end
   if fs.remove then fs.remove(tmp) end
   self.saveExists = true
+  modEmit("save.saved", savePayload)
   return true
 end
 
@@ -8100,6 +8342,9 @@ function Game3:saveGameSpecial()
   return n
 end
 
+-- Emitted at the END of applySave rather than the start: a listener reading
+-- the party or the bag has to find them already restored, or it reads the
+-- previous session's.
 function Game3:applySave(data)
   if type(data) ~= "table" then return false, "unreadable" end
   local rows = data.party
@@ -8388,6 +8633,20 @@ function Game3:applySave(data)
   if cycle ~= nil then self.weatherCycleStage = cycle end
   self.battle = nil
   self:clearTransientOverlay()
+
+  -- The load, announced with everything already in place.  Eight of the nine
+  -- mods measured listen for this: it is where a mod reads back whatever it
+  -- stashed during save.writing.  `meta` is Gen 1's name for the save's own
+  -- header, and Ruby keeps the same field.
+  modEmit("save.loaded", {
+    save = self.save,
+    meta = self.save and self.save.meta,
+    game = self,
+    -- Gen 1 reports which mods changed between the write and this read; Ruby
+    -- has no such diff yet, and saying nil is honest where inventing an empty
+    -- table would read as "nothing changed"
+    modsDiff = nil,
+  })
   return true
 end
 
@@ -8733,10 +8992,25 @@ end
 -- Place every map in the hop cluster from a stable root (lowest id) so
 -- walking Oldale → Route 102 does not restitch the holes. Current map
 -- is translated to (0, 0).
-function Game3:layoutViewTiles()
+-- HOW FAR PAST THE SCREEN A MAP MAY SIT AND STILL BE PUBLISHED.
+--
+-- The flat path wants the tight answer: it draws what is on screen and
+-- nothing else, and every extra map is overdraw. A renderer that has to
+-- BUILD a map before it can show it wants the opposite -- Route 101 is
+-- hundreds of thousands of vertices, and if it is not handed over until it
+-- is two tiles from the screen edge the player walks into it before the
+-- geometry arrives. That is the seam hitch: the world goes flat, then
+-- rebuilds around you.
+--
+-- So the margin is a parameter. Callers that draw keep 2 tiles; callers that
+-- mesh ask for LAYOUT_PREFETCH_TILES, which is about a screen's worth of
+-- warning at the close zoom.
+Game3.LAYOUT_PREFETCH_TILES = 24
+
+function Game3:layoutViewTiles(marginTiles)
   local t = Game3.TILE
   local vw, vh = self:viewSize()
-  local margin = 2
+  local margin = tonumber(marginTiles) or 2
   local x0 = ((self.camX or 0) / t) - margin
   local y0 = ((self.camY or 0) / t) - margin
   local x1 = ((self.camX or 0) + vw) / t + margin
@@ -8750,7 +9024,7 @@ function Game3.layoutRectHits(ox, oy, dest, vx0, vy0, vx1, vy1)
   return ox < vx1 and ox + w > vx0 and oy < vy1 and oy + h > vy0
 end
 
-function Game3:connectedLayout(map, hops)
+function Game3:connectedLayout(map, hops, marginTiles)
   map = map or self.map
   -- The cart loads the current map plus its DIRECT connections only, so the
   -- default stays one hop. CONNECTION_VIEW_HOPS is still honoured, but a
@@ -8764,7 +9038,8 @@ function Game3:connectedLayout(map, hops)
     return m.id or m
   end
   local here = keyOf(map)
-  local vx0, vy0, vx1, vy1 = self:layoutViewTiles()
+  local vx0, vy0, vx1, vy1 = self:layoutViewTiles(marginTiles)
+  -- the margin is inside the rect, so the rect is the whole key
   local cacheKey = tostring(here) .. "|" .. hops .. "|"
     .. math.floor(vx0) .. "," .. math.floor(vy0) .. ","
     .. math.floor(vx1) .. "," .. math.floor(vy1)
@@ -8858,7 +9133,17 @@ function Game3:connectedLayout(map, hops)
     local kb = tostring(b.map.id or b.map)
     return ka < kb
   end)
-  list = self:mergeStickyLayout(list, here)
+  -- A PREFETCH GATHER DOES NOT BECOME STICKY.
+  --
+  -- mergeStickyLayout carries the maps that were on screen across a crossing
+  -- so nothing pops out from under the player. A wide gather is asking a
+  -- different question -- "what might I need to BUILD soon" -- and letting it
+  -- feed the sticky set put those maps into the flat draw list as well: the
+  -- north edge of Littleroot went from two drawn maps to four, which is the
+  -- overdraw that cost the phone before.
+  if not marginTiles then
+    list = self:mergeStickyLayout(list, here)
+  end
   self.connectedLayoutCache = { key = cacheKey, list = list }
   return list
 end
@@ -8925,10 +9210,72 @@ function Game3.poseFor(spec, facing, moving, t)
   return pose
 end
 
+-- GetObjectEventGraphicsInfo (event_object_movement.c), minus the var step
+-- its callers do through resolveGraphicsId:
+--
+--     if (graphicsId >= NUM_OBJ_EVENT_GFX)
+--         graphicsId = OBJ_EVENT_GFX_LITTLE_BOY_1;
+--
+-- AN OBJECT EVENT IS NEVER NOTHING. A VAR_OBJ_GFX_ID_x that no script has
+-- painted yet leaves the raw 240..255 on the object, and without this clamp
+-- that matched no sprite record: the card was skipped and the person simply
+-- was not there. 631 of Hoenn's 2268 object events carry a var id. The ROM
+-- puts a little boy in the hole instead, in the flat path and in a mod's
+-- 3D one alike, since both ask this same question.
 function Game3.spriteSpec(sprites, graphicsId)
-  local byId = sprites and sprites.byId
-  if type(byId) ~= "table" then return nil end
-  return byId[graphicsId]
+  if type(sprites) ~= "table" then return nil end
+  local byId = sprites.byId
+  if type(byId) == "table" and graphicsId ~= nil then
+    local gid = graphicsId
+    if type(gid) == "number" then
+      if Game3.NUM_OBJ_EVENT_GFX and gid >= Game3.NUM_OBJ_EVENT_GFX then
+        gid = Game3.GFX_LITTLE_BOY_1
+      end
+      local spec = byId[gid]
+      if type(spec) == "table" then return spec end
+    else
+      local spec = byId[gid]
+      if type(spec) == "table" then return spec end
+    end
+  elseif type(byId) == "table" and graphicsId == nil then
+    -- historical callers passed nil → treat as 0 / little-boy fallback only
+    -- when no name-keyed lookup is possible
+  end
+  -- Name-keyed mod sprites (Gen1 content contract on Gen3): {image, frames}
+  -- live beside byId. Alias to Ruby OW fields so spriteFor / pose can draw.
+  local named = graphicsId ~= nil and sprites[graphicsId] or nil
+  if type(named) == "table" then
+    if type(named.path) == "string" and named.path ~= "" then
+      return named
+    end
+    local image = named.image
+    if type(image) == "string" and image ~= "" then
+      local frames = tonumber(named.frames) or tonumber(named.frameCount) or 1
+      return {
+        id = named.id or graphicsId,
+        path = image,
+        image = image,
+        width = tonumber(named.width) or tonumber(named.frameWidth) or 16,
+        height = tonumber(named.height) or tonumber(named.frameHeight) or 16,
+        frameCount = frames,
+        frames = frames,
+        walker = named.walker,
+        trueColor = named.trueColor,
+      }
+    end
+    return named
+  end
+  -- Preserve prior numeric-only behavior when byId exists but name miss:
+  if type(byId) == "table" then
+    local gid = graphicsId or 0
+    if type(gid) == "number" then
+      if Game3.NUM_OBJ_EVENT_GFX and gid >= Game3.NUM_OBJ_EVENT_GFX then
+        gid = Game3.GFX_LITTLE_BOY_1
+      end
+      return byId[gid]
+    end
+  end
+  return nil
 end
 
 function Game3.spriteDrawPos(tileX, tileY, width, height, lift)
@@ -9204,7 +9551,12 @@ function Game3:drawAnimCorners(image, map, mid, px, py, topPass, batch, behavior
 end
 
 function Game3:beginScriptRun()
-  self._scriptDepth = (self._scriptDepth or 0) + 1
+  local depth = self._scriptDepth or 0
+  self._scriptDepth = depth + 1
+  -- Outermost nest only: qol listens for script.started / script.ended.
+  if depth == 0 then
+    modEmit("script.started", { game = self, map = self.map, mapId = self.map and self.map.id })
+  end
 end
 
 function Game3:endScriptRun()
@@ -9219,6 +9571,7 @@ function Game3:endScriptRun()
     if not self._scriptPause then
       self.fieldControlsLocked = nil
     end
+    modEmit("script.ended", { game = self, map = self.map, mapId = self.map and self.map.id })
     self:flushPendingMapScripts()
   else
     self._scriptDepth = d
@@ -9405,6 +9758,16 @@ function Game3:restoreMapLayout(map)
   map.border = map.baseBorder
   map.layoutSwapped = nil
   self:markTilesDirty()
+  -- map.reloaded: Gen 1 OverworldState:reloadMap fires when map data is
+  -- invalidated in place.  restoreMapLayout is the Ruby equivalent -- same
+  -- map id, grid/tileset rewritten under the player's feet.
+  if self.map == map then
+    modEmit("map.reloaded", {
+      mapId = map.id,
+      map = map,
+      reason = "layout",
+    })
+  end
 end
 
 function Game3:lookupLayout(id)
@@ -9457,6 +9820,15 @@ function Game3:setMapLayoutIndex(id)
   self:initSecretBaseAppearance(map)
   self:markTilesDirty()
   if self.map == map then self:loadTileset() end
+  -- map.reloaded: in-place layout swap (ScrCmd_setmaplayoutindex).  Same
+  -- map id, new grid -- overworld_wild_spawns refreshes spawn tables here.
+  if self.map == map then
+    modEmit("map.reloaded", {
+      mapId = map.id,
+      map = map,
+      reason = "layout",
+    })
+  end
 end
 
 -- time_events.c IsMirageIslandPresent: high 16 of the 32-bit rnd
@@ -9517,6 +9889,9 @@ function Game3:mapNeedsEvilTeamGfx(map)
 end
 
 function Game3:enterMap(map, x, y, ignoreWarp, connected)
+  -- read before anything swaps self.map, so the map.entered emit at the end
+  -- can say where the player came FROM
+  local previousMapId = self.map and self.map.id
   self:ensureMapBase(map)
   if map and map.layoutSwapped then
     self:restoreMapLayout(map)
@@ -9741,6 +10116,43 @@ function Game3:enterMap(map, x, y, ignoreWarp, connected)
   if not connected then
     require("src.core.FixedStep"):discardCatchup()
   end
+
+  -- THE ARRIVAL, announced.  Six of the nine mods measured listen for this
+  -- one: it is where a weather mod picks the sky, an encounter mod rebuilds
+  -- its spawn table and a renderer invalidates its mesh.
+  --
+  -- `via` distinguishes the three ways a map becomes current, because a
+  -- listener usually cares: a seam crossing is continuous and a warp is not,
+  -- and the very first map of a session is neither.  Gen 1 spells the same
+  -- three, so a mod written against it needs no new branch.
+  -- The departure, announced before the arrival, and only when there WAS one:
+  -- the first map of a session is an arrival with nothing to leave.  Gen 1
+  -- names the fields from the departing map's side, so `mapId` here is the one
+  -- being left and `toMapId` the one being entered.
+  if previousMapId and previousMapId ~= (self.map and self.map.id) then
+    modEmit("map.exited", {
+      mapId = previousMapId,
+      toMapId = self.map and self.map.id,
+    })
+  end
+
+  -- Resolve map.palette for the map we just entered (qol day/night swaps).
+  self:mapPaletteName(self.map)
+  modEmit("map.entered", {
+    mapId = self.map and self.map.id,
+    map = self.map,
+    fromMapId = previousMapId,
+    via = connected and "connection"
+          or (previousMapId and "warp" or "boot"),
+  })
+  -- map.reloaded: NOT emitted here.  Gen 1 fires it when map *data* is
+  -- invalidated and the same map is reloaded in place
+  -- (OverworldState:reloadMap).  Full transitions already emit
+  -- map.entered; geometry edits go through noteGridWrite /
+  -- world.block_replaced.  Emitting map.reloaded from enterMap would lie
+  -- about the reason.  The real Ruby seam is setMapLayoutIndex /
+  -- restoreMapLayout (in-place layout swap), which emit it with
+  -- reason "layout".
 end
 
 -- pokeruby map_name_popup.c ShowMapNamePopup / Task_MapNamePopup.
@@ -9863,6 +10275,18 @@ function Game3:load()
   self.data.tilesets = loadGenerated("data/generated/tilesets.lua") or {}
   self.data.sprites = loadGenerated("data/generated/sprites.lua") or {}
   self.data.encounters = loadGenerated("data/generated/encounters.lua") or {}
+  -- THE BATTLE-ANIMATION TABLES LIVE IN THAT FILE, and every reader looks for
+  -- them at the top of self.data. The importer has always written them under
+  -- `encounters` (that is where the extractor's battle block lands), so
+  -- `self.data.animPlans` was nil for the whole life of the Gen 3 port: the
+  -- move animation code found no plan, picked no sheet, and fell through to
+  -- the sheet-less burst. Alias them where they are read.
+  do
+    local pack = self.data.encounters
+    self.data.animSheets = pack.animSheets or self.data.animSheets
+    self.data.animPlans = pack.animPlans or self.data.animPlans
+    self.data.animFrames = pack.animFrames or self.data.animFrames
+  end
   self.data.moves = loadGenerated("data/generated/moves.lua") or {}
   self.data.trainers = loadGenerated("data/generated/trainers.lua") or {}
   self.data.items = loadGenerated("data/generated/items.lua") or {}
@@ -9915,6 +10339,20 @@ function Game3:load()
     self.modStatus = self.modStatus or { available = {}, errors = {} }
   end
 
+  -- The catalog half of src/core/Strings.lua -- the same call Game:load and
+  -- Game2:load make at this point, for the same reason: `Strings(...)` is an
+  -- identity function until a catalog is loaded, and the catalog cannot exist
+  -- before the merge that supplies it.  Holding data.strings by reference
+  -- means a mod registering late still takes effect.  Before the game.ready
+  -- emit, so a listener that draws text already reads translated.
+  --
+  -- With no translation mod installed the catalog stays empty and Strings
+  -- remains the identity function it already was, so a vanilla boot draws
+  -- byte-identical text.
+  pcall(function()
+    require("src.core.Strings").load(self.data)
+  end)
+
   -- Same handshake Game1/Game2 use after the merge: content mods (oras_models)
   -- apply texture hooks from the game.ready listener. Without this emit Ruby
   -- discovered mods but never told them the world was live.
@@ -9965,6 +10403,13 @@ function Game3:load()
   self.trainerId = nil
   self:ensureTrainerId()
   self:resetBoot()
+  -- Gen 1 boots with SaveData.newGame and emits save.created once for the
+  -- skeleton (mods seed via this; CONTINUE later fires save.loaded).  Ruby
+  -- keeps progress on Game3 fields and uses self.save as the mod/options
+  -- bucket — mint it here so listeners have a table to write into.
+  self.save = self.save or {}
+  self.save.modData = self.save.modData or {}
+  modEmit("save.created", { save = self.save, game = self })
 end
 
 function Game3:visualTile()
@@ -10320,6 +10765,19 @@ function Game3:clampCamera()
   local map = self.map
   if not map then
     self.camX, self.camY = 0, 0
+    self._modCamFollow = nil
+    return
+  end
+  -- FREEFLY flight4: free_fly's ow.camera:follow ran earlier this frame and
+  -- stamped _modCamFollow with camX/camY already centred (incl. camLift).
+  -- Keep that follow; still snapPixel + cameraPan, then clear the flag so a
+  -- later clamp (warp / step) returns to visualTile centering.
+  if self._modCamFollow then
+    local camX = tonumber(self.camX) or 0
+    local camY = tonumber(self.camY) or 0
+    self.camX = Game3.snapPixel(camX + (self.cameraPanX or 0))
+    self.camY = Game3.snapPixel(camY + (self.cameraPanY or 0))
+    self._modCamFollow = nil
     return
   end
   local vx, vy = self:visualTile()
@@ -10517,6 +10975,8 @@ end
 
 function Game3:followWarp(w)
   if not w then return false end
+  -- FREEFLY: Gen1 free_fly wraps takeWarp to no-op while airborne.
+  if self:isFreeFlying() then return false end
   if Game3.isSecretBaseMap(self.map) then
     return self:exitSecretBase()
   end
@@ -10668,6 +11128,9 @@ end
 
 function Game3:tryArrowWarpOnTile(dx, dy)
   if self.ignoreWarp then return false end
+  -- Gen1 free_fly takeWarp no-op while airborne; arrow mats are an
+  -- alternate door path that sits BEFORE tryWarpStep's isFreeFlying gate.
+  if self:isFreeFlying() then return false end
   local map = self.map
   if not map then return false end
   local here = Game3.warpAt(map, self.playerX, self.playerY)
@@ -10701,7 +11164,13 @@ function Game3:tryWalk(dx, dy)
   end
   if nx < 0 or ny < 0 or nx >= (map.width or 0) or ny >= (map.height or 0) then
     local dest, dx_, dy_ = self:connectionDest(map, self.playerX, self.playerY, dx, dy)
-    if dest and self:canStep(dest, dx_, dy_) and not self:npcAt(dest, dx_, dy_) then
+    -- Airborne: do not hard-deny on npcAt; canStep entity reason + bypass
+    -- already open the tile (mirrors free_fly entity open without editing mod).
+    local edgeOk = dest and self:canStep(dest, dx_, dy_)
+    if edgeOk and not self:isFreeFlying() and self:npcAt(dest, dx_, dy_) then
+      edgeOk = false
+    end
+    if edgeOk then
       self:maybeSetEscapeWarp(dest, self.playerX, self.playerY)
       self:enterMap(dest, dx_, dy_, false, true)
       -- World:tryConnection: land on the dest tile but lerp from one step
@@ -10746,11 +11215,13 @@ function Game3:tryWalk(dx, dy)
   -- Norman gym sliding doors (MB_PETALBURG_GYM_DOOR / sign bg) are
   -- A-press only. Bump-warping them skips "appears locked" and can
   -- land on the paired warp inside a wall.
-  do
+  -- Gen1 free_fly wraps takeWarp to no-op while flying; Gen3 bump warps
+  -- (tryWarpStep) sit outside canStep, so skip them while airborne.
+  if not self:isFreeFlying() then
     local took = self:tryWarpStep(map, nx, ny, dx, dy)
     if took ~= nil then return took end
   end
-  if self:isOwnedSecretBaseTile(map, nx, ny) then
+  if not self:isFreeFlying() and self:isOwnedSecretBaseTile(map, nx, ny) then
     return self:enterSecretBase()
   end
   local blocker = self:npcAt(map, nx, ny)
@@ -10764,8 +11235,12 @@ function Game3:tryWalk(dx, dy)
         return false
       end
     else
-      self:tryAdvanceCyclingRoadCollisions()
-      return false
+      -- Entity block goes through canStep so movement.collision can open it
+      -- (free_fly airborne, reason="entity"). Vanilla still denies here.
+      if not self:canStep(map, nx, ny) then
+        self:tryAdvanceCyclingRoadCollisions()
+        return false
+      end
     end
   end
   -- field_player_avatar.c CheckForObjectEventCollision: ShouldJumpLedge
@@ -10777,7 +11252,9 @@ function Game3:tryWalk(dx, dy)
     self:tryAdvanceCyclingRoadCollisions()
     return false
   end
-  if self:checkRotatingGateCollision(nx, ny, Game3.dirId(self.facing)) then
+  -- Rotating-gate deny is outside canStep; free_fly has no Gen3 wrap for it.
+  if not self:isFreeFlying()
+      and self:checkRotatingGateCollision(nx, ny, Game3.dirId(self.facing)) then
     self:tryAdvanceCyclingRoadCollisions()
     return false
   end
@@ -10816,13 +11293,13 @@ function Game3:tryWalk(dx, dy)
   self.ignoreWarp = false
   -- TryStartWarpEventScript: standing on MB_MT_PYRE_HOLE with a warp
   -- event runs EventScript_FallDownHoleMtPyre → special DoFallWarp.
-  if not self.ignoreWarp
+  if not self.ignoreWarp and not self:isFreeFlying()
       and self:behaviorAt(map, nx, ny) == Game3.MB_MT_PYRE_HOLE
       and Game3.warpAt(map, nx, ny) then
     return self:doFallWarp()
   end
   -- TryStartWarpEventScript: MB_AQUA_HIDEOUT_WARP after occupying the pad.
-  if not self.ignoreWarp
+  if not self.ignoreWarp and not self:isFreeFlying()
       and self:behaviorAt(map, nx, ny) == Game3.MB_AQUA_HIDEOUT_WARP
       and Game3.warpAt(map, nx, ny) then
     return self:followHideoutWarp(Game3.warpAt(map, nx, ny))
@@ -13471,13 +13948,17 @@ function Game3:playerRoomPCDecoration()
 end
 
 function Game3:openDecorMenu(labels, onPick, notes)
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = "decor", game = self, itemCount = labels and #labels or 0,
+  })
   self:beginScriptWait()
   self.field = {
     kind = "decor_menu",
-    labels = labels,
+    labels = hooked,
     notes = notes,
     cursor = 0,
     onPick = onPick,
+    modListActions = actions,
   }
 end
 
@@ -14442,6 +14923,52 @@ function Game3:clockString(t)
   return ("%d:%02d %s"):format(h12, t.minutes or 0, period)
 end
 
+-- TIME OF DAY for day/night mods.  Ruby has a wall clock (VAR_DAYS /
+-- clockHour) but no palette-driven day/night the way Gen 1 does, so the
+-- vanilla answer is always "DAY".  Still raise world.tod so a mod that
+-- returns "NIGHT" (or anything else) can retarget lighting / encounters,
+-- and emit world.tod_changed only when the answer actually flips --
+-- otherwise a step-based clock would spam listeners every cell.
+function Game3:timeOfDay()
+  local tod = self.tod or "DAY"
+  local nextTod = modCall("world.tod", tod, tod, {
+    map = self.map,
+    mapId = self.map and self.map.id,
+    x = self.playerX,
+    y = self.playerY,
+    steps = self.todSteps or 0,
+  })
+  if type(nextTod) ~= "string" or nextTod == "" then nextTod = tod end
+  if nextTod ~= tod then
+    self.tod = nextTod
+    modEmit("world.tod_changed", {
+      tod = nextTod, previous = tod,
+      mapId = self.map and self.map.id,
+    })
+    -- Re-resolve map.palette when TOD flips so qol day/night swaps retarget.
+    self:mapPaletteName()
+  else
+    self.tod = nextTod
+  end
+  return self.tod
+end
+
+-- map.palette: Gen 1 OverworldState:paletteNameFor wraps the SGB palette
+-- name.  Ruby art is true-colour and never remapped (pipelines get nil from
+-- paletteFor), but qol still keys off the name string -- so expose the map's
+-- tileset / id as that name and let the hook replace it.  Stored on
+-- self.mapPalette for anything that wants to read the resolved value.
+function Game3:mapPaletteName(map)
+  map = map or self.map
+  local name = (map and (map.palette or map.tileset or map.id)) or "default"
+  if type(name) ~= "string" then name = tostring(name) end
+  local tod = self.tod or "DAY"
+  local hooked = modCall("map.palette", name, name, map, { tod = tod })
+  if type(hooked) == "string" and hooked ~= "" then name = hooked end
+  self.mapPalette = name
+  return name
+end
+
 function Game3:startWallClock()
   -- Rival bedroom must not run the setter during intro. If a script still
   -- reaches here, abort it so post-waitstate flag writes cannot steal Mom /
@@ -15393,6 +15920,8 @@ end
 -- Player stands south of the door (currentCoords); ROM uses y-1 for the
 -- door tile. Open → walk north through → close (player hidden) → warp.
 function Game3:beginDoorWarp(warp, x, y)
+  -- FREEFLY: animated-door bump path must not open buildings in the air.
+  if self:isFreeFlying() then return false end
   if not warp or self.field then return false end
   self.pendingDoorWarp = warp
   self.facing = "north"
@@ -18346,10 +18875,26 @@ function Game3:armMoveAnim(attacker, defender, move, kind)
   local sheet
   local plans = self.data and self.data.animPlans
   local mid = move and (move.id or move.moveId or move.number)
+  local events, scriptFrames
   if plans and mid ~= nil and plans[mid] then
     sheet = plans[mid].sheet
+    -- The cart's own particle list for this move (RomExtractorGen3Battle
+    -- .walkMoveAnim). A move whose script draws nothing -- and there are a
+    -- few, all of them tasks rather than sprites -- keeps the generic burst.
+    local plan = plans[mid]
+    if type(plan.events) == "table" and #plan.events > 0 then
+      events = plan.events
+      scriptFrames = plan.frames
+    end
+  end
+  if events and (scriptFrames or 0) > 0 then
+    -- ...and the script's own length, so the beats land where battle_anim.c
+    -- puts them instead of inside a fixed window.
+    dur = math.max(dur, scriptFrames / 60)
   end
   b.moveAnim = {
+    events = events,
+    scriptFrames = scriptFrames,
     t = 0,
     dur = dur,
     type = moveType,
@@ -18850,6 +19395,7 @@ function Game3:wildEncounterRate(baseRate, ignoreAbility)
 end
 
 function Game3:tryWildEncounter()
+  if self:isFreeFlying() then return false end
   local map = self.map
   if not map then return false end
   local enc = self:encountersFor(map)
@@ -18886,8 +19432,49 @@ function Game3:startWildFrom(info, slotIndex, skipRepel)
   if maxL < minL then maxL = minL end
   local level = minL
   if maxL > minL then level = minL + self:rand(maxL - minL + 1) - 1 end
+
+  -- THE WILD PICK, offered to encounter.roll.  Six of the nine community mods
+  -- measured wrap this one name -- it is the most-wrapped hook in the API --
+  -- and the contract is Gen 1's: the wrapper is handed the vanilla answer as
+  -- { species, level }, and may pass it through, replace it, or return nil to
+  -- suppress the encounter entirely.
+  --
+  -- Placed HERE rather than around the rate roll because this is where Ruby
+  -- decides WHAT you meet: the rate check upstream has already decided THAT
+  -- you meet something, and a wrapper that wants to suppress can still do it
+  -- by answering nil.  Repel is applied after, so a forced encounter still
+  -- obeys the item the player is holding.
+  -- ctx.reroll re-samples the same table so NO ENCOUNTER DUPES can ask
+  -- for another species (value-hook vanilla is a fixed pick; next() alone
+  -- cannot diversify). Land = 12-slot weights; water/rock = 5-slot.
+  local function wildPickFrom(s)
+    if not (s and s.species) then return nil end
+    local lo, hi = s.minLevel or 2, s.maxLevel or s.minLevel or 2
+    if hi < lo then hi = lo end
+    local lv = lo
+    if hi > lo then lv = lo + self:rand(hi - lo + 1) - 1 end
+    return { species = s.species, level = lv }
+  end
+  local function wildReroll()
+    local n = #(info.slots or {})
+    local idx
+    if n >= 12 then
+      idx = Game3.chooseLandSlot(self:rand(100) - 1)
+    else
+      idx = Game3.chooseWaterRockSlot(self:rand(100) - 1)
+    end
+    return wildPickFrom(info.slots[(idx or 0) + 1] or info.slots[1])
+  end
+  local enc = modCall("encounter.roll",
+    { species = slot.species, level = level },
+    info, { mapId = self.map and self.map.id, terrain = info.terrain,
+            rng = function(n) return self:rand(n or 100) end,
+            reroll = wildReroll })
+  if type(enc) ~= "table" or not enc.species then return false end
+  level = tonumber(enc.level) or level
+
   if not skipRepel and self:repelBlocks(level) then return false end
-  return self:startWildBattle(slot.species, level)
+  return self:startWildBattle(enc.species, level)
 end
 
 function Game3:tryRockSmashEncounter()
@@ -20757,6 +21344,11 @@ function Game3:completeTrainerApproach(npc)
     self:rememberTalk(npc)
     if self:runNpcScript(npc.script) then
       if self.phase == "battle" then return true end
+      -- ...or the script PARKED, which is the normal case now: the trainer's
+      -- intro speech is a field message with trainerbattlebegin behind it
+      -- (EventScript_DoTrainerBattle). Falling through to startTrainerBattle
+      -- would open the fight underneath the line and throw it away.
+      if self.pendingTrainerBattle or self.field then return true end
     end
   end
   if npc.defeated or self:isNpcDefeated(npc) then return false end
@@ -20820,6 +21412,17 @@ function Game3:beginTrainerApproach(npc)
 end
 
 function Game3:tryTrainerSpot()
+  -- free_fly 1.8.2 stamps OC.__freeFlySightGate; Gen1 wraps checkTrainerSight,
+  -- Gen3 only calls tryTrainerSpot — honor the same gate without editing the mod.
+  do
+    local OC = package.loaded["src.world.OverworldController"]
+      or package.loaded["src.world.gen3.OverworldAPI"]
+    local gate = OC and rawget(OC, "__freeFlySightGate")
+    if type(gate) == "function" then
+      local ow = type(self.modOverworld) == "function" and self:modOverworld() or nil
+      if ow and gate(ow) then return false end
+    end
+  end
   local map = self.map
   local npcs = self:npcsFor(map)
   if not npcs then return false end
@@ -20996,6 +21599,35 @@ function Game3:scriptTrainerBattle(op)
       return false, op.cannot or Game3.TEXT_NOT_ENOUGH_MONS
     end
   end
+  -- THE TRAINER SPEAKS ON THE OVERWORLD FIRST.
+  --
+  -- EventScript_DoTrainerBattle is, in order:
+  --
+  --     special ShowTrainerIntroSpeech
+  --     waitmessage
+  --     waitbuttonpress
+  --     trainerbattlebegin
+  --
+  -- so the line is a FIELD message the player dismisses, and only then does
+  -- the fight start. This went straight to trainerbattlebegin and hung the
+  -- intro on `battle.text`, which put the trainer's challenge inside the
+  -- battle screen -- the walk-up happened and then the world cut away with
+  -- nobody having said anything. EventScript_DoNoIntroTrainerBattle really
+  -- does skip it (the rival, Wally, the Elite Four), and that path is
+  -- unchanged.
+  local speech = op.intro and self:expandScriptText(op.intro) or nil
+  if speech and speech ~= "" and kind ~= Game3.TRAINER_BATTLE_NO_INTRO then
+    self.pendingTrainerBattle = { battler = battler, op = op }
+    self:fadeInFromBlack()
+    self.field = {
+      kind = "talk",
+      text = speech,
+      queue = { speech },
+      qi = 1,
+      thenTrainerBattle = true,
+    }
+    return true
+  end
   if not self:startTrainerBattle(battler) then return false end
   if (op.kind or 0) == Game3.TRAINER_BATTLE_NO_INTRO then
     -- EventScript_DoNoIntroTrainerBattle: trainerbattlebegin, no intro
@@ -21016,6 +21648,27 @@ function Game3:scriptTrainerBattle(op)
   end
   -- pokeruby GetTrainerLoseText / B_TXT_TRAINER1_LOSE_TEXT: the
   -- trainerbattle defeat pointer prints before "player defeated".
+  self.battle.defeat = op.defeat and self:expandScriptText(op.defeat) or op.defeat
+  return true
+end
+
+-- trainerbattlebegin, once the intro speech has been dismissed. The script
+-- is already parked (scriptTrainerBattle returned started), so this only has
+-- to put the fight on screen -- or, if it cannot, let the script carry on
+-- rather than stranding the player in a closed textbox.
+function Game3:beginPendingTrainerBattle()
+  local pending = self.pendingTrainerBattle
+  self.pendingTrainerBattle = nil
+  if not pending then
+    self:closeField()
+    return false
+  end
+  local op = pending.op or {}
+  if not self:startTrainerBattle(pending.battler) then
+    self:closeField()
+    self:resumeMoveScript()
+    return false
+  end
   self.battle.defeat = op.defeat and self:expandScriptText(op.defeat) or op.defeat
   return true
 end
@@ -21151,6 +21804,12 @@ function Game3:openTrainerVictory()
       and self:holdEffectOf(lead) == Game3.HOLD_EFFECT_DOUBLE_PRIZE then
     pay = pay * 2
   end
+  -- money.gain: scale / zero trainer prize (MONEY MULT). Value hook; 0
+  -- suppresses the "Got $N" line the same way Gen 1 drops the prize box.
+  pay = math.floor(tonumber(modCall("money.gain", pay, {
+    game = self, battle = b, source = "trainer_prize",
+  })) or 0)
+  if pay < 0 then pay = 0 end
   if pay > 0 then
     self.money = (self.money or 0) + pay
   end
@@ -23469,13 +24128,43 @@ function Game3:storytellerUpdateStat()
   return 0
 end
 
+-- ui.list_menu boundary: Ruby's multichoice / mauville / decor lists are
+-- plain strings, Gen 1's ListMenu rows are records.  Same conversion the
+-- START menu needed -- records out, strings back -- so a mod that inserts
+-- { label = "X", onSelect = fn } does not put a table onto a list this
+-- engine draws as text.  Handlers land on the field as modListActions so
+-- the A-press path can run them.
+function Game3:applyListMenuHook(labels, ctx)
+  labels = labels or {}
+  local rows = {}
+  for i, label in ipairs(labels) do rows[i] = { label = label } end
+  local hooked = modCall("ui.list_menu", rows, self, rows, ctx or {})
+  if type(hooked) ~= "table" then return labels, nil end
+  local out, actions = {}, {}
+  for _, row in ipairs(hooked) do
+    local label = (type(row) == "table") and row.label or row
+    if type(label) == "string" and label ~= "" then
+      out[#out + 1] = label
+      if type(row) == "table" and type(row.onSelect) == "function" then
+        actions[label] = row.onSelect
+      end
+    end
+  end
+  if #out == 0 then return labels, nil end
+  return out, (next(actions) and actions or nil)
+end
+
 function Game3:openMauvilleMenu(labels, onPick)
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = "mauville", game = self, itemCount = labels and #labels or 0,
+  })
   self:beginScriptWait()
   self.field = {
     kind = "mauville_menu",
-    labels = labels,
+    labels = hooked,
     cursor = 0,
     onPick = onPick,
+    modListActions = actions,
   }
 end
 
@@ -24013,7 +24702,18 @@ end
 function Game3:pickMauvilleMenu(index)
   local f = self.field
   local name = f and f.onPick
+  -- A mod row added through ui.list_menu keeps its onSelect here; run it
+  -- before the built-in onPick so a replacement label can take the slot
+  -- over without the vanilla handler also firing.
+  local label = f and f.labels and f.labels[(tonumber(index) or 0) + 1]
+  local modAction = label and f.modListActions and f.modListActions[label]
   self.field = nil
+  if type(modAction) == "function" then
+    pcall(modAction, self, index, f)
+    if self.field then return end
+    self:endScriptWait()
+    return
+  end
   if type(name) == "string" and self[name] then self[name](self, index, f) end
   if self.field then return end
   self:endScriptWait()
@@ -25040,6 +25740,10 @@ function Game3:fieldMovePoseFrame(spec)
   return frame
 end
 
+-- VarGetObjectEventGraphicsId only. An id this leaves out of range is NOT
+-- rewritten here: the ROM keeps the raw id on the object event and clamps
+-- where the GRAPHICS are looked up (Game3.spriteSpec), so code that asks
+-- "is this object still a var id" keeps getting a truthful answer.
 function Game3:resolveGraphicsId(gid)
   gid = gid or 0
   if gid >= Game3.GFX_VAR_0 and gid <= Game3.GFX_VAR_F then
@@ -25276,6 +25980,15 @@ end
 function Game3:giveMon(species, level, item)
   species = tonumber(species)
   if not species or species < 1 then return false end
+  -- qol_toggles arms DV flags for the next mon construction (Gen 1
+  -- give_pokemon emits pokemon.before_give right before Pokemon.new).
+  -- Shared gift factory: starters and script gifts go through here; wild
+  -- catches do not (they use addToParty on an existing battler).
+  modEmit("pokemon.before_give", {
+    game = self,
+    species = species,
+    level = level or Game3.STARTER_LEVEL,
+  })
   local mon = self:makeMon(species, level or Game3.STARTER_LEVEL)
   local held = tonumber(item) or 0
   if held ~= 0 then mon.item = held end
@@ -26324,6 +27037,7 @@ end
 function Game3:blackout()
   local chase = self.battle and self.battle.chase
   local scripted = chase and self.scriptWait
+  local blackoutMapId = self.map and self.map.id
   self:recordBattleEnd(Game3.B_OUTCOME_LOST)
   self:healParty()
   self.phase = "play"
@@ -26348,10 +27062,27 @@ function Game3:blackout()
   self._scriptPause = nil
   self._scriptDepth = nil
   self.fieldControlsLocked = nil
+  -- world.blacked_out once, before the heal-warp, with the map the player
+  -- fainted on (warpToHeal would otherwise make mapId look like the Center).
+  -- Chase / scripted Birch paths return above and do not emit: those are not
+  -- a whiteout the player loses money for.
+  modEmit("world.blacked_out", {
+    game = self, mapId = blackoutMapId, reason = "whiteout",
+  })
   -- overworld.c DoWhiteOut: EventScript_WhiteOut then money/2 then heal
   -- then Overworld_ResetStateAfterWhiteOut then last-heal warp.
+  -- money.whiteout: KEEP MONEY can return the pre-halving wallet. Value
+  -- hook; vanilla is floor(money/2); ctx.previous is the amount before.
   self:runWhiteOutScript()
-  self.money = math.floor((tonumber(self.money) or 0) / 2)
+  do
+    local previous = tonumber(self.money) or 0
+    local halved = math.floor(previous / 2)
+    local nextMoney = math.floor(tonumber(modCall("money.whiteout", halved, {
+      game = self, previous = previous, reason = "whiteout",
+    })) or halved)
+    if nextMoney < 0 then nextMoney = 0 end
+    self.money = nextMoney
+  end
   self:resetStateAfterWhiteOut()
   -- overworld.c sub_805308C: history then RoamerMoveToOtherLocationSet
   -- (UpdateRoamerHPStatus already jumped once on battle end).
@@ -26363,6 +27094,8 @@ function Game3:blackout()
 end
 
 function Game3:startWildBattle(species, level)
+  -- FREEFLY: refuse any wild battle while airborne (grass + Wilds contact).
+  if self:isFreeFlying() then return false end
   local enemy = self:makeMon(species, level)
   self:markSeen(species)
   local player = self:firstHealthy()
@@ -26507,6 +27240,9 @@ function Game3:endBattle()
   local pending = self.pendingEvo
   local safari = self.battle and self.battle.safari
   local outcome = self.battleOutcome
+  -- autosave_timer (and DRAMATIC_SHAPE) listen for battle.ended. Emit while
+  -- self.battle is still set so a handler can read the bag, then tear down.
+  modEmit("battle.ended", { game = self, result = outcome, battle = self.battle })
   -- BattleStopLowHpSound before tearing the battle down.
   self:stopLowHpSe()
   self:restorePartySpeciesTypes()
@@ -26709,10 +27445,20 @@ end
 
 function Game3:partyKnowsMove(id)
   local party = self.party or {}
+  local vanilla = false
   for i = 1, #party do
-    if self:knowsMove(party[i], id) then return true end
+    if self:knowsMove(party[i], id) then vanilla = true break end
   end
-  return false
+  -- fieldmove.eligibility: a mod may unlock an HM another way (bag item,
+  -- rental mon, free_fly).  Gen 1 wraps partyKnows the same way; the answer
+  -- is coerced to a boolean so a wrapper returning a mon table (Gen 1's
+  -- shape) still counts as "yes" rather than leaking a table into every
+  -- `if self:partyKnowsMove(...)` gate.
+  local answer = modCall("fieldmove.eligibility", vanilla, id, {
+    save = self.save, data = self.data, game = self, party = party,
+    map = self.map, mapId = self.map and self.map.id,
+  })
+  return not not answer
 end
 
 -- ScrCmd_checkpartymove: RESULT is the 0-based slot, or PARTY_SIZE (6)
@@ -26801,7 +27547,7 @@ function Game3:useRockSmash()
   return false, "You can't use that here!"
 end
 
-function Game3:canStep(map, x, y)
+function Game3:canStepVanilla(map, x, y)
   map = map or self.map
   local b = self:behaviorAt(map, x, y)
   -- Underwater the ROM runs the same GetCollisionAtCoords as anywhere
@@ -26871,6 +27617,129 @@ function Game3:canStep(map, x, y)
   return true
 end
 
+-- CAN THE PLAYER STAND THERE?  The one verdict every walk, connection and
+-- NPC check goes through, which is why movement.collision wraps it here
+-- rather than at any single call site.
+--
+-- The vanilla answer is computed first and handed over, so a wrapper that
+-- only wants to ALLOW something extra does not have to reimplement Ruby's
+-- collision bits, directional impassables, elevation and surf rules -- it
+-- reads the verdict and overrides it.  `ctx.reason` is left writable for the
+-- same reason Gen 1 leaves it: a mod that blocks a step can say why.
+--
+-- Hot path: with no wrapper registered this costs one table lookup in
+-- modCall and allocates nothing.
+-- FREEFLY airborne? Prefer the write-through store free_fly stamps
+-- (ow.player.freeFlying = true lands in self._modPlayerStore), then the
+-- live mod-overworld player. Altitude alone also counts as airborne so a
+-- frame where freeFlying briefly clears still opens tiles.
+function Game3:isFreeFlying()
+  local store = self._modPlayerStore
+  if store then
+    if store.freeFlying then return true end
+    if (store.freeFlyAlt or 0) > 0 then return true end
+  end
+  local p = nil
+  if type(self.freeFlyFieldPlayer) == "function" then
+    local okFp, fp = pcall(self.freeFlyFieldPlayer, self)
+    if okFp then p = fp end
+  end
+  if not p and type(self.modOverworld) == "function" then
+    local okOw, ow = pcall(self.modOverworld, self)
+    p = okOw and ow and ow.player or nil
+  end
+  if p then
+    if p.freeFlying then return true end
+    if (p.freeFlyAlt or 0) > 0 then return true end
+  end
+  -- FREEFLY land/warp: free_fly 1.8.2 exports.isFlying() tracks phase ~= idle
+  -- even if a frame lags on _modPlayerStore stamps (wilds/radar host rebuilds).
+  local mods = rawget(self, "mods") or self.mods
+  local declared = mods and mods.exports
+  if type(declared) == "table" then
+    for _, ex in pairs(declared) do
+      if type(ex) == "table" and type(ex.isFlying) == "function" then
+        local okE, flying = pcall(ex.isFlying)
+        if okE and flying then return true end
+      end
+    end
+  end
+  return false
+end
+
+-- Build the mover + reason free_fly 1.8.2's movement.collision wrap expects.
+-- freeFlying lives on the mod-overworld player store, not on Game3 itself.
+function Game3:freeFlyCollisionCtx(map, x, y, allowed)
+  map = map or self.map
+  local reason = nil
+  local npcBlocks = false
+  if map and type(self.npcAt) == "function" then
+    local npc = self:npcAt(map, x, y)
+    if npc then
+      if type(self.actorBlocksAt) == "function" then
+        if self:actorBlocksAt(npc, self.currentElevation) then
+          npcBlocks = true
+        end
+      else
+        npcBlocks = true
+      end
+    end
+  end
+  if npcBlocks then
+    allowed = false
+    reason = "entity"
+  elseif not allowed then
+    reason = "tile"
+  end
+  local mover = self
+  -- Prefer store stamp first (same source free_fly writes), then ow.player.
+  local flying = self:isFreeFlying()
+  if flying then
+    mover = setmetatable({ freeFlying = true }, { __index = self })
+  end
+  return {
+    map = map,
+    mover = mover,
+    dir = self.facing,
+    fromX = self.playerX, fromY = self.playerY,
+    toX = x, toY = y,
+    reason = reason,
+  }, allowed
+end
+
+function Game3:canStep(map, x, y)
+  local allowed = self:canStepVanilla(map, x, y)
+  local ctx
+  ctx, allowed = self:freeFlyCollisionCtx(map, x, y, allowed)
+  local vanillaOrAllowed2Denied = not allowed
+  local answer = modCall("movement.collision", allowed, allowed, ctx)
+  local flying = self:isFreeFlying()
+  if not flying then
+    -- Reset one-shot bypass log so the next takeoff can prove it again.
+    self._freeFlyAirborneCanStepLogged = nil
+  end
+  if answer then return true end
+  -- Belt-and-suspenders Gen3 airborne bypass: free_fly's movement.collision
+  -- wrap may miss (store read miss, wrap no-op). Mirror it here without
+  -- editing the mod. Landmark tall-building refuse can stay imperfect.
+  if flying then
+    local reason = ctx and ctx.reason
+    if reason == "tile" or reason == "entity" or vanillaOrAllowed2Denied then
+      if not self._freeFlyAirborneCanStepLogged then
+        self._freeFlyAirborneCanStepLogged = true
+        local okLog, Logger = pcall(require, "src.core.Logger")
+        if okLog and Logger and type(Logger.info) == "function" then
+          Logger.info(
+            "FREEFLY airborne canStep bypass (reason=%s to=%s,%s)",
+            tostring(reason or "vanilla"), tostring(x), tostring(y))
+        end
+      end
+      return true
+    end
+  end
+  return false
+end
+
 -- pokeruby GetLedgeJumpDirection: walking into a solid jump metatile
 -- facing that way hops two tiles, landing past the ledge.
 function Game3.ledgeDelta(behavior)
@@ -26888,6 +27757,9 @@ end
 function Game3:tryLedgeHop(map, dx, dy)
   map = map or self.map
   if not map or self.surfing then return false end
+  -- Gold free_fly wraps tryLedgeJump to return false while flying so the
+  -- flyer crosses the lip via canStep instead of a forced hop. Same here.
+  if self:isFreeFlying() then return false end
   local nx = self.playerX + dx
   local ny = self.playerY + dy
   local jx, jy = Game3.ledgeDelta(self:behaviorAt(map, nx, ny))
@@ -26951,6 +27823,9 @@ end
 function Game3:setDefaultFlashLevel(map)
   map = map or self.map
   if not map or not map.cave then
+    self.flashLevel = 0
+  elseif modCall("world.lights", false, { game = self, map = map }) then
+    -- LIGHTS ON: treat the cave as fully lit (no FLASH needed).
     self.flashLevel = 0
   elseif self.flags and self.flags[Game3.FLAG_SYS_USE_FLASH] then
     self.flashLevel = 1
@@ -27432,7 +28307,24 @@ function Game3:startFishingWild(rod)
   local fish = enc and enc.fish
   if not (fish and fish.slots and #fish.slots > 0) then return false end
   if not self:firstHealthy() then return false end
-  return self:startWildFrom(fish, Game3.chooseFishSlot(rod, self:gbaRandom() % 100), true)
+  -- Build the vanilla fish pick HERE (same slot/level maths startWildFrom
+  -- uses) so encounter.fishing can replace or suppress it the way Gen 1's
+  -- goFishing does.  Deliberately does NOT fall through encounter.roll:
+  -- fishing and land encounters are separate hooks, and double-firing both
+  -- would let a land-encounter mod rewrite a rod catch it never saw.
+  local slotIndex = Game3.chooseFishSlot(rod, self:gbaRandom() % 100)
+  local slot = fish.slots[(slotIndex or 0) + 1] or fish.slots[1]
+  if not slot or not slot.species then return false end
+  local minL = slot.minLevel or 2
+  local maxL = slot.maxLevel or slot.minLevel or 2
+  if maxL < minL then maxL = minL end
+  local level = minL
+  if maxL > minL then level = minL + self:rand(maxL - minL + 1) - 1 end
+  local vanilla = { species = slot.species, level = level }
+  local picked = modCall("encounter.fishing", vanilla, rod,
+    self.map and self.map.id, fish.slots)
+  if type(picked) ~= "table" or not picked.species then return false end
+  return self:startWildBattle(picked.species, tonumber(picked.level) or level)
 end
 
 function Game3:fishingTick(f, joyA)
@@ -27759,10 +28651,41 @@ end
 
 function Game3:walkPeriod()
   -- ForcedMovement_MuddySlope uses PlayerGoSpeed2 (run) even on a bike.
-  if self.slopeSlide then return Game3.RUN_PERIOD end
-  if self.bike == "mach" then return Game3.MACH_PERIOD end
-  if self.running then return Game3.RUN_PERIOD end
-  return Game3.WALK_PERIOD
+  local frames
+  if self.slopeSlide then frames = Game3.RUN_PERIOD
+  elseif self.bike == "mach" then frames = Game3.MACH_PERIOD
+  elseif self.running then frames = Game3.RUN_PERIOD
+  else frames = Game3.WALK_PERIOD end
+
+  -- HOW LONG ONE STEP TAKES, offered to movement.speed.
+  --
+  -- UNITS ARE THE WHOLE PROBLEM HERE.  Gen 1's hook trades in FRAMES per cell
+  -- and clamps the answer to at least one; Ruby's walk period is SECONDS
+  -- (WALK_PERIOD is 16/60).  Handing a Red-written speed mod 0.267 and taking
+  -- back whatever it returns would read "8 frames" as eight SECONDS, and
+  -- clamping seconds with Gen 1's `max(1, floor(n))` turns a normal step into
+  -- a one-second crawl -- which is exactly what the first version of this did
+  -- to every step in the game.
+  --
+  -- So the boundary converts: frames out, frames back, seconds inside.  A mod
+  -- written for Red needs no change, and the clamp means what it meant there.
+  local FPS = 60
+  local asFrames = frames * FPS
+  asFrames = modCall("movement.speed", asFrames, asFrames, {
+    onBike = self.bike ~= nil,
+    bike = self.bike,
+    running = self.running and true or false,
+    surfing = self.surfing and true or false,
+    player = self,
+    -- qol RUN (HOLD B) reads ctx.input:isDown("b"); self.input may be nil
+    -- until a mod screen arms it, so fall back to the module Input.
+    input = self.input or Input,
+    save = self.save,
+  })
+  asFrames = tonumber(asFrames) or (Game3.WALK_PERIOD * FPS)
+  -- at least one frame, or the step never advances
+  if asFrames < 1 then asFrames = 1 end
+  return asFrames / FPS
 end
 
 -- pokeruby GetPlayerSpeed: walk 1, run/surf 2, Acro 3, Mach FASTEST 4.
@@ -27884,6 +28807,11 @@ function Game3:useBike(id)
     return false, "You can't use that here!"
   end
   local name = kind == "mach" and "MACH BIKE" or "ACRO BIKE"
+  -- FREEFLY flight4: refuse bike while airborne (isFreeFlying). free_fly
+  -- also clears bike on takeoff; this gates Bag / Select use mid-flight.
+  if self:isFreeFlying() then
+    return false, "You can't use that here!"
+  end
   if self.surfing or self:isUnderwater() then
     return false, "You can't use that here!"
   end
@@ -27908,6 +28836,9 @@ function Game3.flyDestFor(map)
   return Game3.FLY_BY_ID[id]
 end
 
+-- Map-type gate for FLY / TELEPORT.  The fieldmove.eligibility hook lives on
+-- partyKnowsMove (Gen 1's partyKnows seam), not here: this check is "are you
+-- outdoors", which free_fly and friends decide for themselves from ctx.map.
 function Game3.canFlyFrom(map)
   if not map then return false end
   local t = map.mapType or 0
@@ -27957,7 +28888,19 @@ function Game3:doPoisonFieldEffect()
       local hp = mon.hp or 0
       if hp > 0 then hp = hp - 1 end
       mon.hp = hp
-      if hp == 0 then fainting = fainting + 1 end
+      if hp == 0 then
+        -- field.poison_survive: POISON SAVE may keep the mon at 1 HP and
+        -- clear status. Value hook; vanilla false means faint as usual.
+        local keep = modCall("field.poison_survive", false, {
+          game = self, mon = mon, party = party,
+        })
+        if keep then
+          mon.hp = 1
+          mon.status = nil
+        else
+          fainting = fainting + 1
+        end
+      end
     end
   end
   if fainting > 0 then return 2 end
@@ -28071,6 +29014,15 @@ function Game3:tickRepel()
   if n < 1 then return end
   n = n - 1
   if n < 1 then
+    -- About to wear off. repel.wear may return a positive step count
+    -- (AUTO-REPEL consumed a bag item). Value hook; vanilla is 0.
+    local refilled = math.floor(tonumber(modCall("repel.wear", 0, {
+      game = self, previous = self.repelSteps or 1,
+    })) or 0)
+    if refilled > 0 then
+      self.repelSteps = refilled
+      return
+    end
     self.repelSteps = nil
     if not self.field then
       self.field = { kind = "talk", text = "REPEL's effect wore off!" }
@@ -28226,7 +29178,52 @@ function Game3:partyActions(mon)
     actions[#actions + 1] = moves[i]
   end
   actions[#actions + 1] = "CANCEL"
-  return actions
+
+  -- THE PARTY SUBMENU, offered to ui.party.submenu.  Four of the nine mods
+  -- measured add a row here -- free_fly's FREEFLY, hm_anywhere's HM.
+  --
+  -- Same shape mismatch the START menu had, and the same conversion: Gen 1's
+  -- rows are records ({ label, action, move }) and a mod inserts one of its
+  -- own with an `onSelect`; Ruby's are bare strings dispatched by name.
+  -- Records out, strings back, the row's handler kept for the A press.
+  --
+  -- THE CONTEXT MATTERS HERE in a way it did not on the START menu: this same
+  -- list is the battle SWITCH menu, and free_fly explicitly refuses to offer
+  -- a take-off from inside a fight (`if ctx.battle then return out end`).
+  -- Handing over a ctx with no `battle` field would make every mod think the
+  -- player is standing safely in the overworld.
+  local rows = {}
+  for i, label in ipairs(actions) do rows[i] = { label = label } end
+
+  local ow = nil
+  if type(self.modOverworld) == "function" then
+    local okOw, view = pcall(self.modOverworld, self)
+    if okOw then ow = view end
+  end
+
+  local hooked = modCall("ui.party.submenu", rows, self, rows, mon,
+                         { battle = self.battle, overworld = ow })
+  if type(hooked) ~= "table" then
+    self.modPartyActions = nil
+    return actions
+  end
+
+  local out, handlers = {}, {}
+  for _, row in ipairs(hooked) do
+    local label = (type(row) == "table") and row.label or row
+    if type(label) == "string" and label ~= "" then
+      out[#out + 1] = label
+      if type(row) == "table" and type(row.onSelect) == "function" then
+        handlers[label] = row.onSelect
+      end
+    end
+  end
+  if #out == 0 then
+    self.modPartyActions = nil
+    return actions
+  end
+  self.modPartyActions = next(handlers) and handlers or nil
+  return out
 end
 
 function Game3:partyItemActions(mon)
@@ -29765,6 +30762,12 @@ function Game3:giveEgg(species)
   species = tonumber(species)
   if not species or species < 1 then return 2 end
   local cycles = self:eggCyclesFor(species)
+  modEmit("pokemon.before_give", {
+    game = self,
+    species = species,
+    level = Game3.EGG_HATCH_LEVEL,
+    isEgg = true,
+  })
   local egg = self:makeMon(species, Game3.EGG_HATCH_LEVEL)
   egg.isEgg = true
   egg.name = "EGG"
@@ -29785,6 +30788,12 @@ function Game3:giveDaycareEgg()
   end
   local species = self:eggSpeciesFrom(self:eggMotherSpecies(), pid)
   if not species or species < 1 then return false, "There's no EGG." end
+  modEmit("pokemon.before_give", {
+    game = self,
+    species = species,
+    level = Game3.EGG_HATCH_LEVEL,
+    isEgg = true,
+  })
   local egg = self:makeMon(species, Game3.EGG_HATCH_LEVEL)
   -- SetInitialEggData: low16 from daycare pending, hi16 freshly rolled.
   local lo = (tonumber(pid) or 0) % 65536
@@ -30754,13 +31763,17 @@ function Game3:openPokeblockCaseOnFeeder()
     end
   end
   labels[#labels + 1] = "CANCEL"
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = "pokeblock_feeder", game = self, itemCount = #labels,
+  })
   self:beginScriptWait()
   self.field = {
     kind = "mauville_menu",
-    labels = labels,
+    labels = hooked,
     cursor = 0,
     onPick = "pickPokeblockFeeder",
     feederIds = ids,
+    modListActions = actions,
   }
 end
 
@@ -31916,13 +32929,18 @@ function Game3:pcAccessLabels()
 end
 
 function Game3:scriptMenuCreatePCMultichoice()
+  local labels = self:pcAccessLabels()
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = "pc_access", game = self, itemCount = labels and #labels or 0,
+  })
   self:beginScriptWait()
   self.field = {
     kind = "mauville_menu",
-    labels = self:pcAccessLabels(),
+    labels = hooked,
     cursor = 0,
     onPick = "pickPcAccess",
     bPressed = Game3.MULTI_B_PRESSED,
+    modListActions = actions,
   }
 end
 
@@ -33228,6 +34246,17 @@ function Game3:giveMonExp(mon, amount, trainer)
   end
   local boosted = self:isTradedMon(mon)
   if boosted then amount = math.floor(amount * 3 / 2) end
+  -- exp.gain: Gen 1 fires after cart multipliers (trainer / Lucky Egg /
+  -- traded) and before the level-up loop, so qol_toggles can scale or
+  -- zero the payout without re-deriving those boosts. Value hook: vanilla
+  -- is the numeric amount; a wrapper may replace it (or return 0 / nil to
+  -- suppress). Trap C: mon IS the battler on Ruby.
+  amount = math.floor(tonumber(modCall("exp.gain", amount, mon, {
+    game = self,
+    battle = self.battle,
+    trainer = trainer and true or false,
+    traded = boosted and true or false,
+  })) or 0)
   if amount < 1 then return {} end
   local verb = boosted and "gained a boosted" or "gained"
   local texts = { ("%s %s %d EXP. Points!"):format(mon.name, verb, amount) }
@@ -33252,6 +34281,19 @@ function Game3:giveMonExp(mon, amount, trainer)
 end
 
 function Game3:awardExp(winner, fainted, trainer)
+  -- battle.exp_award: Gen 1 BattleState:awardExp hands a vanilla continuation
+  -- plus an awardCtx (applyShare / calculated / participants) to
+  -- Runtime.call.  exp_share wraps (next, ctx) and may call next(ctx) or
+  -- replace the distribution.
+  --
+  -- Contract traps that made the wrap inert on Ruby:
+  --   * participants is a COUNT (exp_share does math.max(1, ctx.participants)),
+  --     not the participant list (that lives in alive / the vanilla closure).
+  --   * applyShare(mon, split, announce) takes a DIVISOR of calculated, matching
+  --     Gen 1 / exp_share; the vanilla path pays absolute amounts via payExp.
+  --   * battle.game / battle.party / battle.save are aliased so optionsOf and
+  --     partyOf (which only read the battle bag) see save.options + party.
+  --   * battle.sayNext queues the share line into the returned texts table.
   local yield = fainted and fainted.expYield
   if not yield then
     local row = fainted and self:speciesRow(fainted.species)
@@ -33261,49 +34303,127 @@ function Game3:awardExp(winner, fainted, trainer)
     * ((fainted and fainted.level) or 1) / 7))
   local party = self.party or {}
   local winnerIdx = self:partyIndexOf(winner)
-  if not winnerIdx then
-    self:gainEVs(winner, fainted)
-    return self:giveMonExp(winner, calculated, trainer)
-  end
-  local sent = self.battle and self.battle.sentIn
-  local hasSent = false
-  if type(sent) == "table" then
+
+  local sent, partShare, shareShare = nil, calculated, 0
+  local participantList, alive = {}, {}
+  if winnerIdx then
+    sent = self.battle and self.battle.sentIn
+    local hasSent = false
+    if type(sent) == "table" then
+      for i = 1, #party do
+        if sent[i] then hasSent = true break end
+      end
+    end
+    if not hasSent then sent = { [winnerIdx] = true } end
+    local viaSent, viaShare = 0, 0
     for i = 1, #party do
-      if sent[i] then hasSent = true break end
+      local mon = party[i]
+      if self:canBattle(mon) then
+        alive[#alive + 1] = mon
+        if sent[i] then
+          viaSent = viaSent + 1
+          participantList[#participantList + 1] = mon
+        end
+        if self:holdsExpShare(mon) then viaShare = viaShare + 1 end
+      end
     end
-  end
-  if not hasSent then sent = { [winnerIdx] = true } end
-  local viaSent, viaShare = 0, 0
-  for i = 1, #party do
-    local mon = party[i]
-    if self:canBattle(mon) then
-      if sent[i] then viaSent = viaSent + 1 end
-      if self:holdsExpShare(mon) then viaShare = viaShare + 1 end
+    if viaSent < 1 then viaSent = 1 end
+    if viaShare > 0 then
+      partShare = math.max(1, math.floor(calculated / 2 / viaSent))
+      shareShare = math.max(1, math.floor(calculated / 2 / viaShare))
+    else
+      partShare = math.max(1, math.floor(calculated / viaSent))
+      shareShare = 0
     end
+  elseif winner then
+    participantList[1] = winner
+    alive[1] = winner
   end
-  if viaSent < 1 then viaSent = 1 end
-  local partShare, shareShare
-  if viaShare > 0 then
-    partShare = math.max(1, math.floor(calculated / 2 / viaSent))
-    shareShare = math.max(1, math.floor(calculated / 2 / viaShare))
-  else
-    partShare = math.max(1, math.floor(calculated / viaSent))
-    shareShare = 0
-  end
+
+  -- Announced lines the battle UI will show.  applyShare appends when the
+  -- third arg is truthy; omitted/nil stays silent (Gen 1 contract -- Gold
+  -- announces on omit, Ruby matches Gen 1 so a mod that wants a single
+  -- summary can pay silently and print its own line).
   local texts = {}
-  for i = 1, #party do
-    local mon = party[i]
-    if self:canBattle(mon) then
-      local amount = 0
-      if sent[i] then amount = partShare end
-      if self:holdsExpShare(mon) then amount = amount + shareShare end
-      if amount > 0 then
-        self:gainEVs(mon, fainted)
-        local lines = self:giveMonExp(mon, amount, trainer)
-        for j = 1, #lines do texts[#texts + 1] = lines[j] end
+  local function payExp(mon, amount, announce)
+    amount = math.floor(tonumber(amount) or 0)
+    if not mon or amount < 1 then return {} end
+    self:gainEVs(mon, fainted)
+    local lines = self:giveMonExp(mon, amount, trainer)
+    if announce then
+      for j = 1, #lines do texts[#texts + 1] = lines[j] end
+    end
+    return lines
+  end
+
+  -- Gen 1 / exp_share: split divides calculated (and is the share count).
+  local function applyShare(mon, split, announce)
+    local div = math.max(1, math.floor(tonumber(split) or 1))
+    local amount = math.max(1, math.floor(calculated / div))
+    return payExp(mon, amount, announce)
+  end
+
+  -- Alias Gen 1 battle bag fields exp_share reads exclusively off ctx.battle.
+  local bag = self.battle
+  if bag then
+    bag.game = self
+    bag.party = party
+    if type(self.modOptionsStore) == "function" then
+      pcall(self.modOptionsStore, self)
+    end
+    bag.save = self.save
+    -- sayShare → battle:sayNext(text); fold into the award texts list so the
+    -- existing after-KO message queue prints the share line.
+    function bag:sayNext(text)
+      if type(text) == "string" and text ~= "" then
+        texts[#texts + 1] = text
+      end
+    end
+    function bag:emit(msg)
+      if type(msg) == "table" and type(msg.text) == "string" then
+        texts[#texts + 1] = msg.text
       end
     end
   end
+
+  local function vanillaAward(ctx)
+    if not winnerIdx then
+      payExp(winner, (ctx and ctx.calculated) or calculated, true)
+      return texts
+    end
+    local useSent = sent
+    local pShare = partShare
+    local sShare = shareShare
+    for i = 1, #party do
+      local mon = party[i]
+      if self:canBattle(mon) then
+        local amount = 0
+        if useSent and useSent[i] then amount = pShare end
+        if self:holdsExpShare(mon) then amount = amount + sShare end
+        if amount > 0 then
+          payExp(mon, amount, true)
+        end
+      end
+    end
+    return texts
+  end
+
+  local participantCount = math.max(1, #participantList)
+  local result = modCall("battle.exp_award", vanillaAward, {
+    battle = bag or self.battle, game = self,
+    winner = winner, fainted = fainted, trainer = trainer,
+    calculated = calculated,
+    -- COUNT for exp_share's math.max(1, ctx.participants); list retained as
+    -- participantMons for any mod that wants the mons themselves.
+    participants = participantCount,
+    participantMons = participantList,
+    -- Gen 1 / exp_share: alive is the FIGHTER list (who just fought).
+    -- Full party is battle.party; treating all canBattle as alive made
+    -- every mon a "fighter" and left the bench share empty.
+    alive = participantList,
+    applyShare = applyShare,
+  })
+  if type(result) == "table" then return result end
   return texts
 end
 
@@ -34646,25 +35766,24 @@ function Game3:ensureManagerFont()
         -- assets/generated/fonts/font.png is the FONT3 sheet.
         def.image = "red/assets/generated/fonts/font.png"
         def.imageExtra = "red/assets/generated/fonts/font_extra.png"
-        -- ManagerState lays out at Gen1 8px tile pitch. Enabling def.ttf={}
-        -- (or keeping Red's ttf table) routes ASCII through Plain Pixel at
-        -- 15px, so every row stacks on the next. Tile font only -- match Red.
-        def.ttf = nil
-      else
-        -- No Red sheet: Plain Pixel alone still labels the manager (taller
-        -- glyphs; list will look loose but readable).
-        def.ttf = {}
       end
+      -- ALWAYS Plain Pixel for Gen3 mod screens.
+      --
+      -- AppData's red/assets/.../font.png is a stub (~600 bytes) on this
+      -- install, so tile pages load empty/wrong and every QOL label becomes
+      -- "font: no glyph" / blank white. TTF still draws ASCII; tile pages
+      -- remain available for border codes when a real sheet is present.
+      def.ttf = {}
     else
       for k, v in pairs(src) do def[k] = v end
       if not def.image then
         def.ttf = def.ttf or {}
       else
-        def.ttf = nil
+        def.ttf = def.ttf or {}
       end
     end
     Font.load({ font = def })
-    require("src.ui.Theme").load(self.data)
+    pcall(function() require("src.ui.Theme").load(self.data) end)
   end)
   self._managerFontReady = true
 end
@@ -34702,6 +35821,43 @@ function Game3:openModManager()
   return true
 end
 
+-- A MOD'S OWN SCREEN, on the same rails the manager runs on.
+--
+-- The mod API's `screens` registry lets a mod register a factory and open it
+-- with mod.ui / src.ui.Screens.push.  Gen 1 pushes the instance onto the game
+-- stack and its update/draw dispatch takes over.  Ruby has no general state
+-- stack -- its menus are Game3 field states -- but it already runs a real
+-- StateStack for one thing, the mod manager, with a step that updates it and
+-- a draw that LETTERBOXES a 160x144 Gen 1 layout into the 240x160 playfield.
+-- A mod screen wants precisely that, so it borrows the same field kind rather
+-- than growing a second stack beside it.
+--
+-- The one thing it must not borrow is the manager's exit. closeModManager
+-- hands the player back to the START menu with the cursor on MODS, because
+-- that is where the manager is opened from.  A screen opened from the
+-- overworld has to come back to the overworld, so the field that was live is
+-- saved here and restored on close -- with a flag rather than a nil check,
+-- because "was walking" IS `field == nil` and would otherwise be
+-- indistinguishable from "nothing saved".
+function Game3:openModScreen(inst)
+  if type(inst) ~= "table" then return false end
+  self:modOptionsStore()
+  self:ensureManagerFont()
+  self.input = self.input or Input
+  local StateStack = require("src.core.StateStack")
+  StateStack:init()
+  self.stack = StateStack
+  local pushed = pcall(StateStack.push, StateStack, inst)
+  if not pushed then
+    self.stack = self:modStack()
+    return false
+  end
+  self.modScreenReturn = self.field
+  self.modScreenOpen = true
+  self.field = { kind = Game3.MODS_FIELD }
+  return true
+end
+
 -- The manager owns its own input while it is open. It closes by popping
 -- itself, so an empty stack is the signal to hand the START menu back --
 -- which is also what happens when a nested NamingScreen pops the last state.
@@ -34719,6 +35875,14 @@ function Game3:closeModManager()
   -- back to the standing mod stack, not to nil: a mod holding game.stack from
   -- boot would otherwise find it gone after the manager was opened once
   self.stack = self:modStack()
+  -- A MOD SCREEN GOES BACK WHERE IT CAME FROM, which is usually not the START
+  -- menu.  The flag, not the value, decides: a screen opened while walking
+  -- saved `nil`, and restoring that is exactly right.
+  if self.modScreenOpen then
+    self.field = self.modScreenReturn
+    self.modScreenOpen, self.modScreenReturn = nil, nil
+    return
+  end
   -- Back to the START menu the player opened it from, not out to the field.
   -- Its field kind is "menu" -- stepField gates on that exact string, so a
   -- plausible-looking "start" here left the menu drawn but inert.
@@ -34764,7 +35928,51 @@ function Game3:startMenuItems()
   -- discovered a mod, so a vanilla install never sees it.
   if self:hasMods() then items[#items + 1] = "MODS" end
   items[#items + 1] = "EXIT"
-  return items
+
+  -- THE START MENU, offered to ui.start_menu.items.  Three of the nine mods
+  -- measured add a row here.
+  --
+  -- THE SHAPES DIFFER AND THAT MATTERS.  Ruby's menu is a list of plain
+  -- strings, drawn and dispatched by label.  Gen 1's is a list of RECORDS --
+  -- { label = "HM", onSelect = fn } -- and a mod reads `item.label` on every
+  -- entry and inserts a record of its own.  Handing Ruby's strings straight
+  -- over means `item.label` is nil on every row, the mod's insert puts a
+  -- TABLE into a list this engine draws as text, and the menu breaks.
+  --
+  -- So the boundary converts, the way movement.speed converts its units:
+  -- records out, records back, strings inside.  A row the mod added keeps its
+  -- onSelect in `modStartMenuActions`, which the A-press dispatch consults --
+  -- otherwise its row would appear on the menu and do nothing when chosen.
+  local rows = {}
+  for i, label in ipairs(items) do rows[i] = { label = label } end
+
+  local hooked = modCall("ui.start_menu.items", rows, self, rows)
+  if type(hooked) ~= "table" then
+    self.modStartMenuActions = nil
+    return items
+  end
+
+  local out, actions = {}, {}
+  for _, row in ipairs(hooked) do
+    -- tolerate both shapes coming back: a mod that passed the records through
+    -- untouched, and one that answered plain strings anyway
+    local label = (type(row) == "table") and row.label or row
+    if type(label) == "string" and label ~= "" then
+      out[#out + 1] = label
+      if type(row) == "table" and type(row.onSelect) == "function" then
+        actions[label] = row.onSelect
+      end
+    end
+  end
+
+  -- An empty or unusable answer keeps the vanilla list: a START menu with no
+  -- rows is the one failure a player cannot get out of.
+  if #out == 0 then
+    self.modStartMenuActions = nil
+    return items
+  end
+  self.modStartMenuActions = next(actions) and actions or nil
+  return out
 end
 
 function Game3:startMenuIndex(name)
@@ -34790,7 +35998,7 @@ function Game3:openStartMenu()
   if self.field and self.field.kind == "menu" then return true end
   -- START must never sit under a stuck FADE_TO_BLACK veil.
   self:fadeInFromBlack()
-  self.field = { kind = "menu", cursor = 0 }
+  self.field = { kind = "menu", cursor = 0, scroll = 0 }
   return true
 end
 
@@ -36798,6 +38006,14 @@ function Game3:tryCatch(mon, ballBonus)
     rate = math.floor((b.safariCatchFactor or 0) * 1275 / 100)
     if rate > 255 then rate = 255 end
   end
+  -- catch.rate: Gen 1 wraps the species catch rate before the shake math.
+  -- qol can raise/lower/guarantee.  Trap C: mon IS the battler.
+  rate = math.floor(tonumber(modCall("catch.rate", rate, mon, {
+    game = self,
+    battle = b,
+    ballBonus = ballBonus,
+  })) or rate)
+  if rate < 0 then rate = 0 elseif rate > 255 then rate = 255 end
   local a = Game3.catchValue(mon.hp, mon.maxHp, rate, ballBonus)
   a = math.floor(a * Game3.statusCatchMul(mon and mon.status) / 10)
   if a >= 255 then return true, 3 end
@@ -36856,14 +38072,22 @@ function Game3:throwBall(itemId)
       queue[#queue + 1] = Game3.addedToDexText(b.enemy.name)
       b.showDexEntry = b.enemy.species
     end
+    -- battle.catch_exp: Gen 1 storeCaughtMon default is false (no XP on
+    -- catch).  qol_toggles returns true to award.  Vanilla continuation
+    -- must be a function so modCall passes it through unwrapped.
     if (b.player.hp or 0) > 0 and not b.wallyTutorial then
-      local texts = self:awardExp(b.player, b.enemy, b.isTrainer)
-      for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      if modCall("battle.catch_exp", function() return false end, {
+           battle = b, game = self }) then
+        local texts = self:awardExp(b.player, b.enemy, b.isTrainer)
+        for i = 1, #texts do queue[#queue + 1] = texts[i] end
+      end
     end
     if not b.wallyTutorial then
       b.askCaughtNick = true
+      local destination
       if self:addToParty(b.enemy) then
         b.caughtMon = self.party[#self.party]
+        destination = "party"
       else
         -- atkF3_trygivecaughtmonnick names the mon you just caught. The
         -- box slot is wherever boxFirstFree landed, not the end of the
@@ -36872,10 +38096,26 @@ function Game3:throwBall(itemId)
         if box then
           local stored = self.pc[box]
           b.caughtMon = stored and slot and stored[slot]
+          destination = "box"
           queue[#queue + 1] = ("%s was transferred to BOX %d."):format(b.enemy.name, box)
         else
           queue[#queue + 1] = "The BOX is full."
         end
+      end
+      -- pokemon.caught once the mon is actually in the party or a box.
+      -- Ruby's battler IS the mon (Trap C), so payload.mon is the stored
+      -- copy, not enemy.mon.species.  Skipped when the box was full and
+      -- nothing was kept -- a listener counting catches must not see those.
+      if b.caughtMon then
+        modEmit("pokemon.caught", {
+          battle = b,
+          mon = b.caughtMon,
+          species = b.caughtMon.species or (b.enemy and b.enemy.species),
+          isNew = newDex and true or false,
+          ball = itemId,
+          destination = destination,
+          game = self,
+        })
       end
     end
     b.caught = true
@@ -38017,6 +39257,28 @@ function Game3:holdEffectOf(mon)
   if (not effect or effect == 0) and id == Game3.ITEM_EVERSTONE then
     effect = Game3.HOLD_EFFECT_PREVENT_EVOLVE
   end
+  effect, param = effect or 0, param or 0
+  -- held_item.trigger: Gen 1/2 wrap the READ of the hold effect (one hook
+  -- over every call site).  Continuation returns (effect, parameter).
+  -- Return nil effect to suppress.  trigger="check" for this generic read;
+  -- battle timing sites (priority / residual / …) are not yet branched.
+  local row = row  -- item row from above (may be nil)
+  local hookedEffect, hookedParam = modCall("held_item.trigger", function()
+    return effect, param
+  end, {
+    battle = self.battle,
+    mon = mon,
+    item = id,
+    def = row,
+    effect = effect,
+    parameter = param,
+    trigger = "check",
+  })
+  if hookedEffect == nil and hookedParam == nil then
+    return 0, 0
+  end
+  if hookedEffect ~= nil then effect = hookedEffect end
+  if hookedParam ~= nil then param = hookedParam end
   return effect or 0, param or 0
 end
 
@@ -38034,6 +39296,49 @@ function Game3:applyBadgeBoost(mon, badge, stat)
   if not self:isPlayerBattler(mon) then return stat end
   if not self:hasBadge(badge) then return stat end
   return math.max(1, math.floor(stat * 110 / 100))
+end
+
+
+-- battle.damage — Gen 1 contract (wiki Reference Hooks):
+--   wrap(next, ctx) where ctx = { battle, ruleset, user, target, move, opts, rng }
+--   returns damage, { crit, typeMult }
+-- Trap C: on Ruby the battler IS the mon, so user/target are the mon tables
+-- themselves (ctx.user.species works; ctx.user.mon.species would be nil).
+-- Seam: after the formula, BEFORE Endure / Focus Band / HP write, so a mod
+-- that rewrites the number still gets the engine's survival clamps.
+local function modBattleDamage(self, attacker, defender, move, opts, dmg, crit, mul)
+  dmg = dmg or 0
+  crit = not not crit
+  mul = mul or 10
+  local prevPlayer = attacker and rawget(attacker, "isPlayer")
+  if attacker then
+    attacker.isPlayer = self:isPlayerBattler(attacker) and true or false
+  end
+  local function vanilla(c)
+    return c._dmg, { crit = c._crit, typeMult = c._mul }
+  end
+  local hooked, info = modCall("battle.damage", vanilla, {
+    battle = self.battle,
+    ruleset = self.data,
+    user = attacker,
+    target = defender,
+    move = move,
+    opts = opts or {},
+    rng = function(a, b)
+      if b == nil then return self:rand(a or 100) end
+      local lo, hi = a or 0, b or 0
+      if hi < lo then lo, hi = hi, lo end
+      return lo + self:rand(hi - lo + 1) - 1
+    end,
+    _dmg = dmg, _crit = crit, _mul = mul,
+  })
+  if attacker then attacker.isPlayer = prevPlayer end
+  if type(hooked) == "number" then dmg = hooked end
+  if type(info) == "table" then
+    if info.crit ~= nil then crit = not not info.crit end
+    if info.typeMult ~= nil then mul = info.typeMult end
+  end
+  return dmg, crit, mul
 end
 
 function Game3:dealDamage(attacker, defender, move, dryRun)
@@ -38058,6 +39363,7 @@ function Game3:dealDamage(attacker, defender, move, dryRun)
   -- Seismic Toss / Night Shade: dmgtolevel, then clear SE/NVE for display.
   if (move.effect or 0) == Game3.EFFECT_LEVEL_DAMAGE then
     local dmg = math.max(1, attacker.level or 1)
+    dmg = select(1, modBattleDamage(self, attacker, defender, move, {}, dmg, false, 10))
     local endured = false
     if defender.endured and dmg >= (defender.hp or 0) then
       dmg = math.max(0, (defender.hp or 1) - 1)
@@ -38119,6 +39425,7 @@ function Game3:dealDamage(attacker, defender, move, dryRun)
   if (move.effect or 0) == Game3.EFFECT_ENDEAVOR then
     local dmg = (defender.hp or 0) - (attacker.hp or 0)
     if dmg < 1 then return { dmg = 0, mul = 0 } end
+    dmg = select(1, modBattleDamage(self, attacker, defender, move, {}, dmg, false, 10))
     local endured = false
     if defender.endured and dmg >= (defender.hp or 0) then
       dmg = math.max(0, (defender.hp or 1) - 1)
@@ -38271,6 +39578,10 @@ function Game3:dealDamage(attacker, defender, move, dryRun)
   if (move.effect or 0) == Game3.EFFECT_FALSE_SWIPE then
     dmg = math.min(dmg, math.max(0, (defender.hp or 1) - 1))
   end
+  -- Gen 1 battle.damage sees the post-formula number and may rewrite it
+  -- before Endure / Focus Band / the HP write (handover §6).
+  dmg, crit, mul = modBattleDamage(self, attacker, defender, move,
+    { dryRun = dryRun }, dmg, crit, mul)
   local endured = false
   if defender.endured and dmg >= (defender.hp or 0) then
     dmg = math.max(0, (defender.hp or 1) - 1)
@@ -39041,6 +40352,10 @@ function Game3:collectPayday()
   local amount = (b and b.payday) or 0
   if amount < 1 then return nil end
   b.payday = nil
+  amount = math.floor(tonumber(modCall("money.gain", amount, {
+    game = self, battle = b, source = "payday",
+  })) or 0)
+  if amount < 1 then return nil end
   self.money = (self.money or 0) + amount
   if Game3.MAX_MONEY then
     self.money = math.min(Game3.MAX_MONEY, self.money)
@@ -39841,6 +41156,11 @@ end
 
 function Game3:applySetDamage(attacker, defender, dmg)
   dmg = math.max(0, math.floor(dmg or 0))
+  -- Fixed-damage moves (Dragon Rage, Sonic Boom, …) still pass through
+  -- battle.damage so a global scaler sees them — before Endure / sub soak.
+  dmg = select(1, modBattleDamage(self, attacker, defender, {
+    id = 0, name = "SET_DAMAGE", power = 0,
+  }, { setDamage = true }, dmg, false, 10))
   if defender.substitute then
     local faded = self:absorbIntoSubstitute(defender, dmg)
     return { dmg = dmg, mul = 10, crit = false, substitute = true,
@@ -40052,6 +41372,38 @@ function Game3:moveHitChance(attacker, defender, move, effect)
   return acc
 end
 
+-- battle.accuracy — Gen 1 contract: ctx = { battle, ruleset, move, user, target, rng }
+-- returns true on hit.  Trap C: user/target ARE the mons on Ruby.
+function Game3:accuracyRoll(attacker, defender, move, effect)
+  local function vanilla(c)
+    local chance = self:moveHitChance(c.user, c.target, c.move, effect)
+    if not chance or chance >= 100 then return true end
+    if chance < 1 then return false end
+    -- Match the inline roll that used to live in useMove: miss when
+    -- rand(100) > chance, so equals-chance still hits.
+    return self:rand(100) <= chance
+  end
+  local prev = attacker and rawget(attacker, "isPlayer")
+  if attacker then
+    attacker.isPlayer = self:isPlayerBattler(attacker) and true or false
+  end
+  local hit = modCall("battle.accuracy", vanilla, {
+    battle = self.battle,
+    ruleset = self.data,
+    move = move,
+    user = attacker,
+    target = defender,
+    rng = function(a, b)
+      if b == nil then return self:rand(a or 100) end
+      local lo, hi = a or 0, b or 0
+      if hi < lo then lo, hi = hi, lo end
+      return lo + self:rand(hi - lo + 1) - 1
+    end,
+  })
+  if attacker then attacker.isPlayer = prev end
+  return hit and true or false
+end
+
 function Game3.protectSucceeds(streak, roll)
   local rates = { 65535, 32767, 16383, 8191 }
   local i = (streak or 0) + 1
@@ -40244,22 +41596,39 @@ function Game3:tryRunFromBattle(mon)
   if self:hasAbility(mon, Game3.ABILITY_RUN_AWAY) then
     return true, nil, Game3.ABILITY_RUN_AWAY
   end
-  local ok = false
-  -- The cart only rolls in a single battle; the double-battle branch
-  -- falls through with effect unset, so a wild double can never be fled.
-  if not b.doubles then
-    local mine = self:speedOf(mon)
-    local theirs = self:speedOf(b.enemy)
-    if theirs > 0 and mine < theirs then
-      -- integer divide, exactly as the C does
-      local speedVar = math.floor(mine * 128 / theirs) + (b.runTries or 0) * 30
-      if speedVar > (self:gbaRandom() % 256) then ok = true end
-    else
-      ok = true
+  -- battle.run — Gen 1 contract: ctx = { battle, pSpd, eSpd, attempts, rng }
+  -- returns true on escape.  Attempt counter is bumped inside the vanilla
+  -- continuation so a wrapper that short-circuits still sees the right count
+  -- only when it calls next (matching Gen 1 runRoll).
+  local pSpd = self:speedOf(mon)
+  local eSpd = self:speedOf(b.enemy)
+  local function vanilla(c)
+    local ok = false
+    -- The cart only rolls in a single battle; the double-battle branch
+    -- falls through with effect unset, so a wild double can never be fled.
+    if not b.doubles then
+      local mine, theirs = c.pSpd, c.eSpd
+      if theirs > 0 and mine < theirs then
+        local speedVar = math.floor(mine * 128 / theirs) + (b.runTries or 0) * 30
+        if speedVar > (self:gbaRandom() % 256) then ok = true end
+      else
+        ok = true
+      end
     end
+    b.runTries = (b.runTries or 0) + 1
+    return ok
   end
-  b.runTries = (b.runTries or 0) + 1
-  return ok
+  local ok = modCall("battle.run", vanilla, {
+    battle = b,
+    pSpd = pSpd,
+    eSpd = eSpd,
+    attempts = (b.runTries or 0) + 1,
+    rng = function(a, b_)
+      if b_ == nil then return self:gbaRandom() % (a or 256) end
+      return a + (self:gbaRandom() % (b_ - a + 1))
+    end,
+  })
+  return ok and true or false
 end
 
 -- Battle Teleport. Field HM-style TELEPORT is useTeleport.
@@ -41249,6 +42618,19 @@ function Game3:useMove(attacker, defender, move, extra)
     local r = self.battleResults
     if r then r.lastUsedMove = tonumber(move and move.id) or 0 end
   end
+  -- battle.move_used for the primary strike only.  Spread follow-ups and
+  -- Magic Coat / Snatch echoes pass extra=true; emitting those too would
+  -- count one player choice as several moves.  Battler IS the mon on Ruby.
+  if not extra then
+    local b = self.battle
+    modEmit("battle.move_used", {
+      battle = b,
+      turn = b and b.turns,
+      move = move,
+      user = attacker,
+      target = defender,
+    })
+  end
   -- gLastMoves, which is what Disable, Encore and Mirror Move look up.
   if not extra then attacker.lastMove = tonumber(move and move.id) or 0 end
   local effect = self:moveEffect(move)
@@ -41565,7 +42947,23 @@ function Game3:useMove(attacker, defender, move, extra)
         end
       end
       local charge = Game3.chargeKind(move)
-      if charge and not self:skipsCharge(move) then
+      -- battle.charge_required: Gen 1 lets a mod cancel the charge turn
+      -- (return false) so Solar Beam / Fly / Dig strike immediately.
+      local needsCharge = charge and not self:skipsCharge(move)
+      if needsCharge then
+        local required = modCall("battle.charge_required", function(c)
+          return c.charge
+        end, {
+          battle = self.battle,
+          user = attacker,
+          target = defender,
+          move = move,
+          charge = true,
+          isCalled = extra and true or false,
+        })
+        needsCharge = required ~= false
+      end
+      if needsCharge then
         attacker.charging = { move = move, kind = charge }
         if charge == "fly" or charge == "dig" or charge == "dive" then
           attacker.invuln = charge
@@ -41662,9 +43060,8 @@ function Game3:useMove(attacker, defender, move, extra)
     return texts
   end
   if effect ~= Game3.EFFECT_OHKO then
-    local chance = self:moveHitChance(attacker, defender, move, effect)
-    if chance and chance < 100
-        and (chance < 1 or self:rand(100) > chance) then
+    -- battle.accuracy owns the hit/miss decision (Gen 1 accuracyRoll).
+    if not self:accuracyRoll(attacker, defender, move, effect) then
       self:armRage(attacker, effect, false)
       if effect == Game3.EFFECT_LEECH_SEED then
         texts[#texts + 1] = ("%s evaded the attack!"):format(defender.name)
@@ -43730,6 +45127,9 @@ function Game3:aiCheckViability(attacker, defender, move, score, rng, index)
 end
 
 function Game3:pickEnemyMove(mon)
+  -- Locked continuations (rampage / rollout / charge / encore) are not AI
+  -- choices — Gen 1's enemyAction returns them before the hook — so keep
+  -- them outside battle.enemy_action.
   if mon and (mon.uproarTurns or 0) > 0 and mon.uproarMove then
     return mon.uproarMove
   end
@@ -43747,25 +45147,28 @@ function Game3:pickEnemyMove(mon)
   if mon and mon.charging and mon.charging.move then
     return mon.charging.move
   end
-  local moves = mon.moves or {}
-  local damaging = {}
-  local ready = {}
-  for i = 1, #moves do
-    local m = moves[i]
-    if self:moveUsable(mon, m) then
-      ready[#ready + 1] = m
-      if (m.power or 0) > 0 then damaging[#damaging + 1] = m end
+  -- battle.enemy_action — Gen 1 choke point over the whole AI choice.
+  -- Vanilla returns a move; a wrapper may substitute any action table the
+  -- engine already understands (a move record is the Ruby shape).
+  local function vanilla(battle)
+    local moves = mon.moves or {}
+    local damaging = {}
+    local ready = {}
+    for i = 1, #moves do
+      local m = moves[i]
+      if self:moveUsable(mon, m) then
+        ready[#ready + 1] = m
+        if (m.power or 0) > 0 then damaging[#damaging + 1] = m end
+      end
     end
+    local pool = #damaging > 0 and damaging or ready
+    if #pool < 1 then return self:struggleMove() end
+    local target = self:aiTargetFor(mon)
+    local scored = target and self:aiPickMove(mon, target)
+    if scored then return scored end
+    return pool[self:rand(#pool)]
   end
-  local pool = #damaging > 0 and damaging or ready
-  -- Out of PP the ROM forces Struggle, not some arbitrary move.
-  if #pool < 1 then return self:struggleMove() end
-  -- A trainer with AI flags scores its moves; a wild mon and the eight
-  -- trainers with no flags at all still pick at random, as the cart does.
-  local target = self:aiTargetFor(mon)
-  local scored = target and self:aiPickMove(mon, target)
-  if scored then return scored end
-  return pool[self:rand(#pool)]
+  return modCall("battle.enemy_action", vanilla, self.battle)
 end
 
 function Game3:speedOf(mon)
@@ -43804,10 +45207,25 @@ function Game3:turnSpeed(mon, turnRoll)
 end
 
 function Game3:turnOrder(playerMove, enemyMove)
-  local pp = (playerMove and playerMove.priority) or 0
-  local ep = (enemyMove and enemyMove.priority) or 0
-  if pp ~= ep then return pp > ep end
-  return self:speedOf(self.battle.player) >= self:speedOf(self.battle.enemy)
+  local b = self.battle
+  -- battle.turn_order — Gen 1: (playerBattler, playerMove, enemyBattler,
+  -- enemyMove, ctx) -> true when the player moves first.  Trap C: battlers
+  -- ARE the mons on Ruby.
+  local function vanilla(a, aMove, e, eMove, c)
+    local pp = (aMove and aMove.priority) or 0
+    local ep = (eMove and eMove.priority) or 0
+    if pp ~= ep then return pp > ep end
+    return self:speedOf(a) >= self:speedOf(e)
+  end
+  local answer = modCall("battle.turn_order", vanilla,
+    b and b.player, playerMove, b and b.enemy, enemyMove,
+    { rng = function(a, b_)
+        if b_ == nil then return self:rand(a or 100) end
+        local lo, hi = a or 0, b_ or 0
+        if hi < lo then lo, hi = hi, lo end
+        return lo + self:rand(hi - lo + 1) - 1
+      end })
+  return answer and true or false
 end
 
 function Game3:queueBattlerMove(move, target)
@@ -44089,6 +45507,12 @@ function Game3:beginTurn(playerMove, chosen)
   end
   self:tickMist()
   b.turns = (b.turns or 0) + 1
+  -- battle.turn_ended after residuals and the turn counter tick, so a
+  -- listener reading HP / statuses sees the post-residual board.  turn is
+  -- the count AFTER this round (matches Gen 1's post-increment emit).
+  modEmit("battle.turn_ended", {
+    battle = b, turn = b.turns,
+  })
   b.queue = queue
   b.qi = 1
   b.kind = "text"
@@ -44714,8 +46138,18 @@ function Game3:battlePic(species, which, shiny)
     if shiny then folder = folder .. "_shiny" end
     path = ("assets/generated/battle/%s/%d.png"):format(folder, species)
   end
+  -- pokemon.sprite: Gen 1 Sprites.lookup wraps the resolved path so a mod
+  -- can redirect art.  Fire before the cache key so a replacement path
+  -- gets its own cache slot.  ctx matches Gen 1's side/shiny keys; Ruby
+  -- has no Unown letter here.
+  path = modCall("pokemon.sprite", path, species, {
+    shiny = shiny and true or false,
+    back = which == "back",
+    side = which,
+    game = self,
+  }) or path
   self.battlePicCache = self.battlePicCache or {}
-  local key = (shiny and "shiny:" or "") .. which .. ":" .. species
+  local key = (shiny and "shiny:" or "") .. which .. ":" .. tostring(path) .. ":" .. species
   if self.battlePicCache[key] ~= nil then
     return self.battlePicCache[key] or nil
   end
@@ -45282,6 +46716,14 @@ function Game3:stepPrinter(box, dt)
   if (box.printN or 0) >= #pageText then return end
   local delay = self:textDelay()
   if Input:isDown("a") or Input:isDown("b") then delay = 0 end
+  -- HOW FAST DIALOGUE TYPES, offered to text.speed (seconds per glyph).
+  -- qol INSTANT TEXT returns 0 so the page drains in one frame, the way its
+  -- Gen 1 TextBox wrap jumps the char timer.  Units stay seconds — no
+  -- conversion needed (unlike movement.speed's frames/seconds boundary).
+  delay = modCall("text.speed", delay, delay, {
+    box = box, game = self, pageLen = #pageText,
+  })
+  delay = tonumber(delay) or self:textDelay()
   if delay <= 0 then
     box.printN = #pageText
     return
@@ -46600,6 +48042,77 @@ function Game3:animSheetImage(id)
   return img
 end
 
+-- THE CART'S OWN PARTICLES, one sprite per createsprite the script ran.
+--
+-- Each event says which sheet, at which frame of the script, over which
+-- battler and at what pixel offset -- all four read off the cartridge at
+-- import. Here they are simply played: an event appears on its frame and
+-- lives PARTICLE_FRAMES after it, cycling the sheet it was cut from.
+--
+-- The lifetime is the one number NOT from the cart: there a particle lives
+-- until its own callback retires it, which is a per-template program this
+-- port does not run. A short fixed life reads correctly for the impact and
+-- streak particles that make up most of Hoenn's animations.
+Game3.ANIM_PARTICLE_FRAMES = 18
+Game3.ANIM_PARTICLE_FPS = 12
+
+function Game3:animParticleImage(sheet, w, h)
+  if not (sheet and w and h) then return nil end
+  local path = ("assets/generated/battle/anims/%d_%dx%d.png"):format(sheet, w, h)
+  return self:grabImage(path)
+end
+
+-- Where a battler's particles sit. ANIM_BATTLER_ATTACKER is 0 and
+-- ANIM_BATTLER_TARGET 1 (constants/battle_anim.h); the partners are 2 and 3
+-- and fall back to their own side's slot in a single battle.
+function Game3:animBattlerCentre(ma, battler)
+  local attackerIsPlayer = not (ma and ma.onEnemy == false)
+  -- ma.onEnemy means the TARGET is the enemy, so the attacker is the player.
+  local side
+  if battler == 1 or battler == 3 then
+    side = (ma and ma.onEnemy) and "enemy" or "player"
+  else
+    side = (ma and ma.onEnemy) and "player" or "enemy"
+  end
+  local cx = (self.battleDoubles and Game3.BATTLER_CX_DOUBLES or Game3.BATTLER_CX)[side]
+  local cy = (self.battleDoubles and Game3.BATTLER_CY_DOUBLES or Game3.BATTLER_CY)[side]
+  return cx or 120, cy or 60
+end
+
+function Game3:drawMoveAnimEvents(ma, elapsed)
+  local events = ma and ma.events
+  if not events then return false end
+  local G = love.graphics
+  local frame = (elapsed or 0) * 60
+  local drew = false
+  for i = 1, #events do
+    local e = events[i]
+    local age = frame - (e.f or 0)
+    if e.sheet and e.w and e.h and age >= 0 and age < Game3.ANIM_PARTICLE_FRAMES then
+      local img = self:animParticleImage(e.sheet, e.w, e.h)
+      if img then
+        local iw, ih = img:getDimensions()
+        local frames = math.max(1, math.floor(iw / e.w))
+        local fi = math.floor(age / 60 * Game3.ANIM_PARTICLE_FPS) % frames
+        self.quads = self.quads or {}
+        local key = ("part:%s:%d:%d:%d"):format(tostring(img), e.w, e.h, fi)
+        local q = self.quads[key]
+        if not q then
+          q = G.newQuad(fi * e.w, 0, e.w, e.h, iw, ih)
+          self.quads[key] = q
+        end
+        local cx, cy = self:animBattlerCentre(ma, e.battler or 0)
+        local fade = 1 - (age / Game3.ANIM_PARTICLE_FRAMES) * 0.35
+        G.setColor(1, 1, 1, fade)
+        G.draw(img, q, cx + (e.x or 0) - e.w / 2, cy + (e.y or 0) - e.h / 2)
+        drew = true
+      end
+    end
+  end
+  G.setColor(1, 1, 1, 1)
+  return drew
+end
+
 function Game3:drawMoveAnimBurst(cx, cy, ma, hitLeft, dur)
   local G = love.graphics
   dur = dur or 0.28
@@ -47117,6 +48630,10 @@ function Game3:drawBattle()
     lunge = math.floor(amp * math.sin(hit / animDur * math.pi) + 0.5)
   end
   local flash = hit > 0 and math.floor(hit * 24) % 2 == 1
+  -- The cart's particles are drawn once, over both sides: an event names the
+  -- battler it belongs to, so they cannot be split between the two mon
+  -- blocks the way the single-target burst was.
+  local animParticles = (not staged) and hit > 0 and ma and ma.events
   local catch = b and b.catchAnim
   local catchT = catch and (catch.t or 0) or 0
   local catchDur = Game3.catchAnimDuration(catch)
@@ -47171,7 +48688,7 @@ function Game3:drawBattle()
       end
     end
     if (not staged) and hit > 0 and (not ma or ma.onEnemy)
-        and ((b.enemy.hp or 0) > 0) then
+        and ((b.enemy.hp or 0) > 0) and not (ma and ma.events) then
       self:drawMoveAnimBurst(px + 32, py + 32, ma, hit, animDur)
     end
     if not iv.hideBoxes then
@@ -47234,7 +48751,7 @@ function Game3:drawBattle()
       self:drawBattlePic(species, "back", px + ox, py + oy, drawScale, drop, evoFlash, self:isShinyMon(b.player))
       if (iv.playerAlpha or 1) < 1 then love.graphics.setColor(1, 1, 1, 1) end
     end
-    if (not staged) and hit > 0 and ma and not ma.onEnemy then
+    if (not staged) and hit > 0 and ma and not ma.onEnemy and not ma.events then
       self:drawMoveAnimBurst(px + 32, py + 32, ma, hit, animDur)
     end
     if not iv.hideBoxes and not iv.hidePlayerBox then
@@ -47264,6 +48781,12 @@ function Game3:drawBattle()
       local hx, hy = self:healthboxXY("player2")
       self:drawHealthbox(b.player2, hx, hy, "player")
     end
+  end
+  -- ...and the move's particles over all of them, on the script's own clock:
+  -- animDur is the script's length, so `animDur - hit` is how far into it we
+  -- are. Drawn here so a particle can sit over either mon.
+  if animParticles then
+    self:drawMoveAnimEvents(ma, animDur - hit)
   end
   -- Send-out ball overlay (reuse catch ball drawing).
   -- Prefer intro/switch send-out ball over catch cinema if both ever overlap.
@@ -47486,6 +49009,11 @@ function Game3:drawBattle()
         })
       end
     end
+  end
+  -- battle.overlay — Gen 1 draw-only seam after HUDs/flash.  Vanilla is a
+  -- no-op continuation; Trap C: battle.enemy IS the mon (no .mon layer).
+  if self.battle then
+    modCall("battle.overlay", function() end, self.battle)
   end
 end
 
@@ -47761,6 +49289,9 @@ end
 function Game3:tryWarpOnArrival()
   local map = self.map
   if not map or self.ignoreWarp then return false end
+  -- FreeMove onStepComplete arrives onto door mats via permissive
+  -- isWalkableCell while airborne; Gen1 takeWarp no-op equivalent.
+  if self:isFreeFlying() then return false end
   local x, y = self.playerX or 0, self.playerY or 0
   local w = Game3.warpAt(map, x, y)
   if not w then return false end
@@ -47779,10 +49310,31 @@ end
 
 function Game3:stepArrived()
   self.hopping = nil
+  -- The copying object events move on the player's step, not on a clock of
+  -- their own (MovementType_CopyPlayer).
+  self:stepCopyPlayerNpcs(self.facing)
   -- PlayerAllowForcedMovementIfMovingSameDirection: once the player
   -- has actually moved, forced movement is allowed to trigger again.
   self.forcedMoveLatch = nil
   self:clampCamera()
+
+  -- ONE CELL CROSSED.  Emitted before the trainer-spot and encounter checks
+  -- that may end the step in a battle, so a listener counting steps sees the
+  -- step that started the fight rather than missing it.
+  modEmit("world.stepped", {
+    mapId = self.map and self.map.id,
+    x = self.playerX, y = self.playerY,
+    facing = self.facing,
+    -- Gen 1 reports the tile it landed on; Ruby's equivalent per-cell fact is
+    -- the metatile behaviour, which is what every Gen 3 decision reads
+    behaviour = self.map and self:behaviorAt(self.map, self.playerX,
+                                             self.playerY),
+  })
+  -- Re-evaluate day/night each step so a step-based clock can fire
+  -- world.tod_changed; Gen 1 does the same from its bump handler.
+  self.todSteps = (self.todSteps or 0) + 1
+  self:timeOfDay()
+
   if self:tryTrainerSpot() then return true end
   if self.field then return true end
   if self:tryWildEncounter() then return true end
@@ -48258,12 +49810,17 @@ function Game3:openSecretBasePCMenu()
   local withRegistry = self.flags
     and self.flags[Game3.FLAG_SECRET_BASE_REGISTRY_ENABLED]
   local labels = Game3.MULTICHOICE[withRegistry and 6 or 5]
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = "secret_base_pc", game = self,
+    itemCount = labels and #labels or 0,
+  })
   self.field = {
     kind = "decor_menu",
-    labels = labels,
+    labels = hooked,
     note = "What would you like to do?",
     cursor = 0,
     onPick = "pickSecretBasePCMenu",
+    modListActions = actions,
   }
   return true
 end
@@ -48374,6 +49931,11 @@ end
 function Game3:openScriptChoice(text, choice)
   choice = choice or self._scriptChoice or {}
   local labels = choice.labels or { "CANCEL" }
+  local hooked, actions = self:applyListMenuHook(labels, {
+    kind = choice.kind or "script_choice",
+    title = text, game = self, itemCount = #labels,
+  })
+  labels = hooked
   local cursor = choice.cursor or 0
   if cursor < 0 or cursor >= #labels then cursor = 0 end
   self.field = {
@@ -48385,11 +49947,26 @@ function Game3:openScriptChoice(text, choice)
     boxX = choice.x or 0,
     boxY = choice.y or 0,
     perRow = choice.perRow,
+    modListActions = actions,
   }
   return true
 end
 
 function Game3:answerScriptChoice(index)
+  local f = self.field
+  local label = f and f.labels and f.labels[(tonumber(index) or 0) + 1]
+  local modAction = label and f and f.modListActions and f.modListActions[label]
+  if type(modAction) == "function" then
+    -- Mod row: run its handler and do not resume the script with a
+    -- VAR_RESULT the vanilla list never had for this label.
+    self.field = nil
+    self._scriptChoice = nil
+    pcall(modAction, self, index, f)
+    if not self.field then
+      self:endScriptWait()
+    end
+    return true
+  end
   self.scriptVars = self.scriptVars or {}
   self.scriptVars[Gen3Script.VAR_RESULT] = tonumber(index) or Game3.MULTI_B_PRESSED
   self._scriptChoice = nil
@@ -48453,7 +50030,12 @@ function Game3:presentScript(pause)
     -- the queued ClockIsStopped line left field=wait after A, so the
     -- setter never ran and waitstate never ended.
     if pause == "wait" and self.field and self.field.kind
-        and self.field.kind ~= "wait" and self.field.kind ~= "talk" then
+        and (self.field.thenTrainerBattle
+          or (self.field.kind ~= "wait" and self.field.kind ~= "talk")) then
+      -- ...and the trainer's intro speech owns the wait the same way: it IS
+      -- what trainerbattlebegin is parked behind (waitmessage /
+      -- waitbuttonpress), so replacing it with a bare wait field swallowed
+      -- the line and dropped the player straight into the fight.
       return true
     end
     -- msgbox then waitmovement is the Route 101 shove: keep the line on
@@ -48953,6 +50535,20 @@ function Game3:stepPartyAction(f)
   elseif Input:wasPressed("a") then
     local name = actions[(f.cursor or 0) + 1]
     local index = f.monIndex or 1
+    -- A ROW A MOD ADDED runs the mod's own handler, which Gen 1 calls with
+    -- (mon, game) -- the mon first, because that is what a party row acts on.
+    local modAction = self.modPartyActions and self.modPartyActions[name]
+    if modAction then
+      local okAct, errAct = pcall(modAction, (self.party or {})[index], self)
+      if not okAct then
+        local Runtime = package.loaded["src.mods.Runtime"]
+        if Runtime and type(Runtime.reportError) == "function" then
+          pcall(Runtime.reportError, "base",
+            "party submenu row '" .. tostring(name) .. "': " .. tostring(errAct))
+        end
+      end
+      return
+    end
     if name == "SUMMARY" then
       self:openPartySummary(index)
     elseif name == "SWITCH" then
@@ -49173,6 +50769,9 @@ function Game3:stepField()
         self:openLearnYesNo()
       elseif f.thenLearn then
         self:finishLearnMessage()
+      elseif f.thenTrainerBattle then
+        -- waitbuttonpress is over: trainerbattlebegin.
+        self:beginPendingTrainerBattle()
       elseif f.thenContinue then
         self:resumeMoveScript()
       elseif f.thenPause then
@@ -50362,13 +51961,32 @@ function Game3:stepField()
   local labels = self:startMenuItems()
   local n = #labels
   if n < 1 then n = 1 end
+  self:clampStartMenuScroll(f, n)
   if Input:wasPressed("up") then
     f.cursor = ((f.cursor or 0) - 1) % n
     if f.cursor < 0 then f.cursor = n - 1 end
+    self:clampStartMenuScroll(f, n)
   elseif Input:wasPressed("down") then
     f.cursor = ((f.cursor or 0) + 1) % n
+    self:clampStartMenuScroll(f, n)
   elseif Input:wasPressed("a") then
     local name = labels[(f.cursor or 0) + 1]
+    -- A ROW A MOD ADDED runs the mod's own handler.  Checked before the
+    -- built-in labels so a mod may deliberately take one over, which is what
+    -- Gen 1 allows too; a label with no registered action falls through to
+    -- the chain below exactly as before.
+    local modAction = self.modStartMenuActions and self.modStartMenuActions[name]
+    if modAction then
+      local okAct, errAct = pcall(modAction, self)
+      if not okAct then
+        local Runtime = package.loaded["src.mods.Runtime"]
+        if Runtime and type(Runtime.reportError) == "function" then
+          pcall(Runtime.reportError, "base",
+            "start menu row '" .. tostring(name) .. "': " .. tostring(errAct))
+        end
+      end
+      return
+    end
     if name == "POKeDEX" then
       self:openDex()
     elseif name == "POKeMON" then
@@ -50382,6 +52000,11 @@ function Game3:stepField()
     elseif name == "RETIRE" then
       self:openSafariRetirePrompt()
     elseif name == "OPTION" then
+      -- exp_share / qol_toggles persist into save.options; arm the store
+      -- before the first draw so row.step/activate see a real options table.
+      if type(self.modOptionsStore) == "function" then
+        pcall(self.modOptionsStore, self)
+      end
       self.field = { kind = "option", cursor = 0 }
     elseif name == "MODS" then
       if not self:openModManager() then self:playSe(Game3.SE_FAILURE) end
@@ -50391,6 +52014,36 @@ function Game3:stepField()
       self:closeField()
     end
   end
+end
+
+-- Keep the start-menu cursor inside the visible window. Returns the number
+-- of rows the window may show (capped so n*2+3 stays on the 160px screen).
+function Game3:startMenuVisibleRows(n)
+  n = tonumber(n) or 0
+  local maxRows = tonumber(Game3.START_MAX_ROWS) or 8
+  if maxRows < 1 then maxRows = 1 end
+  if n < 1 then return 1 end
+  if n <= maxRows then return n end
+  return maxRows
+end
+
+function Game3:clampStartMenuScroll(f, n)
+  if type(f) ~= "table" then return 0 end
+  n = tonumber(n) or 0
+  if n < 1 then n = 1 end
+  local visible = self:startMenuVisibleRows(n)
+  local cursor = tonumber(f.cursor) or 0
+  if cursor < 0 then cursor = 0 end
+  if cursor >= n then cursor = n - 1 end
+  f.cursor = cursor
+  local scroll = tonumber(f.scroll) or 0
+  if cursor < scroll then scroll = cursor end
+  if cursor >= scroll + visible then scroll = cursor - visible + 1 end
+  if scroll < 0 then scroll = 0 end
+  local maxScroll = math.max(0, n - visible)
+  if scroll > maxScroll then scroll = maxScroll end
+  f.scroll = scroll
+  return visible
 end
 
 function Game3:drawStartMenu(f)
@@ -50404,17 +52057,20 @@ function Game3:drawStartMenu(f)
   end
   local labels = self:startMenuItems()
   local n = #labels
-  -- Menu_DrawStdWindowFrame(22, 0, 29, n * 2 + 3)
-  local bottom = n * 2 + 3
+  local visible = self:clampStartMenuScroll(f, n)
+  local scroll = (f and f.scroll) or 0
+  -- Menu_DrawStdWindowFrame(22, 0, 29, visible * 2 + 3) — never past screen
+  local bottom = visible * 2 + 3
   self:drawStdWindow(Game3.START_LEFT, Game3.START_TOP, Game3.START_RIGHT, bottom)
   local tx = Game3.START_TEXT_COL * Game3.MENU_TILE
-  for i = 0, n - 1 do
+  for i = 0, visible - 1 do
+    local idx = scroll + i
     local y = (Game3.START_TEXT_ROW + i * 2) * Game3.MENU_TILE
-    if i == (f.cursor or 0) then
+    if idx == (f.cursor or 0) then
       self:drawCursor(tx - Game3.MENU_TILE, y)
     end
     love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
-    self:drawText(labels[i + 1], tx, y,
+    self:drawText(labels[idx + 1], tx, y,
       (Game3.START_RIGHT - Game3.START_TEXT_COL + 1) * Game3.MENU_TILE - 4)
   end
 end
@@ -50737,13 +52393,17 @@ function Game3:bagListParts(slot, pocket)
     return self:itemName(id) .. mark, nil
   end
   if pocket == Game3.POCKET_TMHM then
+    -- item_menu.c prints the TM/HM row in TWO pieces: the number at the row
+    -- start, then AlignStringInMenuWindow(text, moveName, 0x78, 0) puts the
+    -- move name at its own column. Concatenating them with a space made one
+    -- string whose move name landed wherever the number's width left it, so
+    -- a two-digit TM and a one-digit HM did not line up with each other.
     local moveName = self:tmhmMoveName(id) or ""
     local label = self:itemName(id)
-    if moveName ~= "" then label = label .. " " .. moveName end
     if id < Game3.ITEM_HM_CUT then
-      return label, ("x%d"):format(count)
+      return label, ("x%d"):format(count), moveName
     end
-    return label, nil
+    return label, nil, moveName
   end
   if pocket == Game3.POCKET_BERRIES then
     local num = id - Game3.ITEM_CHERI_BERRY + 1
@@ -50837,6 +52497,9 @@ Game3.BAG_CURSOR_H = 16
 -- AlignStringInMenuWindow(.., 0x66, 0) / AlignInt1InMenuWindow(.., 0x78, 1)
 Game3.BAG_LIST_NAME_W = 0x66
 Game3.BAG_LIST_QTY_RIGHT = 112 + 0x78
+-- The TM/HM row's move name is aligned to the same 0x78 column the quantity
+-- measures from, but sits left of it so an "x1" still fits beside it.
+Game3.BAG_LIST_TM_MOVE_RIGHT = 112 + 0x78 - 24
 Game3.BAG_DESC_X = 4
 Game3.BAG_DESC_Y = 104
 Game3.BAG_DESC_ROW = 16
@@ -51024,8 +52687,14 @@ function Game3:drawBag(f)
     G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
     if idx < #list then
       local slot = list[idx + 1]
-      local name, qty = self:bagListParts(slot, pocket)
+      local name, qty, moveName = self:bagListParts(slot, pocket)
       self:drawText(name, Game3.BAG_LIST_X, y, Game3.BAG_LIST_NAME_W)
+      if moveName and moveName ~= "" then
+        -- AlignStringInMenuWindow(.., moveName, 0x78, 0): right-aligned on
+        -- the same column the quantity measures from.
+        local w = Game3.textWidth(moveName, self:font3WidthTable())
+        self:drawText(moveName, Game3.BAG_LIST_TM_MOVE_RIGHT - w, y)
+      end
       if qty then
         local w = Game3.textWidth(qty, self:font3WidthTable())
         self:drawText(qty, Game3.BAG_LIST_QTY_RIGHT - w, y)
@@ -53198,6 +54867,12 @@ end
 function Game3:logicStep(dt)
   if self._pendingWarm then self:flushPendingWarm() end
   Input:reconcile()
+  -- TOOL MODS ACT ON THE SAME BOUNDARY A CONTROLLER DOES.  Autoplay drivers,
+  -- accessibility tools and input visualisers press buttons here, and this
+  -- runs BEFORE Input:step promotes queued edges -- exactly as Gen 1 orders
+  -- it -- so a button chosen by a mod is visible to THIS logic tick rather
+  -- than the next one.  With no wrapper it is a no-op.
+  modCall("input.step", nil, self, dt)
   Input:step()
   if Input.softResetStep and Input:softResetStep() then
     Input:reset()
@@ -53259,11 +54934,67 @@ function Game3:logicStep(dt)
   end
   self:walkHeld(dt)
   self:releaseHeldFade()
+  -- EMERALD OverworldController update: world.tick.
+  -- Per-frame seam for mods that simulate something in the overworld rather
+  -- than draw it. Emerald added this after Wilds (and Stadium2-style mods)
+  -- had to hitch AI to a present render_pipeline -- which stopped ticking
+  -- whenever the pipeline's level / available gate / compositor canvas went
+  -- the wrong way, leaving wild Pokemon standing around unbattleable with
+  -- nothing in any log. Emitted from logicStep (not draw) so it keeps going
+  -- while a frame is skipped; payload-guarded like other hot events.
+  if self.phase == "play" and self.map then
+    modEmit("world.tick", {
+      dt = dt,
+      mapId = self.map.id,
+      overworld = (type(self.modOverworld) == "function" and self:modOverworld()) or nil,
+      game = self,
+    })
+    -- Gen3 has no Pipelines.present compositor; Wilds WILDS AI present never
+    -- runs, and world.stepped only drives BehaviorTick on Gen2. Bridge so
+    -- SpawnFx → attach → park + voxel poses keep moving.
+    do
+      local Gen3Compat = package.loaded["src.mods.Gen3Compat"]
+      if type(Gen3Compat) == "table" and type(Gen3Compat.driveWildsAi) == "function" then
+        pcall(Gen3Compat.driveWildsAi, self, dt)
+      end
+    end
+  end
 end
 
 local function letterbox(g, w, h)
   return g:frameScale(w, h)
 end
+
+-- True when value is a LÖVE Canvas (userdata or test double).
+local function isLoveCanvas(v)
+  if v == nil then return false end
+  local tv = type(v)
+  if tv ~= "userdata" and tv ~= "table" then return false end
+  return type(v.getWidth) == "function" and type(v.getHeight) == "function"
+end
+
+-- Window-sized canvas for Pipelines.present when GameViewport has no target
+-- canvas (draw went to the default framebuffer). Nearest filter — same as
+-- Gen1's presentCanvas after the linear-resample bug was retired.
+function Game3:_ensurePipelinePresentCanvas(w, h)
+  w = math.floor(tonumber(w) or 0)
+  h = math.floor(tonumber(h) or 0)
+  if w < 1 or h < 1 then return nil end
+  local c = self._pipelinePresentCanvas
+  if c and c.getWidth and c:getWidth() == w and c:getHeight() == h then
+    return c
+  end
+  if c and c.release then pcall(function() c:release() end) end
+  local ok, canvas = pcall(love.graphics.newCanvas, w, h)
+  if not ok or not canvas then
+    self._pipelinePresentCanvas = nil
+    return nil
+  end
+  pcall(function() canvas:setFilter("nearest", "nearest") end)
+  self._pipelinePresentCanvas = canvas
+  return canvas
+end
+
 
 function Game3:drawFallbackMap()
   local G = love.graphics
@@ -53563,12 +55294,16 @@ function Game3:npcAt(map, x, y)
 end
 
 function Game3:npcInRange(npc, x, y)
+  -- The spawner stamps homeX/homeY, but this is reachable from the copy-player
+  -- path too, so treat a missing home as "here" rather than indexing nil.
+  local hx = npc.homeX or npc.x or x
+  local hy = npc.homeY or npc.y or y
   local rx, ry = npc.rangeX or 0, npc.rangeY or 0
   if Game3.wanderDirs(npc.movementType) ~= nil then
     if rx < 1 then rx = 1 end
     if ry < 1 then ry = 1 end
   end
-  return math.abs(x - npc.homeX) <= rx and math.abs(y - npc.homeY) <= ry
+  return math.abs(x - hx) <= rx and math.abs(y - hy) <= ry
 end
 
 function Game3:npcVisual(npc)
@@ -53627,6 +55362,52 @@ function Game3:tryNpcWalk(npc, map, dx, dy)
   self:updateNpcZCoord(npc, map)
   self:beginGrassRustle(nx, ny)
   return true
+end
+
+-- THE COPYING OBJECT EVENTS, run off the player's own step.
+--
+-- gCopyPlayerMovementFuncs[PlayerGetCopyableMovement()] fires when the player
+-- leaves a tile, so this is called from the landing pipeline rather than from
+-- stepNpcs' wander clock -- these objects have no clock of their own, which
+-- is why they stood still while everything else moved.
+--
+-- CopyablePlayerMovement_GoSpeed0: work out the mapped direction, and if the
+-- destination collides -- or, for the _IN_GRASS four, is not tall grass --
+-- fall back to GetFaceDirectionMovementAction, which turns without moving.
+function Game3:stepCopyPlayerNpcs(playerDir)
+  local map = self.map
+  if not map then return 0 end
+  local moved = 0
+  local npcs = self:npcsFor(map)
+  if not npcs then return 0 end
+  for i = 1, #npcs do
+    local npc = npcs[i]
+    local mode = npc and Game3.COPY_PLAYER_MODES[npc.movementType or -1]
+    if mode and not npc.hidden and not npc.invisible and not npc.talkLock
+        and (npc.cooldown or 0) <= 0 then
+      local turn = Game3.COPY_PLAYER_TURN[mode[1]]
+      local dir = turn and turn[playerDir or "south"]
+      if dir then
+        local dx, dy = Game3.deltaFromFacing(dir)
+        local stepped = false
+        local nx, ny = npc.x + dx, npc.y + dy
+        local grassOk = true
+        if mode[2] then
+          grassOk = self:behaviorAt(map, nx, ny) == Game3.MB_TALL_GRASS
+        end
+        if grassOk then
+          stepped = self:tryNpcWalk(npc, map, dx, dy)
+        end
+        if stepped then
+          moved = moved + 1
+        elseif not npc.facingLocked then
+          -- the face-only fallback still turns them to the mapped direction
+          npc.facing = dir
+        end
+      end
+    end
+  end
+  return moved
 end
 
 function Game3:stepNpcSequence(npc, map)
@@ -54474,7 +56255,67 @@ end
 --
 -- Kept as a no-op rather than deleted outright so that any surviving caller
 -- (a mod, a stale option) is harmless instead of a nil-call.
-function Game3:drawVoidFill() end
+-- THE VOID PAST THE DRAWN MAPS, which is what the VOID FILL option names.
+--
+-- This was an empty stub with nothing calling it, so the option cycled
+-- SEA / GRASS / BLACK / PER-MAP and changed nothing on screen. Everything
+-- around it was already here -- voidFillMode, globalVoidCells,
+-- voidFillCells, the wrap-tile baker -- so what was missing was this
+-- function and the two call sites in drawMapGround.
+--
+-- `pass` names the layer being drawn the way drawBorderFill's does: nil or
+-- "bottom" for the ground pass, "covered" / "overlay" for the two top ones.
+-- Only the ground pass has a void to paint -- there is no roof out at sea --
+-- but the top passes still go through the same normalisation so a caller
+-- cannot accidentally pick the top image for the bottom pass.
+--
+-- The rects are the view minus every drawn map, not the padded ring band
+-- borderFillRects returns: the ring is drawn over this by drawBorderFill
+-- straight afterwards, and clipping the void to the ring would leave the
+-- far corners of a survey-zoom screen empty.
+function Game3:drawVoidFill(pass)
+  local map = self.map
+  if not map then return end
+  if pass == "bottom" then pass = nil end
+  local mode = self:voidFillMode()
+  -- BLACK is a mode, not a failure: it paints nothing and lets the clear
+  -- colour stand.
+  if mode == "black" then return end
+  local x = math.floor(self.camX or 0)
+  local y = math.floor(self.camY or 0)
+  local vw, vh = self:viewSize()
+  if not (vw and vh and vw > 0 and vh > 0) then return end
+  local bottom, top = self:layersFor(map.tileset)
+  local image = (pass and top) or bottom
+  if not image then return end
+
+  -- PER-MAP keeps the old behaviour for comparison: each placement answers
+  -- for the space past its own edges, in its own tileset.
+  if mode == "map" then
+    local placements = self:mapPlacements(map)
+    for i = 1, #placements do
+      local dest = placements[i] and placements[i].map
+      local cells = dest and self:voidFillCells(dest, mode)
+      if cells then
+        local destBottom, destTop = self:layersFor(dest.tileset)
+        local destImage = (pass and destTop) or destBottom
+        local rects = self:borderFillRects(map, x, y, x + vw, y + vh, pass, dest)
+        self:drawWrapTileFill(destImage or image, dest.tileset, cells,
+          tostring(dest.id or dest) .. "|void", pass, rects)
+      end
+    end
+    return
+  end
+
+  -- One fill for the whole world (see globalVoidCells): metatile 368 is
+  -- gTileset_General's open sea and renders the same in every outdoor
+  -- tileset pair, so the current map's atlas draws it correctly whichever
+  -- map that is.
+  local cells = Game3.globalVoidCells(mode)
+  if not cells then return end
+  local rects = Game3.punchHoles(x, y, x + vw, y + vh, self:mapCoverRects(map))
+  self:drawWrapTileFill(image, map.tileset, cells, "void|" .. mode, pass, rects)
+end
 
 -- `animBatch`, when given, receives the animated corners instead of `batch`.
 -- They are the only flip-dependent thing in a layer, so splitting them out is
@@ -54895,6 +56736,307 @@ function Game3:drawStandingAt(px, py, sw, sh, body)
   end)
 end
 
+-- Gen3 Wilds visibility (cast-safe): collect guests from the side channel
+-- and from a READ of ow.entities/npcs. Never writes the cast.
+function Game3:isModOwGuestEntity(e)
+  if type(e) ~= "table" then return false end
+  if e.isPlayer or e.id == "player" then return false end
+  if e._modOwGuest or e._wildsGoldGuest then return true end
+  if e.overworldWildSpawn or e._owwildEntity then return true end
+  if type(e.pose) == "function" and type(e.draw) == "function"
+      and (e.species ~= nil or e.wildSpecies ~= nil) then
+    return true
+  end
+  return false
+end
+
+function Game3:collectModOwGuests(ow)
+  local out, seen = {}, {}
+  local function take(e)
+    if type(e) ~= "table" or seen[e] then return end
+    if not self:isModOwGuestEntity(e) then return end
+    seen[e] = true
+    out[#out + 1] = e
+  end
+  local parked = self._modOwGuests
+  if type(parked) == "table" then
+    for i = 1, #parked do take(parked[i]) end
+  end
+  ow = ow or (type(self.modOverworld) == "function" and select(2, pcall(self.modOverworld, self))) or nil
+  if type(ow) == "table" then
+    if type(ow.entities) == "table" then
+      for i = 1, #ow.entities do take(ow.entities[i]) end
+    end
+    if type(ow.npcs) == "table" then
+      for i = 1, #ow.npcs do take(ow.npcs[i]) end
+    end
+  end
+  -- READ Wilds logic.entities (spawn book). Engine rebuild may wipe ow.entities
+  -- before reattach; side-channel park + this harvest keep guests drawable for
+  -- flat drawModOwGuests and ephemeral modOwStateWithGuests → posesOf.
+  do
+    local Gen3Compat = package.loaded["src.mods.Gen3Compat"]
+    local mod = Gen3Compat and Gen3Compat._wildsBindMod
+    local exports = mod and (mod.exports or mod) or nil
+    local logic = exports and (exports.logic or exports._owwildLogic) or nil
+    local ents = logic and logic.entities
+    if type(ents) == "table" then
+      for _, e in pairs(ents) do take(e) end
+    end
+  end
+  -- Keep side-channel in sync (park only; never write ow.entities).
+  if #out > 0 then
+    local guests = self._modOwGuests
+    if type(guests) ~= "table" then
+      guests = {}
+      self._modOwGuests = guests
+    end
+    for i = 1, #out do
+      local e = out[i]
+      e._modOwGuest = true
+      local found = false
+      for _, g in ipairs(guests) do
+        if g == e then found = true break end
+      end
+      if not found then guests[#guests + 1] = e end
+    end
+  end
+  -- Bind runtime sheets if Loader deferred it; once bound, tryBind still
+  -- restamps guests that parked on FALLBACK/? before sheets/pokemon ready.
+  do
+    local Gen3Compat = package.loaded["src.mods.Gen3Compat"]
+    if type(Gen3Compat) == "table" and type(Gen3Compat.tryBindPendingSprites) == "function" then
+      pcall(Gen3Compat.tryBindPendingSprites, self)
+    end
+  end
+  return out
+end
+
+-- Draw-time ephemeral overworld view: entities/npcs include guests WITHOUT
+-- mutating the persistent cast (no CAST_KEYS / trackInserts).
+function Game3:modOwStateWithGuests()
+  local ow = nil
+  if type(self.modOverworld) == "function" then
+    local ok, got = pcall(self.modOverworld, self)
+    if ok then ow = got end
+  end
+  if type(ow) ~= "table" then return ow end
+  local guests = self:collectModOwGuests(ow)
+  if #guests == 0 then return ow end
+  local cache = {}
+  local function merged(key)
+    if cache[key] then return cache[key] end
+    local base = ow[key]
+    local list, seen = {}, {}
+    if type(base) == "table" then
+      for i = 1, #base do
+        local e = base[i]
+        list[#list + 1] = e
+        seen[e] = true
+      end
+    end
+    for i = 1, #guests do
+      local e = guests[i]
+      if e and not seen[e] then
+        list[#list + 1] = e
+        seen[e] = true
+      end
+    end
+    cache[key] = list
+    return list
+  end
+  return setmetatable({}, {
+    __index = function(_, key)
+      if key == "entities" or key == "npcs" then
+        return merged(key)
+      end
+      return ow[key]
+    end,
+    -- Writes go to the real overworld. Do NOT accept entities/npcs assigns
+    -- of our ephemeral merged list (that would be cast write-through).
+    __newindex = function(_, key, value)
+      if key == "entities" or key == "npcs" then
+        local ephemeral = cache[key]
+        cache[key] = nil
+        -- Ignore reassignment of our merged snapshot (would poison the cast).
+        if ephemeral ~= nil and value == ephemeral then return end
+      end
+      ow[key] = value
+    end,
+  })
+end
+
+function Game3:drawModOwGuests()
+  local guests = self:collectModOwGuests()
+  local drawn, skipped, skipReason = 0, 0, nil
+  local function resolveFollowerPath(e, sprite)
+    local def = (type(sprite) == "table" and (sprite.def or sprite)) or nil
+    local path = type(def) == "table" and (def.path or def.image) or nil
+    if type(path) == "string" and path ~= "" then return path, def end
+    -- Bound name/dex sheets in data.sprites (SPRITE_OW_WILD_*).
+    local sprites = self.data and self.data.sprites
+    if type(sprites) ~= "table" then return nil, def end
+    local sid = e.spriteId or (e.species and ("SPRITE_OW_WILD_" .. tostring(e.species)))
+    local row = sid and sprites[sid]
+    if type(row) ~= "table" and e.species then
+      row = sprites["SPRITE_OW_WILD_" .. tostring(e.species):upper()]
+    end
+    if type(row) ~= "table" and e.species then
+      local dex = nil
+      if type(self.nationalDexOf) == "function" then
+        local okD, d = pcall(self.nationalDexOf, self, e.species)
+        if okD then dex = tonumber(d) end
+      end
+      -- nationalDexOf only indexes by internal id; Wilds guests use names.
+      if not dex then
+        local okC, Gen3Compat = pcall(require, "src.mods.Gen3Compat")
+        if okC and Gen3Compat and type(Gen3Compat.nationalDexOfSpecies) == "function" then
+          local okN, d = pcall(Gen3Compat.nationalDexOfSpecies, self, e.species)
+          if okN then dex = tonumber(d) end
+        end
+      end
+      if dex then row = sprites["SPRITE_OW_WILD_" .. tostring(dex)] end
+    end
+    if type(row) == "table" then
+      return row.path or row.image, row
+    end
+    return nil, def
+  end
+  local function grabFollowerImage(path)
+    if type(path) ~= "string" or path == "" then return nil end
+    if type(self.grabImage) == "function" then
+      local okG, img = pcall(self.grabImage, self, path)
+      if okG and img then return img end
+    end
+    if love and love.graphics and love.graphics.newImage then
+      local okI, img = pcall(love.graphics.newImage, path)
+      if okI then return img end
+    end
+    if love and love.filesystem and love.filesystem.read and love.graphics
+        and love.graphics.newImage then
+      -- Some follower paths are mod-virtual; try as-is once more after exists.
+      local okE = love.filesystem.getInfo and love.filesystem.getInfo(path)
+      if okE then
+        local okI, img = pcall(love.graphics.newImage, path)
+        if okI then return img end
+      end
+    end
+    return nil
+  end
+  local function drawGuestPose(e)
+    local sprite, px, py, facing, phase, flip = nil, e.px or 0, e.py or 0, e.facing or "down", 0, false
+    if type(e.pose) == "function" then
+      local ok, s, x, y, f, p, fl = pcall(e.pose, e)
+      if ok and s ~= nil then
+        sprite, px, py, facing, phase, flip = s, x or px, y or py, f or facing, p or 0, fl
+      end
+    end
+    -- pose() may nil during SpawnFx (bodyVisible false). Still blit the
+    -- bound follower sheet so flat/voxel-off guests are not blank.
+    if sprite == nil then
+      -- Prefer colored follower; skip blackFallback / ? silhouette.
+      sprite = e.sprite or e.legacySprite
+    end
+    -- TrueColor follower sheets are full RGBA. Wilds SpriteRenderer.draw on
+    -- Ruby often remaps through the Gen1 palette/luminance path and looks
+    -- gray/"uncolored". Prefer a raw quad blit whenever we can resolve the
+    -- runtime sheet; only fall back to sprite.draw if that fails.
+    local path, def = resolveFollowerPath(e, sprite)
+    if type(path) == "string" then
+      local img = (type(def) == "table" and def.imageObj) or nil
+      if not img then
+        img = grabFollowerImage(path)
+        if img and type(def) == "table" then def.imageObj = img end
+      end
+      if img and love and love.graphics then
+        love.graphics.setColor(1, 1, 1, 1)
+        local iw, ih = 16, 16
+        if img.getDimensions then
+          local okDim, w, h = pcall(img.getDimensions, img)
+          if okDim then iw, ih = w or 16, h or 16 end
+        end
+        local frame = 0
+        if type(phase) == "number" and phase > 0 then frame = math.floor(phase) % 6 end
+        -- facing rows: down/left/right/up ≈ 0..3 in many follower strips (16x96 = 6 frames)
+        -- Use first 4 as walk cycle on down row for a stable colored silhouette.
+        if ih >= 96 and iw >= 16 and love.graphics.newQuad then
+          local qkey = "_owGuestQuad_" .. tostring(frame)
+          local quad = (type(def) == "table" and def[qkey]) or nil
+          if not quad then
+            local okQ, q = pcall(love.graphics.newQuad, 0, frame * 16, 16, 16, iw, ih)
+            if okQ then
+              quad = q
+              if type(def) == "table" then def[qkey] = q end
+            end
+          end
+          if quad then
+            local sx = flip and -1 or 1
+            local ox = flip and 16 or 0
+            love.graphics.draw(img, quad, (px or 0) + ox, (py or 0) - 4, 0, sx, 1)
+            return true, "follower_quad_rgba"
+          end
+        end
+        love.graphics.draw(img, (px or 0), (py or 0))
+        return true, "follower_blit_rgba"
+      end
+    end
+    if type(sprite) == "table" and type(sprite.draw) == "function" then
+      local okCall, painted = pcall(sprite.draw, sprite, px or 0, py or 0, 0, 0,
+        facing or "down", phase or 0, flip)
+      if okCall and painted == true then return true, "sprite.draw" end
+    end
+    return false, sprite == nil and "no_sprite" or "no_path"
+  end
+  for i = 1, #guests do
+    local e = guests[i]
+    if type(e) == "table" and not e.hidden and not e.invisible then
+      -- Voxel billboard owns body → skip flat blit (would double under voxel).
+      local ownsBillboard = false
+      if e.worldRenderer == "DRAMATIC_SHAPE"
+          and type(e._voxelBillboardOwnsBody) == "function" then
+        local okOwn, owns = pcall(e._voxelBillboardOwnsBody, e)
+        ownsBillboard = okOwn and owns == true
+      end
+      local drew = false
+      if ownsBillboard then
+        -- DramaticShapes already draws the colored billboard.
+        drew = true
+      else
+        -- Do NOT call e.draw: Entity:draw often paints a luminance silhouette
+        -- as a side effect while returning nil, then the RGBA follower blit
+        -- stacks on top → double sprites. Colored followsprites only.
+        local okP, why = drawGuestPose(e)
+        if okP then
+          drew = true
+        else
+          skipped = skipped + 1
+          skipReason = skipReason or why
+        end
+      end
+      if drew then drawn = drawn + 1 end
+    else
+      skipped = skipped + 1
+      skipReason = skipReason or "hidden"
+    end
+  end
+  -- Once per map: guest draw tally (engine info; leave as rare log).
+  do
+    local map = self.map
+    local key = tostring(map and map.id) .. "|modOwGuests"
+    self._modOwGuestDrawLogged = self._modOwGuestDrawLogged or {}
+    if not self._modOwGuestDrawLogged[key] then
+      self._modOwGuestDrawLogged[key] = true
+      local Logger = package.loaded["src.core.Logger"] or require("src.core.Logger")
+      if Logger and Logger.info then
+        Logger.info(
+          "modOwGuests draw map=%s guests=%d drawn=%d skipped=%d reason=%s",
+          tostring(map and map.id), #guests, drawn, skipped,
+          tostring(skipReason or (drawn > 0 and "ok" or "none")))
+      end
+    end
+  end
+end
+
 function Game3:drawActors(overOverlay)
   overOverlay = overOverlay and true or false
   local map = self.map
@@ -54984,6 +57126,15 @@ function Game3:drawActors(overOverlay)
     end
     end
   end
+  -- Gen3 Wilds host: native drawActors walks engine NPCs only. Mod guests
+  -- live on _modOwGuests (and may also sit in ow.entities via Wilds attach).
+  -- CAMERA CONTRACT: world pass already G.translate(-cam); always pass 0,0.
+  -- VOXEL: when a pipeline owns the world pass this function never runs;
+  -- worldPipelineContext uses modOwStateWithGuests() so posesOf sees an
+  -- ephemeral entities merge (no CAST_KEYS / persistent cast write).
+  if not overOverlay then
+    self:drawModOwGuests()
+  end
 end
 
 function Game3:drawEmoteAt(tileX, tileY, emote, lift)
@@ -55002,6 +57153,111 @@ function Game3:drawEmoteAt(tileX, tileY, emote, lift)
   self:drawText(glyph, tileX * Game3.TILE + 4, tileY * Game3.TILE - 10 - (lift or 0))
 end
 
+-- free_fly 1.8.2 stamps freeFlying / freeFlyAlt on the mod-overworld player
+-- (write-through store), not on Game3. Read them live for lift + mount draw.
+function Game3:freeFlyFieldPlayer()
+  if type(self.modOverworld) ~= "function" then return nil end
+  local ok, ow = pcall(self.modOverworld, self)
+  if not (ok and ow) then return nil end
+  return ow.player
+end
+
+-- Reimplement free_fly's flat composite (__freeFlyDrawImpl) on Gen3's blit
+-- path: Gen3 never calls module Player.pose/draw, and free_fly intentionally
+-- does not assign p.sprite = mount (poisons Gen3 actors).
+function Game3:drawFreeFlyMountComposite(vx, vy, lift, facing)
+  local Player = package.loaded["src.world.Player"]
+  if type(Player) ~= "table" then return false end
+  local mount = (type(Player.__freeFlyMount) == "table" and Player.__freeFlyMount)
+    or (type(Player.__freeFlyBird) == "table" and Player.__freeFlyBird)
+    or nil
+  if not mount then return false end
+  local G = love and love.graphics
+  if not G then return false end
+  local TILE = Game3.TILE or 16
+  local gx = (vx or 0) * TILE
+  local gy = (vy or 0) * TILE
+  local ry = gy - (lift or 0)
+  local fp = self:freeFlyFieldPlayer()
+  local flapRate = (fp and fp.freeFlyFlapRate) or 8
+  local now = 0
+  if love and love.timer and type(love.timer.getTime) == "function" then
+    now = love.timer.getTime() or 0
+  end
+  local flap = math.floor(now * flapRate) % 2
+  local mountFacing = facing or self.facing or "south"
+  -- Gen1 SpriteRenderer uses down/up/left/right; map Gen3 compass.
+  local FACEMAP = {
+    south = "down", north = "up", west = "left", east = "right",
+    down = "down", up = "up", left = "left", right = "right",
+  }
+  local drawFacing = FACEMAP[mountFacing] or mountFacing
+  if (mount.def and (mount.def.directions or 0)) == 8 then
+    drawFacing = mountFacing
+  end
+  local scale = tonumber(Player.__freeFlyMountScale) or 1
+  -- Shadow under the bird (landable tint when free_fly says so).
+  do
+    local canLand = fp and fp.freeFlyCanLand
+    if canLand then
+      G.setColor(0.1, 0.45, 0.15, 0.45)
+    else
+      G.setColor(0, 0, 0, 0.35)
+    end
+    local r = math.max(3, 7 - (lift or 0) / 16) * scale
+    G.ellipse("fill", gx + 8, gy + 13, r, r * 0.4)
+    G.setColor(1, 1, 1, 1)
+  end
+  -- Rider (Brendan) seated, then mount over — matches free_fly composite order.
+  local seat = 1 + 2 * scale
+  local bfh = mount.def and (mount.def.sheetFrameHeight or mount.def.frameHeight)
+  if (mount.def and (mount.def.directions or 0)) == 8 and bfh then
+    seat = math.max(seat, bfh * (2 / 3) * 0.4 * scale)
+  end
+  local riderDrawn = false
+  do
+    local gid = self:playerGraphicsId()
+    local riderLift = (lift or 0) + math.floor(seat + 0.5)
+    riderDrawn = self:drawOwSprite(gid, vx, vy, self.facing or "south",
+      false, 0, riderLift, nil, nil) and true or false
+  end
+  local drewMount = false
+  if type(mount.draw) == "function" then
+    -- Gen1 contract: draw(self, px, py, camX, camY, facing, walkPhase [, flip])
+    -- Camera already applied by Gen3's world transform → cam 0,0.
+    local ok = pcall(mount.draw, mount, gx, ry, 0, 0, drawFacing, flap, false)
+    drewMount = ok and true or false
+  end
+  if not drewMount then
+    local img = mount.image
+    if type(img) == "userdata" or (type(img) == "table" and img.typeOf) then
+      local fw = (mount.def and mount.def.frameWidth) or TILE
+      local fh = (mount.def and mount.def.frameHeight) or TILE
+      local px = math.floor(gx + 8 - (fw * scale) / 2)
+      local py = math.floor(ry + 12 - fh * scale)
+      if scale ~= 1 then
+        G.push()
+        local fx = math.floor(gx + 8)
+        local fy = math.floor(ry + 12)
+        G.translate(fx, fy)
+        G.scale(scale, scale)
+        G.translate(-fx, -fy)
+      end
+      -- Prefer a walk-phase quad if the renderer cached one; else whole image.
+      local quad = mount.quads and (mount.quads[drawFacing .. flap]
+        or mount.quads[drawFacing] or mount.quads[flap])
+      if quad then
+        G.draw(img, quad, px, py)
+      else
+        G.draw(img, px, py, 0, scale == 1 and 1 or 1, scale == 1 and 1 or 1)
+      end
+      if scale ~= 1 then G.pop() end
+      drewMount = true
+    end
+  end
+  return drewMount or riderDrawn
+end
+
 function Game3:drawPlayer()
   local gid = self:playerGraphicsId()
   local spec = Game3.spriteSpec(self.data and self.data.sprites, gid)
@@ -55013,6 +57269,12 @@ function Game3:drawPlayer()
   if self.hopping then
     local t = self:walkProgress()
     lift = lift + math.floor(8 * math.sin(t * math.pi) + 0.5)
+  end
+  -- FREEFLY altitude: free_fly lifts via freeFlyAlt on the mod player.
+  local ff = self:freeFlyFieldPlayer()
+  local freeFlying = ff and ff.freeFlying and (ff.freeFlyAlt or 0) > 0
+  if freeFlying then
+    lift = lift + math.floor((ff.freeFlyAlt or 0) + 0.5)
   end
   local t = self:walkProgress()
   local frameOverride
@@ -55032,6 +57294,11 @@ function Game3:drawPlayer()
   if reflect and not self._tiltBillboard then
     self:drawOwSprite(gid, vx, vy, self.facing or "south", moving, t, lift, true,
       frameOverride)
+  end
+  -- Airborne: mount composite (bird + seated rider). Else vanilla Brendan.
+  if freeFlying and self:drawFreeFlyMountComposite(vx, vy, lift, self.facing) then
+    self:drawEmoteAt(vx, vy, self.emote, lift)
+    return
   end
   if not self:drawOwSprite(gid, vx, vy, self.facing or "south", moving, t, lift, nil,
       frameOverride) then
@@ -55400,6 +57667,8 @@ function Game3:drawMapGround(includeOverlay)
   local map = self.map
   local x0, y0, x1, y1 = self:visibleRange()
   if self.layerBottom then
+    -- the void first, then the ring over it, then the maps themselves
+    self:drawVoidFill()
     self:drawBorderFill(self.layerBottom, map)
     self:drawLayer(self.layerBottom, map, x0, y0, x1, y1, 0, 0)
     self:drawConnections("bottom")
@@ -55791,7 +58060,9 @@ function Game3:worldPipelineContext(s, id, pw, ph)
     -- instead: it has camX and camY but no `.camera`, so the pipeline died on
     -- its first draw. The overworld view publishes the overworld's shape, so
     -- that is what belongs in this slot.
-    state = self:modOverworld(),
+    -- Ephemeral guest merge for VoxelScene.posesOf — read-only view.
+    state = (self.modOwStateWithGuests and self:modOwStateWithGuests())
+      or self:modOverworld(),
     generation = 3,
     cam = { x = camX, y = camY },
     camX = camX, camY = camY,
@@ -56243,6 +58514,42 @@ function Game3:draw()
   GameViewport.setTarget()
   local G = love.graphics
   local w, h = GameViewport.dimensions()
+  -- Present-pipeline host preamble (weather_fx flat path). Decide before clear
+  -- so we can redirect into a window canvas when GameViewport.target() is nil.
+  -- When a voxel/world pipeline owns the frame, weather already painted via
+  -- Pipelines.worldPresent inside drawWorldBody — folding flat present() on
+  -- top left a corrupted tile strip across the top of the window.
+  local presentPipelines, needPresent, presentRedirect = nil, false, false
+  local voxelOwnsWorld = false
+  if type(self.worldPipelineId) == "function" then
+    local okId, pid = pcall(self.worldPipelineId, self)
+    voxelOwnsWorld = okId and pid ~= nil and pid ~= false and pid ~= ""
+  end
+  do
+    local okP, P = pcall(require, "src.render.Pipelines")
+    if okP and P and type(P.wantsPresent) == "function" and type(P.present) == "function" then
+      presentPipelines = P
+      local okW, want = pcall(P.wantsPresent)
+      needPresent = okW and want == true and not voxelOwnsWorld
+    end
+  end
+  if needPresent then
+    local target = nil
+    if type(GameViewport.target) == "function" then
+      local okT, t = pcall(GameViewport.target)
+      if okT then target = t end
+    end
+    if not isLoveCanvas(target) then
+      local canvas = self:_ensurePipelinePresentCanvas(w, h)
+      if isLoveCanvas(canvas) then
+        G.setCanvas(canvas)
+        presentRedirect = true
+        self._pipelinePresentRedirect = true
+      end
+    end
+  else
+    self._pipelinePresentRedirect = nil
+  end
   G.clear(0.02, 0.04, 0.07, 1)
   -- Gen 1 Renderer:beginFrame clears worldOverride each frame so a stale
   -- pipeline/battle canvas cannot stick. Consumed after drawScene below.
@@ -56261,6 +58568,7 @@ function Game3:draw()
     local canvas = self:ensureCanvas()
     if canvas then
       local prev = GameViewport.target()
+      if presentRedirect then prev = self._pipelinePresentCanvas or prev end
       -- Flash overlay uses G.stencil. LÖVE 11 requires stencil=true on the
       -- active Canvas (Dewford Gym setflashradius).
       if not pcall(G.setCanvas, { canvas, stencil = true }) then
@@ -56294,7 +58602,90 @@ function Game3:draw()
       end
     end
   end
+  -- Fold Pipelines.present over the finished composite BEFORE finish blits.
+  -- Gen1 Renderer:endFrame does this for weather_fx / CRT / grade passes.
+  -- Skipped entirely when voxelOwnsWorld (needPresent false above) — the
+  -- drewThisFrame handshake alone was not enough and left a top tile strip.
+  if needPresent and presentPipelines then
+    local target = nil
+    if presentRedirect then
+      target = self._pipelinePresentCanvas
+    elseif type(GameViewport.target) == "function" then
+      local okT, t = pcall(GameViewport.target)
+      if okT then target = t end
+    end
+    if not isLoveCanvas(target) then
+      local okC, cur = pcall(G.getCanvas)
+      if okC then target = cur end
+    end
+    if isLoveCanvas(target) then
+      local scale = select(1, self:frameScale(w, h)) or 1
+      local composed = target
+      local okFold, out = pcall(presentPipelines.present, target, {
+        width = w, height = h, scale = scale, game = self,
+      })
+      if okFold and isLoveCanvas(out) then composed = out end
+      if presentRedirect then
+        -- We drew into our own canvas instead of the viewport target: blit
+        -- the composed frame to wherever finish expects, then clear the flag.
+        if type(GameViewport.setTarget) == "function" then
+          pcall(GameViewport.setTarget)
+        else
+          G.setCanvas()
+        end
+        G.origin()
+        G.setColor(1, 1, 1, 1)
+        G.draw(composed, 0, 0)
+        self._pipelinePresentRedirect = nil
+      end
+    end
+  end
   GameViewport.finish(self)
+  -- Post-finish compositing seams.  Gen 1 fires these inside
+  -- Renderer:endFrame (letterbox after the void clear / before the
+  -- playfield blit; compose as a boolean window takeover; hud after).
+  -- Ruby's GameViewport.finish is the closest single seam that both the
+  -- zoomed-overworld path and the 240x160 canvas path share: after it the
+  -- playfield is on the window and the letterbox bars are measurable via
+  -- frameScale.  That is enough for weather_fx (letterbox bars) and for
+  -- free_fly / wild_skies (compose takeover).  compose ctx omits Gen 1's
+  -- worldCanvas/uiCanvas -- Ruby has no dual-canvas compositor here; mods
+  -- draw with love.graphics into the window using the viewport rect.
+  do
+    local scale, ox, oy = self:frameScale(w, h)
+    local gameW = Game3.SCREEN_W * scale
+    local gameH = Game3.SCREEN_H * scale
+    local viewport = {
+      width = w, height = h,
+      gameX = ox, gameY = oy,
+      gameWidth = gameW,
+      gameHeight = gameH,
+      scale = scale,
+    }
+    -- render.letterbox: draw into the void bars around the 240x160
+    -- playfield.  Continuation no-op; fires every frame after finish.
+    modCall("render.letterbox", function() end, {
+      ww = w, wh = h,
+      ox = ox, oy = oy,
+      vpw = gameW, vph = gameH,
+      scale = scale,
+      worldActive = (self.phase == "play") and true or false,
+      game = self,
+    })
+    -- render.compose: boolean takeover.  true => mod painted the window;
+    -- skip render.hud (Gen 1 skips the rest of endFrame on handled).
+    local handled = modCall("render.compose", function() return false end, self, {
+      game = self,
+      viewport = viewport,
+      ww = w, wh = h,
+      ox = ox, oy = oy,
+      vpw = gameW, vph = gameH,
+      scale = scale,
+    })
+    if handled ~= true then
+      modCall("render.hud", function() end, self, viewport)
+    end
+  end
   -- OS-window chrome: draw after companion composition so viewport layouts
   -- neither shrink nor cover the touch pad.
   TouchControls:draw()
@@ -56532,6 +58923,60 @@ function Game3:joystickremoved()
 end
 
 Game3Boot.attach(Game3)
+
+-- OPTION mod rows (qol_toggles activate, exp_share step, pipelines).
+-- Game3Boot owns cart cycling and must not be overwritten on Desktop; wrap
+-- AFTER attach so A/Left/Right on a descriptor with activate/step fire even
+-- when Boot is an older build that closes unknown ids. Cart rows fall
+-- through to Boot unchanged.
+do
+  local bootStep = Game3.stepOptionMenu
+  function Game3:stepOptionMenu(box, onClose)
+    if type(box) == "table" and type(self.optionMenuSpec) == "function" then
+      local ok, spec = pcall(self.optionMenuSpec, self)
+      local entry = ok and type(spec) == "table" and spec[(box.cursor or 0) + 1]
+      local desc = entry and entry[4]
+      -- Only intercept when the live descriptor owns activate/step. Cart
+      -- rows fall through so Boot still sees the same A/Left/Right edge.
+      if type(desc) == "table"
+          and (type(desc.activate) == "function"
+            or type(desc.step) == "function") then
+        local pressedA = Input:wasPressed("a")
+        local pressedL = Input:wasPressed("left")
+        local pressedR = Input:wasPressed("right")
+        if type(desc.activate) == "function" and pressedA then
+          pcall(desc.activate, self)
+          return
+        end
+        if type(desc.step) == "function"
+            and (pressedA or pressedL or pressedR) then
+          local dir = pressedL and -1 or 1
+          pcall(desc.step, self, dir)
+          return
+        end
+      end
+    end
+    if type(bootStep) == "function" then
+      return bootStep(self, box, onClose)
+    end
+  end
+end
+
+-- NEW GAME (Birch speech) wipes state the way Gen 1 startNewGame replaces
+-- the skeleton.  Re-mint the save bucket without carrying abandoned mod
+-- namespaces, then fire save.created again so listeners can re-seed.
+do
+  local _startBirchSpeech = Game3.startBirchSpeech
+  if type(_startBirchSpeech) == "function" then
+    function Game3:startBirchSpeech(...)
+      local result = _startBirchSpeech(self, ...)
+      local opts = self.save and self.save.options
+      self.save = { options = opts, modData = {} }
+      modEmit("save.created", { save = self.save, game = self })
+      return result
+    end
+  end
+end
 Game3Pc.attach(Game3)
 Game3ModWorld.attach(Game3)
 Game3PlayerPc.attach(Game3)

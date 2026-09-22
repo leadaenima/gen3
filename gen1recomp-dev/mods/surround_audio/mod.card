@@ -1,0 +1,32 @@
+-- Sharing metadata (25-community-and-ecosystem.md 3.2).  Read by tooling
+-- and the manager detail pane; never by the loader's merge.
+return {
+  summary = "Crystal's SOUND option: MONO sums every music channel to both speakers, STEREO honors the song's per-channel panning — plus all sound effects routed to the center channel. Toggle with L.",
+  author = "Shane McGovern",
+  contact = "https://github.com/bryanthaboi/gen1recomp-mod-index",
+  tags = { "audio", "stereo", "surround", "accessibility" },
+  differences = {
+    changed = {
+      "Music renders MONO (all channels to both speakers) when the option is off, like Crystal's SOUND option",
+      "Sound effects, cries, fanfares and alarms are positioned dead-center (the center channel on 5.1)",
+      "Toggling restarts the current song so the change is heard immediately",
+    },
+    added = {
+      "A SOUND row (MONO/STEREO) in the OPTIONS menu, persisted in options.lua",
+      "An M (keyboard) / Select + R (gamepad) toggle with a confirm blip",
+      "A pan-aware synthesis worker substituted via love.thread.newThread, steered with a pan command",
+      "A one-line probe file in the save dir for diagnosing silent failures",
+    },
+    known = {
+      "This LÖVE build compiles EFX out, so no filter/effect DSP (including the engine's MUSIC FILTER) works — the mix is changed at the render level instead",
+      "On stereo output the audible difference is the music image: centered (MONO) vs per-channel panning (STEREO)",
+      "The center channel for SFX needs a 5.1-capable output device; stereo downmixes center to the middle",
+      "If the engine's chip_worker.lua changes shape, the mod degrades to vanilla music rendering",
+    },
+  },
+  credits = {
+    { who = "pret/pokecrystal", for_ = "the SOUND option semantics this mod ports" },
+    { who = "OpenAL Soft", for_ = "the EFX reverb effect the widening uses" },
+  },
+  compat = { engine = ">=0.0.0 <2.0.0", modApi = 2 },
+}

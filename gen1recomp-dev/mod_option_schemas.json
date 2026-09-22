@@ -1,1 +1,1 @@
-{"schema_version":1,"mods":{"touchpad_a":[{"default":true,"key":"enabled","label":"ENABLED","type":"toggle"},{"default":false,"key":"mouse","label":"MOUSE CLICKS","type":"toggle"},{"max":10,"step":1,"type":"number","label":"HOLD TAPS / SEC","key":"rate","default":5,"min":2}]}}
+{"schema_version":1,"mods":[]}

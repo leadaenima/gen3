@@ -1,18 +1,24 @@
 {
-  "id": "oras_models",
-  "name": "ORAS Models (Omega Ruby assets)",
-  "version": "0.3.0",
-  "api": 2,
-  "entry": "main.lua",
-  "profile": "content",
-  "category": "VISUAL",
-  "games": [
-    "ruby"
-  ],
-  "game_version": ">=0.0.0-0 <2.0.0",
-  "priority": 100,
-  "dependencies": [],
-  "optional_dependencies": [],
-  "conflicts": [],
-  "description": "User-owned Omega Ruby (3DS) asset bridge for Ruby (Game3): extract into AppData cache, expose voxel meshes for DramaticShapes. Additive only \u2014 never permanently overwrites stock Gen3/GBA battle sprites. APPLY TEXTURES defaults off; Body UV atlases are refused as battlePic."
+    "id":  "oras_models",
+    "name":  "ORAS Models (Omega Ruby assets)",
+    "version":  "0.3.0",
+    "api":  2,
+    "entry":  "main.lua",
+    "profile":  "content",
+    "category":  "VISUAL",
+    "game_version":  "\u003e=0.0.0-0 \u003c2.0.0",
+    "priority":  100,
+    "dependencies":  [
+
+                     ],
+    "optional_dependencies":  [
+
+                              ],
+    "conflicts":  [
+
+                  ],
+    "description":  "User-owned Omega Ruby (3DS) asset bridge for Ruby (Game3): extract into AppData cache, expose voxel meshes for DramaticShapes. Additive only — never permanently overwrites stock Gen3/GBA battle sprites. APPLY TEXTURES defaults off; Body UV atlases are refused as battlePic.",
+    "games":  [
+                  "ruby"
+              ]
 }

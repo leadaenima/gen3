@@ -1,0 +1,34 @@
+{
+    "id":  "exp_share",
+    "name":  "Exp Share",
+    "version":  "0.1.10",
+    "api":  2,
+    "entry":  "main.lua",
+    "profile":  "content",
+    "game_version":  "\u003e=0.0.0-dev \u003c1.0.0",
+    "category":  "GAMEPLAY",
+    "priority":  100,
+    "dependencies":  [
+
+                     ],
+    "optional_dependencies":  [
+
+                              ],
+    "conflicts":  [
+
+                  ],
+    "incompatible":  [
+
+                     ],
+    "experimental":  false,
+    "permissions":  [
+                        "engine_internals"
+                    ],
+    "description":  "An EXP SHARE option in the OPTIONS menu: Gen 1, Gen 5+, BALANCED, AVERAGE, or CUSTOM percentage sharing, with a single shared-exp line instead of one message per Pokemon.",
+    "github":  "ShaneMcGovernIE/exp_share",
+    "games":  [
+                  "gen1",
+                  "gen2",
+                  "ruby"
+              ]
+}

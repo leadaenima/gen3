@@ -328,12 +328,38 @@ local function intro2Bike(frame)
     -- Unknown_40AE38: 4-frame pedal, duration 4, from sprite create.
     anim = math.floor((frame - INTRO2_START) / 4) % 4
   end
-  -- Rider callback: every 8 frames y2 is 0, else Random()&3 -> -1/1/0/0.
+  -- Rider bob, sub_813D788's tail:
+  --
+  --     if (gIntroFrameCounter & 7) return;
+  --     if (sprite->y2 != 0) sprite->y2 = 0;
+  --     else switch (Random() & 3) { 0: -1, 1: 1, 2, 3: 0 }
+  --
+  -- Two things this had backwards. The gate is on the frames where the low
+  -- three bits are ZERO -- one frame in eight moves the rider, not seven --
+  -- and a nonzero offset always returns to zero on the next one, so a bob
+  -- never holds for two ticks. It also counted from the start of part 2,
+  -- where the cart counts the intro's own frame, which is what decides
+  -- WHICH frames are the moving ones: the rider is created on 0x403, whose
+  -- low bits are 3, so the creation frame does not move it and the sprite
+  -- stands at its stated y.
+  --
+  -- Random() itself is the cart's LCG on a stream nothing else here models,
+  -- so the roll is a deterministic stand-in with the same 1/4, 1/4, 1/2
+  -- split. The shape is the part that shows: an occasional one-pixel jog.
   local y2 = 0
-  local tick = frame - INTRO2_START
-  if tick >= 0 and (tick % 8) ~= 7 then
-    local r = (tick * 1103515245 + 12345) % 4
-    if r == 0 then y2 = -1 elseif r == 1 then y2 = 1 end
+  if frame >= INTRO2_START then
+    local bobbed = false
+    for f = INTRO2_START, frame do
+      if f % 8 == 0 then
+        if bobbed then
+          y2, bobbed = 0, false
+        else
+          local r = (f * 1103515245 + 12345) % 4
+          if r == 0 then y2 = -1 elseif r == 1 then y2 = 1 else y2 = 0 end
+          bobbed = y2 ~= 0
+        end
+      end
+    end
   end
   return { x = x, y = INTRO2_BIKE_Y + y2, anim = anim, y2 = y2 }
 end
@@ -769,6 +795,43 @@ function Boot.attach(Game3)
     if type(box) ~= "table" then return end
     local spec = self:optionMenuSpec()
     local rows = #spec
+    -- Mouse / tap: pick a visible row, then treat as A on that row.
+    do
+      local pressed = false
+      if Input.wasPressed and Input:wasPressed("mouse1") then pressed = true end
+      if not pressed and love and love.mouse and love.mouse.isDown then
+        if not box._optMouseDown and love.mouse.isDown(1) then pressed = true end
+        box._optMouseDown = love.mouse.isDown(1)
+      end
+      if pressed and love and love.mouse then
+        local mx, my = love.mouse.getPosition()
+        if self.screenToWorld then
+          local ok, x, y = pcall(self.screenToWorld, self, mx, my)
+          if ok and x then mx, my = x, y end
+        end
+        local tile = Game3.MENU_TILE or 8
+        local visible = Game3.OPTION_VISIBLE or 7
+        local cursor = box.cursor or 0
+        local maxOff = math.max(0, rows - visible)
+        local off = cursor - (visible - 1)
+        if off < 0 then off = 0 end
+        if off > maxOff then off = maxOff end
+        for i = 1, visible do
+          local y = (5 + (i - 1) * 2) * tile
+          if my >= y and my < y + 2 * tile and mx >= 2 * tile and mx < 28 * tile then
+            box.cursor = off + i - 1
+            -- synthesize an A press path below by forcing a-branch
+            if not Input._optFakeA then Input._optFakeA = true end
+            break
+          end
+        end
+      end
+    end
+    local pressedA = Input:wasPressed("a")
+    if Input._optFakeA then
+      Input._optFakeA = nil
+      pressedA = true
+    end
     if Input:wasPressed("up") then
       box.cursor = ((box.cursor or 0) - 1) % rows
       if box.cursor < 0 then box.cursor = rows - 1 end
@@ -776,7 +839,7 @@ function Boot.attach(Game3)
       box.cursor = ((box.cursor or 0) + 1) % rows
     elseif Input:wasPressed("b") then
       if onClose then onClose() end
-    elseif Input:wasPressed("a") or Input:wasPressed("left")
+    elseif pressedA or Input:wasPressed("left")
         or Input:wasPressed("right") then
       local opt = self.options or {}
       local c = box.cursor or 0
@@ -789,8 +852,17 @@ function Boot.attach(Game3)
       -- the dispatch below never has to learn their names -- which is what
       -- lets a mod add a display mode without touching this function.
       local row = entry and entry[4]
+      -- Mods read/write game.save.options (exp_share, surround_audio, qol).
+      -- Ensure that table exists before any row callback runs.
+      if self.modOptionsStore then pcall(self.modOptionsStore, self) end
+      -- Gen 1 OptionsMenu: activate on A opens a submenu; step cycles values.
+      if row and type(row.activate) == "function" and pressedA then
+        pcall(row.activate, self)
+        return
+      end
       if row and type(row.step) == "function" then
         pcall(row.step, self, dir)
+        if self.writeOptions then pcall(self.writeOptions, self) end
         if self.persistDisplayOptions then self:persistDisplayOptions() end
         return
       end
@@ -824,7 +896,7 @@ function Boot.attach(Game3)
         if self.persistDisplayOptions then self:persistDisplayOptions() end
         return
       elseif id == "mods" then
-        if Input:wasPressed("a") then
+        if pressedA then
           self:openModManager()
         end
         return

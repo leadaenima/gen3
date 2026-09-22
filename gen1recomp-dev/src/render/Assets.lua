@@ -12,6 +12,19 @@ local Assets = {}
 
 -- resolved path -> love Image
 local cache = {}
+-- asked-for path -> resolved path.
+--
+-- resolve() walks the enabled mods and asks the filesystem whether each one
+-- overrides this asset. That is a getInfo per mod PER CALL, and it runs
+-- before the image cache is consulted, so even a cache hit paid it -- every
+-- texture, every frame. Profiling the voxel diorama put this function at the
+-- top of the samples with the whole frame in draw, and the answer cannot
+-- change without the mod set changing, which invalidate() and installLoader()
+-- already announce.
+local resolvedPaths = {}
+-- resolved path -> function building that Image, for art the engine derives
+-- at runtime rather than loading from disk (see Assets.provide)
+local providers = {}
 -- downstream caches that must empty when the search path changes
 local invalidators = {}
 -- optional GPU release hooks for session end (never run on hot reload flush)
@@ -36,29 +49,60 @@ Assets.exists = exists
 function Assets.resolve(path)
   if type(path) ~= "string" then return path end
   if path:sub(1, #GENERATED) ~= GENERATED then return path end
+  local hit = resolvedPaths[path]
+  if hit ~= nil then return hit end
 
   local rel = path:sub(#GENERATED + 1)
   local loader = Assets.loader
   if loader then
     for _, mod in ipairs(loader:overrideOrder()) do
       local candidate = mod.path .. "/overrides/" .. rel
-      if exists(candidate) then return candidate end
+      if exists(candidate) then
+        resolvedPaths[path] = candidate
+        return candidate
+      end
     end
     local derived = loader:derivedPath(rel)
-    if derived then return derived end
+    if derived then
+      resolvedPaths[path] = derived
+      return derived
+    end
   end
 
   -- NX Blue/Yellow: no rewrite here -- NxAssetOverlay (installed once at
   -- boot on NX only) covers every loader globally, so this module stays
   -- the mod-override choke point it always was.
+  resolvedPaths[path] = path
   return path
+end
+
+-- DERIVED ART, ASKED FOR BY PATH.
+--
+-- Some art is not a file: it is built from a file, and the consumer only
+-- knows how to ask for a path. A renderer in a MOD is the case that forced
+-- this -- it takes `def.image` and loads it through this module, so the only
+-- way to hand it a sheet the engine rearranged is to answer for a path that
+-- has no file behind it.
+--
+-- Registered rather than inserted, because `invalidate` empties the cache and
+-- the next reader would otherwise reach love.graphics.newImage with a name
+-- PhysFS has never heard of. The builder is kept and rerun instead.
+function Assets.provide(path, build)
+  if type(path) ~= "string" or type(build) ~= "function" then return false end
+  providers[path] = build
+  return true
+end
+
+function Assets.provides(path)
+  return providers[Assets.resolve(path)] ~= nil
 end
 
 function Assets.image(path)
   local resolved = Assets.resolve(path)
   local image = cache[resolved]
   if not image then
-    image = love.graphics.newImage(resolved)
+    local build = providers[resolved]
+    if build then image = build() else image = love.graphics.newImage(resolved) end
     cache[resolved] = image
   end
   return image
@@ -89,6 +133,7 @@ end
 -- invalidator throws must not strand the ones behind it in the list.
 function Assets.invalidate()
   cache = {}
+  resolvedPaths = {}
   for _, fn in ipairs(invalidators) do pcall(fn) end
 end
 
@@ -98,6 +143,7 @@ Assets.flush = Assets.invalidate
 -- run release hooks only.  Does not call invalidate hooks (MapLoader must
 -- keep invalidateAll separate from releaseAll).
 function Assets.releaseSession()
+  resolvedPaths = {}
   for _, img in pairs(cache) do
     if img and img.release then pcall(img.release, img) end
   end

@@ -222,6 +222,15 @@ CacheContract.VERSION_REQUIRED_FILES_OVERRIDE.ruby = {
   "assets/generated/naming/ok_button.png",
   "assets/generated/naming/change_keyboard_button.png",
   "assets/generated/naming/cursor.png",
+  -- ...and the BG layers and box icons, which were the last art baked from
+  -- pokeruby in the tree. A cache from before they were extracted has the
+  -- sprites but no screen behind them, so it must be rebuilt.
+  "assets/generated/naming/bg_stripes.png",
+  "assets/generated/naming/keyboard_upper.png",
+  "assets/generated/naming/keyboard_lower.png",
+  "assets/generated/naming/keyboard_others.png",
+  "assets/generated/naming/pc_icon_0.png",
+  "assets/generated/naming/pc_icon_1.png",
   "assets/generated/ui/battle_message.png",
   "assets/generated/ui/battle_moves.png",
   -- the HP bar needs the hpbar-palette element sheet, the EXP bar the

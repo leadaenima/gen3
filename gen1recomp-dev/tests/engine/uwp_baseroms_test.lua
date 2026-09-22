@@ -81,8 +81,18 @@ local function importer(ready)
   }, RomImporter)
 end
 
-local allReady = importer({ red = true, blue = true, yellow = true, gold = true,
-  silver = true, crystal = true })
+-- Every version the launcher knows, taken from GameVersion.ORDER rather than
+-- listed here: baseRomScanSatisfied walks that order, so a hand-written list
+-- silently stops meaning "all ready" the moment a version joins it. Ruby did
+-- exactly that, and the scan stayed queued for a launcher with nothing left
+-- to discover.
+local allReady = importer((function()
+  local ready = {}
+  for _, version in ipairs(require("src.core.GameVersion").ORDER) do
+    ready[version] = true
+  end
+  return ready
+end)())
 allReady:_queueBaseRomScan()
 eq(allReady.baseRomScan.state, "done", "ready launcher skips discovery")
 eq(listings, 0, "ready launcher does not enumerate baseroms")

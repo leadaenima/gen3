@@ -353,6 +353,39 @@ function Manifest.validate(raw, path)
   assert(raw.gen2compat == nil or type(raw.gen2compat) == "boolean",
     "gen2compat must be a boolean")
 
+  -- `generations`: [1, 2] -- the generations a mod is written for, and THE
+  -- FIELD GEN2RECOMPED USES.  Its Manifest knows this one and has never heard
+  -- of our `games` or `gen2compat`, so a mod authored against Emerald arrives
+  -- carrying only this -- and until it was parsed here, every such mod read as
+  -- "states nothing" and the whole ModGens gate permitted everything on every
+  -- generation.
+  --
+  -- Validated exactly as it is there: integers 1..3, deduplicated and sorted
+  -- so the set is comparable, an out-of-range entry dropped rather than
+  -- widening the claim, and an empty or malformed list read as UNSTATED (nil)
+  -- rather than as "no generations".  A mod that says nothing intelligible
+  -- must keep working exactly as it did.
+  assert(raw.generations == nil or type(raw.generations) == "table",
+    "generations must be an array")
+  local generations
+  do
+    local list = raw.generations
+    if type(list) == "table" then
+      local seen, out = {}, {}
+      for _, entry in ipairs(list) do
+        local n = tonumber(entry)
+        if n and n % 1 == 0 and n >= 1 and n <= 3 and not seen[n] then
+          seen[n] = true
+          out[#out + 1] = n
+        end
+      end
+      if #out > 0 then
+        table.sort(out)
+        generations = out
+      end
+    end
+  end
+
   -- `games` is the same statement made per game: version ids ("red"),
   -- generations ("gen1"), or "all" (src/mods/ModTargets.lua).  gen2compat is
   -- kept as its Gen 2 spelling and only ever ADDS Gen 2, so no shipped
@@ -428,6 +461,7 @@ function Manifest.validate(raw, path)
     profile = profile,
     language = language,
     games = games,
+    generations = generations,
     gen2compat = gen2compat,
     affects_link = affectsLink,
     permissions = permissions,
