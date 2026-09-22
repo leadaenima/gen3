@@ -63,6 +63,42 @@ function GbaLz77.decompress(data, offset)
   return toString(out)
 end
 
+-- Byte offset after the compressed stream (exclusive). Walks the same
+-- blocks as decompress without allocating the payload.
+function GbaLz77.streamEnd(data, offset)
+  if type(data) ~= "string" then return nil end
+  local i = (offset or 0) + 1
+  if i + 3 > #data then return nil end
+  local typ, s0, s1, s2 = data:byte(i, i + 3)
+  if typ ~= 0x10 then return nil end
+  local size = s0 + s1 * 256 + s2 * 65536
+  i = i + 4
+  if size == 0 then return i - 1 end
+  local written = 0
+  while written < size do
+    if i > #data then return nil end
+    local flags = data:byte(i)
+    i = i + 1
+    for bit = 0, 7 do
+      if written >= size then break end
+      local mask = 2 ^ (7 - bit)
+      if math.floor(flags / mask) % 2 == 1 then
+        if i + 1 > #data then return nil end
+        local b1 = data:byte(i)
+        i = i + 2
+        local length = math.floor(b1 / 16) + 3
+        written = written + length
+        if written > size then written = size end
+      else
+        if i > #data then return nil end
+        written = written + 1
+        i = i + 1
+      end
+    end
+  end
+  return i - 1
+end
+
 -- Literal-only encoder for fixture ROMs.  The decoder stops at `size`, so
 -- a short final flags byte is fine.
 function GbaLz77.compressLiterals(payload)

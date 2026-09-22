@@ -1472,8 +1472,8 @@ Game3.BATTLER_CX_DOUBLES = { player = 32, enemy = 200, player2 = 90, enemy2 = 15
 Game3.BATTLER_CY_DOUBLES = { player = 80, enemy = 40, player2 = 88, enemy2 = 32 }
 Game3.HEALTHBOX_XY = { player = { 118, 74 }, enemy = { 8, 8 } }
 Game3.HEALTHBOX_XY_DOUBLES = {
-  player = { 118, 90 }, player2 = { 118, 54 },
-  enemy = { 8, 8 }, enemy2 = { 8, 36 },
+  player = { 118, 94 }, player2 = { 132, 50 },
+  enemy = { 8, 6 }, enemy2 = { 8, 34 },
 }
 -- pokeruby sNaturePowerMoves, indexed by gBattleEnvironment.
 Game3.NATURE_POWER_MOVES = {
@@ -20757,6 +20757,113 @@ function Game3:menuBattler()
   return b.player
 end
 
+function Game3:battlerSideName(mon)
+  local b = self.battle
+  if not b or not mon then return nil end
+  if mon == b.player then return "player" end
+  if mon == b.player2 then return "player2" end
+  if mon == b.enemy then return "enemy" end
+  if mon == b.enemy2 then return "enemy2" end
+end
+
+-- BattleText_AttackerUsed / faint strings. Prefix is side, not nickname.
+function Game3:battlerBattleName(mon)
+  if not mon then return "POKeMON" end
+  local name = mon.name or "POKeMON"
+  local side = self:battlerSideName(mon)
+  if side == "enemy" or side == "enemy2" then
+    local b = self.battle
+    if b and b.isTrainer then return "Foe " .. name end
+    return "Wild " .. name
+  end
+  return name
+end
+
+function Game3:faintLine(mon)
+  return ("%s fainted!"):format(self:battlerBattleName(mon))
+end
+
+-- HandleInputChooseTarget: walk the living options by sprite position,
+-- not a wrap list. Ties prefer the closer axis match.
+function Game3:stepTargetCursor(dir)
+  local b = self.battle
+  if not b then return end
+  local list = b.targetList or {}
+  local n = #list
+  if n < 2 then return end
+  local cur = list[(b.targetCursor or 0) + 1]
+  if not cur then return end
+  local doubles = b.doubles
+  local function pos(mon)
+    local side = self:battlerSideName(mon) or "enemy"
+    return Game3.battlerCenter(side, doubles)
+  end
+  local cx, cy = pos(cur)
+  local bestI, bestScore
+  for i = 1, n do
+    local mon = list[i]
+    if mon and mon ~= cur then
+      local x, y = pos(mon)
+      local dx, dy = x - cx, y - cy
+      local score
+      if dir == "right" and dx > 4 then
+        score = dx + math.abs(dy) * 0.35
+      elseif dir == "left" and dx < -4 then
+        score = -dx + math.abs(dy) * 0.35
+      elseif dir == "down" and dy > 4 then
+        score = dy + math.abs(dx) * 0.35
+      elseif dir == "up" and dy < -4 then
+        score = -dy + math.abs(dx) * 0.35
+      end
+      if score and (not bestScore or score < bestScore) then
+        bestScore, bestI = score, i
+      end
+    end
+  end
+  if bestI then
+    b.targetCursor = bestI - 1
+  else
+    b.targetCursor = ((b.targetCursor or 0) + 1) % n
+  end
+end
+
+function Game3:drawTargetReticle(side)
+  if not side then return end
+  local G = love.graphics
+  local cx, cy = Game3.battlerCenter(side, self.battle and self.battle.doubles)
+  local pulse = 0.65 + 0.35 * math.sin(((self.vblankCounter or 0) / 8) % 256)
+  local sheet = self:uiPic("scrollArrows")
+  local half = 30
+  if sheet and G.newQuad then
+    -- Extracted menu_helpers arrows: 16x32 sheet (up/down/left/right).
+    self._targetArrowQ = self._targetArrowQ or {
+      G.newQuad(0, 0, 16, 8, sheet:getDimensions()),
+      G.newQuad(0, 8, 16, 8, sheet:getDimensions()),
+      G.newQuad(0, 16, 8, 16, sheet:getDimensions()),
+      G.newQuad(8, 16, 8, 16, sheet:getDimensions()),
+    }
+    G.setColor(1, 1, 1, pulse)
+    G.draw(sheet, self._targetArrowQ[1], cx - 8, cy - half - 4)
+    G.draw(sheet, self._targetArrowQ[2], cx - 8, cy + half - 4)
+    G.draw(sheet, self._targetArrowQ[3], cx - half - 4, cy - 8)
+    G.draw(sheet, self._targetArrowQ[4], cx + half - 4, cy - 8)
+    return
+  end
+  local arm = 8
+  local x0, y0 = cx - 28, cy - 28
+  local x1, y1 = cx + 28, cy + 28
+  G.setColor(Game3.BATTLE_CURSOR[1], Game3.BATTLE_CURSOR[2],
+    Game3.BATTLE_CURSOR[3], pulse)
+  local function corner(x, y, dx, dy)
+    G.rectangle("fill", x, y, arm * dx, 2)
+    G.rectangle("fill", x, y, 2, arm * dy)
+  end
+  corner(x0, y0, 1, 1)
+  corner(x1 - 2, y0, -1, 1)
+  corner(x0, y1 - 2, 1, -1)
+  corner(x1 - 2, y1 - 2, -1, -1)
+end
+
 function Game3:defaultTarget(attacker)
   local b = self.battle
   if not b or not attacker then return nil end
@@ -38233,7 +38340,7 @@ function Game3:useBattleItem(itemId, mon, moveIndex)
     end
     battler.focusEnergy = true
     return self:commitBattleItem(
-      ("%s is getting pumped!"):format(battler.name))
+      ("%s is getting pumped!"):format(self:battlerBattleName(battler)))
   end
   if itemId == Game3.ITEM_GUARD_SPEC then
     if (b.mistTurns or 0) > 0 then
@@ -38244,7 +38351,7 @@ function Game3:useBattleItem(itemId, mon, moveIndex)
     end
     b.mistTurns = 5
     return self:commitBattleItem(
-      ("%s became shrouded in MIST!"):format(battler.name))
+      ("%s became shrouded in MIST!"):format(self:battlerBattleName(battler)))
   end
   if not self:healAmount(itemId) and not self:statusHeal(itemId)
       and not Game3.REVIVE_FRACTION[itemId] then
@@ -38781,7 +38888,7 @@ function Game3:confuseBlocks(mon)
     self:confusionDamage(mon)
     texts[#texts + 1] = "It hurt itself in its confusion!"
     if (mon.hp or 0) <= 0 then
-      texts[#texts + 1] = ("%s fainted!"):format(mon.name)
+      texts[#texts + 1] = self:faintLine(mon)
     end
     return true, texts
   end
@@ -38864,14 +38971,14 @@ function Game3:useRestoreHp(attacker, texts, move)
   end
   local heal = math.max(1, math.floor(maxHp / 2))
   attacker.hp = math.min(maxHp, hp + heal)
-  texts[#texts + 1] = ("%s regained health!"):format(attacker.name)
+  texts[#texts + 1] = ("%s regained health!"):format(self:battlerBattleName(attacker))
   self:armMoveAnim(attacker, attacker, move or { name = "RECOVER", id = 105 }, "status")
   return texts
 end
 
 function Game3:useRest(attacker, texts)
   if attacker.status == Game3.STATUS_SLP then
-    texts[#texts + 1] = ("%s is already asleep!"):format(attacker.name)
+    texts[#texts + 1] = ("%s is already asleep!"):format(self:battlerBattleName(attacker))
     return texts
   end
   -- jumpifcantmakeasleep before trysetrest: uproar, then Insomnia/Vital Spirit.
@@ -38981,7 +39088,7 @@ function Game3:useIngrain(attacker, texts)
     return texts
   end
   attacker.rooted = true
-  texts[#texts + 1] = ("%s planted its roots!"):format(attacker.name)
+  texts[#texts + 1] = ("%s planted its roots!"):format(self:battlerBattleName(attacker))
   return texts
 end
 
@@ -39004,7 +39111,7 @@ function Game3:wrapResidual(mon)
   mon.hp = math.max(0, (mon.hp or 0) - dmg)
   local texts = { ("%s is hurt by %s!"):format(mon.name or "POKeMON", name) }
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -39048,7 +39155,7 @@ function Game3:statusResidual(mon)
     texts[1] = ("%s was hurt by poison!"):format(mon.name)
   end
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name)
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -39080,17 +39187,17 @@ function Game3:useLeechSeed(attacker, defender, texts)
   texts = texts or {}
   if not defender then return texts end
   if defender.leechSeed then
-    texts[#texts + 1] = ("%s evaded the attack!"):format(defender.name)
+    texts[#texts + 1] = ("%s evaded the attack!"):format(self:battlerBattleName(defender))
     return texts
   end
   if Game3.hasType(defender, Game3.TYPE_GRASS) then
-    texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+    texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
     return texts
   end
   defender.leechSeed = true
   defender.leechSeedFrom = attacker
   defender.leechSeedSlot = self:battlerSlot(attacker)
-  texts[#texts + 1] = ("%s was seeded!"):format(defender.name)
+  texts[#texts + 1] = ("%s was seeded!"):format(self:battlerBattleName(defender))
   self:armMoveAnim(attacker, defender, { name = "LEECH SEED", type = Game3.TYPE_GRASS },
     "status")
   return texts
@@ -39146,7 +39253,7 @@ function Game3:useAttract(attacker, defender, texts)
     return texts
   end
   defender.infatuatedBy = attacker
-  texts[#texts + 1] = ("%s fell in love!"):format(defender.name)
+  texts[#texts + 1] = ("%s fell in love!"):format(self:battlerBattleName(defender))
   return texts
 end
 
@@ -39167,10 +39274,10 @@ function Game3:leechSeedResidual(mon)
     texts[1] = ("%s's health is sapped by LEECH SEED!"):format(mon.name)
   end
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name)
+    texts[#texts + 1] = self:faintLine(mon)
   end
   if (sower.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(sower.name)
+    texts[#texts + 1] = self:faintLine(sower)
   end
   return texts
 end
@@ -39220,7 +39327,7 @@ function Game3:perishSongResidual(mon)
     mon.perishSong = nil
     return {
       ("%s's PERISH count fell to 0!"):format(mon.name),
-      ("%s fainted!"):format(mon.name),
+      self:faintLine(mon),
     }
   end
   local texts = { ("%s's PERISH count fell to %d!"):format(mon.name, n) }
@@ -39916,7 +40023,7 @@ function Game3:useWeatherHeal(attacker, texts)
     heal = math.max(1, math.floor(maxHp / denom))
   end
   attacker.hp = math.min(maxHp, (attacker.hp or 0) + heal)
-  texts[#texts + 1] = ("%s regained health!"):format(attacker.name or "POKeMON")
+  texts[#texts + 1] = ("%s regained health!"):format(self:battlerBattleName(attacker))
   return texts
 end
 
@@ -39933,7 +40040,7 @@ function Game3:useBellyDrum(attacker, texts)
   attacker.stages = attacker.stages or {}
   attacker.stages.atk = 6
   texts[#texts + 1] = ("%s cut its own HP and maximized its ATTACK!")
-    :format(attacker.name or "POKeMON")
+    :format(self:battlerBattleName(attacker))
   return texts
 end
 
@@ -39975,7 +40082,7 @@ function Game3:nightmareResidual(mon)
   mon.hp = math.max(0, (mon.hp or 0) - dmg)
   local texts = { ("%s is locked in a NIGHTMARE!"):format(mon.name or "POKeMON") }
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -40153,7 +40260,7 @@ function Game3:applySpikes(mon)
   mon.hp = math.max(0, (mon.hp or 0) - dmg)
   local texts = { ("%s is hurt by SPIKES!"):format(mon.name or "POKeMON") }
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -40165,19 +40272,19 @@ function Game3:rapidSpinFree(attacker, texts)
     attacker.wrapped = nil
     attacker.wrappedMoveName = nil
     attacker.wrappedBy = nil
-    texts[#texts + 1] = ("%s got free!"):format(attacker.name or "POKeMON")
+    texts[#texts + 1] = ("%s got free!"):format(self:battlerBattleName(attacker))
   end
   if attacker.leechSeed then
     attacker.leechSeed = nil
     attacker.leechSeedSlot = nil
     attacker.leechSeedFrom = nil
-    texts[#texts + 1] = ("%s shed LEECH SEED!"):format(attacker.name or "POKeMON")
+    texts[#texts + 1] = ("%s shed LEECH SEED!"):format(self:battlerBattleName(attacker))
   end
   local b = self.battle
   local key = self:isPlayerSide(attacker) and "spikesPlayer" or "spikesFoe"
   if b and (b[key] or 0) > 0 then
     b[key] = nil
-    texts[#texts + 1] = ("%s blew away SPIKES!"):format(attacker.name or "POKeMON")
+    texts[#texts + 1] = ("%s blew away SPIKES!"):format(self:battlerBattleName(attacker))
   end
   return texts
 end
@@ -40192,7 +40299,7 @@ function Game3:useMemento(attacker, defender, texts)
   attacker.hp = 0
   texts[#texts + 1] = self:dropStat(defender, "atk", "ATTACK", 2)
   texts[#texts + 1] = self:dropStat(defender, "spa", "SP. ATK", 2)
-  texts[#texts + 1] = ("%s fainted!"):format(attacker.name or "POKeMON")
+  texts[#texts + 1] = self:faintLine(attacker)
   return texts
 end
 
@@ -40375,7 +40482,7 @@ function Game3:crashDamage(attacker, defender, move, texts)
   texts[#texts + 1] = ("%s kept going and crashed!"):format(
     attacker.name or "POKeMON")
   if (attacker.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(attacker.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(attacker)
   end
   return texts
 end
@@ -40427,12 +40534,12 @@ function Game3:usePresentHeal(defender, texts)
   texts = texts or {}
   local maxHp = defender.maxHp or 0
   if maxHp < 1 or (defender.hp or 0) >= maxHp then
-    texts[#texts + 1] = ("%s's HP is full!"):format(defender.name or "POKeMON")
+    texts[#texts + 1] = ("%s's HP is full!"):format(self:battlerBattleName(defender))
     return texts
   end
   local heal = math.max(1, math.floor(maxHp / 4))
   defender.hp = math.min(maxHp, (defender.hp or 0) + heal)
-  texts[#texts + 1] = ("%s regained health!"):format(defender.name or "POKeMON")
+  texts[#texts + 1] = ("%s regained health!"):format(self:battlerBattleName(defender))
   return texts
 end
 
@@ -40598,7 +40705,7 @@ function Game3:useYawn(attacker, defender, texts)
     return texts
   end
   if self:safeguardTurnsFor(defender) > 0 then
-    texts[#texts + 1] = ("%s is protected by SAFEGUARD!"):format(defender.name)
+    texts[#texts + 1] = ("%s is protected by SAFEGUARD!"):format(self:battlerBattleName(defender))
     return texts
   end
   defender.yawnTurns = Game3.YAWN_TURNS
@@ -40631,7 +40738,7 @@ function Game3:useCurse(attacker, defender, texts)
     texts[#texts + 1] = ("%s cut its own HP and laid a CURSE on %s!"):format(
       attacker.name or "POKeMON", defender.name or "POKeMON")
     if (attacker.hp or 0) <= 0 then
-      texts[#texts + 1] = ("%s fainted!"):format(attacker.name or "POKeMON")
+      texts[#texts + 1] = self:faintLine(attacker)
     end
     return texts
   end
@@ -40652,7 +40759,7 @@ function Game3:curseResidual(mon)
   mon.hp = math.max(0, (mon.hp or 0) - dmg)
   local texts = { ("%s is afflicted by the CURSE!"):format(mon.name or "POKeMON") }
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -40715,12 +40822,12 @@ function Game3:useSwallow(attacker, texts)
   end
   attacker.stockpile = nil
   if (attacker.hp or 0) >= maxHp then
-    texts[#texts + 1] = ("%s's HP is full!"):format(attacker.name or "POKeMON")
+    texts[#texts + 1] = ("%s's HP is full!"):format(self:battlerBattleName(attacker))
     return texts
   end
   local heal = math.max(1, math.floor(maxHp / (2 ^ (Game3.STOCKPILE_MAX - n))))
   attacker.hp = math.min(maxHp, (attacker.hp or 0) + heal)
-  texts[#texts + 1] = ("%s regained health!"):format(attacker.name or "POKeMON")
+  texts[#texts + 1] = ("%s regained health!"):format(self:battlerBattleName(attacker))
   return texts
 end
 
@@ -40753,7 +40860,7 @@ function Game3:tickFutureSight(mon)
   mon.hp = math.max(0, (mon.hp or 0) - dmg)
   local texts = { ("%s took the %s attack!"):format(mon.name or "POKeMON", name) }
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name or "POKeMON")
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -40766,7 +40873,7 @@ function Game3:useWish(attacker, texts)
     return texts
   end
   attacker.wishTurns = Game3.WISH_TURNS
-  texts[#texts + 1] = ("%s made a wish!"):format(attacker.name or "POKeMON")
+  texts[#texts + 1] = ("%s made a wish!"):format(self:battlerBattleName(attacker))
   return texts
 end
 
@@ -41073,7 +41180,7 @@ function Game3:useEncore(attacker, defender, texts)
   defender.encoreMove = mv
   defender.encoreSlot = slot
   defender.encoreTurns = Game3.ENCORE_MIN_TURNS + (self:gbaRandom() % 4)
-  texts[#texts + 1] = ("%s got an ENCORE!"):format(defender.name or "POKeMON")
+  texts[#texts + 1] = ("%s got an ENCORE!"):format(self:battlerBattleName(defender))
   return texts
 end
 
@@ -41133,7 +41240,7 @@ function Game3:absorbIntoSubstitute(defender, dmg)
   if (defender.substituteHp or 0) <= 0 then
     defender.substitute = nil
     defender.substituteHp = nil
-    return { ("%s's SUBSTITUTE faded!"):format(defender.name or "POKeMON") }
+    return { ("%s's SUBSTITUTE faded!"):format(self:battlerBattleName(defender)) }
   end
   return {}
 end
@@ -41313,7 +41420,7 @@ function Game3:useStatDownMove(attacker, defender, move, effect, texts)
     mul = 0
   end
   if mul <= 0 then
-    texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+    texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
     return texts
   end
   texts[#texts + 1] = self:dropStat(defender, stat, label, amount)
@@ -41505,7 +41612,7 @@ function Game3:tickRage(defender, dmg, texts)
   end
   if (st.atk or 0) >= 6 then return end
   st.atk = (st.atk or 0) + 1
-  texts[#texts + 1] = ("%s's RAGE is building!"):format(defender.name)
+  texts[#texts + 1] = ("%s's RAGE is building!"):format(self:battlerBattleName(defender))
 end
 
 -- pokeruby BattleScript_EffectMudSport / atkE8_settypebasedhalvers.
@@ -41539,10 +41646,10 @@ function Game3:useProtect(attacker, texts, endure)
   attacker.protectStreak = streak + 1
   if endure then
     attacker.endured = true
-    texts[#texts + 1] = ("%s braced itself!"):format(attacker.name)
+    texts[#texts + 1] = ("%s braced itself!"):format(self:battlerBattleName(attacker))
   else
     attacker.protected = true
-    texts[#texts + 1] = ("%s protected itself!"):format(attacker.name)
+    texts[#texts + 1] = ("%s protected itself!"):format(self:battlerBattleName(attacker))
   end
   return texts
 end
@@ -41649,7 +41756,7 @@ function Game3:useBattleTeleport(attacker, texts)
     texts[#texts + 1] = "But it failed!"
     return texts
   end
-  texts[#texts + 1] = ("%s fled from battle!"):format(attacker.name)
+  texts[#texts + 1] = ("%s fled from battle!"):format(self:battlerBattleName(attacker))
   b.fled = true
   return texts
 end
@@ -41814,12 +41921,12 @@ function Game3:useBide(attacker, defender, move, texts)
     attacker.bideTaken = 0
     attacker.bideFrom = nil
     attacker.charging = { move = move, kind = "bide" }
-    texts[#texts + 1] = ("%s is storing energy!"):format(attacker.name)
+    texts[#texts + 1] = ("%s is storing energy!"):format(self:battlerBattleName(attacker))
     return texts
   end
   attacker.bideTurns = attacker.bideTurns - 1
   if attacker.bideTurns > 0 then
-    texts[#texts + 1] = ("%s is storing energy!"):format(attacker.name)
+    texts[#texts + 1] = ("%s is storing energy!"):format(self:battlerBattleName(attacker))
     return texts
   end
   attacker.charging = nil
@@ -41828,7 +41935,7 @@ function Game3:useBide(attacker, defender, move, texts)
   attacker.bideTurns = nil
   attacker.bideTaken = nil
   attacker.bideFrom = nil
-  texts[#texts + 1] = ("%s unleashed energy!"):format(attacker.name)
+  texts[#texts + 1] = ("%s unleashed energy!"):format(self:battlerBattleName(attacker))
   if stored <= 0 then
     texts[#texts + 1] = "But it failed!"
     return texts
@@ -41842,7 +41949,7 @@ function Game3:useBide(attacker, defender, move, texts)
     return texts
   end
   if target.protected then
-    texts[#texts + 1] = ("%s protected itself!"):format(target.name)
+    texts[#texts + 1] = ("%s protected itself!"):format(self:battlerBattleName(target))
     return texts
   end
   if target.invuln and not self:hitsInvuln(move, target.invuln) then
@@ -41863,7 +41970,7 @@ function Game3:useBide(attacker, defender, move, texts)
     mul = 0
   end
   if mul <= 0 then
-    texts[#texts + 1] = ("It doesn't affect %s..."):format(target.name)
+    texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(target))
     return texts
   end
   local dmg = stored * 2
@@ -41874,16 +41981,16 @@ function Game3:useBide(attacker, defender, move, texts)
   end
   target.hp = math.max(0, (target.hp or 0) - dmg)
   if endured then
-    texts[#texts + 1] = ("%s endured the hit!"):format(target.name)
+    texts[#texts + 1] = ("%s endured the hit!"):format(self:battlerBattleName(target))
   end
   if Game3.isContact(move) then
     self:onContact(attacker, target, texts)
   end
   if (target.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(target.name)
+    texts[#texts + 1] = self:faintLine(target)
   end
   if (attacker.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(attacker.name)
+    texts[#texts + 1] = self:faintLine(attacker)
   end
   return texts
 end
@@ -41901,7 +42008,7 @@ function Game3:useOhko(attacker, defender, move, texts)
     mul = 0
   end
   if mul <= 0 then
-    texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+    texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
     return texts
   end
   if self:hasAbility(defender, Game3.ABILITY_STURDY) then
@@ -41922,7 +42029,7 @@ function Game3:useOhko(attacker, defender, move, texts)
   self:notePlayerDamaged(defender, 1)
   self:maybeFaintFriendship(defender, attacker)
   texts[#texts + 1] = "It's a one-hit KO!"
-  texts[#texts + 1] = ("%s fainted!"):format(defender.name)
+  texts[#texts + 1] = self:faintLine(defender)
   return texts
 end
 
@@ -42290,7 +42397,7 @@ function Game3:weatherResidual(mon)
     return {}
   end
   if (mon.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(mon.name)
+    texts[#texts + 1] = self:faintLine(mon)
   end
   return texts
 end
@@ -42613,7 +42720,7 @@ end
 
 function Game3:useMove(attacker, defender, move, extra)
   local texts = extra and {}
-    or { ("%s used %s!"):format(attacker.name, move.name or "TACKLE") }
+    or { ("%s used %s!"):format(self:battlerBattleName(attacker), move.name or "TACKLE") }
   if self:isPlayerBattler(attacker) then
     local r = self.battleResults
     if r then r.lastUsedMove = tonumber(move and move.id) or 0 end
@@ -42762,7 +42869,7 @@ function Game3:useMove(attacker, defender, move, extra)
         and ((attacker.counterPhysical or 0) > 0
           or (attacker.counterSpecial or 0) > 0) then
       texts[#texts + 1] = ("%s lost its focus and couldn't move!")
-        :format(attacker.name)
+        :format(self:battlerBattleName(attacker))
       return texts
     end
     -- ASSIST resolves to a move from the rest of the party and runs it.
@@ -42925,7 +43032,7 @@ function Game3:useMove(attacker, defender, move, extra)
         defender.wrappedMoveName = self:moveName(move.id) or "the attack"
         defender.wrappedBy = attacker
         texts[#texts + 1] = ("%s was trapped in the vortex!")
-          :format(defender.name or "POKeMON")
+          :format(self:battlerBattleName(defender))
       end
       if effect == Game3.EFFECT_RAMPAGE then
         if (attacker.rampage or 0) > 0 then
@@ -42938,7 +43045,7 @@ function Game3:useMove(attacker, defender, move, extra)
             local line = self:applyConfuse(attacker)
             if line then
               texts[#texts + 1] = ("%s became confused due to fatigue!")
-                :format(attacker.name or "POKeMON")
+                :format(self:battlerBattleName(attacker))
             end
           end
         else
@@ -42980,7 +43087,7 @@ function Game3:useMove(attacker, defender, move, extra)
   end
   local function noteUserFaint()
     if (attacker.hp or 0) > 0 then return end
-    local line = ("%s fainted!"):format(attacker.name)
+    local line = self:faintLine(attacker)
     for i = 1, #texts do
       if texts[i] == line then return end
     end
@@ -43015,7 +43122,7 @@ function Game3:useMove(attacker, defender, move, extra)
   end
   if defender.protected then
     self:armRage(attacker, effect, false)
-    texts[#texts + 1] = ("%s protected itself!"):format(defender.name)
+    texts[#texts + 1] = ("%s protected itself!"):format(self:battlerBattleName(defender))
     noteUserFaint()
     return texts
   end
@@ -43064,7 +43171,7 @@ function Game3:useMove(attacker, defender, move, extra)
     if not self:accuracyRoll(attacker, defender, move, effect) then
       self:armRage(attacker, effect, false)
       if effect == Game3.EFFECT_LEECH_SEED then
-        texts[#texts + 1] = ("%s evaded the attack!"):format(defender.name)
+        texts[#texts + 1] = ("%s evaded the attack!"):format(self:battlerBattleName(defender))
       else
         texts[#texts + 1] = "The attack missed!"
       end
@@ -43100,9 +43207,9 @@ function Game3:useMove(attacker, defender, move, extra)
       texts[#texts + 1] = line
       self:armMoveAnim(attacker, defender, move, "status")
     elseif (defender.confuseTurns or 0) > 0 then
-      texts[#texts + 1] = ("%s is already confused!"):format(defender.name)
+      texts[#texts + 1] = ("%s is already confused!"):format(self:battlerBattleName(defender))
     elseif self:hasAbility(defender, Game3.ABILITY_OWN_TEMPO) then
-      texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+      texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
     else
       texts[#texts + 1] = "But it failed!"
     end
@@ -43185,7 +43292,7 @@ function Game3:useMove(attacker, defender, move, extra)
       local result = self:dealDamage(attacker, defender, move)
       lastMul = result.mul
       if result.mul <= 0 then
-        texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+        texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
         landed = 0
         break
       end
@@ -43205,7 +43312,7 @@ function Game3:useMove(attacker, defender, move, extra)
         texts[#texts + 1] = "It's not very effective..."
       end
       if enduredHit then
-        texts[#texts + 1] = ("%s endured the hit!"):format(defender.name)
+        texts[#texts + 1] = ("%s endured the hit!"):format(self:battlerBattleName(defender))
       end
       if hits > 1 then
         texts[#texts + 1] = ("Hit %d time%s!"):format(
@@ -43220,7 +43327,7 @@ function Game3:useMove(attacker, defender, move, extra)
         else
           local maxHp = attacker.maxHp or (attacker.hp or 0)
           attacker.hp = math.min(maxHp, (attacker.hp or 0) + heal)
-          texts[#texts + 1] = ("%s had its energy drained!"):format(defender.name)
+          texts[#texts + 1] = ("%s had its energy drained!"):format(self:battlerBattleName(defender))
         end
       end
       local denom = Game3.recoilDenom(effect)
@@ -43228,7 +43335,7 @@ function Game3:useMove(attacker, defender, move, extra)
           and not self:hasAbility(attacker, Game3.ABILITY_ROCK_HEAD) then
         local recoil = math.max(1, math.floor(total / denom))
         attacker.hp = math.max(0, (attacker.hp or 0) - recoil)
-        texts[#texts + 1] = ("%s is hit with recoil!"):format(attacker.name)
+        texts[#texts + 1] = ("%s is hit with recoil!"):format(self:battlerBattleName(attacker))
       end
       if effect == Game3.EFFECT_OVERHEAT then
         texts[#texts + 1] = self:dropStat(attacker, "spa", "SP. ATK", 2, true)
@@ -43251,7 +43358,7 @@ function Game3:useMove(attacker, defender, move, extra)
       if effect == Game3.EFFECT_SMELLINGSALT
           and defender.status == Game3.STATUS_PAR then
         defender.status = nil
-        texts[#texts + 1] = ("%s was cured of paralysis!"):format(defender.name)
+        texts[#texts + 1] = ("%s was cured of paralysis!"):format(self:battlerBattleName(defender))
       end
       -- The bank empties on the way out, hit or miss.
       if effect == Game3.EFFECT_SPIT_UP then attacker.stockpile = nil end
@@ -43260,13 +43367,13 @@ function Game3:useMove(attacker, defender, move, extra)
       end
       if effect == Game3.EFFECT_THAW_HIT and defender.status == Game3.STATUS_FRZ then
         defender.status = nil
-        texts[#texts + 1] = ("%s was defrosted!"):format(defender.name)
+        texts[#texts + 1] = ("%s was defrosted!"):format(self:battlerBattleName(defender))
       end
       self:tickRage(defender, total, texts)
       if effect == Game3.EFFECT_UPROAR and not attacker.uproarTurns then
         attacker.uproarTurns = (self:gbaRandom() % 4) + 2
         attacker.uproarMove = move
-        texts[#texts + 1] = ("%s caused an UPROAR!"):format(attacker.name)
+        texts[#texts + 1] = ("%s caused an UPROAR!"):format(self:battlerBattleName(attacker))
       end
     end
   elseif Game3.statDownSpec(effect) then
@@ -43281,7 +43388,7 @@ function Game3:useMove(attacker, defender, move, extra)
         local sync = self:trySynchronize(defender, attacker, status)
         if sync then texts[#texts + 1] = sync end
       elseif not self:canStatus(defender, status) and not defender.status then
-        texts[#texts + 1] = ("It doesn't affect %s..."):format(defender.name)
+        texts[#texts + 1] = ("It doesn\'t affect %s..."):format(self:battlerBattleName(defender))
       else
         texts[#texts + 1] = "But it failed!"
       end
@@ -43297,15 +43404,15 @@ function Game3:useMove(attacker, defender, move, extra)
     self:onContact(attacker, defender, texts)
   end
   if (defender.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(defender.name)
+    texts[#texts + 1] = self:faintLine(defender)
     self:tryDestinyBond(defender, attacker, texts)
     self:tryGrudge(defender, attacker, move, texts)
     if (attacker.hp or 0) <= 0 then
-      texts[#texts + 1] = ("%s fainted!"):format(attacker.name)
+      texts[#texts + 1] = self:faintLine(attacker)
     end
   end
   if (attacker.hp or 0) <= 0 then
-    texts[#texts + 1] = ("%s fainted!"):format(attacker.name)
+    texts[#texts + 1] = self:faintLine(attacker)
   end
   return texts
 end
@@ -46061,6 +46168,10 @@ function Game3:stepBattle(dt)
           b.targetMove = move
           b.targetList = opts
           b.targetCursor = 0
+          local pref = self:defaultTarget(battler)
+          for ti = 1, #opts do
+            if opts[ti] == pref then b.targetCursor = ti - 1 break end
+          end
         else
           self:queueBattlerMove(move)
         end
@@ -46077,9 +46188,14 @@ function Game3:stepBattle(dt)
     if n < 1 then n = 1 end
     if Input:wasPressed("b") then
       b.kind = "fight"
-    elseif Input:wasPressed("right") or Input:wasPressed("left")
-        or Input:wasPressed("down") or Input:wasPressed("up") then
-      b.targetCursor = ((b.targetCursor or 0) + 1) % n
+    elseif Input:wasPressed("right") then
+      self:stepTargetCursor("right")
+    elseif Input:wasPressed("left") then
+      self:stepTargetCursor("left")
+    elseif Input:wasPressed("down") then
+      self:stepTargetCursor("down")
+    elseif Input:wasPressed("up") then
+      self:stepTargetCursor("up")
     elseif Input:wasPressed("a") then
       local pick = list[(b.targetCursor or 0) + 1]
       self:queueBattlerMove(b.targetMove, pick)
@@ -46631,17 +46747,18 @@ function Game3.dialogueTextY()
   return (Game3.DLG_FRAME_TOP + 1) * Game3.MENU_TILE + Game3.DLG_TEXT_PAD_Y
 end
 
-function Game3:drawDialogue(box, x, y, ink)
+function Game3:drawDialogue(box, x, y, ink, maxPx)
   if type(box) ~= "table" then return end
   x = x or Game3.DLG_TEXT_COL * Game3.MENU_TILE
   y = y or Game3.dialogueTextY()
-  local lines = Game3.wrapDialogue(self:printedText(box), nil,
+  maxPx = tonumber(maxPx) or Game3.MSG_WIDTH_PX
+  local lines = Game3.wrapDialogue(self:printedText(box), maxPx,
     self:font3WidthTable())
   self:setTextInk(ink or Game3.TEXT_INK)
   for i = 1, Game3.MSG_LINES do
     local line = lines[i]
     if line and line ~= "" then
-      self:drawText(line, x, y + (i - 1) * Game3.MSG_LINE_H, Game3.MSG_WIDTH_PX)
+      self:drawText(line, x, y + (i - 1) * Game3.MSG_LINE_H, maxPx)
     end
   end
   -- text.c WaitWithDownArrow: prompt while waiting for A/B once the page
@@ -47571,6 +47688,15 @@ Game3.HEALTHBOX_LAYOUT = {
     caughtX = 88, caughtY = 8,
     fallbackW = 110, fallbackH = 28,
   },
+  -- Doubles partner (right side): ROM small frame + HP digits, no EXP.
+  playerDouble = {
+    frame = "healthboxPlayerDouble",
+    nameX = 6, nameY = 2, levelX = 74, levelY = 2,
+    barX = 14, barY = 19, barW = 48,
+    hpTextX = 62, hpTextY = 18, hpTextRight = 106,
+    statusX = 8, statusY = 16,
+    fallbackW = 110, fallbackH = 28,
+  },
 }
 
 -- GetHealthboxElementGfxPtr bases used by draw_status_ailment_maybe /
@@ -47734,9 +47860,17 @@ end
 function Game3:drawHealthbox(mon, x, y, kind)
   if not mon then return end
   local G = love.graphics
-  local player = kind == "player"
-  local L = Game3.HEALTHBOX_LAYOUT[player and "player" or "enemy"]
+  kind = kind or "enemy"
+  local L = Game3.HEALTHBOX_LAYOUT[kind] or Game3.HEALTHBOX_LAYOUT.enemy
+  local player = kind == "player" or kind == "playerDouble"
+  local showExp = kind == "player"
   local frame = self:uiPic(L.frame)
+  if not frame and kind == "playerDouble" then
+    frame = self:uiPic("healthboxEnemy")
+  end
+  if not frame and kind == "enemy" then
+    frame = self:uiPic("healthboxEnemyDouble") or frame
+  end
   if frame then
     G.setColor(1, 1, 1, 1)
     G.draw(frame, x, y)
@@ -47751,25 +47885,21 @@ function Game3:drawHealthbox(mon, x, y, kind)
   local name = mon.name or "POKeMON"
   local nameMax = (L.levelX - L.nameX) - 10
   if nameMax < 24 then nameMax = 24 end
+  -- Cart bounces the active box; it does not blank the nick.
   self:drawText(name, x + L.nameX, y + L.nameY, nameMax)
   local gend = self:monGender(mon)
-  local gx = x + L.nameX + Game3.textWidth(name, self:font3WidthTable()) + 2
+  local nameW = Game3.textWidth(name, self:font3WidthTable())
+  if nameW > nameMax then nameW = nameMax end
+  local gx = x + L.nameX + nameW + 2
+  if gx + 10 > x + L.levelX - 2 then gx = x + L.levelX - 12 end
   local gy = y + L.nameY + 3
-  -- FONT3 0xB5/0xB6 is not in the extracted latin sheet (renders as "&").
+  -- FONT3 0xB5 / 0xB6 (latin sheet row, already extracted).
   if gend == Game3.MON_MALE then
-    G.setColor(0.20, 0.45, 0.90, 1)
-    if G.polygon then
-      G.polygon("fill", gx, gy + 8, gx + 5, gy, gx + 10, gy + 8)
-    else
-      self:drawText("M", gx, y + L.nameY)
-    end
+    self:setTextInk({ 0.20, 0.45, 0.90, 1 })
+    self:drawText("♂", gx, y + L.nameY)
   elseif gend == Game3.MON_FEMALE then
-    G.setColor(0.90, 0.28, 0.45, 1)
-    if G.circle then
-      G.circle("fill", gx + 4, gy + 4, 4)
-    else
-      self:drawText("F", gx, y + L.nameY)
-    end
+    self:setTextInk({ 0.90, 0.28, 0.45, 1 })
+    self:drawText("♀", gx, y + L.nameY)
   end
   G.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
   -- The cart bakes "Lv" into the healthbox art and sub_8043FC0 renders
@@ -47816,8 +47946,10 @@ function Game3:drawHealthbox(mon, x, y, kind)
     self:drawHpBar(x + barX, y + L.barY, barW, mon.hp, mon.maxHp,
       { blink = blink })
   end
-  if player then
+  if player and L.hpTextY then
     self:drawHealthboxHpText(mon, x, y, L)
+  end
+  if showExp and L.expX then
     if not self:drawExpBarTiles(x + L.expX, y + L.expY,
         Game3.expBarFill(mon) * 1000, 1000) then
       local ew = math.floor(L.expW * Game3.expBarFill(mon))
@@ -48757,6 +48889,9 @@ function Game3:drawBattle()
     if not iv.hideBoxes and not iv.hidePlayerBox then
       local hx, hy = self:healthboxXY("player")
       self:drawHealthbox(b.player, hx, hy, "player")
+      if b.kind == "menu" or b.kind == "fight" then
+        local acting = self:menuBattler()
+      end
     end
   end
   if b and b.player2 then
@@ -48779,7 +48914,12 @@ function Game3:drawBattle()
     end
     if not iv.hideBoxes and not iv.hidePlayerBox then
       local hx, hy = self:healthboxXY("player2")
-      self:drawHealthbox(b.player2, hx, hy, "player")
+      -- Doubles partner uses the small foe frame so it does not sit on
+      -- the lead's EXP box (player 128x40 vs enemy 110x28).
+      self:drawHealthbox(b.player2, hx, hy, "playerDouble")
+      if b.kind == "menu" or b.kind == "fight" then
+        local acting = self:menuBattler()
+      end
     end
   end
   -- ...and the move's particles over all of them, on the script's own clock:
@@ -48823,17 +48963,24 @@ function Game3:drawBattle()
   end
   if not staged then self:drawShinySparkles() end
   if (not staged) and self.drawBattleFx then self:drawBattleFx() end
+  if b and b.safari and not staged then
+    self:drawSafariBallsWindow()
+  end
   if b and b.kind == "menu" then
     if not self:drawBattleBar("Actions") then
       self:drawBattlePanel(0, Game3.BATTLE_BAR_Y, 136, Game3.BATTLE_BAR_H)
       self:drawBattlePanel(136, Game3.BATTLE_BAR_Y, 104, Game3.BATTLE_BAR_H)
     end
     self:setTextInk(Game3.BATTLE_TEXT_INK)
-    self:drawText("What will", 8, Game3.BATTLE_ACTION_Y, 120)
-    local pname = (b.player and b.player.name) or "POKeMON"
+    -- Left pane of the Actions bar ends at x=136; 8px inset -> 120px.
+    -- Name is the choosing battler (gActiveBattler), not always the lead.
+    local promptW = 120
+    self:drawText("What will", 8, Game3.BATTLE_ACTION_Y, promptW)
+    local acting = self:menuBattler() or b.player
+    local pname = (acting and acting.name) or "POKeMON"
     self:drawText(pname .. " do?", 8,
-      Game3.BATTLE_ACTION_Y + Game3.BATTLE_ACTION_ROW, 120)
-    local labels = { "FIGHT", "BAG", "POKeMON", "RUN" }
+      Game3.BATTLE_ACTION_Y + Game3.BATTLE_ACTION_ROW, promptW)
+    local labels = { "FIGHT", "BAG", "PKMN", "RUN" }
     if b.safari then
       labels = { "BALL", "POKeBLOCK", "GO NEAR", "RUN" }
     end
@@ -48844,7 +48991,8 @@ function Game3:drawBattle()
         self:drawBattleCursor(x, y, Game3.BATTLE_ACTION_CURSOR_W)
       end
       self:setTextInk(Game3.BATTLE_TEXT_INK)
-      self:drawText(labels[i + 1], x + 4, y)
+      self:drawText(labels[i + 1], x + 4, y,
+        Game3.BATTLE_ACTION_CURSOR_W - 8)
     end
   elseif b and b.kind == "fight" then
     local battler = self:menuBattler() or b.player
@@ -48892,7 +49040,7 @@ function Game3:drawBattle()
         self:drawText("--", ix + 18, Game3.BATTLE_MOVE_Y)
       end
       self:drawText(cur and Game3.typeName(cur.type) or "???", ix,
-        Game3.BATTLE_MOVE_Y + Game3.BATTLE_MOVE_ROW)
+        Game3.BATTLE_MOVE_Y + Game3.BATTLE_MOVE_ROW, 52)
     end
   elseif b and b.kind == "pokeblock_case" then
     self:drawMenuListWindow(0, 1, b.pokeblockLabels or { "CANCEL" },
@@ -48910,16 +49058,14 @@ function Game3:drawBattle()
   if b and b.kind == "target" then
     local list = b.targetList or {}
     self:setTextInk(Game3.BATTLE_TEXT_INK)
-    self:drawText("Aim at", 8, Game3.BATTLE_ACTION_Y)
-    for i = 1, #list do
-      local mon = list[i]
-      local y = Game3.BATTLE_ACTION_Y + i * Game3.BATTLE_ACTION_ROW
-      if i - 1 == (b.targetCursor or 0) then
-        self:drawBattleCursor(6, y, 140, 14)
-      end
-      self:setTextInk(Game3.BATTLE_TEXT_INK)
-      if mon then self:drawText(mon.name or "FOE", 18, y) end
+    local promptW = 224
+    local mon = list[(b.targetCursor or 0) + 1]
+    self:drawText("Aim at", 8, Game3.BATTLE_ACTION_Y, promptW)
+    if mon then
+      self:drawText(mon.name or "FOE", 8,
+        Game3.BATTLE_ACTION_Y + Game3.BATTLE_ACTION_ROW, promptW)
     end
+    self:drawTargetReticle(self:battlerSideName(mon))
   elseif b and b.kind == "party" then
     -- battle_party_menu.c shows the same screen the field does.
     -- IsDoubleBattle() selects PARTY_MENU_LAYOUT_DOUBLE (two lead boxes
@@ -48956,36 +49102,45 @@ function Game3:drawBattle()
       or (b and (b.kind == "learn_yesno" or b.kind == "learn_stop"
         or b.kind == "catch_nick")) then
     self:setTextInk(Game3.BATTLE_TEXT_INK)
-    self:drawText(self:printedText(b), 10, Game3.BATTLE_ACTION_Y)
+    local q = self:printedText(b)
+    local qLines = Game3.wrapDialogue(q, 150, self:font3WidthTable())
+    for qi = 1, math.min(2, #qLines) do
+      self:drawText(qLines[qi], 8,
+        Game3.BATTLE_ACTION_Y + (qi - 1) * Game3.BATTLE_ACTION_ROW, 150)
+    end
     local labels = { "YES", "NO" }
     for i = 0, 1 do
-      local y = 132 + i * 10
+      local slot = Game3.BATTLE_ACTION_SLOTS[i + 1]
+      local x, y = slot[1], slot[2]
       if i == (b.cursor or 0) then
-        self:drawBattleCursor(6, y, 80, 12)
+        self:drawBattleCursor(x, y, Game3.BATTLE_ACTION_CURSOR_W)
       end
       self:setTextInk(Game3.BATTLE_TEXT_INK)
-      self:drawText(labels[i + 1], 18, y)
+      self:drawText(labels[i + 1], x + 4, y, Game3.BATTLE_ACTION_CURSOR_W - 8)
     end
   elseif b and b.kind == "learn_forget" then
     local mon = self.learnMove and self.learnMove.mon
     local moves = mon and mon.moves or {}
     self:setTextInk(Game3.BATTLE_TEXT_INK)
-    self:drawText("Forget which?", 8, 114)
+    self:drawText("Forget which?", 8, Game3.BATTLE_BAR_Y + 2, 224)
     local n = #moves + 1
+    local row = 12
+    local y0 = Game3.BATTLE_BAR_Y + 18
     for i = 0, n - 1 do
-      local y = 124 + i * 8
+      local y = y0 + i * row
+      if y + 16 > 160 then break end
       if i == (b.cursor or 0) then
         self:drawBattleCursor(6, y, 148, 12)
       end
       self:setTextInk(Game3.BATTLE_TEXT_INK)
       if i < #moves then
-        self:drawText((moves[i + 1] and moves[i + 1].name) or "MOVE", 18, y)
+        self:drawText((moves[i + 1] and moves[i + 1].name) or "MOVE", 18, y, 140)
       else
-        self:drawText("CANCEL", 18, y)
+        self:drawText("CANCEL", 18, y, 140)
       end
     end
   else
-    self:drawDialogue(b, nil, nil, Game3.BATTLE_TEXT_INK)
+    self:drawDialogue(b, 8, Game3.BATTLE_ACTION_Y, Game3.BATTLE_TEXT_INK, 224)
   end
   end
   -- Final send-out ball pass: guarantee foe/player throw stays above the
@@ -52046,14 +52201,18 @@ function Game3:clampStartMenuScroll(f, n)
   return visible
 end
 
+function Game3:drawSafariBallsWindow()
+  -- start_menu.c / battle safari: (0,0)-(10,5), two FONT3 lines.
+  self:drawStdWindow(0, 0, Game3.SAFARI_STOCK_RIGHT, Game3.SAFARI_STOCK_BOTTOM)
+  love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
+  self:drawText("SAFARI BALLS", Game3.MENU_TILE, Game3.MENU_TILE, 72)
+  self:drawText(("Stock: %d"):format(self.safariBalls or 0),
+    Game3.MENU_TILE, Game3.MENU_TILE * 3, 72)
+end
+
 function Game3:drawStartMenu(f)
   if self:inSafariMode() then
-    -- start_menu.c DisplaySafariBallsWindow: (0, 0, 10, 5), text at 1, 1.
-    self:drawStdWindow(0, 0, Game3.SAFARI_STOCK_RIGHT, Game3.SAFARI_STOCK_BOTTOM)
-    love.graphics.setColor(Game3.TEXT_INK[1], Game3.TEXT_INK[2], Game3.TEXT_INK[3], 1)
-    self:drawText("SAFARI BALLS", Game3.MENU_TILE, Game3.MENU_TILE)
-    self:drawText(("Stock: %d"):format(self.safariBalls or 0),
-      Game3.MENU_TILE, Game3.MENU_TILE * 3)
+    self:drawSafariBallsWindow()
   end
   local labels = self:startMenuItems()
   local n = #labels

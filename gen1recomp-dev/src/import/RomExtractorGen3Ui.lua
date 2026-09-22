@@ -51,6 +51,8 @@ Ui.RUBY_US = {
   -- streams decompressing to 4096/2048/2048/2048/4096 bytes.
   healthboxPlayerGfx = 0xD1F52C,
   healthboxEnemyGfx = 0xD1F7E0,
+  -- Remaining three LZ streams after Large/Small: 2048, 2048, 4096.
+  -- Offsets filled at extract time via GbaLz77.streamEnd.
   namingSheetTable = 0x3CE6A0,
   namingPal0 = 0xE86198,
   namingMenuGfx = 0xE832F8,
@@ -96,7 +98,29 @@ Ui.RUBY_US = {
 Ui.HEALTHBOX = {
   player = { off = "healthboxPlayerGfx", halfW = 64, halfH = 64 },
   enemy = { off = "healthboxEnemyGfx", halfW = 64, halfH = 32 },
+  playerDouble = { off = "healthboxPlayerDoubleGfx", halfW = 64, halfH = 32 },
+  enemyDouble = { off = "healthboxEnemyDoubleGfx", halfW = 64, halfH = 32 },
+  extra = { off = "healthboxExtraGfx", halfW = 64, halfH = 64 },
 }
+
+function Ui.discoverHealthboxStreams(data)
+  local u = Ui.RUBY_US
+  local off = u.healthboxPlayerGfx
+  local sizes = { 4096, 2048, 2048, 2048, 4096 }
+  local offs = {}
+  for i = 1, #sizes do
+    offs[i] = off
+    local nxt = GbaLz77.streamEnd(data, off)
+    if not nxt then return offs end
+    off = nxt
+    -- LZ streams in this run are 4-byte aligned.
+    off = math.floor((off + 3) / 4) * 4
+  end
+  u.healthboxPlayerDoubleGfx = offs[3] or u.healthboxEnemyGfx
+  u.healthboxEnemyDoubleGfx = offs[4] or u.healthboxEnemyGfx
+  u.healthboxExtraGfx = offs[5] or u.healthboxPlayerGfx
+  return offs
+end
 
 -- draw_status_ailment_maybe: 24x8 pills from gHealthboxElementsGfxTable
 -- (tiles in healthbox_elements.4bpp) with gBattleInterfaceStatusIcons_DynPal
@@ -837,6 +861,15 @@ function Ui.extract(data)
       "assets/generated/ui/healthbox_player.png"),
     healthboxEnemy = save(safe(Ui.renderHealthboxFrame, data, "enemy"),
       "assets/generated/ui/healthbox_enemy.png"),
+    healthboxPlayerDouble = (function()
+      Ui.discoverHealthboxStreams(data)
+      return save(safe(Ui.renderHealthboxFrame, data, "playerDouble"),
+        "assets/generated/ui/healthbox_player_double.png")
+    end)(),
+    healthboxEnemyDouble = save(safe(Ui.renderHealthboxFrame, data, "enemyDouble"),
+      "assets/generated/ui/healthbox_enemy_double.png"),
+    healthboxExtra = save(safe(Ui.renderHealthboxFrame, data, "extra"),
+      "assets/generated/ui/healthbox_extra.png"),
     statusPills = statusPillPath,
     braille = save(safe(Ui.renderBraille, data), "assets/generated/ui/braille.png"),
     brailleCols = Ui.BRAILLE_COLS,
