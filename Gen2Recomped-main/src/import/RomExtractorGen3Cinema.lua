@@ -1,0 +1,1925 @@
+-- Ruby boot cinema.  pokeruby intro.c / title_screen.c graphics are LZ77
+-- in the cart; Nintendo tiles stay out of git.
+-- Title BG2 is Mode 1 affine 8bpp (tilemap gUnknown_08E9F7E4, BG2X/Y -29/-33).
+-- Intro1 BGs are 256x512; intro2 grass+trees scroll at runtime.
+local GbaBin = require("src.import.GbaBin")
+local GbaHeader = require("src.import.GbaHeader")
+local GbaLz77 = require("src.import.GbaLz77")
+local ImageWriter = require("src.import.ImageWriter")
+local SapphireOff = require("src.import.RomExtractorGen3Sapphire")
+
+local Cinema = {}
+
+Cinema.SCREEN_W = 240
+Cinema.SCREEN_H = 160
+Cinema.MAP_PITCH = 32
+Cinema.TILE = 8
+Cinema.TILE_BYTES = 32
+Cinema.TILE_8BPP = 64
+
+-- US Ruby 1.0 (pokeruby English labels). Finders fall back to palettes.
+Cinema.RUBY_US = {
+  -- gIntroCopyright_Gfx is LZ and ends at 0xE9CA21, padded to the 4-byte
+  -- aligned palette; the raw (uncompressed) 32x20 tilemap follows that.
+  -- Text is index 15 (white) on index 1 (black).
+  -- wallclock.c: gMiscClock_Gfx + male/female pals + edit/view maps.
+  -- Hands are ClockGfx_Misc (INCBIN in wallclock.c, dest size 0x2000).
+  clockGfx = 0xE8F1B8,
+  clockGfxBytes = 0x1000,
+  clockMalePal = 0xE8F804,
+  clockFemalePal = 0xE8F824,
+  clockEditMap = 0xE954B0,
+  clockViewMap = 0xE95774,
+  clockMapBytes = 0x500,
+  clockHandsGfx = 0x3F7814,
+  clockHandsGfxBytes = 0x1200,
+  copyrightGfx = 0xE9C798,
+  copyrightPal = 0xE9CA24,
+  copyrightMap = 0xE9CA44,
+  copyrightMapBytes = 0x500,
+  intro1Pals = 0x406974,
+  intro1Maps = { 0x406B74, 0x406F28, 0x40725C, 0x40754C },
+  intro1Gfx = 0x407764,
+  intro1GfxBytes = 32768,
+  -- Task_IntroLoadPart1Graphics REG_BGnVOFS: BG0, BG1, BG2, BG3.
+  intro1Vofs = { 0x28, 0x18, 0x50, 0 },
+  -- Task_IntroScrollDownAndShowEon subtracts per frame (fixed point >> 16).
+  intro1Rate = { 1.5, 1.0, 0.75, 0 },
+  intro1W = 256,
+  intro1H = 256,
+  gfGfx = 0x406380,
+  gfGfxBytes = 0x1400,
+  gfPal = 0x406360,
+  -- Palette_406340 / gUnknown_0840B028 tag 2000. Same tiles as GAME FREAK.
+  dropPal = 0x406340,
+  -- gIntro1EonPalette / gIntro1EonTiles (0x400 = one 64x32 OBJ).
+  eonPal = 0x40ACDC,
+  eonGfx = 0x40ACFC,
+  eonGfxBytes = 0x400,
+  -- gUnknown_08413CCC + gIntro2TreeTiles, then Brendan / bike / Latios.
+  treeObjPal = 0x413CCC,
+  treeObjGfx = 0x413CEC,
+  treeObjGfxBytes = 0x400,
+  brendanPal = 0x4143B4,
+  brendanGfx = 0x4143D4,
+  brendanGfxBytes = 0x3800,
+  bikeGfx = 0x415E08,
+  bikeGfxBytes = 0x1000,
+  latiosPal = 0x416234,
+  latiosGfx = 0x416254,
+  latiosGfxBytes = 0x1000,
+  -- gIntro2LatiasTiles immediately follow Latios LZ on both carts.
+  latiasPal = 0x4166F8,
+  latiasGfx = 0x416718,
+  -- intro2 May rider (between Brendan LZ and bike). Pal then 0x1E0 zero pad.
+  mayPal = 0x414F70,
+  mayGfx = 0x415170,
+  mayGfxBytes = 0x3800,
+  -- title_screen.c sLogoShineTiles after lava map; pal after press_start LZ.
+  logoShineGfx = 0x393D14,
+  logoShineGfxBytes = 0x800,
+  logoShinePal = 0xE9D8AC,
+  -- main_menu.c birch_speech BG pals + shadow LZ + map LZ + bg2 pal.
+  birchBg0Pal = 0x1E764C,
+  birchBg1Pal = 0x1E766C,
+  birchShadowGfx = 0x1E768C,
+  birchShadowGfxBytes = 0x600,
+  birchMap = 0x1E7834,
+  birchMapBytes = 0x500,
+  birchBg2Pal = 0x1E795C,
+  -- field_effect.c birch portrait 64x64 uncompressed 4bpp + pal.
+  birchPortraitGfx = 0x39DC14,
+  birchPortraitGfxBytes = 0x800,
+  birchPortraitPal = 0x39E414,
+  -- gTrainerFrontPicTable Brendan/May (front_pic_table.inc @ 0x1EC53C).
+  trainerFrontBrendanGfx = 0xE492B8,
+  trainerFrontMayGfx = 0xE495CC,
+  trainerFrontGfxBytes = 0x800,
+  trainerFrontBrendanPal = 0xE5A028,
+  trainerFrontMayPal = 0xE5A050,
+  -- intro.c gIntro3Pokeball* immediately after intro1 tiles.
+  ballPal = 0x4098D4,
+  ballPalBytes = 0x200,
+  ballMap = 0x409AD4,
+  ballMapBytes = 0x400,
+  ballGfx = 0x409C04,
+  ballGfxBytes = 0x4000,
+  streakPal = 0x40A758,
+  streakGfx = 0x40A778,
+  streakGfxBytes = 0x100,
+  streakMap = 0x40A7E4,
+  streakMapBytes = 0x800,
+  miscPal = 0x40A920,
+  miscPal2 = 0x40A940,
+  miscGfx = 0x40A960,
+  miscGfxBytes = 0xA00,
+  pokeGfx = 0xD02508,
+  pokePal = 0xD025C4,
+  -- gTrainerBackPic_Brendan / May + LZ pals (battle_1.c).
+  brendanBackGfx = 0xE57AC8,
+  brendanBackGfxBytes = 0x2000,
+  brendanBackPal = 0xE5A028,
+  mayBackGfx = 0xE5889C,
+  mayBackGfxBytes = 0x2000,
+  mayBackPal = 0xE5A050,
+  -- gTrainerBackPicTable[2] / gTrainerBackPicPaletteTable[2] (Wally).
+  -- Filled by Cinema.trainerBackOff if the cart layout moves.
+  wallyBackGfx = 0xE59588,
+  wallyBackGfxBytes = 0x2000,
+  wallyBackPal = 0xE5A280,
+  groudonPal = 0x393210,
+  groudonGfx = 0x393250,
+  groudonGfxBytes = 8192,
+  groudonMap = 0x3939EC,
+  groudonMapBytes = 1280,
+  lavaMap = 0x393BF8,
+  lavaMapBytes = 2048,
+  logoGfx = 0xE9D8CC,
+  logoGfxBytes = 16384,
+  logoMap = 0xE9F7E4,
+  logoMapBytes = 1024,
+  -- title_screen.c sets BG2X/Y to -29/-33 during setup, then
+  -- Task_TitleScreenPhase2 slides the logo up and Phase3 rests at BG2Y 0.
+  logoBg2X = -29,
+  logoBg2Y = 0,
+  versionGfx = 0xE9EFD0,
+  versionGfxBytes = 4096,
+  logoPal = 0xE9F624,
+  logoPalBytes = 0x1C0,
+  pressStartGfx = 0xE9D644,
+  pressStartGfxBytes = 0x520,
+  grassPal = 0x4121FC,
+  grassGfx = 0x41225C,
+  grassGfxBytes = 8192,
+  grassMap = 0x4126DC,
+  grassMapBytes = 2048,
+  -- load_intro_part2_graphics(1) Ruby: intro2_bgtrees.
+  treesPal = 0x413300,
+  treesPalBytes = 0x20,
+  treesGfx = 0x413340,
+  treesGfxBytes = 8192,
+  treesMap = 0x4139C8,
+  treesMapBytes = 4096,
+  -- load_intro_part2_graphics(0) Sapphire: intro2_bgclouds. Same cart.
+  cloudsPal = 0x412818,
+  cloudsPalBytes = 0x60,
+  cloudsGfx = 0x4128D8,
+  cloudsMap = 0x412EB4,
+  cloudsObjPal = 0x413184,
+  cloudsObjGfx = 0x4131C4,
+  intro2W = 256,
+  intro2H = 256,
+  -- graphics.c gCableCarBG_Pal (64 colours = 0x80). Sky RGB in pal 2
+  -- found the row; BG LZ, car LZ, door LZ, cord LZ follow.
+  cableCarBgPal = 0xE7EB9C,
+  cableCarBgPalBytes = 0x80,
+  cableCarPal = 0xE7EC1C,
+  cableCarBgGfx = 0xE7EC3C,
+  cableCarBgGfxBytes = 0x4000,
+  cableCarGfx = 0xE80614,
+  cableCarGfxBytes = 0x800,
+  cableCarDoorGfx = 0xE80914,
+  cableCarDoorGfxBytes = 0x40,
+  cableCarCordGfx = 0xE80944,
+  cableCarCordGfxBytes = 0x80,
+  -- cable_car.c LZ tilemaps packed immediately before the mountain map.
+  cableCarChimneyMap = 0x401820,
+  cableCarChimneyMapBytes = 360,
+  cableCarTreeMap = 0x401978,
+  cableCarTreeMapBytes = 960,
+  cableCarMountainMap = 0x401AFC,
+  cableCarMountainMapBytes = 1200,
+  cableCarPylonStemMap = 0x401CD4,
+  cableCarPylonStemMapBytes = 120,
+  -- egg_hatch.c sEggPalette / sEggHatchTiles / sEggShardTiles. SpriteSheet
+  -- tag 12345 at 0x20A3B0 points here (uncompressed 4bpp).
+  eggHatchPal = 0x209AD8,
+  eggHatchGfx = 0x209AF8,
+  eggHatchGfxBytes = 2048,
+  eggShardGfx = 0x20A2F8,
+  eggShardGfxBytes = 128,
+  -- trade.c gUnknown_0820C9F8. Hatch loads these at pal 1 and paints
+  -- shadow_map; the in-game trade GBA uses gba_map on the same tiles.
+  tradeGbaPal = 0x20C9F8,
+  tradeGbaPalBytes = 0xA0,
+  tradeGbaGfx = 0x20CA98,
+  tradeGbaGfxBytes = 0x1300,
+  hatchBgMap = 0x20F798,
+  hatchBgMapBytes = 0x1000,
+  tradeGbaMap = 0x210798,
+  tradeGbaMapBytes = 0x1000,
+  -- trade.c after gba_map: cable closeup, pokéball symbol, glow / cable
+  -- end / GBA-screen OBJs, then Mode 1 gba_affine.8bpp.
+  tradeCableMap = 0x211798,
+  tradeCableMapBytes = 0x800,
+  tradeBallPal = 0x20C3D8,
+  tradeBallGfx = 0x20C3F8,
+  tradeBallGfxBytes = 0x600,
+  tradeSymbolGfx = 0x20DD98,
+  tradeSymbolGfxBytes = 0x1A00,
+  tradeSymbolMap = 0x211F98,
+  tradeSymbolMapBytes = 0x100,
+  tradeCableEndPal = 0x2120B8,
+  tradeGlowPal = 0x212118,
+  tradeGlow1Gfx = 0x212138,
+  tradeGlow1GfxBytes = 0x200,
+  tradeGlow2Gfx = 0x212338,
+  tradeGlow2GfxBytes = 0x300,
+  tradeCableEndGfx = 0x212638,
+  tradeCableEndGfxBytes = 0x100,
+  tradeGbaScreenGfx = 0x212738,
+  tradeGbaScreenGfxBytes = 0x1000,
+  tradeAffineGfx = 0x213738,
+  tradeAffineGfxBytes = 0x2040,
+  tradeAffineMap = 0x215778,
+  tradeAffineMapBytes = 0x100,
+  -- rotating_gate.c: Fortree then Trick House configs (u16 x,y / u8 shape,ori
+  -- / u16 pad), then INCBIN order 1,2,3,5,6,7,0,4. Pal is OBJ tag 0x1108
+  -- (gObjectEventPalette5) matching OAM paletteNum 5.
+  rotatingGateFortree = 0x3D2964,
+  rotatingGatePal = 0x323C48,
+  rotatingGatePalTag = 0x1108,
+  rotatingGate = {
+    [0] = { off = 0x3D5A0C, bytes = 0x200, tw = 4, th = 4 },
+    [1] = { off = 0x3D2A0C, bytes = 0x800, tw = 8, th = 8 },
+    [2] = { off = 0x3D320C, bytes = 0x800, tw = 8, th = 8 },
+    [3] = { off = 0x3D3A0C, bytes = 0x800, tw = 8, th = 8 },
+    [4] = { off = 0x3D5C0C, bytes = 0x200, tw = 4, th = 4 },
+    [5] = { off = 0x3D420C, bytes = 0x800, tw = 8, th = 8 },
+    [6] = { off = 0x3D4A0C, bytes = 0x800, tw = 8, th = 8 },
+    [7] = { off = 0x3D520C, bytes = 0x800, tw = 8, th = 8 },
+  },
+  -- field_effect.c: pokeball_glow.4bpp + pal 04 (tag 0x1007), then
+  -- pokecenter monitors, big/small HoF monitors, pal 05 (tag 0x1010).
+  pokeballGlowGfx = 0x39E434,
+  pokeballGlowGfxBytes = 0x20,
+  pokeballGlowPal = 0x39E454,
+  pokecenterMon0Gfx = 0x39E474,
+  pokecenterMonGfxBytes = 0xC0,
+  pokecenterMon1Gfx = 0x39E534,
+  pokecenterMonPal = 0x369488,
+  hofMonitorBigGfx = 0x39E5F4,
+  hofMonitorBigGfxBytes = 0x200,
+  hofMonitorSmallGfx = 0x39E7F4,
+  hofMonitorSmallGfxBytes = 0x100,
+  hofMonitorPal = 0x39E8F4,
+  -- region_map.c INCBINs: cursor pal, small/large LZ, Brendan/May icons,
+  -- then 8bpp map + 64x64 affine tilemap. Pal loads at BG index 0x70.
+  regionMapCursorPal = 0x3E5AD0,
+  regionMapCursorSmallLz = 0x3E5AF0,
+  regionMapCursorSmallBytes = 0x100,
+  regionMapBrendanPal = 0x3E5C20,
+  regionMapBrendanGfx = 0x3E5C40,
+  regionMapIconBytes = 0x80,
+  regionMapMayPal = 0x3E5CC0,
+  regionMapMayGfx = 0x3E5CE0,
+  regionMapPal = 0x3E5D60,
+  regionMapPalCount = 32,
+  regionMapPalIndex = 0x70,
+  regionMapGfxLz = 0x3E5DA0,
+  regionMapGfxBytes = 0x3A40,
+  regionMapMapLz = 0x3E6B04,
+  regionMapMapBytes = 0x1000,
+  regionMapWrap = 512,
+  regionMapPitch = 64,
+  -- starter_choose.c: gBirchBagGrassPal then ball/circle pals, LZ maps/gfx.
+  -- Found because gOamData_83F76CC sits at 0x3F76CC after the circle gfx.
+  starterBagPal = 0x3F62EC,
+  starterGrassPal = 0x3F630C,
+  starterBallPal = 0x3F632C,
+  starterCirclePal = 0x3F634C,
+  starterBagMap = 0x3F636C,
+  starterBagMapBytes = 0x500,
+  starterGrassMap = 0x3F64F8,
+  starterGrassMapBytes = 0x800,
+  starterHelpGfx = 0x3F66F0,
+  starterHelpGfxBytes = 0x2000,
+  starterBallGfx = 0x3F7198,
+  starterBallGfxBytes = 0x800,
+  starterCircleGfx = 0x3F74B8,
+  starterCircleGfxBytes = 0x800,
+  -- field_weather_effects.c: 1/2.gbapal then fog2..sandstorm.4bpp.
+  weatherPal1 = 0x397108,
+  weatherPal2 = 0x397128,
+  weatherFog2Gfx = 0x397148,
+  weatherFog2GfxBytes = 0x800,
+  weatherFog1Gfx = 0x397948,
+  weatherFog1GfxBytes = 0x800,
+  weatherCloudGfx = 0x398148,
+  weatherCloudGfxBytes = 0x800,
+  weatherSnow0Gfx = 0x398948,
+  weatherSnow0GfxBytes = 0x20,
+  weatherSnow1Gfx = 0x398968,
+  weatherSnow1GfxBytes = 0x20,
+  weatherBubbleGfx = 0x398988,
+  weatherBubbleGfxBytes = 0x40,
+  weatherAshGfx = 0x3989C8,
+  weatherAshGfxBytes = 0x1000,
+  weatherRainGfx = 0x3999C8,
+  weatherRainGfxBytes = 0x600,
+  weatherSandGfx = 0x399FC8,
+  weatherSandGfxBytes = 0xA00,
+}
+
+local function align4(off)
+  off = math.floor(tonumber(off) or 0)
+  return off + ((4 - off % 4) % 4)
+end
+
+function Cinema.us(data)
+  local u = GbaHeader.mergeUs(data, Cinema.RUBY_US, SapphireOff.Cinema)
+  Cinema.applyIntro2Version(data, u)
+  Cinema.bindIntro1(data, u)
+  Cinema.bindCopyright(data, u)
+  Cinema.bindLegendary(data, u)
+  Cinema.bindBirchPortrait(data, u)
+  return u
+end
+
+-- Both carts ship pack 0 (clouds) and pack 1 (trees). Unique-byte overlay
+-- latches onto Ruby's mountains; Sapphire intro.c uses pack 0 + Latias.
+function Cinema.applyIntro2Version(data, u)
+  if type(u) ~= "table" then return u end
+  if not GbaHeader.isSapphireUsa(GbaHeader.parse(data)) then
+    u.treesPalBytes = u.treesPalBytes or Cinema.RUBY_US.treesPalBytes
+    return u
+  end
+  local r = Cinema.RUBY_US
+  local delta = (u.grassGfx or r.grassGfx) - r.grassGfx
+  u.treesPal = r.cloudsPal + delta
+  u.treesPalBytes = r.cloudsPalBytes
+  u.treesGfx = r.cloudsGfx + delta
+  u.treesMap = r.cloudsMap + delta
+  u.treesMapBytes = 4096
+  u.treeObjPal = r.cloudsObjPal + delta
+  u.treeObjGfx = r.cloudsObjGfx + delta
+  u.latiosPal = r.latiasPal + delta
+  u.latiosGfx = r.latiasGfx + delta
+  return u
+end
+
+-- dropPal (0x20) | gfPal (0x20) | gIntroTiles LZ | 16 intro1 pals | 4x
+-- intro1 maps (LZ 2048) | gIntro1BGLeavesGfx. Unique-byte overlay misses
+-- pals (not unique) and intro1Maps (a table). gfPal was still Ruby's.
+function Cinema.bindIntro1(data, u)
+  if type(u) ~= "table" or type(u.gfGfx) ~= "number" then return u end
+  u.gfPal = u.gfGfx - 0x20
+  u.dropPal = u.gfPal - 0x20
+  local ended = GbaLz77.streamEnd(data, u.gfGfx)
+  if not ended then return u end
+  u.intro1Pals = align4(ended)
+  local off = u.intro1Pals + 0x200
+  local maps = {}
+  for i = 1, 4 do
+    if type(data) ~= "string" or off + 4 > #data then return u end
+    if GbaBin.u8(data, off) ~= 0x10 then return u end
+    local mend = GbaLz77.streamEnd(data, off)
+    if not mend then return u end
+    maps[i] = off
+    off = align4(mend)
+  end
+  u.intro1Maps = maps
+  if type(data) == "string" and off + 4 <= #data and GbaBin.u8(data, off) == 0x10 then
+    local size = GbaBin.u8(data, off + 1)
+      + GbaBin.u8(data, off + 2) * 256
+      + GbaBin.u8(data, off + 3) * 65536
+    if size == 32768 then u.intro1Gfx = off end
+  end
+  return u
+end
+
+-- copyright.bin is not unique (repeats 01 00). Pal is 4-byte aligned after
+-- the LZ gfx; the raw 0x500 map follows the 16-color pal.
+function Cinema.bindCopyright(data, u)
+  if type(u) ~= "table" or type(u.copyrightGfx) ~= "number" then return u end
+  local ended = GbaLz77.streamEnd(data, u.copyrightGfx)
+  if not ended then return u end
+  u.copyrightPal = align4(ended)
+  u.copyrightMap = u.copyrightPal + 0x20
+  return u
+end
+
+-- field_effect.c: 64×64 uncompressed 4bpp (0x800) sits immediately before
+-- the pal. Unique-byte overlay finds the pal and misses the gfx, so Sapphire
+-- was slicing Ruby's portrait tiles.
+function Cinema.bindBirchPortrait(data, u)
+  if type(u) ~= "table" or type(u.birchPortraitPal) ~= "number" then return u end
+  local bytes = u.birchPortraitGfxBytes or Cinema.RUBY_US.birchPortraitGfxBytes
+  u.birchPortraitGfx = u.birchPortraitPal - bytes
+  return u
+end
+
+-- title_screen.c: dark+glow pal (0x40), LZ 8192 legendary tiles, LZ 1280
+-- body map, LZ 2048 backdrop (lava / water), then logo shine.
+function Cinema.bindLegendary(data, u)
+  if type(u) ~= "table" or type(u.groudonGfx) ~= "number" then return u end
+  if type(data) ~= "string" or u.groudonGfx + 4 > #data then return u end
+  if GbaBin.u8(data, u.groudonGfx) ~= 0x10 then return u end
+  local size = GbaBin.u8(data, u.groudonGfx + 1)
+    + GbaBin.u8(data, u.groudonGfx + 2) * 256
+    + GbaBin.u8(data, u.groudonGfx + 3) * 65536
+  if size ~= 8192 then return u end
+  local ended = GbaLz77.streamEnd(data, u.groudonGfx)
+  if not ended then return u end
+  u.groudonPal = u.groudonGfx - 0x40
+  u.groudonMap = align4(ended)
+  local mend = GbaLz77.streamEnd(data, u.groudonMap)
+  if not mend then return u end
+  u.lavaMap = align4(mend)
+  local lend = GbaLz77.streamEnd(data, u.lavaMap)
+  if lend then u.logoShineGfx = align4(lend) end
+  return u
+end
+
+local function bgr555(c)
+  local r = (c % 32) * 8 / 255
+  local g = (math.floor(c / 32) % 32) * 8 / 255
+  local b = (math.floor(c / 1024) % 32) * 8 / 255
+  return r, g, b
+end
+
+local function readPal(data, off, count)
+  count = count or 16
+  if off < 0 or off + count * 2 > #data then return nil end
+  local pal = {}
+  for c = 0, count - 1 do
+    pal[c] = { bgr555(GbaBin.u16(data, off + c * 2)) }
+  end
+  return pal
+end
+
+-- Split a concatenated 16-color bank dump (0x20 bytes each) for tilemap palN.
+local function palBanks(data, off, bytes)
+  local n = math.floor((bytes or 0x20) / 0x20)
+  if n < 1 then n = 1 end
+  local flat = readPal(data, off, n * 16)
+  if not flat then return nil end
+  local banks = {}
+  for b = 0, n - 1 do
+    local pal = {}
+    for c = 0, 15 do pal[c] = flat[b * 16 + c] end
+    banks[b] = pal
+  end
+  return banks
+end
+
+local function lz(data, off, expect)
+  if type(data) ~= "string" or type(off) ~= "number" then return nil end
+  if off < 0 or off + 4 > #data then return nil end
+  if GbaBin.u8(data, off) ~= 0x10 then return nil end
+  local raw = GbaLz77.decompress(data, off)
+  if not raw then return nil end
+  if expect and #raw ~= expect then return nil end
+  return raw
+end
+
+local function slice(data, off, n)
+  if type(data) ~= "string" or type(off) ~= "number" or type(n) ~= "number" then
+    return nil
+  end
+  if n < 1 or off < 0 or off + n > #data then return nil end
+  return data:sub(off + 1, off + n)
+end
+
+local function readPalLz(data, off)
+  local raw = lz(data, off, 0x20)
+  if not raw then return nil end
+  local pal = {}
+  for c = 0, 15 do
+    pal[c] = { bgr555(GbaBin.u16(raw, c * 2)) }
+  end
+  return pal
+end
+
+-- gTrainerBackPicTable / gTrainerBackPicPaletteTable: Brendan is index 0.
+-- Wally is 2. Needle is the Brendan {ptr, size 0x2000, tag 0} sheet entry.
+function Cinema.trainerBackOff(data, index, pal)
+  index = tonumber(index) or 0
+  local u = Cinema.us(data)
+  local gfxKnown = { u.brendanBackGfx, u.mayBackGfx, u.wallyBackGfx }
+  local palKnown = { u.brendanBackPal, u.mayBackPal, u.wallyBackPal }
+  if type(data) ~= "string" then
+    return pal and palKnown[index + 1] or gfxKnown[index + 1]
+  end
+  local gfxNeedle = GbaBin.packPtr(u.brendanBackGfx)
+    .. GbaBin.packU16(0x2000) .. GbaBin.packU16(0)
+  local at = data:find(gfxNeedle, 1, true)
+  if not at then
+    return pal and palKnown[index + 1] or gfxKnown[index + 1]
+  end
+  -- gTrainerBackPicPaletteTable is the three {ptr,tag} rows immediately
+  -- after gTrainerBackPicTable in battle_1.c.
+  local base = (at - 1)
+  if pal then base = base + 3 * 8 end
+  local ptr = GbaBin.u32(data, base + index * 8)
+  if GbaBin.isRomPtr(ptr) then return GbaBin.romOffset(ptr) end
+  return pal and palKnown[index + 1] or gfxKnown[index + 1]
+end
+
+local function blit4(image, px, py, tile, pal, hflip, vflip, skip0)
+  if not tile or #tile < Cinema.TILE_BYTES then return end
+  pal = pal or {}
+  for ty = 0, 7 do
+    for tx = 0, 7 do
+      local sx = hflip and (7 - tx) or tx
+      local sy = vflip and (7 - ty) or ty
+      local byte = tile:byte(sy * 4 + math.floor(sx / 2) + 1) or 0
+      local ci = (sx % 2 == 0) and (byte % 16) or math.floor(byte / 16)
+      if not (skip0 and ci == 0) then
+        local col = pal[ci] or { 0, 0, 0 }
+        local x, y = px + tx, py + ty
+        if x >= 0 and y >= 0 and x < image:getWidth() and y < image:getHeight() then
+          image:setPixel(x, y, col[1], col[2], col[3], 1)
+        end
+      end
+    end
+  end
+end
+
+function Cinema.paintTilemap(image, tiles, map, pals, mapW, mapH, scrollX, scrollY, skip0)
+  if not (image and tiles and map) then return image end
+  pals = pals or {}
+  mapW = mapW or Cinema.MAP_PITCH
+  mapH = mapH or math.floor(#map / 2 / mapW)
+  scrollX = scrollX or 0
+  scrollY = scrollY or 0
+  local tw = image:getWidth()
+  local th = image:getHeight()
+  local x0 = math.floor(scrollX / 8)
+  local y0 = math.floor(scrollY / 8)
+  local tilesN = math.floor(#tiles / Cinema.TILE_BYTES)
+  for row = 0, math.floor((th - 1) / 8) do
+    for col = 0, math.floor((tw - 1) / 8) do
+      local mx = (x0 + col) % mapW
+      local my = y0 + row
+      if my >= 0 and my < mapH then
+        local entry = GbaBin.u16(map, (my * mapW + mx) * 2)
+        local id = entry % 1024
+        if id < tilesN then
+          local palN = math.floor(entry / 4096) % 16
+          local hflip = math.floor(entry / 1024) % 2 == 1
+          local vflip = math.floor(entry / 2048) % 2 == 1
+          local pal = pals[palN] or pals[0]
+          local tile = tiles:sub(id * Cinema.TILE_BYTES + 1,
+            (id + 1) * Cinema.TILE_BYTES)
+          blit4(image, col * 8 - (scrollX % 8), row * 8 - (scrollY % 8),
+            tile, pal, hflip, vflip, skip0)
+        end
+      end
+    end
+  end
+  return image
+end
+
+-- Mode 1 affine BG, 8-bit tilemap, 256-color tiles. AFF256x256 wraps 256.
+function Cinema.paintAffine8(image, tiles, map, pal, bg2x, bg2y, wrap, pitch)
+  if not (image and tiles and map) then return image end
+  pal = pal or {}
+  bg2x = bg2x or 0
+  bg2y = bg2y or 0
+  wrap = wrap or 256
+  pitch = pitch or 32
+  local tw, th = image:getWidth(), image:getHeight()
+  local tilesN = math.floor(#tiles / Cinema.TILE_8BPP)
+  local mapN = #map
+  for sy = 0, th - 1 do
+    for sx = 0, tw - 1 do
+      local tx = (sx + bg2x) % wrap
+      local ty = (sy + bg2y) % wrap
+      if tx < 0 then tx = tx + wrap end
+      if ty < 0 then ty = ty + wrap end
+      local col, row = math.floor(tx / 8), math.floor(ty / 8)
+      local idx = row * pitch + col + 1
+      if idx >= 1 and idx <= mapN then
+        local id = map:byte(idx) or 0
+        if id < tilesN then
+          local px, py = tx % 8, ty % 8
+          local ci = tiles:byte(id * Cinema.TILE_8BPP + py * 8 + px + 1) or 0
+          if ci ~= 0 then
+            local c = pal[ci]
+            if c then
+              image:setPixel(sx, sy, c[1], c[2], c[3], 1)
+            end
+          end
+        end
+      end
+    end
+  end
+  return image
+end
+
+local function blitObj4(image, tiles, pal, tile0, tw, th, dx, dy)
+  if not (image and tiles and pal) then return end
+  local tilesN = math.floor(#tiles / Cinema.TILE_BYTES)
+  for row = 0, th - 1 do
+    for col = 0, tw - 1 do
+      local id = tile0 + row * tw + col
+      if id >= 0 and id < tilesN then
+        local tile = tiles:sub(id * Cinema.TILE_BYTES + 1,
+          (id + 1) * Cinema.TILE_BYTES)
+        blit4(image, dx + col * 8, dy + row * 8, tile, pal, false, false, true)
+      end
+    end
+  end
+end
+
+local function blitObj8(image, tiles, pal, tile0, tw, th, dx, dy)
+  if not (image and tiles and pal) then return end
+  local tilesN = math.floor(#tiles / Cinema.TILE_8BPP)
+  for row = 0, th - 1 do
+    for col = 0, tw - 1 do
+      local id = tile0 + row * tw + col
+      if id >= 0 and id < tilesN then
+        local base = id * Cinema.TILE_8BPP
+        for ty = 0, 7 do
+          for tx = 0, 7 do
+            local ci = tiles:byte(base + ty * 8 + tx + 1) or 0
+            if ci ~= 0 then
+              local c = pal[ci]
+              if c then
+                local x, y = dx + col * 8 + tx, dy + row * 8 + ty
+                if x >= 0 and y >= 0 and x < image:getWidth()
+                    and y < image:getHeight() then
+                  image:setPixel(x, y, c[1], c[2], c[3], 1)
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+function Cinema.renderCopyright(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.copyrightGfx, 1376)
+  local pal = readPal(data, u.copyrightPal, 16)
+  local map = data:sub(u.copyrightMap + 1, u.copyrightMap + u.copyrightMapBytes)
+  if not (gfx and pal and #map == u.copyrightMapBytes) then return nil end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+  return Cinema.paintTilemap(image, gfx, map, { [0] = pal }, 32, 20, 0, 0, false)
+end
+
+-- The four part-1 BGs parallax at different rates, so each stays its own
+-- 256x256 layer and the runtime scrolls them independently. Only BG3 is
+-- opaque; the rest keep color 0 transparent.
+function Cinema.renderIntro1Layers(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.intro1Gfx, u.intro1GfxBytes)
+  if not gfx then return nil end
+  local pals = {}
+  for i = 0, 15 do
+    pals[i] = readPal(data, u.intro1Pals + i * 32, 16)
+    if not pals[i] then return nil end
+  end
+  local layers = {}
+  for i = 1, 4 do
+    local map = lz(data, u.intro1Maps[i], 2048)
+    if not map then return nil end
+    local opaque = i == 4
+    local image = ImageWriter.blank(u.intro1W, u.intro1H, 0, 0, 0,
+      opaque and 1 or 0)
+    Cinema.paintTilemap(image, gfx, map, pals, 32, 32, 0, 0, not opaque)
+    layers[i] = image
+  end
+  return layers
+end
+
+function Cinema.renderGameFreak(data)
+  -- CreateGameFreakLogo(120, 80): 9x 16x16 + 8x 8x8 + 32x64 OBJ.
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.gfGfx, u.gfGfxBytes)
+  local pal = readPal(data, u.gfPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  local letters = { 80, 84, 88, 92, 96, 100, 104 }
+  local big = {
+    { 0, -72 }, { 1, -56 }, { 2, -40 }, { 3, -24 }, { 4, 8 },
+    { 5, 24 }, { 3, 40 }, { 1, 56 }, { 6, 72 },
+  }
+  local small = {
+    { 0, -28 }, { 1, -20 }, { 2, -12 }, { 3, -4 },
+    { 2, 4 }, { 4, 12 }, { 5, 20 }, { 3, 28 },
+  }
+  -- Letters are CreateSprite'd first (lower OAM index = in front of the G).
+  blitObj4(image, gfx, pal, 128, 4, 8, 120 - 16, 76 - 32)
+  for i = 1, #big do
+    local cx, cy = 120 + big[i][2], 76
+    blitObj4(image, gfx, pal, letters[big[i][1] + 1], 2, 2, cx - 8, cy - 8)
+  end
+  for i = 1, #small do
+    local cx, cy = 120 + small[i][2], 92
+    blitObj4(image, gfx, pal, 112 + small[i][1], 1, 1, cx - 4, cy - 4)
+  end
+  return image
+end
+
+local function sheetOf(data, gfxOff, gfxBytes, palOff, frames, tw, th)
+  local gfx = lz(data, gfxOff, gfxBytes)
+  local pal = readPal(data, palOff, 16)
+  if not (gfx and pal) then return nil end
+  local fw, fh = tw * Cinema.TILE, th * Cinema.TILE
+  local image = ImageWriter.blank(fw * frames, fh, 0, 0, 0, 0)
+  local tilesPer = tw * th
+  for i = 0, frames - 1 do
+    blitObj4(image, gfx, pal, i * tilesPer, tw, th, i * fw, 0)
+  end
+  return image
+end
+
+-- CreateWaterDrop: 32x32 drop (anim 2, tile 0) and 64x32 splash (anim 3, tile 48).
+function Cinema.renderIntro1Drop(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.gfGfx, u.gfGfxBytes)
+  local pal = readPal(data, u.dropPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(32, 32, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 4, 4, 0, 0)
+  return image
+end
+
+function Cinema.renderIntro1Splash(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.gfGfx, u.gfGfxBytes)
+  local pal = readPal(data, u.dropPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(64, 32, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 48, 8, 4, 0, 0)
+  return image
+end
+
+function Cinema.renderIntro1Eon(data)
+  local u = Cinema.us(data)
+  return sheetOf(data, u.eonGfx, u.eonGfxBytes, u.eonPal, 1, 8, 4)
+end
+
+-- gUnknown_08416C10: 32x32 (tile 0) + two 16x32 (tiles 16 and 24).
+-- Cloud OBJ anims use tiles 0 / 16 / 20 instead of pine 0 / 16 / 24.
+function Cinema.renderIntro2TreeObj(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.treeObjGfx, u.treeObjGfxBytes)
+  local pal = readPal(data, u.treeObjPal, 16)
+  if not (gfx and pal) then return nil end
+  local small = 24
+  if (u.treesPalBytes or 0x20) >= 0x60 then small = 20 end
+  local image = ImageWriter.blank(64, 32, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 4, 4, 0, 0)
+  blitObj4(image, gfx, pal, 16, 2, 4, 32, 0)
+  blitObj4(image, gfx, pal, small, 2, 4, 48, 0)
+  return image
+end
+
+-- 7x 64x64 rider (gSpriteTemplate_8416CDC). Bicycle is a separate 64x32.
+function Cinema.renderIntro2Brendan(data)
+  local u = Cinema.us(data)
+  return sheetOf(data, u.brendanGfx, u.brendanGfxBytes, u.brendanPal, 7, 8, 8)
+end
+
+function Cinema.renderIntro2May(data)
+  local u = Cinema.us(data)
+  return sheetOf(data, u.mayGfx, u.mayGfxBytes, u.mayPal, 7, 8, 8)
+end
+
+function Cinema.renderIntro2Bike(data)
+  local u = Cinema.us(data)
+  return sheetOf(data, u.bikeGfx, u.bikeGfxBytes, u.brendanPal, 4, 8, 4)
+end
+
+-- Two 64x64 halves (anim 0 / 1) side by side = 128x64 Latios.
+function Cinema.renderIntro2Latios(data)
+  local u = Cinema.us(data)
+  return sheetOf(data, u.latiosGfx, u.latiosGfxBytes, u.latiosPal, 2, 8, 8)
+end
+
+-- Mode 1 AFF256x256 8bpp pokéball. Runtime zoom is Game3.intro3Ball.
+function Cinema.renderIntro3Ball(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.ballPal, 256)
+  local map = lz(data, u.ballMap, u.ballMapBytes)
+  local gfx = lz(data, u.ballGfx, u.ballGfxBytes)
+  if not (pal and map and gfx) then return nil end
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 0)
+  return Cinema.paintAffine8(image, gfx, map, pal, 0, 0)
+end
+
+function Cinema.renderIntro3Streaks(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.streakPal, 16)
+  local gfx = lz(data, u.streakGfx, u.streakGfxBytes)
+  local map = lz(data, u.streakMap, u.streakMapBytes)
+  if not (pal and gfx and map) then return nil end
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 0)
+  return Cinema.paintTilemap(image, gfx, map, { [0] = pal }, 32, 32, 0, 0, true)
+end
+
+-- 4x 64x64 back-pic frames. pals are LZ 0x20.
+function Cinema.renderIntro3Trainer(data, who)
+  local u = Cinema.us(data)
+  local gfxOff, palOff, bytes = u.brendanBackGfx, u.brendanBackPal,
+    u.brendanBackGfxBytes
+  if who == "may" then
+    gfxOff, palOff, bytes = u.mayBackGfx, u.mayBackPal, u.mayBackGfxBytes
+  elseif who == "wally" then
+    gfxOff = Cinema.trainerBackOff(data, 2) or u.wallyBackGfx
+    palOff = Cinema.trainerBackOff(data, 2, true) or u.wallyBackPal
+    bytes = u.wallyBackGfxBytes or 0x2000
+  end
+  local gfx = lz(data, gfxOff, bytes)
+  local pal = readPalLz(data, palOff)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(256, 64, 0, 0, 0, 0)
+  for i = 0, 3 do
+    blitObj4(image, gfx, pal, i * 64, 8, 8, i * 64, 0)
+  end
+  return image
+end
+
+function Cinema.renderIntro3Brendan(data)
+  return Cinema.renderIntro3Trainer(data, "brendan")
+end
+
+function Cinema.renderIntro3May(data)
+  return Cinema.renderIntro3Trainer(data, "may")
+end
+
+function Cinema.renderIntro3Wally(data)
+  return Cinema.renderIntro3Trainer(data, "wally")
+end
+
+function Cinema.renderIntro3Poke(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.pokeGfx)
+  local pal = readPalLz(data, u.pokePal)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 2, 2, 0, 0)
+  return image
+end
+
+function Cinema.renderIntro3Misc(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.miscGfx, u.miscGfxBytes)
+  local pal = readPal(data, u.miscPal, 16)
+  if not (gfx and pal) then return nil end
+  -- Tile 16 is the 64x64 blast; tile 1 is the 8x8 pop spark.
+  local blast = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(blast, gfx, pal, 16, 8, 8, 0, 0)
+  local spark = ImageWriter.blank(8, 8, 0, 0, 0, 0)
+  blitObj4(spark, gfx, pal, 1, 1, 1, 0, 0)
+  return blast, spark
+end
+
+-- pal 2004 (misc2): water drop tile 2, ember tile 10. Both 16x16.
+function Cinema.renderIntro3AttackGfx(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.miscGfx, u.miscGfxBytes)
+  local pal = readPal(data, u.miscPal2, 16)
+  if not (gfx and pal) then return nil end
+  local water = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+  blitObj4(water, gfx, pal, 2, 2, 2, 0, 0)
+  local ember = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+  blitObj4(ember, gfx, pal, 10, 2, 2, 0, 0)
+  return water, ember
+end
+
+function Cinema.renderIntro2Layers(data)
+  -- load_intro_part2_graphics: Ruby pack 1 (trees, 1 pal) / Sapphire pack 0
+  -- (clouds, 3 pals). The 0x1000 map fills screenbase 6 (BG3) and 7 (BG2).
+  -- Grass is BG1 pri 1 on both carts.
+  local u = Cinema.us(data)
+  local grass = lz(data, u.grassGfx, u.grassGfxBytes)
+  local gmap = lz(data, u.grassMap, u.grassMapBytes)
+  local gpal = readPal(data, u.grassPal, 16)
+  local trees = lz(data, u.treesGfx, u.treesGfxBytes)
+  local tmap = lz(data, u.treesMap, u.treesMapBytes)
+  local tpals = palBanks(data, u.treesPal, u.treesPalBytes)
+  if not (grass and gmap and gpal) then return nil end
+  local sky = (tpals and tpals[0] and tpals[0][0]) or gpal[0] or { 0, 0, 0 }
+  local treeImg = ImageWriter.blank(u.intro2W, u.intro2H, sky[1], sky[2], sky[3], 1)
+  local midImg = ImageWriter.blank(u.intro2W, u.intro2H, 0, 0, 0, 0)
+  if trees and tmap and tpals then
+    Cinema.paintTilemap(treeImg, trees, tmap, tpals, 32, 64, 0, 0, false)
+    Cinema.paintTilemap(midImg, trees, tmap, tpals, 32, 64, 0, 256, true)
+  end
+  local grassImg = ImageWriter.blank(u.intro2W, u.intro2H, 0, 0, 0, 0)
+  Cinema.paintTilemap(grassImg, grass, gmap, { [0] = gpal }, 32, 32, 0, 0, true)
+  return treeImg, grassImg, midImg
+end
+
+function Cinema.renderIntro2(data)
+  local treeImg, grassImg, midImg = Cinema.renderIntro2Layers(data)
+  if not treeImg then return nil end
+  local function over(front)
+    if not front then return end
+    local w, h = front:getDimensions()
+    for y = 0, h - 1 do
+      for x = 0, w - 1 do
+        local r, g, b, a = front:getPixel(x, y)
+        if a > 0 then treeImg:setPixel(x, y, r, g, b, a) end
+      end
+    end
+  end
+  over(midImg)
+  over(grassImg)
+  return treeImg
+end
+
+function Cinema.renderTitle(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local gmap = lz(data, u.groudonMap, u.groudonMapBytes)
+  local lmap = lz(data, u.lavaMap, u.lavaMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and gmap and lmap and dark) then return nil end
+  -- title_screen.c LoadPalette(..., 0xE0): pal 14 is groudon_dark, pal 15
+  -- is groudon_glow (lava). 0xEF (pal 14 color 15) is the pulsing marking.
+  -- Color 0 on both maps is transparent; paint Groudon over lava so the
+  -- body is not buried without EVA/EVB blend.
+  -- Ruby markings: RGB(0,0,c) mid pulse. Sapphire: RGB(c,0,0) Kyogre plates.
+  local mark = { 0, 0, 16 / 31 }
+  if GbaHeader.isSapphireUsa(GbaHeader.parse(data)) then
+    mark = { 16 / 31, 0, 0 }
+  end
+  local body = {}
+  for i = 0, 15 do body[i] = dark[i] end
+  body[15] = mark
+  local pals = { [0] = dark, [14] = body, [15] = glow or dark }
+  local bg = dark[0]
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H,
+    bg[1], bg[2], bg[3], 1)
+  Cinema.paintTilemap(image, gfx, lmap, pals, 32, 32, 0, 0, true)
+  Cinema.paintTilemap(image, gfx, gmap, pals, 32, 20, 0, 0, true)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  local logoTiles = lz(data, u.logoGfx, u.logoGfxBytes)
+  local logoMap = lz(data, u.logoMap, u.logoMapBytes)
+  if logoTiles and logoMap then
+    Cinema.paintAffine8(image, logoTiles, logoMap, logoPal, u.logoBg2X, u.logoBg2Y)
+  end
+  local version = lz(data, u.versionGfx, u.versionGfxBytes)
+  if version then
+    -- Two 64x32 8bpp OBJ. CreateSprite x/y are centers; y goal is 66.
+    blitObj8(image, version, logoPal, 0, 8, 4, 98 - 32, 66 - 16)
+    blitObj8(image, version, logoPal, 32, 8, 4, 162 - 32, 66 - 16)
+  end
+  local press = lz(data, u.pressStartGfx, u.pressStartGfxBytes)
+  if press then
+    -- CreateCopyrightBanner(120, 148): five 32x8 OBJ, x starts at 56.
+    local x = 120 - 64
+    for i = 0, 4 do
+      blitObj4(image, press, logoPal, 12 + i * 4, 4, 1, x + i * 32 - 16, 148 - 4)
+    end
+  end
+  return image
+end
+
+function Cinema.renderLogoShine(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.logoShineGfx, u.logoShineGfxBytes)
+  local pal = readPal(data, u.logoShinePal, 16)
+  if not (gfx and pal) then return nil end
+  -- OAM size 3 square = 64x64 shine sweep sprite.
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  -- Soften for additive draw: luminance -> alpha (stock OBJ mode 1), not a
+  -- fat opaque bar. No cache format bump; runtime also remaps in cinemaPic.
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      local lum = math.max(r or 0, g or 0, b or 0)
+      if (a or 0) < 0.01 or lum < 0.02 then return 0, 0, 0, 0 end
+      return r, g, b, math.min(1, lum * 0.65)
+    end)
+  end
+  return image
+end
+
+-- Layered title pieces so runtime can scroll lava, pulse markings, slide logo.
+function Cinema.renderTitleLava(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local lmap = lz(data, u.lavaMap, u.lavaMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and lmap and dark) then return nil end
+  -- Stock lava_map entries use pal bank 15 = groudon_glow (bubbly lava).
+  -- mGBA title frames read ~RGB(246,24,16); raw glow reds top out ~140.
+  -- Boost red channel toward stock while preserving relative bubble shade.
+  -- Sapphire water_map uses kyogre_glow (dark blues); lift blue the same way.
+  local sapphire = GbaHeader.isSapphireUsa(GbaHeader.parse(data))
+  local function boost(pal)
+    if not pal then return pal end
+    local out = {}
+    for i = 0, 15 do
+      local c = pal[i] or { 0, 0, 0 }
+      local r, g, b = c[1] or 0, c[2] or 0, c[3] or 0
+      if sapphire then
+        if b > g + 0.05 and b > r + 0.05 then
+          local t = math.min(1, b / 0.55)
+          b = math.min(1, 0.72 + 0.28 * t)
+          g = math.min(b * 0.45, math.max(g, b * 0.30))
+          r = math.min(b * 0.15, r * 0.40)
+        end
+      elseif r > g + 0.05 and r > b + 0.05 then
+        local t = math.min(1, r / 0.55)
+        r = math.min(1, 0.72 + 0.28 * t)
+        g = math.min(r * 0.10, g * 0.40)
+        b = math.min(r * 0.07, b * 0.40)
+      end
+      out[i] = { r, g, b }
+    end
+    return out
+  end
+  local lavaPal = boost(glow or dark)
+  local pals = { [0] = lavaPal, [14] = dark, [15] = lavaPal }
+  local bg = lavaPal[1] or lavaPal[0] or dark[0]
+  local image = ImageWriter.blank(256, 256, bg[1], bg[2], bg[3], 1)
+  return Cinema.paintTilemap(image, gfx, lmap, pals, 32, 32, 0, 0, true)
+end
+
+-- Lighter scrolling bubble overlay (glow pal). Darker texels keyed out so
+-- yellowish/orange blobs scroll over the dark base.
+function Cinema.renderTitleLavaBubbles(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local lmap = lz(data, u.lavaMap, u.lavaMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and lmap and glow) then return nil end
+  local pals = { [0] = glow, [14] = dark or glow, [15] = glow }
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 0)
+  Cinema.paintTilemap(image, gfx, lmap, pals, 32, 32, 0, 0, true)
+  local sapphire = GbaHeader.isSapphireUsa(GbaHeader.parse(data))
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      local lum = 0.35 * r + 0.45 * g + 0.20 * b
+      -- Glow sheet is dark (~lum 0.18-0.28); keep relative highlights.
+      -- Sapphire water foam is darker navy; a 0.16 cut keys the whole layer.
+      local cut = sapphire and 0.22 or 0.16
+      if lum < cut then return 0, 0, 0, 0 end
+      local t = math.min(1, (lum - cut) / 0.14)
+      if sapphire then
+        local yr = math.min(1, r * 0.25)
+        local yg = math.min(1, g * 0.55 + (80 / 255) * 0.35 * t)
+        local yb = math.min(1, b * 0.45 + 1.00 * 0.55 * t)
+        return yr, yg, yb, math.min(1, 0.65 + 0.35 * t)
+      end
+      local yr = math.min(1, r * 0.45 + 1.00 * 0.55 * t)
+      local yg = math.min(1, g * 0.35 + (123 / 255) * 0.55 * t)
+      local yb = math.min(1, b * 0.20)
+      return yr, yg, yb, math.min(1, 0.65 + 0.35 * t)
+    end)
+  end
+  return image
+end
+
+function Cinema.renderTitleGroudon(data, markIntensity)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.groudonGfx, u.groudonGfxBytes)
+  local gmap = lz(data, u.groudonMap, u.groudonMapBytes)
+  local dark = readPal(data, u.groudonPal, 16)
+  local glow = readPal(data, u.groudonPal + 32, 16)
+  if not (gfx and gmap and dark) then return nil end
+  local intensity = markIntensity
+  if intensity == nil then intensity = 16 end
+  if intensity < 0 then intensity = 0 end
+  if intensity > 31 then intensity = 31 end
+  -- pret title_screen.c Ruby: LEGENDARY_MARKING_COLOR(c) = RGB(0, 0, c).
+  -- Sapphire: RGB(c, 0, 0) red Kyogre plates. Bake mid intensity; runtime pulses.
+  local c = intensity / 31
+  local sapphire = GbaHeader.isSapphireUsa(GbaHeader.parse(data))
+  local mark = sapphire and { c, 0, 0 } or { 0, 0, c }
+  local body = {}
+  for i = 0, 15 do body[i] = dark[i] end
+  body[15] = mark
+  local pals = { [0] = dark, [14] = body, [15] = glow or dark }
+  -- Stamp bright green on clear so paletted PNG encode (no tRNS) still
+  -- carries a chroma key. Game3Boot cinemaPic keys green -> alpha.
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 1, 0, 1)
+  Cinema.paintTilemap(image, gfx, gmap, pals, 32, 20, 0, 0, true)
+  -- Body stays opaque here; translucency is stock BLDCNT/BLDALPHA at draw.
+  return image
+end
+
+function Cinema.renderTitleLogo(data, bg2y)
+  local u = Cinema.us(data)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  local logoTiles = lz(data, u.logoGfx, u.logoGfxBytes)
+  local logoMap = lz(data, u.logoMap, u.logoMapBytes)
+  if not (logoTiles and logoMap) then return nil end
+  local y = bg2y
+  if y == nil then y = u.logoBg2Y end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  return Cinema.paintAffine8(image, logoTiles, logoMap, logoPal, u.logoBg2X, y)
+end
+
+function Cinema.renderVersionBanner(data)
+  local u = Cinema.us(data)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  local version = lz(data, u.versionGfx, u.versionGfxBytes)
+  if not version then return nil end
+  -- Two 64x32 8bpp halves side by side (left tile 0, right tile 32).
+  local image = ImageWriter.blank(128, 32, 0, 0, 0, 0)
+  blitObj8(image, version, logoPal, 0, 8, 4, 0, 0)
+  blitObj8(image, version, logoPal, 32, 8, 4, 64, 0)
+  return image
+end
+
+function Cinema.renderTitleCopyright(data)
+  local u = Cinema.us(data)
+  local press = lz(data, u.pressStartGfx, u.pressStartGfxBytes)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  if not press then return nil end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  local x = 120 - 64
+  for i = 0, 4 do
+    blitObj4(image, press, logoPal, 12 + i * 4, 4, 1, x + i * 32 - 16, 148 - 4)
+  end
+
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      -- Stock PRESS START / copyright are white (logo-pal index often encodes
+      -- yellow fill). Remap near-yellow/cream opaque texels to white.
+      if r > 0.85 and g > 0.70 and b < 0.45 then
+        return 1, 1, 1, 1
+      end
+      return r, g, b, a
+    end)
+  end
+  return image
+end
+
+function Cinema.renderBirchBg(data)
+  local u = Cinema.us(data)
+  local map = lz(data, u.birchMap, u.birchMapBytes)
+  local shadow = lz(data, u.birchShadowGfx, u.birchShadowGfxBytes)
+  local pal0 = readPal(data, u.birchBg0Pal, 16)
+  local pal1 = readPal(data, u.birchBg1Pal, 16)
+  local pal2 = readPal(data, u.birchBg2Pal, 16)
+  if not (map and shadow and pal0 and pal1) then return nil end
+  local pals = { [0] = pal0, [1] = pal1, [2] = pal2 or pal0 }
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H,
+    pal0[0][1], pal0[0][2], pal0[0][3], 1)
+  Cinema.paintTilemap(image, shadow, map, pals, 32, 20, 0, 0, false)
+  return image
+end
+
+function Cinema.renderBirchPortrait(data)
+  local u = Cinema.us(data)
+  local gfx = slice(data, u.birchPortraitGfx, u.birchPortraitGfxBytes)
+  local pal = readPal(data, u.birchPortraitPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  return image
+end
+
+function Cinema.renderTrainerFront(data, who)
+  local u = Cinema.us(data)
+  local gfxOff, palOff = u.trainerFrontBrendanGfx, u.trainerFrontBrendanPal
+  if who == "may" then
+    gfxOff, palOff = u.trainerFrontMayGfx, u.trainerFrontMayPal
+  end
+  local gfx = lz(data, gfxOff, u.trainerFrontGfxBytes)
+  local pal = readPalLz(data, palOff)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 8, 8, 0, 0)
+  return image
+end
+
+function Cinema.renderPressStart(data)
+  local u = Cinema.us(data)
+  local press = lz(data, u.pressStartGfx, u.pressStartGfxBytes)
+  local logoPal = {}
+  for c = 0, math.floor(u.logoPalBytes / 2) - 1 do
+    logoPal[c] = { bgr555(GbaBin.u16(data, u.logoPal + c * 2)) }
+  end
+  if not press then return nil end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 0)
+  -- CreatePressStartBanner(120, 108): three 32x8 OBJ, x starts at 88.
+  local x = 120 - 32
+  for i = 0, 2 do
+    blitObj4(image, press, logoPal, i * 4, 4, 1, x + i * 32 - 16, 108 - 4)
+  end
+
+  if image and image.mapPixel then
+    image:mapPixel(function(_, _, r, g, b, a)
+      r, g, b, a = r or 0, g or 0, b or 0, a or 0
+      if a < 0.01 then return 0, 0, 0, 0 end
+      -- Stock PRESS START / copyright are white (logo-pal index often encodes
+      -- yellow fill). Remap near-yellow/cream opaque texels to white.
+      if r > 0.85 and g > 0.70 and b < 0.45 then
+        return 1, 1, 1, 1
+      end
+      return r, g, b, a
+    end)
+  end
+  return image
+end
+
+local function save(image, path)
+  if not image then return nil end
+  local ok = pcall(ImageWriter.save, image, path)
+  if not ok then return nil end
+  return path
+end
+
+-- gCableCarPylonHookTilemapEntries. Palette 3, tiles 0-9.
+Cinema.PYLON_HOOK = {
+  0x3000, 0x3001, 0x3002, 0x3003, 0x3004,
+  0x3005, 0x3006, 0x3007, 0x3008, 0x3009,
+}
+
+local function newScreen()
+  local t = {}
+  for i = 1, 1024 do t[i] = 0 end
+  return t
+end
+
+-- CableCarUtil_CopyWrapped: dest is a 32x32 screenblock.
+local function copyWrapped(dest, src, srcOff, left, top, width, height)
+  if not src then return end
+  local si = srcOff or 0
+  local y = top
+  for _ = 1, height do
+    local x = left
+    for _ = 1, width do
+      dest[(y % 32) * 32 + (x % 32) + 1] = GbaBin.u16(src, si * 2)
+      si = si + 1
+      x = x + 1
+    end
+    y = y + 1
+  end
+end
+
+local function packScreen(cells)
+  local unpack = table.unpack or unpack
+  local parts, buf, n = {}, {}, 0
+  for i = 1, 1024 do
+    local e = cells[i] or 0
+    buf[#buf + 1] = e % 256
+    buf[#buf + 1] = math.floor(e / 256) % 256
+    if #buf >= 256 then
+      n = n + 1
+      parts[n] = string.char(unpack(buf))
+      buf = {}
+    end
+  end
+  if #buf > 0 then
+    n = n + 1
+    parts[n] = string.char(unpack(buf))
+  end
+  return table.concat(parts)
+end
+
+local function readBgPals(data, off)
+  local pals = {}
+  for i = 0, 3 do
+    pals[i] = readPal(data, off + i * 32, 16)
+    if not pals[i] then return nil end
+  end
+  return pals
+end
+
+local function paintScreen(tiles, pals, cells, skip0, fill)
+  local image = ImageWriter.blank(256, 256,
+    fill and fill[1] or 0, fill and fill[2] or 0,
+    fill and fill[3] or 0, fill and 1 or 0)
+  return Cinema.paintTilemap(image, tiles, packScreen(cells), pals,
+    32, 32, 0, 0, skip0)
+end
+
+function Cinema.renderCableCar(data)
+  local u = Cinema.us(data)
+  local tiles = lz(data, u.cableCarBgGfx, u.cableCarBgGfxBytes)
+  local pals = readBgPals(data, u.cableCarBgPal)
+  local mountain = lz(data, u.cableCarMountainMap, u.cableCarMountainMapBytes)
+  local trees = lz(data, u.cableCarTreeMap, u.cableCarTreeMapBytes)
+  local chimney = lz(data, u.cableCarChimneyMap, u.cableCarChimneyMapBytes)
+  local stem = lz(data, u.cableCarPylonStemMap, u.cableCarPylonStemMapBytes)
+  local carTiles = lz(data, u.cableCarGfx, u.cableCarGfxBytes)
+  local doorTiles = lz(data, u.cableCarDoorGfx, u.cableCarDoorGfxBytes)
+  local cordTiles = lz(data, u.cableCarCordGfx, u.cableCarCordGfxBytes)
+  local carPal = readPal(data, u.cableCarPal, 16)
+  if not (tiles and pals and mountain and trees and chimney and stem) then
+    return nil
+  end
+  local mt = newScreen()
+  copyWrapped(mt, mountain, 0, 0, 0, 30, 20)
+  local tr = newScreen()
+  copyWrapped(tr, trees, 0, 0, 17, 32, 15)
+  local py = newScreen()
+  local hook = ""
+  for i = 1, #Cinema.PYLON_HOOK do
+    local e = Cinema.PYLON_HOOK[i]
+    hook = hook .. string.char(e % 256, math.floor(e / 256) % 256)
+  end
+  copyWrapped(py, hook, 0, 0, 0, 5, 2)
+  copyWrapped(py, stem, 0, 0, 2, 2, 20)
+  local ch = newScreen()
+  -- cable_car.c case 6: five 12x3 chimney strips onto BG0.
+  copyWrapped(ch, chimney, 0x48, 0, 14, 12, 3)
+  copyWrapped(ch, chimney, 0x6C, 12, 17, 12, 3)
+  copyWrapped(ch, chimney, 0x90, 24, 20, 12, 3)
+  copyWrapped(ch, chimney, 0x00, 0, 17, 12, 3)
+  copyWrapped(ch, chimney, 0x24, 0, 20, 12, 3)
+  copyWrapped(ch, chimney, 0x00, 12, 20, 12, 3)
+  copyWrapped(ch, chimney, 0x24, 12, 23, 12, 3)
+  copyWrapped(ch, chimney, 0x00, 24, 23, 12, 3)
+  local out = {
+    mountain = paintScreen(tiles, pals, mt, false, pals[2] and pals[2][1]),
+    trees = paintScreen(tiles, pals, tr, true),
+    pylon = paintScreen(tiles, pals, py, true),
+    chimney = paintScreen(tiles, pals, ch, true),
+  }
+  if carTiles and carPal then
+    local car = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+    blitObj4(car, carTiles, carPal, 0, 8, 8, 0, 0)
+    out.car = car
+  end
+  if doorTiles and carPal then
+    local door = ImageWriter.blank(16, 8, 0, 0, 0, 0)
+    blitObj4(door, doorTiles, carPal, 0, 2, 1, 0, 0)
+    out.door = door
+  end
+  if cordTiles and carPal then
+    local cord = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+    blitObj4(cord, cordTiles, carPal, 0, 2, 2, 0, 0)
+    out.cord = cord
+  end
+  return out
+end
+
+-- CB2_ChooseStarter: grass BG3 under bag BG2 (color 0 punch-through), then
+-- four 32x32 ball/hand OBJ frames and one 64x64 ball-open circle.
+function Cinema.renderStarterChoose(data)
+  local u = Cinema.us(data)
+  local tiles = lz(data, u.starterHelpGfx, u.starterHelpGfxBytes)
+  local bagMap = lz(data, u.starterBagMap, u.starterBagMapBytes)
+  local grassMap = lz(data, u.starterGrassMap, u.starterGrassMapBytes)
+  local bagPal = readPal(data, u.starterBagPal, 16)
+  local grassPal = readPal(data, u.starterGrassPal, 16)
+  if not (tiles and bagMap and grassMap and bagPal and grassPal) then
+    return nil
+  end
+  local pals = { [0] = bagPal, [1] = grassPal }
+  local bg = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+  Cinema.paintTilemap(bg, tiles, grassMap, pals, 32, 32, 0, 0, false)
+  Cinema.paintTilemap(bg, tiles, bagMap, pals, 32, 20, 0, 0, true)
+  local ballPal = readPal(data, u.starterBallPal, 16)
+  local ballGfx = lz(data, u.starterBallGfx, u.starterBallGfxBytes)
+  local balls
+  if ballPal and ballGfx then
+    balls = ImageWriter.blank(128, 32, 0, 0, 0, 0)
+    for i = 0, 3 do
+      blitObj4(balls, ballGfx, ballPal, i * 16, 4, 4, i * 32, 0)
+    end
+  end
+  local circlePal = readPal(data, u.starterCirclePal, 16)
+  local circleGfx = lz(data, u.starterCircleGfx, u.starterCircleGfxBytes)
+  local circle
+  if circlePal and circleGfx then
+    circle = ImageWriter.blank(64, 64, 0, 0, 0, 0)
+    blitObj4(circle, circleGfx, circlePal, 0, 8, 8, 0, 0)
+  end
+  return { bg = bg, balls = balls, circle = circle }
+end
+
+function Cinema.renderEggHatch(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.eggHatchPal, 16)
+  local tiles = slice(data, u.eggHatchGfx, u.eggHatchGfxBytes)
+  local shards = slice(data, u.eggShardGfx, u.eggShardGfxBytes)
+  if not (pal and tiles) then return nil end
+  local egg = ImageWriter.blank(128, 32, 0, 0, 0, 0)
+  for i = 0, 3 do
+    blitObj4(egg, tiles, pal, i * 16, 4, 4, i * 32, 0)
+  end
+  local shard
+  if shards then
+    shard = ImageWriter.blank(32, 8, 0, 0, 0, 0)
+    blitObj4(shard, shards, pal, 0, 4, 1, 0, 0)
+  end
+  return { egg = egg, shard = shard }
+end
+
+function Cinema.renderHatchBg(data, mapOff)
+  local u = Cinema.us(data)
+  local gfx = slice(data, u.tradeGbaGfx, u.tradeGbaGfxBytes)
+  local map = slice(data, mapOff or u.hatchBgMap, u.hatchBgMapBytes)
+  if not (gfx and map) then return nil end
+  local pals = { [0] = { [0] = { 0, 0, 0 } } }
+  for i = 0, 4 do
+    pals[i + 1] = readPal(data, u.tradeGbaPal + i * 32, 16)
+    if not pals[i + 1] then return nil end
+  end
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 1)
+  return Cinema.paintTilemap(image, gfx, map, pals, 32, 32, 0, 0, true)
+end
+
+-- LoadPalette(gUnknown_0820C9F8, 0x10, 0xa0): 8bpp indices 16-95.
+local function tradePal256(data)
+  local pal = {}
+  for i = 0, 15 do pal[i] = { 0, 0, 0 } end
+  local u = Cinema.us(data)
+  for i = 0, 4 do
+    local slot = readPal(data, u.tradeGbaPal + i * 32, 16)
+    if not slot then return nil end
+    for c = 0, 15 do pal[16 + i * 16 + c] = slot[c] end
+  end
+  return pal
+end
+
+function Cinema.renderTradeCable(data)
+  local u = Cinema.us(data)
+  local gfx = slice(data, u.tradeGbaGfx, u.tradeGbaGfxBytes)
+  local map = slice(data, u.tradeCableMap, u.tradeCableMapBytes)
+  if not (gfx and map) then return nil end
+  local pals = { [0] = { [0] = { 0, 0, 0 } } }
+  for i = 0, 4 do
+    pals[i + 1] = readPal(data, u.tradeGbaPal + i * 32, 16)
+    if not pals[i + 1] then return nil end
+  end
+  local image = ImageWriter.blank(256, 256, 0, 0, 0, 1)
+  return Cinema.paintTilemap(image, gfx, map, pals, 32, 32, 0, 0, true)
+end
+
+function Cinema.renderTradeAffine(data)
+  local pal = tradePal256(data)
+  local gfx = slice(data, Cinema.us(data).tradeAffineGfx,
+    Cinema.us(data).tradeAffineGfxBytes)
+  local map = slice(data, Cinema.us(data).tradeAffineMap,
+    Cinema.us(data).tradeAffineMapBytes)
+  if not (pal and gfx and map) then return nil end
+  local image = ImageWriter.blank(128, 128, 0, 0, 0, 0)
+  return Cinema.paintAffine8(image, gfx, map, pal, 0, 0, 128, 16)
+end
+
+function Cinema.renderTradeSymbol(data)
+  local pal = tradePal256(data)
+  local gfx = slice(data, Cinema.us(data).tradeSymbolGfx,
+    Cinema.us(data).tradeSymbolGfxBytes)
+  local map = slice(data, Cinema.us(data).tradeSymbolMap,
+    Cinema.us(data).tradeSymbolMapBytes)
+  if not (pal and gfx and map) then return nil end
+  local image = ImageWriter.blank(128, 128, 0, 0, 0, 0)
+  return Cinema.paintAffine8(image, gfx, map, pal, 0, 0, 128, 16)
+end
+
+function Cinema.renderTradeBall(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.tradeBallPal, 16)
+  local tiles = slice(data, u.tradeBallGfx, u.tradeBallGfxBytes)
+  if not (pal and tiles) then return nil end
+  local image = ImageWriter.blank(192, 16, 0, 0, 0, 0)
+  for i = 0, 11 do
+    blitObj4(image, tiles, pal, i * 4, 2, 2, i * 16, 0)
+  end
+  return image
+end
+
+function Cinema.renderTradeLinkObjs(data)
+  local u = Cinema.us(data)
+  local glowPal = readPal(data, u.tradeGlowPal, 16)
+  local endPal = readPal(data, u.tradeCableEndPal, 16)
+  local glow1 = slice(data, u.tradeGlow1Gfx, u.tradeGlow1GfxBytes)
+  local glow2 = slice(data, u.tradeGlow2Gfx, u.tradeGlow2GfxBytes)
+  local cord = slice(data, u.tradeCableEndGfx, u.tradeCableEndGfxBytes)
+  local screen = slice(data, u.tradeGbaScreenGfx, u.tradeGbaScreenGfxBytes)
+  if not (glowPal and endPal and glow1 and glow2 and cord and screen) then
+    return nil
+  end
+  local g1 = ImageWriter.blank(32, 32, 0, 0, 0, 0)
+  blitObj4(g1, glow1, glowPal, 0, 4, 4, 0, 0)
+  local g2 = ImageWriter.blank(48, 32, 0, 0, 0, 0)
+  blitObj4(g2, glow2, glowPal, 0, 2, 4, 0, 0)
+  blitObj4(g2, glow2, glowPal, 8, 2, 4, 16, 0)
+  blitObj4(g2, glow2, glowPal, 16, 2, 4, 32, 0)
+  local endImg = ImageWriter.blank(16, 32, 0, 0, 0, 0)
+  blitObj4(endImg, cord, endPal, 0, 2, 4, 0, 0)
+  local scr = ImageWriter.blank(256, 32, 0, 0, 0, 0)
+  for i = 0, 3 do
+    blitObj4(scr, screen, endPal, i * 32, 8, 4, i * 64, 0)
+  end
+  return { glow1 = g1, glow2 = g2, cableEnd = endImg, gbaScreen = scr }
+end
+
+-- L1/T1 are 32x32 (OAM size 2); the rest are 64x64 (size 3). Color 0 is
+-- transparent; the bars are indices 14-15 on pal 5.
+function Cinema.renderRotatingGate(data, shape)
+  local spec = Cinema.us(data).rotatingGate[shape]
+  if not spec then return nil end
+  local gfx = slice(data, spec.off, spec.bytes)
+  local pal = readPal(data, Cinema.us(data).rotatingGatePal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(spec.tw * Cinema.TILE, spec.th * Cinema.TILE,
+    0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, spec.tw, spec.th, 0, 0)
+  return image
+end
+
+function Cinema.renderRotatingGates(data)
+  local out = {}
+  for shape = 0, 7 do
+    out[shape] = Cinema.renderRotatingGate(data, shape)
+    if not out[shape] then return nil end
+  end
+  return out
+end
+
+-- 8x8 pokéball glow (OAM size 0). Pal tag 0x1007.
+function Cinema.renderPokeballGlow(data)
+  local u = Cinema.us(data)
+  local gfx = slice(data, u.pokeballGlowGfx, u.pokeballGlowGfxBytes)
+  local pal = readPal(data, u.pokeballGlowPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(8, 8, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 1, 1, 0, 0)
+  return image
+end
+
+-- Big 64x16 + small 32x16 HoF screens (pal tag 0x1010).
+function Cinema.renderHofMonitors(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.hofMonitorPal, 16)
+  local bigGfx = slice(data, u.hofMonitorBigGfx, u.hofMonitorBigGfxBytes)
+  local smallGfx = slice(data, u.hofMonitorSmallGfx, u.hofMonitorSmallGfxBytes)
+  if not (pal and bigGfx and smallGfx) then return nil end
+  local big = ImageWriter.blank(64, 16, 0, 0, 0, 0)
+  blitObj4(big, bigGfx, pal, 0, 8, 2, 0, 0)
+  local small = ImageWriter.blank(32, 16, 0, 0, 0, 0)
+  blitObj4(small, smallGfx, pal, 0, 4, 2, 0, 0)
+  return { big = big, small = small }
+end
+
+-- Affine 8bpp Hoenn map (BG2 512x512, unzoomed origin 0,0). Pal at 0x70.
+function Cinema.renderRegionMap(data)
+  local u = Cinema.us(data)
+  if type(data) ~= "string"
+      or #data < u.regionMapPal + u.regionMapPalCount * 2 then
+    return nil
+  end
+  local gfx = lz(data, u.regionMapGfxLz, u.regionMapGfxBytes)
+  local map = lz(data, u.regionMapMapLz, u.regionMapMapBytes)
+  if not (gfx and map) then return nil end
+  local pal = {}
+  for i = 0, u.regionMapPalCount - 1 do
+    pal[u.regionMapPalIndex + i] = { bgr555(GbaBin.u16(data,
+      u.regionMapPal + i * 2)) }
+  end
+  local image = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+  return Cinema.paintAffine8(image, gfx, map, pal, 0, 0,
+    u.regionMapWrap, u.regionMapPitch)
+end
+
+-- Two 16x16 cursor frames (OAM size 1).
+function Cinema.renderRegionMapCursor(data)
+  local u = Cinema.us(data)
+  local gfx = lz(data, u.regionMapCursorSmallLz, u.regionMapCursorSmallBytes)
+  local pal = readPal(data, u.regionMapCursorPal, 16)
+  if not (gfx and pal) then return nil end
+  local image = ImageWriter.blank(32, 16, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, 2, 2, 0, 0)
+  blitObj4(image, gfx, pal, 4, 2, 2, 16, 0)
+  return image
+end
+
+function Cinema.renderRegionMapIcons(data)
+  local u = Cinema.us(data)
+  local bPal = readPal(data, u.regionMapBrendanPal, 16)
+  local mPal = readPal(data, u.regionMapMayPal, 16)
+  local bGfx = slice(data, u.regionMapBrendanGfx, u.regionMapIconBytes)
+  local mGfx = slice(data, u.regionMapMayGfx, u.regionMapIconBytes)
+  if not (bPal and mPal and bGfx and mGfx) then return nil end
+  local brendan = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+  blitObj4(brendan, bGfx, bPal, 0, 2, 2, 0, 0)
+  local may = ImageWriter.blank(16, 16, 0, 0, 0, 0)
+  blitObj4(may, mGfx, mPal, 0, 2, 2, 0, 0)
+  return { brendan = brendan, may = may }
+end
+
+-- Two 24x16 pokécenter screens side by side.
+local function renderWeatherSheet(data, gfxOff, gfxBytes, palOff, pxW, pxH)
+  local gfx = slice(data, gfxOff, gfxBytes)
+  local pal = readPal(data, palOff, 16)
+  if not (gfx and pal) then return nil end
+  local tw, th = pxW / 8, pxH / 8
+  local image = ImageWriter.blank(pxW, pxH, 0, 0, 0, 0)
+  blitObj4(image, gfx, pal, 0, tw, th, 0, 0)
+  return image
+end
+
+function Cinema.renderWeatherFog2(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherFog2Gfx, u.weatherFog2GfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherFog1(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherFog1Gfx, u.weatherFog1GfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherCloud(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherCloudGfx, u.weatherCloudGfxBytes,
+    u.weatherPal1, 64, 64)
+end
+
+function Cinema.renderWeatherSnow(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.weatherPal1, 16)
+  local s0 = slice(data, u.weatherSnow0Gfx, u.weatherSnow0GfxBytes)
+  local s1 = slice(data, u.weatherSnow1Gfx, u.weatherSnow1GfxBytes)
+  if not (pal and s0 and s1) then return nil end
+  local image = ImageWriter.blank(16, 8, 0, 0, 0, 0)
+  blitObj4(image, s0, pal, 0, 1, 1, 0, 0)
+  blitObj4(image, s1, pal, 0, 1, 1, 8, 0)
+  return image
+end
+
+function Cinema.renderWeatherBubble(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherBubbleGfx, u.weatherBubbleGfxBytes,
+    u.weatherPal1, 8, 16)
+end
+
+function Cinema.renderWeatherAsh(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherAshGfx, u.weatherAshGfxBytes,
+    u.weatherPal1, 64, 128)
+end
+
+function Cinema.renderWeatherRain(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherRainGfx, u.weatherRainGfxBytes,
+    u.weatherPal1, 16, 192)
+end
+
+function Cinema.renderWeatherSand(data)
+  local u = Cinema.us(data)
+  return renderWeatherSheet(data, u.weatherSandGfx, u.weatherSandGfxBytes,
+    u.weatherPal2, 64, 80)
+end
+
+function Cinema.renderPokecenterMonitor(data)
+  local u = Cinema.us(data)
+  local pal = readPal(data, u.pokecenterMonPal, 16)
+  local a = slice(data, u.pokecenterMon0Gfx, u.pokecenterMonGfxBytes)
+  local b = slice(data, u.pokecenterMon1Gfx, u.pokecenterMonGfxBytes)
+  if not (pal and a and b) then return nil end
+  local image = ImageWriter.blank(48, 16, 0, 0, 0, 0)
+  blitObj4(image, a, pal, 0, 3, 2, 0, 0)
+  blitObj4(image, b, pal, 0, 3, 2, 24, 0)
+  return image
+end
+
+function Cinema.renderWallClock(data)
+  local u = Cinema.us(data)
+  local tiles = lz(data, u.clockGfx, u.clockGfxBytes)
+  local editMap = lz(data, u.clockEditMap, u.clockMapBytes)
+  local viewMap = lz(data, u.clockViewMap, u.clockMapBytes)
+  local hands = lz(data, u.clockHandsGfx, u.clockHandsGfxBytes)
+  if not (tiles and editMap and viewMap) then return nil end
+  local out = {}
+  for _, spec in ipairs({
+    { palOff = u.clockMalePal, tag = "male" },
+    { palOff = u.clockFemalePal, tag = "female" },
+  }) do
+    local pal = readPal(data, spec.palOff, 16)
+    if pal then
+      local edit = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+      Cinema.paintTilemap(edit, tiles, editMap, { [0] = pal }, 32, 20, 0, 0, false)
+      out["clockBgEdit" .. spec.tag] = save(edit,
+        "assets/generated/wallclock/bg_edit_" .. spec.tag .. ".png")
+      local view = ImageWriter.blank(Cinema.SCREEN_W, Cinema.SCREEN_H, 0, 0, 0, 1)
+      Cinema.paintTilemap(view, tiles, viewMap, { [0] = pal }, 32, 20, 0, 0, false)
+      out["clockBgView" .. spec.tag] = save(view,
+        "assets/generated/wallclock/bg_view_" .. spec.tag .. ".png")
+      if hands then
+        local sheet = ImageWriter.blank(64, 128, 0, 0, 0, 0)
+        blitObj4(sheet, hands, pal, 0, 8, 8, 0, 0)
+        blitObj4(sheet, hands, pal, 64, 8, 8, 0, 64)
+        out["clockHands" .. spec.tag] = save(sheet,
+          "assets/generated/wallclock/hands_" .. spec.tag .. ".png")
+        local ampm = ImageWriter.blank(16, 32, 0, 0, 0, 0)
+        blitObj4(ampm, hands, pal, 128, 2, 2, 0, 0)
+        blitObj4(ampm, hands, pal, 132, 2, 2, 0, 16)
+        out["clockAmpm" .. spec.tag] = save(ampm,
+          "assets/generated/wallclock/ampm_" .. spec.tag .. ".png")
+      end
+    end
+  end
+  return out
+end
+
+function Cinema.extract(data)
+  if type(data) ~= "string" or #data < 0x4139C8 then return {} end
+  local out = {
+    copyright = save(Cinema.renderCopyright(data),
+      "assets/generated/title/copyright.png"),
+    intro2 = save(Cinema.renderIntro2(data),
+      "assets/generated/intro/intro2.png"),
+    gamefreak = save(Cinema.renderGameFreak(data),
+      "assets/generated/intro/gamefreak.png"),
+    title = save(Cinema.renderTitle(data),
+      "assets/generated/title/title_screen.png"),
+    pressStart = save(Cinema.renderPressStart(data),
+      "assets/generated/title/press_start.png"),
+  }
+  out.titleLava = save(Cinema.renderTitleLava(data),
+    "assets/generated/title/title_lava.png")
+  out.titleLavaBubbles = save(Cinema.renderTitleLavaBubbles(data),
+    "assets/generated/title/title_lava_bubbles.png")
+  out.titleGroudon = save(Cinema.renderTitleGroudon(data),
+    "assets/generated/title/title_groudon.png")
+  out.titleLogo = save(Cinema.renderTitleLogo(data),
+    "assets/generated/title/title_logo.png")
+  out.versionBanner = save(Cinema.renderVersionBanner(data),
+    "assets/generated/title/version_banner.png")
+  out.titleCopyright = save(Cinema.renderTitleCopyright(data),
+    "assets/generated/title/title_copyright.png")
+  out.logoShine = save(Cinema.renderLogoShine(data),
+    "assets/generated/title/logo_shine.png")
+  out.birchBg = save(Cinema.renderBirchBg(data),
+    "assets/generated/birch/bg.png")
+  out.birchPortrait = save(Cinema.renderBirchPortrait(data),
+    "assets/generated/birch/portrait.png")
+  out.trainerFrontBrendan = save(Cinema.renderTrainerFront(data, "brendan"),
+    "assets/generated/birch/brendan.png")
+  out.trainerFrontMay = save(Cinema.renderTrainerFront(data, "may"),
+    "assets/generated/birch/may.png")
+  local layers = Cinema.renderIntro1Layers(data)
+  if layers then
+    for i = 1, 4 do
+      out["intro1bg" .. (i - 1)] = save(layers[i],
+        "assets/generated/intro/intro1_bg" .. (i - 1) .. ".png")
+    end
+  end
+  local trees, grass, mid = Cinema.renderIntro2Layers(data)
+  if trees then
+    out.intro2trees = save(trees, "assets/generated/intro/intro2_trees.png")
+  end
+  if mid then
+    out.intro2bg2 = save(mid, "assets/generated/intro/intro2_bg2.png")
+  end
+  if grass then
+    out.intro2grass = save(grass, "assets/generated/intro/intro2_grass.png")
+  end
+  out.intro1drop = save(Cinema.renderIntro1Drop(data),
+    "assets/generated/intro/intro1_drop.png")
+  out.intro1splash = save(Cinema.renderIntro1Splash(data),
+    "assets/generated/intro/intro1_splash.png")
+  out.intro1eon = save(Cinema.renderIntro1Eon(data),
+    "assets/generated/intro/intro1_eon.png")
+  out.intro2treesobj = save(Cinema.renderIntro2TreeObj(data),
+    "assets/generated/intro/intro2_treesobj.png")
+  out.intro2brendan = save(Cinema.renderIntro2Brendan(data),
+    "assets/generated/intro/intro2_brendan.png")
+  out.intro2may = save(Cinema.renderIntro2May(data),
+    "assets/generated/intro/intro2_may.png")
+  out.intro2bike = save(Cinema.renderIntro2Bike(data),
+    "assets/generated/intro/intro2_bike.png")
+  out.intro2latios = save(Cinema.renderIntro2Latios(data),
+    "assets/generated/intro/intro2_latios.png")
+  out.intro3ball = save(Cinema.renderIntro3Ball(data),
+    "assets/generated/intro/intro3_ball.png")
+  out.intro3streaks = save(Cinema.renderIntro3Streaks(data),
+    "assets/generated/intro/intro3_streaks.png")
+  out.intro3brendan = save(Cinema.renderIntro3Brendan(data),
+    "assets/generated/intro/intro3_brendan.png")
+  out.intro3may = save(Cinema.renderIntro3May(data),
+    "assets/generated/intro/intro3_may.png")
+  out.intro3wally = save(Cinema.renderIntro3Wally(data),
+    "assets/generated/intro/intro3_wally.png")
+  out.intro3poke = save(Cinema.renderIntro3Poke(data),
+    "assets/generated/intro/intro3_poke.png")
+  local blast, spark = Cinema.renderIntro3Misc(data)
+  out.intro3blast = save(blast, "assets/generated/intro/intro3_blast.png")
+  out.intro3spark = save(spark, "assets/generated/intro/intro3_spark.png")
+  local water, ember = Cinema.renderIntro3AttackGfx(data)
+  out.intro3water = save(water, "assets/generated/intro/intro3_water.png")
+  out.intro3ember = save(ember, "assets/generated/intro/intro3_ember.png")
+  local starter = Cinema.renderStarterChoose(data)
+  if starter then
+    out.starterBg = save(starter.bg, "assets/generated/starter/bg.png")
+    out.starterBalls = save(starter.balls, "assets/generated/starter/balls.png")
+    out.starterCircle = save(starter.circle,
+      "assets/generated/starter/circle.png")
+  end
+  local car = Cinema.renderCableCar(data)
+  if car then
+    out.cableCarMountain = save(car.mountain,
+      "assets/generated/cable_car/mountain.png")
+    out.cableCarTrees = save(car.trees,
+      "assets/generated/cable_car/trees.png")
+    out.cableCarPylon = save(car.pylon,
+      "assets/generated/cable_car/pylon.png")
+    out.cableCarChimney = save(car.chimney,
+      "assets/generated/cable_car/chimney.png")
+    out.cableCarCar = save(car.car, "assets/generated/cable_car/car.png")
+    out.cableCarDoor = save(car.door, "assets/generated/cable_car/door.png")
+    out.cableCarCord = save(car.cord, "assets/generated/cable_car/cord.png")
+  end
+  local hatch = Cinema.renderEggHatch(data)
+  if hatch then
+    out.eggHatch = save(hatch.egg, "assets/generated/egg_hatch/egg.png")
+    out.eggShard = save(hatch.shard, "assets/generated/egg_hatch/shard.png")
+  end
+  out.hatchBg = save(Cinema.renderHatchBg(data),
+    "assets/generated/egg_hatch/hatch_bg.png")
+  out.tradeGba = save(Cinema.renderHatchBg(data, Cinema.us(data).tradeGbaMap),
+    "assets/generated/trade/gba.png")
+  out.tradeCable = save(Cinema.renderTradeCable(data),
+    "assets/generated/trade/cable.png")
+  out.tradeAffine = save(Cinema.renderTradeAffine(data),
+    "assets/generated/trade/affine.png")
+  out.tradeSymbol = save(Cinema.renderTradeSymbol(data),
+    "assets/generated/trade/symbol.png")
+  out.tradeBall = save(Cinema.renderTradeBall(data),
+    "assets/generated/trade/ball.png")
+  local link = Cinema.renderTradeLinkObjs(data)
+  if link then
+    out.tradeGlow1 = save(link.glow1, "assets/generated/trade/glow1.png")
+    out.tradeGlow2 = save(link.glow2, "assets/generated/trade/glow2.png")
+    out.tradeCableEnd = save(link.cableEnd,
+      "assets/generated/trade/cable_end.png")
+    out.tradeGbaScreen = save(link.gbaScreen,
+      "assets/generated/trade/gba_screen.png")
+  end
+  local gates = Cinema.renderRotatingGates(data)
+  if gates then
+    for shape = 0, 7 do
+      out["rotatingGate" .. shape] = save(gates[shape],
+        "assets/generated/rotating_gates/" .. shape .. ".png")
+    end
+  end
+  out.pokeballGlow = save(Cinema.renderPokeballGlow(data),
+    "assets/generated/field/pokeball_glow.png")
+  local hofMon = Cinema.renderHofMonitors(data)
+  if hofMon then
+    out.hofMonitorBig = save(hofMon.big,
+      "assets/generated/field/hof_monitor_big.png")
+    out.hofMonitorSmall = save(hofMon.small,
+      "assets/generated/field/hof_monitor_small.png")
+  end
+  out.pokecenterMonitor = save(Cinema.renderPokecenterMonitor(data),
+    "assets/generated/field/pokecenter_monitor.png")
+  out.regionMap = save(Cinema.renderRegionMap(data),
+    "assets/generated/pokenav/region_map.png")
+  out.regionMapCursor = save(Cinema.renderRegionMapCursor(data),
+    "assets/generated/pokenav/cursor.png")
+  local icons = Cinema.renderRegionMapIcons(data)
+  if icons then
+    out.regionMapBrendan = save(icons.brendan,
+      "assets/generated/pokenav/brendan.png")
+    out.regionMapMay = save(icons.may,
+      "assets/generated/pokenav/may.png")
+  end
+  out.weatherRain = save(Cinema.renderWeatherRain(data),
+    "assets/generated/weather/rain.png")
+  out.weatherSand = save(Cinema.renderWeatherSand(data),
+    "assets/generated/weather/sand.png")
+  out.weatherAsh = save(Cinema.renderWeatherAsh(data),
+    "assets/generated/weather/ash.png")
+  out.weatherCloud = save(Cinema.renderWeatherCloud(data),
+    "assets/generated/weather/cloud.png")
+  out.weatherFog1 = save(Cinema.renderWeatherFog1(data),
+    "assets/generated/weather/fog1.png")
+  out.weatherFog2 = save(Cinema.renderWeatherFog2(data),
+    "assets/generated/weather/fog2.png")
+  out.weatherSnow = save(Cinema.renderWeatherSnow(data),
+    "assets/generated/weather/snow.png")
+  out.weatherBubble = save(Cinema.renderWeatherBubble(data),
+    "assets/generated/weather/bubble.png")
+  local clock = Cinema.renderWallClock(data)
+  if clock then
+    for k, v in pairs(clock) do out[k] = v end
+  end
+  local PcArt = require("src.import.RomExtractorGen3Pc")
+  local pc = PcArt.extract(data)
+  for k, v in pairs(pc) do
+    out[k] = v
+  end
+  return out
+end
+
+return Cinema

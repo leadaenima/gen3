@@ -1,0 +1,30 @@
+{
+  "id": "DRAMATIC_SHAPE",
+  "name": "Dramatic Shape Voxel Mod",
+  "version": "1.9.0",
+  "api": 2,
+  "entry": "main.lua",
+  "profile": "content",
+  "category": "GRAPHICS",
+  "game_version": "0.0.0-dev || >=0.1.37 <3.0.0",
+  "priority": 100,
+  "dependencies": [],
+  "optional_dependencies": [
+    "VOXEL_VR"
+  ],
+  "conflicts": [],
+  "permissions": [
+    "engine_internals"
+  ],
+  "affects_link": false,
+  "description": "Draws the overworld as a 3D diorama, including Hoenn from Ruby and Sapphire behaviour bytes and elevation. Optional PCVR via VoxelVR. The 1.9.0 id and ladder exports are the handshake that companion expects; the Hoenn mesh stays in this tree.",
+  "github": "UNDERdecoded/Gen2Recomped-DramaticShapes",
+  "update_check": false,
+  "games": [
+    "gold",
+    "silver",
+    "crystal",
+    "ruby",
+    "sapphire"
+  ]
+}

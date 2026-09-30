@@ -1,0 +1,14 @@
+{
+  "highShadowHz": null,
+  "walkCasts200_unthrottled": 200,
+  "walkCasts200_throttled": 200,
+  "coldSliceMs": 24,
+  "ghostReuse": 0,
+  "ghostMs5000": 19.0000,
+  "ghostKb": 22.9844,
+  "actorReuse": 0,
+  "actorMs400": null,
+  "actorKb": null,
+  "actorCount": 25,
+  "note": "baseline before shadowHz / alloc / cold-slice changes"
+}

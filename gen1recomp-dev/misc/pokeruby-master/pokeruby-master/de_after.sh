@@ -1,1 +1,0 @@
-git checkout data/ graphics

@@ -1,0 +1,2965 @@
+{
+ "songTable": 4543720,
+ "decorations": 4110108,
+ "doorTable": 3209540,
+ "wildHeaders": 3789468,
+ "deltaMode": 0,
+ "offsets": {
+  "RomExtractorGen3RS.lua:EMOTE_GFX:0x39b308": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "EMOTE_GFX",
+   "ruby": 3781384,
+   "sapphire": 3780944,
+   "how": "unique32"
+  },
+  "RomExtractorGen3RS.lua:EMOTE_PAL:0x369488": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "EMOTE_PAL",
+   "ruby": 3576968,
+   "sapphire": 3576856,
+   "how": "unique32"
+  },
+  "RomExtractorGen3RS.lua:EMOTE_PAL_TAGLESS:0x310f48": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "EMOTE_PAL_TAGLESS",
+   "ruby": 3215176,
+   "sapphire": 3215064,
+   "how": "unique64"
+  },
+  "RomExtractorGen3RS.lua:DOOR_TABLE_OFF:0x30f9b4": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "DOOR_TABLE_OFF",
+   "ruby": 3209652,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3RS.lua:DECORATIONS_OFF:0x3eb6c4": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "DECORATIONS_OFF",
+   "ruby": 4110020,
+   "sapphire": 4110108,
+   "how": "unique16"
+  },
+  "RomExtractorGen3RS.lua:BERRY_PIC_PTRS:0x374314": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "BERRY_PIC_PTRS",
+   "ruby": 3621652,
+   "sapphire": 3621540,
+   "how": "delta-ptr:-112"
+  },
+  "RomExtractorGen3RS.lua:BERRY_PAL_PTRS:0x3743c0": {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "BERRY_PAL_PTRS",
+   "ruby": 3621824,
+   "sapphire": 3621712,
+   "how": "delta-ptr:-112"
+  },
+  "RomExtractorGen3Cinema.lua:clockGfx:0xe8f1b8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockGfx",
+   "ruby": 15266232,
+   "sapphire": 15266232,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:clockMalePal:0xe8f804": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockMalePal",
+   "ruby": 15267844,
+   "sapphire": 15267844,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:clockFemalePal:0xe8f824": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockFemalePal",
+   "ruby": 15267876,
+   "sapphire": 15267876,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:clockEditMap:0xe954b0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockEditMap",
+   "ruby": 15291568,
+   "sapphire": 15291568,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Cinema.lua:clockViewMap:0xe95774": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockViewMap",
+   "ruby": 15292276,
+   "sapphire": 15292276,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Cinema.lua:clockHandsGfx:0x3f7814": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "clockHandsGfx",
+   "ruby": 4159508,
+   "sapphire": 4159596,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:copyrightGfx:0xe9c798": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "copyrightGfx",
+   "ruby": 15320984,
+   "sapphire": 15320984,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:copyrightPal:0xe9ca24": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "copyrightPal",
+   "ruby": 15321636,
+   "sapphire": 15321636,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:copyrightMap:0xe9ca44": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "copyrightMap",
+   "ruby": 15321668,
+   "sapphire": 15321668,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Cinema.lua:intro1Pals:0x406974": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "intro1Pals",
+   "ruby": 4221300,
+   "sapphire": 4221388,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:intro1Gfx:0x407764": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "intro1Gfx",
+   "ruby": 4224868,
+   "sapphire": 4224956,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:gfGfx:0x406380": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "gfGfx",
+   "ruby": 4219776,
+   "sapphire": 4219864,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:gfPal:0x406360": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "gfPal",
+   "ruby": 4219744,
+   "sapphire": 4219832,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:dropPal:0x406340": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "dropPal",
+   "ruby": 4219712,
+   "sapphire": 4219800,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:eonPal:0x40acdc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "eonPal",
+   "ruby": 4238556,
+   "sapphire": 4238644,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:eonGfx:0x40acfc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "eonGfx",
+   "ruby": 4238588,
+   "sapphire": 4238676,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:treeObjPal:0x413ccc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "treeObjPal",
+   "ruby": 4275404,
+   "sapphire": 4275496,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:treeObjGfx:0x413cec": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "treeObjGfx",
+   "ruby": 4275436,
+   "sapphire": 4275528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:brendanPal:0x4143b4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "brendanPal",
+   "ruby": 4277172,
+   "sapphire": 4277264,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:brendanGfx:0x4143d4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "brendanGfx",
+   "ruby": 4277204,
+   "sapphire": 4277296,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:bikeGfx:0x415e08": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "bikeGfx",
+   "ruby": 4283912,
+   "sapphire": 4284004,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:latiosPal:0x416234": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "latiosPal",
+   "ruby": 4284980,
+   "sapphire": 4285072,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:latiosGfx:0x416254": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "latiosGfx",
+   "ruby": 4285012,
+   "sapphire": 4285104,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:latiasPal:0x4166f8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "latiasPal",
+   "ruby": 4286200,
+   "sapphire": 4286292,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:latiasGfx:0x416718": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "latiasGfx",
+   "ruby": 4286232,
+   "sapphire": 4286324,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:mayPal:0x414f70": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "mayPal",
+   "ruby": 4280176,
+   "sapphire": 4280268,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:mayGfx:0x415170": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "mayGfx",
+   "ruby": 4280688,
+   "sapphire": 4280780,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:logoShineGfx:0x393d14": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "logoShineGfx",
+   "ruby": 3751188,
+   "sapphire": 3750748,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:logoShinePal:0xe9d8ac": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "logoShinePal",
+   "ruby": 15325356,
+   "sapphire": 15325356,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchBg0Pal:0x1e764c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchBg0Pal",
+   "ruby": 1996364,
+   "sapphire": 1996252,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchBg1Pal:0x1e766c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchBg1Pal",
+   "ruby": 1996396,
+   "sapphire": 1996284,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchShadowGfx:0x1e768c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchShadowGfx",
+   "ruby": 1996428,
+   "sapphire": 1996316,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchMap:0x1e7834": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchMap",
+   "ruby": 1996852,
+   "sapphire": 1996740,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchBg2Pal:0x1e795c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchBg2Pal",
+   "ruby": 1997148,
+   "sapphire": 1997036,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:birchPortraitGfx:0x39dc14": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchPortraitGfx",
+   "ruby": 3791892,
+   "sapphire": 3791452,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:birchPortraitPal:0x39e414": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "birchPortraitPal",
+   "ruby": 3793940,
+   "sapphire": 3793500,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:trainerFrontBrendanGfx:0xe492b8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "trainerFrontBrendanGfx",
+   "ruby": 14979768,
+   "sapphire": 14979768,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:trainerFrontMayGfx:0xe495cc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "trainerFrontMayGfx",
+   "ruby": 14980556,
+   "sapphire": 14980556,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:trainerFrontBrendanPal:0xe5a028": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "trainerFrontBrendanPal",
+   "ruby": 15048744,
+   "sapphire": 15048744,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:trainerFrontMayPal:0xe5a050": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "trainerFrontMayPal",
+   "ruby": 15048784,
+   "sapphire": 15048784,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:ballPal:0x4098d4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "ballPal",
+   "ruby": 4233428,
+   "sapphire": 4233516,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:ballMap:0x409ad4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "ballMap",
+   "ruby": 4233940,
+   "sapphire": 4234028,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:ballGfx:0x409c04": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "ballGfx",
+   "ruby": 4234244,
+   "sapphire": 4234332,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:streakPal:0x40a758": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "streakPal",
+   "ruby": 4237144,
+   "sapphire": 4237232,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:streakGfx:0x40a778": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "streakGfx",
+   "ruby": 4237176,
+   "sapphire": 4237264,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:streakMap:0x40a7e4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "streakMap",
+   "ruby": 4237284,
+   "sapphire": 4237372,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:miscPal:0x40a920": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "miscPal",
+   "ruby": 4237600,
+   "sapphire": 4237688,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:miscPal2:0x40a940": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "miscPal2",
+   "ruby": 4237632,
+   "sapphire": 4237720,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:miscGfx:0x40a960": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "miscGfx",
+   "ruby": 4237664,
+   "sapphire": 4237752,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokeGfx:0xd02508": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokeGfx",
+   "ruby": 13640968,
+   "sapphire": 13640968,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokePal:0xd025c4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokePal",
+   "ruby": 13641156,
+   "sapphire": 13641156,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:brendanBackGfx:0xe57ac8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "brendanBackGfx",
+   "ruby": 15039176,
+   "sapphire": 15039176,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:brendanBackPal:0xe5a028": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "brendanBackPal",
+   "ruby": 15048744,
+   "sapphire": 15048744,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:mayBackGfx:0xe5889c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "mayBackGfx",
+   "ruby": 15042716,
+   "sapphire": 15042716,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:mayBackPal:0xe5a050": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "mayBackPal",
+   "ruby": 15048784,
+   "sapphire": 15048784,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:wallyBackGfx:0xe59588": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "wallyBackGfx",
+   "ruby": 15046024,
+   "sapphire": 15046024,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:wallyBackPal:0xe5a280": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "wallyBackPal",
+   "ruby": 15049344,
+   "sapphire": 15049344,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:groudonPal:0x393210": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "groudonPal",
+   "ruby": 3748368,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Cinema.lua:groudonGfx:0x393250": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "groudonGfx",
+   "ruby": 3748432,
+   "sapphire": 3748320,
+   "how": "delta-lz:-112"
+  },
+  "RomExtractorGen3Cinema.lua:groudonMap:0x3939ec": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "groudonMap",
+   "ruby": 3750380,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Cinema.lua:lavaMap:0x393bf8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "lavaMap",
+   "ruby": 3750904,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Cinema.lua:logoGfx:0xe9d8cc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "logoGfx",
+   "ruby": 15325388,
+   "sapphire": 15325388,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:logoMap:0xe9f7e4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "logoMap",
+   "ruby": 15333348,
+   "sapphire": 15333776,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:versionGfx:0xe9efd0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "versionGfx",
+   "ruby": 15331280,
+   "sapphire": 15331280,
+   "how": "same-lz"
+  },
+  "RomExtractorGen3Cinema.lua:logoPal:0xe9f624": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "logoPal",
+   "ruby": 15332900,
+   "sapphire": 15333328,
+   "how": "unique8"
+  },
+  "RomExtractorGen3Cinema.lua:pressStartGfx:0xe9d644": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pressStartGfx",
+   "ruby": 15324740,
+   "sapphire": 15324740,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:grassPal:0x4121fc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "grassPal",
+   "ruby": 4268540,
+   "sapphire": 4268632,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:grassGfx:0x41225c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "grassGfx",
+   "ruby": 4268636,
+   "sapphire": 4268728,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:grassMap:0x4126dc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "grassMap",
+   "ruby": 4269788,
+   "sapphire": 4269880,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:treesPal:0x413300": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "treesPal",
+   "ruby": 4272896,
+   "sapphire": 4272988,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:treesGfx:0x413340": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "treesGfx",
+   "ruby": 4272960,
+   "sapphire": 4273052,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:treesMap:0x4139c8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "treesMap",
+   "ruby": 4274632,
+   "sapphire": 4274724,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cloudsPal:0x412818": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cloudsPal",
+   "ruby": 4270104,
+   "sapphire": 4270196,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cloudsGfx:0x4128d8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cloudsGfx",
+   "ruby": 4270296,
+   "sapphire": 4270388,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cloudsMap:0x412eb4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cloudsMap",
+   "ruby": 4271796,
+   "sapphire": 4271888,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cloudsObjPal:0x413184": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cloudsObjPal",
+   "ruby": 4272516,
+   "sapphire": 4272608,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:cloudsObjGfx:0x4131c4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cloudsObjGfx",
+   "ruby": 4272580,
+   "sapphire": 4272672,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarBgPal:0xe7eb9c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarBgPal",
+   "ruby": 15199132,
+   "sapphire": 15199132,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarPal:0xe7ec1c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarPal",
+   "ruby": 15199260,
+   "sapphire": 15199260,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarBgGfx:0xe7ec3c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarBgGfx",
+   "ruby": 15199292,
+   "sapphire": 15199292,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarGfx:0xe80614": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarGfx",
+   "ruby": 15205908,
+   "sapphire": 15205908,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarDoorGfx:0xe80914": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarDoorGfx",
+   "ruby": 15206676,
+   "sapphire": 15206676,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarCordGfx:0xe80944": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarCordGfx",
+   "ruby": 15206724,
+   "sapphire": 15206724,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarChimneyMap:0x401820": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarChimneyMap",
+   "ruby": 4200480,
+   "sapphire": 4200568,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarTreeMap:0x401978": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarTreeMap",
+   "ruby": 4200824,
+   "sapphire": 4200912,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarMountainMap:0x401afc": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarMountainMap",
+   "ruby": 4201212,
+   "sapphire": 4201300,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:cableCarPylonStemMap:0x401cd4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "cableCarPylonStemMap",
+   "ruby": 4201684,
+   "sapphire": 4201772,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:eggHatchPal:0x209ad8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "eggHatchPal",
+   "ruby": 2136792,
+   "sapphire": 2136680,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:eggHatchGfx:0x209af8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "eggHatchGfx",
+   "ruby": 2136824,
+   "sapphire": 2136712,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:eggShardGfx:0x20a2f8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "eggShardGfx",
+   "ruby": 2138872,
+   "sapphire": 2138760,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGbaPal:0x20c9f8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGbaPal",
+   "ruby": 2148856,
+   "sapphire": 2148744,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGbaGfx:0x20ca98": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGbaGfx",
+   "ruby": 2149016,
+   "sapphire": 2148904,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:hatchBgMap:0x20f798": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "hatchBgMap",
+   "ruby": 2160536,
+   "sapphire": 2160424,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGbaMap:0x210798": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGbaMap",
+   "ruby": 2164632,
+   "sapphire": 2164520,
+   "how": "unique4096"
+  },
+  "RomExtractorGen3Cinema.lua:tradeCableMap:0x211798": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeCableMap",
+   "ruby": 2168728,
+   "sapphire": 2168616,
+   "how": "unique4096"
+  },
+  "RomExtractorGen3Cinema.lua:tradeBallPal:0x20c3d8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeBallPal",
+   "ruby": 2147288,
+   "sapphire": 2147176,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:tradeBallGfx:0x20c3f8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeBallGfx",
+   "ruby": 2147320,
+   "sapphire": 2147208,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:tradeSymbolGfx:0x20dd98": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeSymbolGfx",
+   "ruby": 2153880,
+   "sapphire": 2153768,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:tradeSymbolMap:0x211f98": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeSymbolMap",
+   "ruby": 2170776,
+   "sapphire": 2170664,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:tradeCableEndPal:0x2120b8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeCableEndPal",
+   "ruby": 2171064,
+   "sapphire": 2170952,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGlowPal:0x212118": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGlowPal",
+   "ruby": 2171160,
+   "sapphire": 2171048,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGlow1Gfx:0x212138": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGlow1Gfx",
+   "ruby": 2171192,
+   "sapphire": 2171080,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGlow2Gfx:0x212338": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGlow2Gfx",
+   "ruby": 2171704,
+   "sapphire": 2171592,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:tradeCableEndGfx:0x212638": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeCableEndGfx",
+   "ruby": 2172472,
+   "sapphire": 2172360,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Cinema.lua:tradeGbaScreenGfx:0x212738": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeGbaScreenGfx",
+   "ruby": 2172728,
+   "sapphire": 2172616,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Cinema.lua:tradeAffineGfx:0x213738": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeAffineGfx",
+   "ruby": 2176824,
+   "sapphire": 2176712,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:tradeAffineMap:0x215778": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "tradeAffineMap",
+   "ruby": 2185080,
+   "sapphire": 2184968,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:rotatingGateFortree:0x3d2964": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "rotatingGateFortree",
+   "ruby": 4008292,
+   "sapphire": 4008380,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:rotatingGatePal:0x323c48": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "rotatingGatePal",
+   "ruby": 3292232,
+   "sapphire": 3292120,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokeballGlowGfx:0x39e434": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokeballGlowGfx",
+   "ruby": 3793972,
+   "sapphire": 3793532,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokeballGlowPal:0x39e454": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokeballGlowPal",
+   "ruby": 3794004,
+   "sapphire": 3793564,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokecenterMon0Gfx:0x39e474": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokecenterMon0Gfx",
+   "ruby": 3794036,
+   "sapphire": 3793596,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokecenterMon1Gfx:0x39e534": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokecenterMon1Gfx",
+   "ruby": 3794228,
+   "sapphire": 3793788,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:pokecenterMonPal:0x369488": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "pokecenterMonPal",
+   "ruby": 3576968,
+   "sapphire": 3576856,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:hofMonitorBigGfx:0x39e5f4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "hofMonitorBigGfx",
+   "ruby": 3794420,
+   "sapphire": 3793980,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Cinema.lua:hofMonitorSmallGfx:0x39e7f4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "hofMonitorSmallGfx",
+   "ruby": 3794932,
+   "sapphire": 3794492,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Cinema.lua:hofMonitorPal:0x39e8f4": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "hofMonitorPal",
+   "ruby": 3795188,
+   "sapphire": 3794748,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapCursorPal:0x3e5ad0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapCursorPal",
+   "ruby": 4086480,
+   "sapphire": 4086568,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapCursorSmallLz:0x3e5af0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapCursorSmallLz",
+   "ruby": 4086512,
+   "sapphire": 4086600,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapBrendanPal:0x3e5c20": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapBrendanPal",
+   "ruby": 4086816,
+   "sapphire": 4086904,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapBrendanGfx:0x3e5c40": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapBrendanGfx",
+   "ruby": 4086848,
+   "sapphire": 4086936,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapMayPal:0x3e5cc0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapMayPal",
+   "ruby": 4086976,
+   "sapphire": 4087064,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapMayGfx:0x3e5ce0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapMayGfx",
+   "ruby": 4087008,
+   "sapphire": 4087096,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapPal:0x3e5d60": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapPal",
+   "ruby": 4087136,
+   "sapphire": 4087224,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapGfxLz:0x3e5da0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapGfxLz",
+   "ruby": 4087200,
+   "sapphire": 4087288,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:regionMapMapLz:0x3e6b04": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "regionMapMapLz",
+   "ruby": 4090628,
+   "sapphire": 4090716,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterBagPal:0x3f62ec": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterBagPal",
+   "ruby": 4154092,
+   "sapphire": 4154180,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterGrassPal:0x3f630c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterGrassPal",
+   "ruby": 4154124,
+   "sapphire": 4154212,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterBallPal:0x3f632c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterBallPal",
+   "ruby": 4154156,
+   "sapphire": 4154244,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterCirclePal:0x3f634c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterCirclePal",
+   "ruby": 4154188,
+   "sapphire": 4154276,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterBagMap:0x3f636c": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterBagMap",
+   "ruby": 4154220,
+   "sapphire": 4154308,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterGrassMap:0x3f64f8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterGrassMap",
+   "ruby": 4154616,
+   "sapphire": 4154704,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterHelpGfx:0x3f66f0": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterHelpGfx",
+   "ruby": 4155120,
+   "sapphire": 4155208,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterBallGfx:0x3f7198": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterBallGfx",
+   "ruby": 4157848,
+   "sapphire": 4157936,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:starterCircleGfx:0x3f74b8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "starterCircleGfx",
+   "ruby": 4158648,
+   "sapphire": 4158736,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherPal1:0x397108": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherPal1",
+   "ruby": 3764488,
+   "sapphire": 3764048,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherPal2:0x397128": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherPal2",
+   "ruby": 3764520,
+   "sapphire": 3764080,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherFog2Gfx:0x397148": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherFog2Gfx",
+   "ruby": 3764552,
+   "sapphire": 3764112,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherFog1Gfx:0x397948": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherFog1Gfx",
+   "ruby": 3766600,
+   "sapphire": 3766160,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherCloudGfx:0x398148": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherCloudGfx",
+   "ruby": 3768648,
+   "sapphire": 3768208,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Cinema.lua:weatherSnow0Gfx:0x398948": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherSnow0Gfx",
+   "ruby": 3770696,
+   "sapphire": 3770256,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherSnow1Gfx:0x398968": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherSnow1Gfx",
+   "ruby": 3770728,
+   "sapphire": 3770288,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherBubbleGfx:0x398988": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherBubbleGfx",
+   "ruby": 3770760,
+   "sapphire": 3770320,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Cinema.lua:weatherAshGfx:0x3989c8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherAshGfx",
+   "ruby": 3770824,
+   "sapphire": 3770384,
+   "how": "delta-bytes:-440"
+  },
+  "RomExtractorGen3Cinema.lua:weatherRainGfx:0x3999c8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherRainGfx",
+   "ruby": 3774920,
+   "sapphire": 3774480,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Cinema.lua:weatherSandGfx:0x399fc8": {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "weatherSandGfx",
+   "ruby": 3776456,
+   "sapphire": 3776016,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Battle.lua:FRONT_PICS:0x1e8354": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "FRONT_PICS",
+   "ruby": 1999700,
+   "sapphire": 1999588,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BACK_PICS:0x1e97f4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BACK_PICS",
+   "ruby": 2004980,
+   "sapphire": 2004868,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:FRONT_COORDS:0x1e7c74": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "FRONT_COORDS",
+   "ruby": 1997940,
+   "sapphire": 1997828,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BACK_COORDS:0x1e9114": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BACK_COORDS",
+   "ruby": 2003220,
+   "sapphire": 2003108,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:baseStats:0x1fec18": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "baseStats",
+   "ruby": 2092056,
+   "sapphire": 2091944,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:frontPics:0x1e8354": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "frontPics",
+   "ruby": 1999700,
+   "sapphire": 1999588,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:frontCoords:0x1e7c74": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "frontCoords",
+   "ruby": 1997940,
+   "sapphire": 1997828,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:backCoords:0x1e9114": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "backCoords",
+   "ruby": 2003220,
+   "sapphire": 2003108,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:backPics:0x1e97f4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "backPics",
+   "ruby": 2004980,
+   "sapphire": 2004868,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:palettes:0x1ea5b4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "palettes",
+   "ruby": 2008500,
+   "sapphire": 2008388,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:shinyPalettes:0x1eb374": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "shinyPalettes",
+   "ruby": 2012020,
+   "sapphire": 2011908,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:goldStarsGfx:0xd28910": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "goldStarsGfx",
+   "ruby": 13797648,
+   "sapphire": 13797648,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:goldStarsPal:0xd28994": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "goldStarsPal",
+   "ruby": 13797780,
+   "sapphire": 13797780,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:wildHeaders:0x39d454": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "wildHeaders",
+   "ruby": 3789908,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Battle.lua:moveNames:0x1f8320": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "moveNames",
+   "ruby": 2065184,
+   "sapphire": 2065072,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:moveData:0x1fb12c": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "moveData",
+   "ruby": 2076972,
+   "sapphire": 2076860,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:typeChart:0x1f9720": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "typeChart",
+   "ruby": 2070304,
+   "sapphire": 2070192,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:learnsets:0x207bc8": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "learnsets",
+   "ruby": 2128840,
+   "sapphire": 2128728,
+   "how": "delta-ptr:-112"
+  },
+  "RomExtractorGen3Battle.lua:evolutions:0x203b68": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "evolutions",
+   "ruby": 2112360,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Battle.lua:trainers:0x1f04fc": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "trainers",
+   "ruby": 2032892,
+   "sapphire": 2032780,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Battle.lua:trainerClasses:0x1f0208": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "trainerClasses",
+   "ruby": 2032136,
+   "sapphire": 2032024,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:items:0x3c5564": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "items",
+   "ruby": 3954020,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Battle.lua:environmentTable:0x1f95ac": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "environmentTable",
+   "ruby": 2069932,
+   "sapphire": 2069820,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:first:0x200000": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "first",
+   "ruby": 2097152,
+   "sapphire": 2097040,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:first:0x1e0000": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "first",
+   "ruby": 1966080,
+   "sapphire": 1965968,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:ANIM_PIC_TABLE:0x37e164": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "ANIM_PIC_TABLE",
+   "ruby": 3662180,
+   "sapphire": 3662068,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:ANIM_PAL_TABLE:0x37ea54": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "ANIM_PAL_TABLE",
+   "ruby": 3664468,
+   "sapphire": 3664356,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:ANIM_SCRIPT_TABLE:0x1c7168": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "ANIM_SCRIPT_TABLE",
+   "ruby": 1864040,
+   "sapphire": 1863928,
+   "how": "delta-ptr:-112"
+  },
+  "RomExtractorGen3Battle.lua:TRAINER_PIC_TABLE:0x1ec53c": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "TRAINER_PIC_TABLE",
+   "ruby": 2016572,
+   "sapphire": 2016460,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:TRAINER_PAL_TABLE:0x1ec7d4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "TRAINER_PAL_TABLE",
+   "ruby": 2017236,
+   "sapphire": 2017124,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:CARD_GFX:0xe8b4e0": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_GFX",
+   "ruby": 15250656,
+   "sapphire": 15250656,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Battle.lua:CARD_PAL0:0xe8c8e0": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_PAL0",
+   "ruby": 15255776,
+   "sapphire": 15255776,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:CARD_FRONT_MAP:0xe8cac0": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_FRONT_MAP",
+   "ruby": 15256256,
+   "sapphire": 15256256,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Battle.lua:CARD_BACK_MAP:0xe8cfc0": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_BACK_MAP",
+   "ruby": 15257536,
+   "sapphire": 15257536,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Battle.lua:CARD_BADGE_GFX:0x3b5ab8": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_BADGE_GFX",
+   "ruby": 3889848,
+   "sapphire": 3889936,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:CARD_BADGE_PAL:0x3b5f2c": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "CARD_BADGE_PAL",
+   "ruby": 3890988,
+   "sapphire": 3891076,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_MENU_GFX:0xe88358": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_MENU_GFX",
+   "ruby": 15237976,
+   "sapphire": 15237976,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_OPTIONS_GFX:0xe884cc": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_OPTIONS_GFX",
+   "ruby": 15238348,
+   "sapphire": 15238348,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_PAL1:0xe88a28": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_PAL1",
+   "ruby": 15239720,
+   "sapphire": 15239720,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_PAL2:0xe88a48": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_PAL2",
+   "ruby": 15239752,
+   "sapphire": 15239752,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_HEADER_GFX:0xe88a88": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_HEADER_GFX",
+   "ruby": 15239816,
+   "sapphire": 15239816,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_MAP_PAL:0xe89628": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_MAP_PAL",
+   "ruby": 15242792,
+   "sapphire": 15242792,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_OUTLINE_PAL:0x3e05d4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_OUTLINE_PAL",
+   "ruby": 4064724,
+   "sapphire": 4064812,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_OUTLINE_GFX:0x3e05f4": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_OUTLINE_GFX",
+   "ruby": 4064756,
+   "sapphire": 4064844,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:PKNAV_OUTLINE_MAP:0x3e0804": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "PKNAV_OUTLINE_MAP",
+   "ruby": 4065284,
+   "sapphire": 4065372,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_MALE_GFX:0xe75024": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_MALE_GFX",
+   "ruby": 15159332,
+   "sapphire": 15159332,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_FEMALE_GFX:0xe75ba0": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_FEMALE_GFX",
+   "ruby": 15162272,
+   "sapphire": 15162272,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SPRITE_PAL:0xe76700": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SPRITE_PAL",
+   "ruby": 15165184,
+   "sapphire": 15165184,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SCREEN_GFX:0xe76728": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SCREEN_GFX",
+   "ruby": 15165224,
+   "sapphire": 15165224,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SCREEN_MALE_PAL:0xe76f94": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SCREEN_MALE_PAL",
+   "ruby": 15167380,
+   "sapphire": 15167380,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SCREEN_FEMALE_PAL:0xe76fcc": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SCREEN_FEMALE_PAL",
+   "ruby": 15167436,
+   "sapphire": 15167436,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SCREEN_MAP:0xe77004": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SCREEN_MAP",
+   "ruby": 15167492,
+   "sapphire": 15167492,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Battle.lua:BAG_SCREEN_LABELS:0xe96ec8": {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "BAG_SCREEN_LABELS",
+   "ruby": 15298248,
+   "sapphire": 15298248,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:frameGfx:0xe9addc": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "frameGfx",
+   "ruby": 15314396,
+   "sapphire": 15314396,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:framePal:0xe9aefc": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "framePal",
+   "ruby": 15314684,
+   "sapphire": 15314684,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:dialogGfx:0xea0108": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "dialogGfx",
+   "ruby": 15335688,
+   "sapphire": 15336116,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Ui.lua:battleTilesLz:0xd00000": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "battleTilesLz",
+   "ruby": 13631488,
+   "sapphire": 13631488,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:battlePalLz:0xd004e0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "battlePalLz",
+   "ruby": 13632736,
+   "sapphire": 13632736,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:battleMap:0xd00524": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "battleMap",
+   "ruby": 13632804,
+   "sapphire": 13632804,
+   "how": "unique4096"
+  },
+  "RomExtractorGen3Ui.lua:healthboxGfx:0xd1216c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxGfx",
+   "ruby": 13705580,
+   "sapphire": 13705580,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Ui.lua:windowPal:0xd1212c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "windowPal",
+   "ruby": 13705516,
+   "sapphire": 13705516,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:brailleGlyphs:0x1e58f0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "brailleGlyphs",
+   "ruby": 1988848,
+   "sapphire": 1988736,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:hpBarPal:0xd1214c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "hpBarPal",
+   "ruby": 13705548,
+   "sapphire": 13705548,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:font4Lat:0xea6bc4": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "font4Lat",
+   "ruby": 15363012,
+   "sapphire": 15363440,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:healthboxPlayerGfx:0xd1f52c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxPlayerGfx",
+   "ruby": 13759788,
+   "sapphire": 13759788,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:healthboxEnemyGfx:0xd1f7e0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxEnemyGfx",
+   "ruby": 13760480,
+   "sapphire": 13760480,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:healthboxEnemyDoubleGfx:0xd1f96c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxEnemyDoubleGfx",
+   "ruby": 13760876,
+   "sapphire": 13760876,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:healthboxPlayerDoubleGfx:0xd1fb04": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxPlayerDoubleGfx",
+   "ruby": 13761284,
+   "sapphire": 13761284,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:healthboxExtraGfx:0xd1fc94": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "healthboxExtraGfx",
+   "ruby": 13761684,
+   "sapphire": 13761684,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:namingSheetTable:0x3ce6a0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingSheetTable",
+   "ruby": 3991200,
+   "sapphire": 3991288,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:namingPal0:0xe86198": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingPal0",
+   "ruby": 15229336,
+   "sapphire": 15229336,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:namingMenuGfx:0xe832f8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingMenuGfx",
+   "ruby": 15217400,
+   "sapphire": 15217400,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:namingMenuMap:0xe84878": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingMenuMap",
+   "ruby": 15222904,
+   "sapphire": 15222904,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:namingBgStripes:0xe86258": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingBgStripes",
+   "ruby": 15229528,
+   "sapphire": 15229528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:namingKeyboardUpper:0x3cebf8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingKeyboardUpper",
+   "ruby": 3992568,
+   "sapphire": 3992656,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Ui.lua:namingKeyboardLower:0x3ce748": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingKeyboardLower",
+   "ruby": 3991368,
+   "sapphire": 3991456,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Ui.lua:namingKeyboardOthers:0x3cf0a8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingKeyboardOthers",
+   "ruby": 3993768,
+   "sapphire": 3993856,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Ui.lua:namingPcIcon0:0x3ce094": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingPcIcon0",
+   "ruby": 3989652,
+   "sapphire": 3989740,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Ui.lua:namingPcIcon1:0x3ce154": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "namingPcIcon1",
+   "ruby": 3989844,
+   "sapphire": 3989932,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Ui.lua:SCROLL_ARROW_PAL:0x3e5948": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "SCROLL_ARROW_PAL",
+   "ruby": 4086088,
+   "sapphire": 4086176,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:scrollArrowUp:0x3e5808": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "scrollArrowUp",
+   "ruby": 4085768,
+   "sapphire": 4085856,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:scrollArrowDown:0x3e5848": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "scrollArrowDown",
+   "ruby": 4085832,
+   "sapphire": 4085920,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:scrollArrowLeft:0x3e5888": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "scrollArrowLeft",
+   "ruby": 4085896,
+   "sapphire": 4085984,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:scrollArrowRight:0x3e58c8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "scrollArrowRight",
+   "ruby": 4085960,
+   "sapphire": 4086048,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:slotsGfx:0xe8f844": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "slotsGfx",
+   "ruby": 15267908,
+   "sapphire": 15267908,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:slotsPal:0xe95a18": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "slotsPal",
+   "ruby": 15292952,
+   "sapphire": 15292952,
+   "how": "unique8"
+  },
+  "RomExtractorGen3Ui.lua:slotsMap:0xe95ab8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "slotsMap",
+   "ruby": 15293112,
+   "sapphire": 15293112,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:slotsReel0:0xe977a8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "slotsReel0",
+   "ruby": 15300520,
+   "sapphire": 15300520,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Ui.lua:rouletteBaseGfx:0xe8096c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "rouletteBaseGfx",
+   "ruby": 15206764,
+   "sapphire": 15206764,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:rouletteWheelGfx:0xe81098": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "rouletteWheelGfx",
+   "ruby": 15208600,
+   "sapphire": 15208600,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:roulettePal:0x3f86bc": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "roulettePal",
+   "ruby": 4163260,
+   "sapphire": 4163348,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:rouletteTableMap:0x3f88bc": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "rouletteTableMap",
+   "ruby": 4163772,
+   "sapphire": 4163860,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:rouletteMap:0x3f8a60": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "rouletteMap",
+   "ruby": 4164192,
+   "sapphire": 4164280,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:clockGfx:0xe92118": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "clockGfx",
+   "ruby": 15278360,
+   "sapphire": 15278360,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:clockPal:0xe94310": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "clockPal",
+   "ruby": 15287056,
+   "sapphire": 15287056,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Ui.lua:clockMap:0xe954b0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "clockMap",
+   "ruby": 15291568,
+   "sapphire": 15291568,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Ui.lua:clockViewMap:0xe95774": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "clockViewMap",
+   "ruby": 15292276,
+   "sapphire": 15292276,
+   "how": "unique512"
+  },
+  "RomExtractorGen3Ui.lua:pssPal:0xe9f624": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pssPal",
+   "ruby": 15332900,
+   "sapphire": 15333328,
+   "how": "unique8"
+  },
+  "RomExtractorGen3Ui.lua:pssGfx:0xe9efd0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pssGfx",
+   "ruby": 15331280,
+   "sapphire": 15331280,
+   "how": "same-lz"
+  },
+  "RomExtractorGen3Ui.lua:pssMap:0xe9f7e4": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pssMap",
+   "ruby": 15333348,
+   "sapphire": 15333776,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokeblockGfx:0xe78078": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokeblockGfx",
+   "ruby": 15171704,
+   "sapphire": 15171704,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokeblockPal:0xe7883c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokeblockPal",
+   "ruby": 15173692,
+   "sapphire": 15173692,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:creditsGfx:0xea260c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "creditsGfx",
+   "ruby": 15345164,
+   "sapphire": 15345592,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:creditsPal:0xe9f624": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "creditsPal",
+   "ruby": 15332900,
+   "sapphire": 15333328,
+   "how": "unique8"
+  },
+  "RomExtractorGen3Ui.lua:pokenavStripeGfx:0x3e007c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavStripeGfx",
+   "ruby": 4063356,
+   "sapphire": 4063444,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokenavStripeMap:0x3dff8c": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavStripeMap",
+   "ruby": 4063116,
+   "sapphire": 4063204,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokenavStripePal:0x3dfecc": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavStripePal",
+   "ruby": 4062924,
+   "sapphire": 4063012,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokenavOutlineGfx:0x3e05f4": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavOutlineGfx",
+   "ruby": 4064756,
+   "sapphire": 4064844,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokenavOutlineMap:0x3e0804": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavOutlineMap",
+   "ruby": 4065284,
+   "sapphire": 4065372,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:pokenavOutlinePal:0x3e05d4": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "pokenavOutlinePal",
+   "ruby": 4064724,
+   "sapphire": 4064812,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:STATUS_DYNPAL:0xe903f8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "STATUS_DYNPAL",
+   "ruby": 15270904,
+   "sapphire": 15270904,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:NAMING_SHEET_TABLE:0x3ce6a0": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "NAMING_SHEET_TABLE",
+   "ruby": 3991200,
+   "sapphire": 3991288,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:NAMING_PAL_TABLE:0x3ce708": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "NAMING_PAL_TABLE",
+   "ruby": 3991304,
+   "sapphire": 3991392,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:NAMING_BG_GFX:0xe85998": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "NAMING_BG_GFX",
+   "ruby": 15227288,
+   "sapphire": 15227288,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Ui.lua:map:0xe86258": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "map",
+   "ruby": 15229528,
+   "sapphire": 15229528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Ui.lua:map:0x3cebf8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "map",
+   "ruby": 3992568,
+   "sapphire": 3992656,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Ui.lua:map:0x3ce748": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "map",
+   "ruby": 3991368,
+   "sapphire": 3991456,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Ui.lua:map:0x3cf0a8": {
+   "file": "RomExtractorGen3Ui.lua",
+   "name": "map",
+   "ruby": 3993768,
+   "sapphire": 3993856,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Audio.lua:songTable:0x45548c": {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "songTable",
+   "ruby": 4543628,
+   "sapphire": 4543720,
+   "how": "delta-ptr:92"
+  },
+  "RomExtractorGen3Audio.lua:cryTable:0x452590": {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "cryTable",
+   "ruby": 4531600,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Audio.lua:cryTable2:0x4537c0": {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "cryTable2",
+   "ruby": 4536256,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Audio.lua:speciesToCryId:0x1fde6a": {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "speciesToCryId",
+   "ruby": 2088554,
+   "sapphire": 2088442,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:speciesToHoenn:0x1fc1e0": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "speciesToHoenn",
+   "ruby": 2081248,
+   "sapphire": 2081136,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Dex.lua:speciesToNational:0x1fc516": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "speciesToNational",
+   "ruby": 2082070,
+   "sapphire": 2081958,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Dex.lua:hoennToNational:0x1fc84c": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "hoennToNational",
+   "ruby": 2082892,
+   "sapphire": 2082780,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Dex.lua:entries:0x3b1858": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "entries",
+   "ruby": 3872856,
+   "sapphire": 3872944,
+   "how": "unique16"
+  },
+  "RomExtractorGen3Dex.lua:footprintTable:0x3b4ee4": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "footprintTable",
+   "ruby": 3886820,
+   "sapphire": 3886908,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:menuGfx:0xe86758": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "menuGfx",
+   "ruby": 15230808,
+   "sapphire": 15230808,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:menuPal:0xe87af4": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "menuPal",
+   "ruby": 15235828,
+   "sapphire": 15235828,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:detailLayout:0xe96bd4": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "detailLayout",
+   "ruby": 15297492,
+   "sapphire": 15297492,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:interfaceGfx:0xe874c8": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "interfaceGfx",
+   "ruby": 15234248,
+   "sapphire": 15234248,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:sizeLayout:0x39f988": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "sizeLayout",
+   "ruby": 3799432,
+   "sapphire": 3798992,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Dex.lua:cryLayout:0x39f8a0": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "cryLayout",
+   "ruby": 3799200,
+   "sapphire": 3798760,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Dex.lua:mainScreen:0xe96738": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "mainScreen",
+   "ruby": 15296312,
+   "sapphire": 15296312,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:listOverlay:0xe9c6dc": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "listOverlay",
+   "ruby": 15320796,
+   "sapphire": 15320796,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:startMenuMain:0xe96888": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "startMenuMain",
+   "ruby": 15296648,
+   "sapphire": 15296648,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Dex.lua:startMenuSearch:0xe96994": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "startMenuSearch",
+   "ruby": 15296916,
+   "sapphire": 15296916,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Dex.lua:searchGfx:0xe87db0": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "searchGfx",
+   "ruby": 15236528,
+   "sapphire": 15236528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:searchLayout:0xe96d2c": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "searchLayout",
+   "ruby": 15297836,
+   "sapphire": 15297836,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:searchPal:0x39f67c": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "searchPal",
+   "ruby": 3798652,
+   "sapphire": 3798212,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:nationalPal:0x39f73c": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "nationalPal",
+   "ruby": 3798844,
+   "sapphire": 3798404,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:menu2Pal:0xe87b54": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "menu2Pal",
+   "ruby": 15235924,
+   "sapphire": 15235924,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:selectBarMain:0xe96acc": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "selectBarMain",
+   "ruby": 15297228,
+   "sapphire": 15297228,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Dex.lua:selectBarSubmenu:0xe96b58": {
+   "file": "RomExtractorGen3Dex.lua",
+   "name": "selectBarSubmenu",
+   "ruby": 15297368,
+   "sapphire": 15297368,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:FONT4_POOL:0xea6bc4": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "FONT4_POOL",
+   "ruby": 15363012,
+   "sapphire": 15363440,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:FONT4_MAP:0x1e5ff0": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "FONT4_MAP",
+   "ruby": 1990640,
+   "sapphire": 1990528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:FONT4_WIDTHS:0x1e62de": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "FONT4_WIDTHS",
+   "ruby": 1991390,
+   "sapphire": 1991278,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Party.lua:miscGfx:0xe71354": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "miscGfx",
+   "ruby": 15143764,
+   "sapphire": 15143764,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:miscPal:0xe716a0": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "miscPal",
+   "ruby": 15144608,
+   "sapphire": 15144608,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:miscTilemap:0xe71788": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "miscTilemap",
+   "ruby": 15144840,
+   "sapphire": 15144840,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:hpBarGfx:0xe71894": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "hpBarGfx",
+   "ruby": 15145108,
+   "sapphire": 15145108,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:orderTextGfx:0xe71934": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "orderTextGfx",
+   "ruby": 15145268,
+   "sapphire": 15145268,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:holdGfx:0x37657c": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "holdGfx",
+   "ruby": 3630460,
+   "sapphire": 3630348,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:holdPal:0x3765bc": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "holdPal",
+   "ruby": 3630524,
+   "sapphire": 3630412,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:statusGfx:0xe72860": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "statusGfx",
+   "ruby": 15149152,
+   "sapphire": 15149152,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Party.lua:statusPal:0xe72a50": {
+   "file": "RomExtractorGen3Party.lua",
+   "name": "statusPal",
+   "ruby": 15149648,
+   "sapphire": 15149648,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:outlineTiles:0x3e05f4": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "outlineTiles",
+   "ruby": 4064756,
+   "sapphire": 4064844,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:outlineTilemap:0x3e0804": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "outlineTilemap",
+   "ruby": 4065284,
+   "sapphire": 4065372,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:outlinePal:0x3e05d4": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "outlinePal",
+   "ruby": 4064724,
+   "sapphire": 4064812,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:miscTiles:0x3dfeec": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "miscTiles",
+   "ruby": 4062956,
+   "sapphire": 4063044,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Pokenav.lua:miscTilemap:0x3dff8c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "miscTilemap",
+   "ruby": 4063116,
+   "sapphire": 4063204,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:miscPal:0x3dfecc": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "miscPal",
+   "ruby": 4062924,
+   "sapphire": 4063012,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:bannerTiles:0xe88d4c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "bannerTiles",
+   "ruby": 15240524,
+   "sapphire": 15240524,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:bannerTilemap:0xe99fb0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "bannerTilemap",
+   "ruby": 15310768,
+   "sapphire": 15310768,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:bannerPal:0xe89628": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "bannerPal",
+   "ruby": 15242792,
+   "sapphire": 15242792,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:altTiles:0x3e005c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "altTiles",
+   "ruby": 4063324,
+   "sapphire": 4063412,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:altTilemap:0x3e007c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "altTilemap",
+   "ruby": 4063356,
+   "sapphire": 4063444,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:altPal:0x3e003c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "altPal",
+   "ruby": 4063292,
+   "sapphire": 4063380,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:iconTiles:0x3e329c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "iconTiles",
+   "ruby": 4076188,
+   "sapphire": 4076276,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:iconPal:0x3e327c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "iconPal",
+   "ruby": 4076156,
+   "sapphire": 4076244,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:trainerEyesTiles:0x3e0354": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "trainerEyesTiles",
+   "ruby": 4064084,
+   "sapphire": 4064172,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:trainerEyesPal:0x3e0334": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "trainerEyesPal",
+   "ruby": 4064052,
+   "sapphire": 4064140,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:pokeballTiles:0x3e3680": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "pokeballTiles",
+   "ruby": 4077184,
+   "sapphire": 4077272,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:cancelTiles:0x3e3780": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "cancelTiles",
+   "ruby": 4077440,
+   "sapphire": 4077528,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:sparkleTiles:0x3e37c0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "sparkleTiles",
+   "ruby": 4077504,
+   "sapphire": 4077592,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Pokenav.lua:sparklePal:0x3e37a0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "sparklePal",
+   "ruby": 4077472,
+   "sapphire": 4077560,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:arrowsTiles:0x3e3b40": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "arrowsTiles",
+   "ruby": 4078400,
+   "sapphire": 4078488,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:blueLightTiles:0x3e41d8": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "blueLightTiles",
+   "ruby": 4080088,
+   "sapphire": 4080176,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:blueLightPal:0x3e41b8": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "blueLightPal",
+   "ruby": 4080056,
+   "sapphire": 4080144,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:brendanIcon:0x3e5c40": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "brendanIcon",
+   "ruby": 4086848,
+   "sapphire": 4086936,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:mayIcon:0x3e5ce0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "mayIcon",
+   "ruby": 4087008,
+   "sapphire": 4087096,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionSearch2Pal:0x3e0294": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionSearch2Pal",
+   "ruby": 4063892,
+   "sapphire": 4063980,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:mainMenuGfx:0xe88358": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "mainMenuGfx",
+   "ruby": 15237976,
+   "sapphire": 15237976,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:menuOptionsGfx:0xe884cc": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuOptionsGfx",
+   "ruby": 15238348,
+   "sapphire": 15238348,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:menuPal1:0xe88a28": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuPal1",
+   "ruby": 15239720,
+   "sapphire": 15239720,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:menuPal2:0xe88a48": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuPal2",
+   "ruby": 15239752,
+   "sapphire": 15239752,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:menuPal3:0xe88a68": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuPal3",
+   "ruby": 15239784,
+   "sapphire": 15239784,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionPal5:0xe8ace4": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionPal5",
+   "ruby": 15248612,
+   "sapphire": 15248612,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionPal1:0xe89958": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionPal1",
+   "ruby": 15243608,
+   "sapphire": 15243608,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:bottomToolbar:0xe9a100": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "bottomToolbar",
+   "ruby": 15311104,
+   "sapphire": 15311104,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionScreen:0xe9ac4c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionScreen",
+   "ruby": 15313996,
+   "sapphire": 15313996,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionMenuGfx:0xe89668": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionMenuGfx",
+   "ruby": 15242856,
+   "sapphire": 15242856,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionOptionsGfx:0xe8a1e0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionOptionsGfx",
+   "ruby": 15245792,
+   "sapphire": 15245792,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionOptions2Gfx:0xe8a5d8": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionOptions2Gfx",
+   "ruby": 15246808,
+   "sapphire": 15246808,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionSearchGfx:0xe8ad04": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionSearchGfx",
+   "ruby": 15248644,
+   "sapphire": 15248644,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionPal6:0xe8b1c4": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionPal6",
+   "ruby": 15249860,
+   "sapphire": 15249860,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionPal7:0xe8b1e4": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionPal7",
+   "ruby": 15249892,
+   "sapphire": 15249892,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:mapHeaderGfx:0xe88a88": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "mapHeaderGfx",
+   "ruby": 15239816,
+   "sapphire": 15239816,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:trainerEyesHeaderGfx:0xe8b204": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "trainerEyesHeaderGfx",
+   "ruby": 15249924,
+   "sapphire": 15249924,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:ribbonsHeaderGfx:0xe8b3a0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "ribbonsHeaderGfx",
+   "ruby": 15250336,
+   "sapphire": 15250336,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionHeaderGfx:0xe89978": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionHeaderGfx",
+   "ruby": 15243640,
+   "sapphire": 15243640,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionViewGfx:0xe89ad8": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionViewGfx",
+   "ruby": 15243992,
+   "sapphire": 15243992,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:ribbonViewGfx:0xe9fb1c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "ribbonViewGfx",
+   "ruby": 15334172,
+   "sapphire": 15334600,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionRadius:0x3e4890": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionRadius",
+   "ruby": 4081808,
+   "sapphire": 4081896,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:menuHelpTable:0x3e31b0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuHelpTable",
+   "ruby": 4075952,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Pokenav.lua:conditionHelpTable:0x3e31cc": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionHelpTable",
+   "ruby": 4075980,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Pokenav.lua:searchHelpTable:0x3e31d8": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "searchHelpTable",
+   "ruby": 4075992,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Pokenav.lua:ribbonIconTiles:0x3e040c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "ribbonIconTiles",
+   "ruby": 4064268,
+   "sapphire": 4064356,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:ribbonIconPals:0x3e3c60": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "ribbonIconPals",
+   "ruby": 4078688,
+   "sapphire": 4078776,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:ribbonIconTable:0x3e4698": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "ribbonIconTable",
+   "ruby": 4081304,
+   "sapphire": 4081392,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionScreenMap:0xe9ac4c": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionScreenMap",
+   "ruby": 15313996,
+   "sapphire": 15313996,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pokenav.lua:conditionPal2:0xe8a1c0": {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionPal2",
+   "ruby": 15245760,
+   "sapphire": 15245760,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Card.lua:tiles:0xe8b4e0": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "tiles",
+   "ruby": 15250656,
+   "sapphire": 15250656,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Card.lua:frontMap:0xe8cac0": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "frontMap",
+   "ruby": 15256256,
+   "sapphire": 15256256,
+   "how": "unique1024"
+  },
+  "RomExtractorGen3Card.lua:backMap:0xe8cfc0": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "backMap",
+   "ruby": 15257536,
+   "sapphire": 15257536,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Card.lua:starPal:0xe8c8e0": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "starPal",
+   "ruby": 15255776,
+   "sapphire": 15255776,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Card.lua:starGoldPal:0x3b5f4c": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "starGoldPal",
+   "ruby": 3891020,
+   "sapphire": 3891108,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Card.lua:badgeTiles:0x3b5ab8": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "badgeTiles",
+   "ruby": 3889848,
+   "sapphire": 3889936,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Card.lua:badgePal:0x3b5f2c": {
+   "file": "RomExtractorGen3Card.lua",
+   "name": "badgePal",
+   "ruby": 3890988,
+   "sapphire": 3891076,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Anim.lua:picTable:0x37e164": {
+   "file": "RomExtractorGen3Anim.lua",
+   "name": "picTable",
+   "ruby": 3662180,
+   "sapphire": 3662068,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Anim.lua:palTable:0x37ea6c": {
+   "file": "RomExtractorGen3Anim.lua",
+   "name": "palTable",
+   "ruby": 3664492,
+   "sapphire": 3664380,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Balls.lua:sheets:0x20a92c": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "sheets",
+   "ruby": 2140460,
+   "sapphire": 2140348,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Balls.lua:palettes:0x20a98c": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "palettes",
+   "ruby": 2140556,
+   "sapphire": 2140444,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Balls.lua:tradeBallGfx:0x20c3f8": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "tradeBallGfx",
+   "ruby": 2147320,
+   "sapphire": 2147208,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Balls.lua:tradeBallPal:0x20c3d8": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "tradeBallPal",
+   "ruby": 2147288,
+   "sapphire": 2147176,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Balls.lua:displayGfx:0xd129ac": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "displayGfx",
+   "ruby": 13707692,
+   "sapphire": 13707692,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Balls.lua:displayPal:0xd1214c": {
+   "file": "RomExtractorGen3Balls.lua",
+   "name": "displayPal",
+   "ruby": 13705548,
+   "sapphire": 13705548,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Transition.lua:tiles:0x3fc348": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "tiles",
+   "ruby": 4178760,
+   "sapphire": 4178848,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Transition.lua:tilemap:0x3fdff4": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "tilemap",
+   "ruby": 4186100,
+   "sapphire": 4186188,
+   "how": "unique256"
+  },
+  "RomExtractorGen3Transition.lua:opponentPals:0x3fdb00": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "opponentPals",
+   "ruby": 4184832,
+   "sapphire": 4184920,
+   "how": "delta-ptr:88"
+  },
+  "RomExtractorGen3Transition.lua:playerPals:0x3fdb14": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "playerPals",
+   "ruby": 4184852,
+   "sapphire": 4184940,
+   "how": "delta-ptr:88"
+  },
+  "RomExtractorGen3Transition.lua:stevenGfx:0xe4ee14": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "stevenGfx",
+   "ruby": 15003156,
+   "sapphire": 15003156,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Transition.lua:stevenPal:0xe5a460": {
+   "file": "RomExtractorGen3Transition.lua",
+   "name": "stevenPal",
+   "ruby": 15049824,
+   "sapphire": 15049824,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:scrollPal:0x3b6a10": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "scrollPal",
+   "ruby": 3893776,
+   "sapphire": 3893864,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:scrollTile:0x3b6a30": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "scrollTile",
+   "ruby": 3893808,
+   "sapphire": 3893896,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:scrollMapLz:0x3b6a50": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "scrollMapLz",
+   "ruby": 3893840,
+   "sapphire": 3893928,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:forestPal:0x3b6f64": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "forestPal",
+   "ruby": 3895140,
+   "sapphire": 3895228,
+   "how": "unique64"
+  },
+  "RomExtractorGen3Pc.lua:forestTilesLz:0x3b6fc4": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "forestTilesLz",
+   "ruby": 3895236,
+   "sapphire": 3895324,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:headerGfxLz:0xe8dec0": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "headerGfxLz",
+   "ruby": 15261376,
+   "sapphire": 15261376,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:menu1Pal:0xe8e0e6": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "menu1Pal",
+   "ruby": 15261926,
+   "sapphire": 15261926,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:menu2Pal:0xe8e106": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "menu2Pal",
+   "ruby": 15261958,
+   "sapphire": 15261958,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:headerMapLz:0xe8e128": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "headerMapLz",
+   "ruby": 15261992,
+   "sapphire": 15261992,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:miscGfxLz:0xe8e244": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "miscGfxLz",
+   "ruby": 15262276,
+   "sapphire": 15262276,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:menu3Pal:0xe8e6a8": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "menu3Pal",
+   "ruby": 15263400,
+   "sapphire": 15263400,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:menu4Pal:0xe8e6c8": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "menu4Pal",
+   "ruby": 15263432,
+   "sapphire": 15263432,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:miscMapLz:0xe8e6e8": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "miscMapLz",
+   "ruby": 15263464,
+   "sapphire": 15263464,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:arrowPal:0x3bb1e8": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "arrowPal",
+   "ruby": 3912168,
+   "sapphire": 3912256,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:arrowGfx:0x3bb208": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "arrowGfx",
+   "ruby": 3912200,
+   "sapphire": 3912288,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:handPal:0x3bb300": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "handPal",
+   "ruby": 3912448,
+   "sapphire": null,
+   "how": null
+  },
+  "RomExtractorGen3Pc.lua:handAltPal:0x3bb320": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "handAltPal",
+   "ruby": 3912480,
+   "sapphire": 3912568,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Pc.lua:handGfx:0x3bb348": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "handGfx",
+   "ruby": 3912520,
+   "sapphire": 3912608,
+   "how": "unique128"
+  },
+  "RomExtractorGen3Pc.lua:handShadowGfx:0x3bbb48": {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "handShadowGfx",
+   "ruby": 3914568,
+   "sapphire": 3914656,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Icons.lua:iconTable:0x3bbd20": {
+   "file": "RomExtractorGen3Icons.lua",
+   "name": "iconTable",
+   "ruby": 3915040,
+   "sapphire": 3915128,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Icons.lua:paletteIndices:0x3bc400": {
+   "file": "RomExtractorGen3Icons.lua",
+   "name": "paletteIndices",
+   "ruby": 3916800,
+   "sapphire": 3916888,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Icons.lua:paletteTable:0x3bc5b8": {
+   "file": "RomExtractorGen3Icons.lua",
+   "name": "paletteTable",
+   "ruby": 3917240,
+   "sapphire": 3917328,
+   "how": "unique32"
+  },
+  "RomExtractorGen3Icons.lua:palettes:0xe966d8": {
+   "file": "RomExtractorGen3Icons.lua",
+   "name": "palettes",
+   "ruby": 15296216,
+   "sapphire": 15296216,
+   "how": "unique32"
+  }
+ },
+ "unmatched": [
+  {
+   "file": "RomExtractorGen3RS.lua",
+   "name": "DOOR_TABLE_OFF",
+   "ruby": 3209652,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "groudonPal",
+   "ruby": 3748368,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "groudonMap",
+   "ruby": 3750380,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Cinema.lua",
+   "name": "lavaMap",
+   "ruby": 3750904,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "wildHeaders",
+   "ruby": 3789908,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "evolutions",
+   "ruby": 2112360,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Battle.lua",
+   "name": "items",
+   "ruby": 3954020,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "cryTable",
+   "ruby": 4531600,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Audio.lua",
+   "name": "cryTable2",
+   "ruby": 4536256,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "menuHelpTable",
+   "ruby": 4075952,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "conditionHelpTable",
+   "ruby": 4075980,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Pokenav.lua",
+   "name": "searchHelpTable",
+   "ruby": 4075992,
+   "sapphire": null,
+   "how": null
+  },
+  {
+   "file": "RomExtractorGen3Pc.lua",
+   "name": "handPal",
+   "ruby": 3912448,
+   "sapphire": null,
+   "how": null
+  }
+ ]
+}
