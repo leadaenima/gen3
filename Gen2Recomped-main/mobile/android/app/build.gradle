@@ -1,0 +1,111 @@
+import java.nio.charset.StandardCharsets
+
+apply plugin: 'com.android.application'
+
+android {
+    namespace "org.love2d.android.executable"
+    ndkVersion '25.2.9519653'
+
+    defaultConfig {
+        applicationId project.properties["app.application_id"]
+        versionCode project.properties["app.version_code"].toInteger()
+        versionName project.properties["app.version_name"]
+        // OpenXR's Android loader (Quest) declares minSdk 24. A lower app
+        // floor fails the manifest merge.
+        minSdk 24
+        compileSdk 34
+        targetSdk 34
+        
+        def getAppName = {
+            def nameArray = project.properties["app.name_byte_array"]
+            def name = project.properties["app.name"]
+            if (name != null && nameArray != null) {
+                throw new Exception("Only define either `app.name` or `app.name_byte_array` in gradle.properties, but not both!")
+            }
+
+            if (name == null) {
+                def nameArraySplit = nameArray.split(",")
+                def nameBytes = new byte[nameArraySplit.length]
+                def count = 0
+                for (String s: nameArraySplit) {
+                    nameBytes[count++] = (byte) Integer.parseInt(s)
+                }
+                return new String(nameBytes, StandardCharsets.UTF_8)
+            }
+            return name
+        }
+
+        manifestPlaceholders = [
+            NAME:getAppName(),
+            ORIENTATION:project.properties["app.orientation"],
+        ]
+    }
+    // Android identifies an installed app by package name AND signing
+    // certificate.  With no signingConfigs block, Gradle signs debug builds
+    // with whatever sits at ~/.android/debug.keystore -- and an ephemeral CI
+    // runner has no such file, so Gradle GENERATED A NEW KEY ON EVERY RUN.
+    // No release could upgrade any other, which is the "App not installed as
+    // package conflicts with an existing package" players hit on update.
+    //
+    // release.yml copying the committed keystore into ~/.android fixes that,
+    // but it leaves the signature depending on $HOME and on AGP's keystore
+    // lookup order (ANDROID_SDK_HOME / ANDROID_PREFS_ROOT / ANDROID_USER_HOME
+    // all win over user.home when the environment sets them).  Naming the file
+    // here takes the environment out of it: the same key signs the APK on CI,
+    // on a dev machine, and inside the space-free shadow tree that
+    // build_android.sh rsyncs to when the checkout path contains spaces.
+    //
+    // These are the standard, public Android debug credentials -- nothing here
+    // is a secret.  See docs/android-signing.md.
+    signingConfigs {
+        stable {
+            storeFile rootProject.file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.stable
+        }
+        release {
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // The shipping task is assembleEmbedNoRecordDebug, but pin this
+            // too so a future switch to the release variant cannot silently
+            // produce an unsigned -- or differently signed -- APK.
+            signingConfig signingConfigs.stable
+        }
+    }
+    flavorDimensions = ['mode', 'recording']
+    productFlavors {
+        normal {
+            dimension 'mode'
+        }
+        embed {
+            dimension 'mode'
+        }
+        record {
+            dimension 'recording'
+        }
+        noRecord {
+            dimension 'recording'
+        }
+    }
+    lint {
+        abortOnError false
+    }
+}
+
+dependencies {
+    api 'androidx.multidex:multidex:2.0.1'
+    api fileTree(dir: 'libs', include: ['*.jar'])
+    api 'androidx.appcompat:appcompat:1.6.1'
+    api project(':love')
+    // Quest OpenXR loader is vendored under src/main/jniLibs from
+    // org.khronos.openxr:openxr_loader_for_android:1.0.34. That AAR ships the
+    // .so only as a prefab, which this ndk-build app does not link, so Gradle
+    // would otherwise leave it out of the APK. VoxelVR ffi.loads it as
+    // "openxr_loader". Meta accepts loader 1.0.34+ (OS v62 and later).
+}
