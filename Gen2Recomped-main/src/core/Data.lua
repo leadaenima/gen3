@@ -1330,12 +1330,47 @@ local function prepareGame3Sprites(sprites)
   return sprites
 end
 
+-- The map editor's movement control only knows STAY / WALK / SPIN and a
+-- facing word.  Ruby stores a movement-type byte instead.  These are the
+-- types that mean one of those three; anything else is left as the number
+-- so the panel does not pretend a berry tree is standing still.
+local G3_MOVEMENT = {
+  [0] = { "STAY", "DOWN" },
+  [7] = { "STAY", "UP" },   [8] = { "STAY", "DOWN" },
+  [9] = { "STAY", "LEFT" }, [10] = { "STAY", "RIGHT" },
+  [2] = { "WALK", "DOWN" }, [3] = { "WALK", "DOWN" },
+  [4] = { "WALK", "DOWN" }, [5] = { "WALK", "DOWN" },
+  [6] = { "WALK", "DOWN" },
+  [25] = { "WALK", "DOWN" }, [26] = { "WALK", "DOWN" },
+  [23] = { "SPIN", "DOWN" }, [24] = { "SPIN", "DOWN" },
+}
+
 local function prepareGame3Maps(maps)
   if type(maps) ~= "table" then return {} end
   for id, def in pairs(maps) do
     if type(id) == "string" and type(def) == "table" then
       def.id = def.id or id
       if def.blocks == nil then def.blocks = def.grid end
+      -- The grid word already carries collision (bits 10-11) and elevation
+      -- (bits 12-15). Emerald publishes those as their own planes; Ruby does
+      -- not. The map editor and the voxel mesher both ask for the planes, and
+      -- without them a town is one solid wall.
+      if type(def.grid) == "table" and def.collisionCells == nil then
+        local w = tonumber(def.width) or 0
+        local h = tonumber(def.height) or 0
+        local n = w * h
+        if n > 0 and type(def.grid[1]) == "number"
+           and type(def.grid[n]) == "number" then
+          local col, elev = {}, {}
+          for i = 1, n do
+            local word = def.grid[i] or 0
+            col[i] = math.floor(word / 1024) % 4
+            elev[i] = math.floor(word / 4096) % 16
+          end
+          def.collisionCells = col
+          if def.elevationCells == nil then def.elevationCells = elev end
+        end
+      end
       if def.regionMapSection == nil then
         def.regionMapSection = def.regionMapSectionId
       end
@@ -1346,11 +1381,63 @@ local function prepareGame3Maps(maps)
           if warp.destWarp == nil then warp.destWarp = warp.warpId end
         end
       end
-      for _, obj in ipairs(def.objects or {}) do
-        if type(obj) == "table" and obj.sprite == nil
-            and obj.graphicsId ~= nil then
-          obj.sprite = obj.graphicsId
+      -- The game walks this as an array (`connections[i].dir`).  The editor's
+      -- world picture looks up `connections.north.map`.  Both can live on the
+      -- same table: a string key does not change the array length.
+      for _, conn in ipairs(def.connections or {}) do
+        if type(conn) == "table" and type(conn.dir) == "string" then
+          if conn.map == nil and conn.mapGroup ~= nil and conn.mapNum ~= nil then
+            conn.map = ("g%d_%d"):format(conn.mapGroup, conn.mapNum)
+          end
+          if def.connections[conn.dir] == nil then
+            def.connections[conn.dir] = conn
+          end
         end
+      end
+      for i, obj in ipairs(def.objects or {}) do
+        if type(obj) == "table" then
+          if obj.sprite == nil and obj.graphicsId ~= nil then
+            obj.sprite = obj.graphicsId
+          end
+          if obj.index == nil then obj.index = obj.localId or i end
+          -- Flag catalogs and the object panel read eventFlag / item /
+          -- sightRange.  The cartridge stored flagId / itemId / trainerRange.
+          -- 0 means "no flag" on a Ruby object.  Copying it would name
+          -- FLAG_G3_0000 as hiding every person who is always there.
+          if obj.eventFlag == nil and type(obj.flagId) == "number"
+              and obj.flagId ~= 0 then
+            obj.eventFlag = obj.flagId
+          end
+          if obj.item == nil and obj.itemId ~= nil then obj.item = obj.itemId end
+          if obj.sightRange == nil and obj.trainerRange ~= nil then
+            obj.sightRange = obj.trainerRange
+          end
+          if obj.movement == nil and type(obj.movementType) == "number" then
+            local named = G3_MOVEMENT[obj.movementType]
+            if named then
+              obj.movement = named[1]
+              if obj.range == nil then obj.range = named[2] end
+            end
+          end
+        end
+      end
+      -- Hidden items and signs live in bgEvents, not objects.  The flag
+      -- catalog already knows how to name a `signs` row.
+      if def.signs == nil and type(def.bgEvents) == "table" then
+        local signs = {}
+        for _, ev in ipairs(def.bgEvents) do
+          if type(ev) == "table" then
+            signs[#signs + 1] = {
+              x = ev.x, y = ev.y,
+              eventFlag = (type(ev.hiddenId) == "number" and ev.hiddenId ~= 0)
+                and ev.hiddenId or nil,
+              item = ev.itemId,
+              text = ev.text,
+              kind = ev.kind,
+            }
+          end
+        end
+        def.signs = signs
       end
     end
   end
@@ -1428,6 +1515,7 @@ function Data:loadGame3Engine()
   self.pokemon = prepareGame3Pokemon(self.pokemon or {})
   self.moves = prepareGame3Moves(self.moves or {})
   self.items = prepareGame3Items(self.items or {})
+  self.trainers = flattenBy(self.trainers or {}, "byId")
   self.field = self.field or {}
   local okLayout, layout = pcall(require, "src.save_convert.data.ruby_save_layout")
   if okLayout and type(layout) == "table" then

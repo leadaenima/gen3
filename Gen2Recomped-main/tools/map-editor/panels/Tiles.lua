@@ -231,6 +231,35 @@ local function blockCount(ts)
   return #ts.blocks
 end
 
+-- A Hoenn pair is metatiles, 16px each, not a Gen 1 block table. The sheet
+-- is the pair's bottom PNG; one swatch is one metatile.
+local function gen3Tileset(ts)
+  return type(ts) == "table" and tonumber(ts.blockTiles) == 2
+    and tonumber(ts.blockCells) == 1 and type(ts.blocks) ~= "table"
+end
+
+local function pairSheet(ts)
+  local path = ts and (ts.bottom or ts.image)
+  if type(path) ~= "string" or path == "" then return nil end
+  local ok, img = pcall(function()
+    return require("src.render.Assets").image(path)
+  end)
+  if not (ok and img and img.getDimensions) then return nil end
+  return img
+end
+
+local function drawMetatile(image, cols, id, x, y, scale)
+  if not (image and cols and cols > 0) then return false end
+  local iw, ih = image:getDimensions()
+  local ax = (id % cols) * 16
+  local ay = math.floor(id / cols) * 16
+  if ax + 16 > iw or ay + 16 > ih then return false end
+  local ok, quad = pcall(love.graphics.newQuad, ax, ay, 16, 16, iw, ih)
+  if not ok then return false end
+  love.graphics.draw(image, quad, x, y, 0, scale, scale)
+  return true
+end
+
 -- ---------------------------------------------------------------------------
 -- drawing a block
 -- ---------------------------------------------------------------------------
@@ -278,7 +307,14 @@ function Tiles.paint(S, bx, by, id)
     return false
   end
   local at = by * def.width + bx + 1
-  if def.blocks[at] == id then return false end   -- nothing to record
+  local cur = def.blocks[at]
+  local ts = tilesetOf(S)
+  -- Ruby packs collision and elevation above the metatile id. Writing the
+  -- bare id would clear both. Keep the high bits; only the picture changes.
+  if gen3Tileset(ts) and type(cur) == "number" and type(id) == "number" then
+    id = (cur - (cur % 1024)) + (id % 1024)
+  end
+  if cur == id then return false end
   MapEdits.setBlock(store(S), game(S), S.mapId, bx, by, id)
   def.blocks[at] = id
   markEdited(S)
@@ -683,9 +719,21 @@ function Tiles.draw(S, Kit, x, y, w, h)
   -- evict is a setting that appears to do nothing until the next map switch.
   do
     local okP, PaletteFX = pcall(require, "src.render.PaletteFX")
-    if okP and type(PaletteFX) == "table" and PaletteFX.MODES then
+    if okP and type(PaletteFX) == "table" and type(PaletteFX.MODES) == "table" then
       local cur = PaletteFX.mode
-      local label = (PaletteFX.MODE_LABELS or {})[cur] or tostring(cur)
+      if type(cur) ~= "string" then cur = "gbc" end
+      local labels = PaletteFX.MODE_LABELS
+      local function colourName(mode)
+        if type(PaletteFX.modeLabel) == "function" then
+          local okL, got = pcall(PaletteFX.modeLabel, mode)
+          if okL and got ~= nil then return tostring(got) end
+        end
+        if type(labels) == "table" and labels[mode] ~= nil then
+          return tostring(labels[mode])
+        end
+        return tostring(mode)
+      end
+      local label = colourName(cur)
       Kit.text("small", "COLOURS", x, fy + 7 * s, PAL.muted)
       if Kit.button(x + 66 * s, fy, w - 66 * s, btnH, label,
                     { font = "small" }) then
@@ -699,16 +747,30 @@ function Tiles.draw(S, Kit, x, y, w, h)
           require("tools.map-editor.panels.Preview").forgetSprites()
         end)
         S.pv3DKey, S._pvCenteredFor = nil, S.mapId
-        S.tileNotice = "colours: "
-          .. ((PaletteFX.MODE_LABELS or {})[PaletteFX.mode] or PaletteFX.mode)
+        S.tileNotice = "colours: " .. colourName(PaletteFX.mode)
       end
       fy = fy + btnH + 6 * s
     end
   end
 
+  local gen3 = gen3Tileset(srcTs)
+  local sheet, sheetCols
   local total = blockCount(srcTs)
+  if gen3 then
+    sheet = pairSheet(srcTs)
+    if sheet then
+      local wpx, hpx = sheet:getDimensions()
+      sheetCols = math.max(1, math.floor(wpx / 16))
+      total = sheetCols * math.max(1, math.floor(hpx / 16))
+      local cap = tonumber(srcTs.metatileCount)
+      if cap and cap > 0 and cap < total then total = cap end
+    else
+      total = 0
+    end
+  end
   if total == 0 then
-    Kit.text("small", "this tileset has no block table", x, fy)
+    Kit.text("small", gen3 and "this tileset has no metatile sheet"
+                      or "this tileset has no block table", x, fy)
     return
   end
 
@@ -716,7 +778,8 @@ function Tiles.draw(S, Kit, x, y, w, h)
   -- these are 32px drawings and at 1x they are thumbnails of thumbnails.
   local zoom = math.max(1, math.min(3, S.tileZoom or 2))
   S.tileZoom = zoom
-  local sw = BLOCK * zoom * s
+  local cellPx = gen3 and 16 or BLOCK
+  local sw = cellPx * zoom * s
   local gap = 4 * s
   -- Recomputed below once the scroll rail's width is known: a rail drawn over
   -- the last column would make that column unclickable.
@@ -724,11 +787,14 @@ function Tiles.draw(S, Kit, x, y, w, h)
   local rows = math.ceil(total / cols)
 
   local QNAME = { [0] = "NW", "NE", "SW", "SE" }
-  Kit.text("small", (S.tileGrain == "cell" and S.tilePick and S.tilePickQ)
+  Kit.text("small", gen3
+           and string.format("%d metatiles  -  metatile %s", total,
+                 tostring(S.tilePick or "none"))
+           or ((S.tileGrain == "cell" and S.tilePick and S.tilePickQ)
            and string.format("%d blocks  -  block %d, %s cell", total,
                  S.tilePick, QNAME[S.tilePickQ] or "?")
            or string.format("%d blocks  -  block %s", total,
-                 tostring(S.tilePick or "none")), x, fy, PAL.muted)
+                 tostring(S.tilePick or "none"))), x, fy, PAL.muted)
   if Kit.button(x + w - 60 * s, fy - 6 * s, 26 * s, 22 * s, "-",
                 { font = "small" }) then
     S.tileZoom = math.max(1, zoom - 1)
@@ -782,7 +848,10 @@ function Tiles.draw(S, Kit, x, y, w, h)
       if idx < total then
         local bxp = x + col * (sw + gap)
         local byp = fy + row * (sw + gap)
-        if image then
+        if gen3 and sheet then
+          love.graphics.setColor(1, 1, 1, 1)
+          drawMetatile(sheet, sheetCols, idx, bxp, byp, zoom * s)
+        elseif image then
           love.graphics.setColor(1, 1, 1, 1)
           -- ONE scale, not two. A block is 32 world pixels and the swatch is
           -- `BLOCK * zoom * s`, so the pixel scale is `zoom * s` -- passing
@@ -805,7 +874,8 @@ function Tiles.draw(S, Kit, x, y, w, h)
         -- anything foreign because foreign meant "you may copy one whole
         -- block through a button"; a tileset the map has added is a palette
         -- like any other and the 16px brush is the point of having one.
-        local cellGrain = (S.tileGrain == "cell") and (added or not foreign)
+        local cellGrain = (not gen3) and (S.tileGrain == "cell")
+          and (added or not foreign)
         local selected
         if foreign then
           local ps = S.tilePickSrc

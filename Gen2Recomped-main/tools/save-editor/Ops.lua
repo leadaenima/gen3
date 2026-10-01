@@ -474,6 +474,23 @@ function Ops.deposit(S)
 end
 
 -- ------------------------------------------------------------------ items
+function Ops.addCoins(S, delta)
+  local n = math.max(0, math.min(9999, (tonumber(S.save.coins) or 0) + (delta or 0)))
+  S.save.coins = n
+  return Ops.mark(S, ("Coins set to %d"):format(n))
+end
+
+function Ops.setVar(S, key, value)
+  S.save.vars = S.save.vars or {}
+  local n = math.floor(tonumber(value) or 0)
+  if n == 0 then
+    S.save.vars[key] = nil
+  else
+    S.save.vars[key] = n
+  end
+  return Ops.mark(S, ("var %s = %d"):format(tostring(key), n))
+end
+
 function Ops.addMoney(S, delta)
   local want = clamp((S.save.money or 0) + delta, 0, Ops.MONEY_MAX)
   if want == S.save.money then

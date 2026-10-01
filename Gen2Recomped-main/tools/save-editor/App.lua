@@ -594,6 +594,8 @@ function App.reload()
   end
   S.status = "Reload failed: " .. tostring(err)
   return false
+end
+
 -- host's onClose runs App.unload, which drops S -- doing that inline left the
 -- rest of the frame drawing against a nil state.
 function App.close()

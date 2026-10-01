@@ -45,8 +45,18 @@ end
 
 local function boundPad(overlay, def)
   local b = overlay and overlay[def.id]
-  if type(b) == "table" and b.pad then return b.pad end
-  return def.pad
+  local pad
+  if type(b) == "table" and b.pad then pad = b.pad else pad = def.pad end
+  -- On the headset the menu button is not Start. The row has to show Y,
+  -- which is the button that actually opens the menu.
+  local ok, os = pcall(function()
+    return love.system.getOS()
+  end)
+  if ok and os == "Android" and def.id == "start"
+      and (pad == "start" or pad == nil) then
+    return "y"
+  end
+  return pad
 end
 
 -- The right column is KEY/PAD (e.g. "Z/A").  The row is 20 tiles and the

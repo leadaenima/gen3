@@ -25,13 +25,15 @@ local SUB_TABS = {
   { id = "trainers", label = "Trainers" },
   { id = "items",    label = "Items taken" },
   { id = "toggles",  label = "Object toggles" },
+  { id = "vars",     label = "Vars" },
 }
 
 local HINTS = {
   flags    = "Story flags by name: Gen1 EVENT_*, Gen2 pret names mapped from EVENT_G2_#### ids, Hoenn flags named by what they do, plus MOD_ flags.",
   trainers = "One row per trainer the save has beaten, listed by map: checked means that trainer stays beaten.",
   items    = "One row per ground item the save has taken, listed by map: checked means that item is gone.",
-  toggles  = "Per-map object visibility overrides (save.objectToggles), grouped by map."
+  toggles  = "Per-map object visibility overrides (save.objectToggles), grouped by map.",
+  vars     = "Script variables on this save. Ruby stores story progress here as well as in flags. Zero clears the variable.",
 }
 
 local function sortedKeys(t)
@@ -178,12 +180,34 @@ local function toggleRows(S, filter)
   return rows
 end
 
+local function varRows(S, filter)
+  S.save.vars = S.save.vars or {}
+  local rows = {}
+  for _, k in ipairs(sortedKeys(S.save.vars)) do
+    local n = tonumber(S.save.vars[k]) or 0
+    local id = tonumber(k) or k
+    local label = type(id) == "number" and string.format("VAR %04X", id) or tostring(id)
+    if contains(label, filter) or contains(tostring(k), filter)
+        or contains(tostring(n), filter) then
+      rows[#rows + 1] = {
+        label = label,
+        sub = tostring(n),
+        value = n,
+        setValue = function(nv) Ops.setVar(S, k, nv) end,
+      }
+    end
+  end
+  table.sort(rows, byLabel)
+  return rows
+end
+
 local function buildRows(S)
   local tab = S.eventsTab
   local filter = S.eventFilter or ""
   if tab == "flags" then return flagRows(S, filter) end
   if tab == "trainers" then return keyTableRows(S, filter, "defeatedTrainers") end
   if tab == "items" then return keyTableRows(S, filter, "itemsTaken") end
+  if tab == "vars" then return varRows(S, filter) end
   return toggleRows(S, filter)
 end
 
@@ -274,6 +298,18 @@ function M.draw(S, Kit, x, y, w, h)
       end
       Kit.text("mono", Kit.ellipsize("mono", row.label, headW),
         rx + 4 * s, ry + (rowH - Kit.textHeight("mono")) / 2, PAL.caption)
+    elseif row.setValue then
+      Theme.row(rx, ry, colW, rowH, 9 * s, 0.6)
+      local btn = 22 * s
+      if Kit.stepper(rx + colW - 10 * s - btn, ry + (rowH - btn) / 2, btn, btn, "+") then
+        row.setValue((row.value or 0) + 1)
+      end
+      if Kit.stepper(rx + colW - 10 * s - 2 * btn - 6 * s, ry + (rowH - btn) / 2,
+                     btn, btn, "-") then
+        row.setValue((row.value or 0) - 1)
+      end
+      Kit.text("mono", Kit.ellipsize("mono", row.label, colW - 70 * s),
+        rx + 10 * s, ry + (rowH - Kit.textHeight("mono")) / 2, PAL.text)
     else
       local newChecked, changed = Kit.checkbox(rx, ry, colW, rowH,
         row.checked, row.label, nil, row.sub)

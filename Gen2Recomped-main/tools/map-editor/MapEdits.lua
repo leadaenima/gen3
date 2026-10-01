@@ -613,9 +613,25 @@ function MapEdits.setWildTable(store, game, mapId, terrain, time, tbl)
                  slots = {} }
   for i, slot in ipairs(tbl.slots or {}) do
     if type(slot) == "table" then
-      copy.slots[i] = { species = tostring(slot.species or "SPECIES_001"),
-                        level = math.max(1, math.min(100,
-                          math.floor(tonumber(slot.level) or 5))) }
+      -- Hoenn slots are species NUMBERS with a min/max level.  Turning the
+      -- species into a string is what made an edited table invisible to the
+      -- game, which looks the number up in the pokemon table.
+      local species = slot.species
+      if type(species) ~= "number" then
+        species = tostring(species or "SPECIES_001")
+      end
+      local row = { species = species }
+      if slot.minLevel or slot.maxLevel then
+        row.minLevel = math.max(1, math.min(100,
+          math.floor(tonumber(slot.minLevel or slot.level) or 2)))
+        row.maxLevel = math.max(row.minLevel, math.min(100,
+          math.floor(tonumber(slot.maxLevel or slot.minLevel) or row.minLevel)))
+        row.level = row.minLevel
+      else
+        row.level = math.max(1, math.min(100,
+          math.floor(tonumber(slot.level) or 5)))
+      end
+      copy.slots[i] = row
     end
   end
   if type(tbl.buckets) == "table" then
@@ -650,8 +666,17 @@ function MapEdits.applyWilds(store, game, encounters)
   local applied = 0
   for mapId, m in pairs(g.maps) do
     if type(m.wilds) == "table" then
-      local rec = encounters[mapId]
-      if not rec then rec = {}; encounters[mapId] = rec end
+      -- Ruby files each map under encounters.byMap.  Writing the Gen 2
+      -- slot (encounters[mapId]) leaves the table the game actually rolls
+      -- untouched, so an edit looked saved and changed nothing.
+      local rec
+      if type(encounters.byMap) == "table" then
+        rec = encounters.byMap[mapId]
+        if not rec then rec = {}; encounters.byMap[mapId] = rec end
+      else
+        rec = encounters[mapId]
+        if not rec then rec = {}; encounters[mapId] = rec end
+      end
       for terrain, byTime in pairs(m.wilds) do
         local into = rec[terrain]
         if not into then into = { rate = 0, slots = {} }; rec[terrain] = into end

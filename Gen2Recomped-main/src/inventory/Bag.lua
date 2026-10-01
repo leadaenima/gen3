@@ -64,6 +64,11 @@ function Bag.gen3Pockets(data)
 end
 
 local function isBadge(id)
+  -- Gen 1 and Gen 2 keep badges in the inventory under names like
+  -- THUNDERBADGE. Gen 3 item ids are numbers, and a number has no name
+  -- to search. Treating one as a string is what took the save editor
+  -- down while it was counting the bag for the tab rail.
+  if type(id) ~= "string" then return false end
   return id:find("BADGE", 1, true) ~= nil
 end
 

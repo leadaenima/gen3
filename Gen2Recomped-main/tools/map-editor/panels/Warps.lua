@@ -486,11 +486,26 @@ local function createMap(S, spec)
   return id
 end
 
+local function mapLabel(S, id)
+  if id == "LAST_MAP" or id == "LAST_WARP" then return id end
+  if type(id) ~= "string" then return tostring(id or "-- none --") end
+  local ok, Catalog = pcall(require, "Catalog")
+  if ok and Catalog and type(Catalog.mapLabel) == "function" then
+    local label = Catalog.mapLabel(S and S.data, id)
+    if type(label) == "string" and label ~= "" then return label end
+  end
+  return id
+end
+
 local function mapIds(S)
   if S.warpMapIds then return S.warpMapIds end
   local out = {}
   for id in pairs((S.data and S.data.maps) or {}) do out[#out + 1] = id end
-  table.sort(out)
+  table.sort(out, function(a, b)
+    local la, lb = mapLabel(S, a):lower(), mapLabel(S, b):lower()
+    if la == lb then return a < b end
+    return la < lb
+  end)
   S.warpMapIds = out
   return out
 end
@@ -1138,7 +1153,7 @@ function Warps.draw(S, Kit, x, y, w, h)
   -- cycle button through them is not a chooser, it is a punishment.
   Kit.text("body", "TO", sideX + pad, ey + 7 * s)
   if Kit.button(sideX + pad + 34 * s, ey, inner - 34 * s, fieldH,
-                tostring(warp.destMap or "-- none --")) then
+                mapLabel(S, warp.destMap) or "-- none --") then
     S.warpMapOpen = not S.warpMapOpen
     S.warpMapQuery = ""
   end
@@ -1154,7 +1169,7 @@ function Warps.draw(S, Kit, x, y, w, h)
     local function offer(id)
       shown = shown + 1
       if shown <= 6 then
-        if Kit.button(sideX + pad, ey, inner, fieldH - 4 * s, id) then
+        if Kit.button(sideX + pad, ey, inner, fieldH - 4 * s, mapLabel(S, id)) then
           writeField(S, warp, i, "destMap", id)
           S.warpMapOpen = false
         end
@@ -1166,7 +1181,8 @@ function Warps.draw(S, Kit, x, y, w, h)
       if q == "" or id:lower():find(q, 1, true) then offer(id) end
     end
     for _, id in ipairs(mapIds(S)) do
-      if q == "" or id:lower():find(q, 1, true) then offer(id) end
+      if q == "" or id:lower():find(q, 1, true)
+          or mapLabel(S, id):lower():find(q, 1, true) then offer(id) end
     end
     if shown == 0 then
       Kit.text("small", "no map matches", sideX + pad, ey)

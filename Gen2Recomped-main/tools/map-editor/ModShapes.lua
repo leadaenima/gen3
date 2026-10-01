@@ -468,6 +468,29 @@ end
 -- neighbour's forest the game draws around the edge of the view; in an editor
 -- it is scenery around the map you are editing, and it hides the map's own
 -- boundary, which is the one thing an editor must show exactly.
+-- The texture the game binds on a Gen 3 mesh: the mod's relaid 8px atlas,
+-- not the 16px metatile PNG and not renderer.image (which a Hoenn tileset
+-- does not have). Returns the image and the pixel buffer the carve reads.
+function ModShapes.atlas(map, modId)
+  local tileset = map and map.tileset
+  if type(tileset) ~= "table" then return nil end
+  local mods = ModShapes.modules(modId)
+  if not (mods and mods.V and mods.V.require) then return nil end
+  local ok, Gen3 = pcall(mods.V.require, "Gen3")
+  if not (ok and type(Gen3) == "table"
+          and type(Gen3.atlasForTileset) == "function") then
+    return nil
+  end
+  if type(Gen3.isGen3) == "function" and not Gen3.isGen3(tileset) then
+    return nil
+  end
+  local img = Gen3.atlasForTileset(tileset)
+  local data = type(Gen3.atlasDataForTileset) == "function"
+    and Gen3.atlasDataForTileset(tileset) or nil
+  if img and img.setFilter then pcall(img.setFilter, img, "nearest", "nearest") end
+  return img, data
+end
+
 function ModShapes.geometry(map, modId)
   local mods = ModShapes.modules(modId)
   if not mods then return nil, ModShapes.lastError or "no voxel mod selected" end

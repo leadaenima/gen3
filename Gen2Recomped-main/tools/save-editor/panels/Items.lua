@@ -83,8 +83,10 @@ function M.draw(S, Kit, x, y, w, h)
   -- Money and badges are fixed-height so the picker gets every pixel left
   -- over: cycling through ~250 item ids in a two-row list was the thing that
   -- made the old panel unusable.
+  local showCoins = S.save.engine == "gen3" or type(S.save.coins) == "number"
   local moneyH = pad * 2 + Kit.textHeight("caption") + 8 * s
     + Kit.textHeight("headline") + 10 * s + 30 * s
+    + (showCoins and (8 * s + 30 * s) or 0)
   Kit.card(x, y, leftW, moneyH)
   Kit.caption(x + pad, y + pad, "MONEY")
   local maxW = 74 * s
@@ -102,6 +104,18 @@ function M.draw(S, Kit, x, y, w, h)
     if Kit.button(x + pad + (i - 1) * (mbW + 8 * s), mbY, mbW, 30 * s, label,
         { kind = "accent", font = "tiny", radius = 8 * s }) then
       Ops.addMoney(S, delta)
+    end
+  end
+  if showCoins then
+    local cy = mbY + 30 * s + 8 * s
+    Kit.text("body", "COINS", x + pad, cy + 7 * s)
+    local coins = tonumber(S.save.coins) or 0
+    if Kit.stepper(x + pad + 70 * s, cy, 28 * s, 30 * s, "-") then
+      Ops.addCoins(S, -1)
+    end
+    Kit.textCenter("body", tostring(coins), x + pad + 100 * s, cy + 7 * s, 48 * s)
+    if Kit.stepper(x + pad + 150 * s, cy, 28 * s, 30 * s, "+") then
+      Ops.addCoins(S, 1)
     end
   end
 
@@ -224,6 +238,14 @@ function M.draw(S, Kit, x, y, w, h)
   -- --------------------------------------------------------------- bag
   local order = Bag.order(S.save)
   local capacity = Bag.capacity(S.data)
+  local pockets = Bag.gen3Pockets(S.data)
+  if pockets then
+    local sum = 0
+    for _, n in pairs(pockets) do
+      if type(n) == "number" then sum = sum + n end
+    end
+    if sum >= 1 then capacity = sum end
+  end
   Kit.card(bagX, y, listW, h)
   Kit.caption(bagX + pad, y + pad, "BAG")
   Kit.textRight("mono", ("%d/%d slots"):format(Bag.slots(S.save), capacity),

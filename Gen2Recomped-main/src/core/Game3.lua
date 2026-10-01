@@ -29839,6 +29839,18 @@ function Game3.ledgeDelta(behavior)
   if b == Game3.MB_JUMP_SOUTHWEST then return -1, 1 end
 end
 
+-- Emerald takes a diagonal lip on either of its cardinals
+-- (MetatileBehavior_IsJumpSouth is south, southeast, or southwest).
+-- The pad and the free walk both only ever send one axis.
+function Game3.ledgeAccepts(behavior, dx, dy)
+  local jx, jy = Game3.ledgeDelta(behavior)
+  if not jx then return false end
+  dx, dy = dx or 0, dy or 0
+  if dx ~= 0 and dy == 0 then return jx == dx end
+  if dy ~= 0 and dx == 0 then return jy == dy end
+  return jx == dx and jy == dy
+end
+
 function Game3:tryLedgeHop(map, dx, dy)
   map = map or self.map
   if not map or self.surfing then return false end
@@ -29847,8 +29859,9 @@ function Game3:tryLedgeHop(map, dx, dy)
   if self:isFreeFlying() then return false end
   local nx = self.playerX + dx
   local ny = self.playerY + dy
-  local jx, jy = Game3.ledgeDelta(self:behaviorAt(map, nx, ny))
-  if not jx or jx ~= dx or jy ~= dy then return false end
+  if not Game3.ledgeAccepts(self:behaviorAt(map, nx, ny), dx, dy) then
+    return false
+  end
   local lx = self.playerX + dx * 2
   local ly = self.playerY + dy * 2
   if self:npcAt(map, lx, ly) then return false end
@@ -60582,6 +60595,7 @@ function Game3:isModOwGuestEntity(e)
   if type(e) ~= "table" then return false end
   if e.isPlayer or e.id == "player" then return false end
   if e._modOwGuest or e._wildsGoldGuest then return true end
+  if e.wildsFollower or e.pokepcTrailer or e._wildsFollowerSpecies then return true end
   if e.overworldWildSpawn or e._owwildEntity then return true end
   if type(e.pose) == "function" and type(e.draw) == "function"
       and (e.species ~= nil or e.wildSpecies ~= nil) then
@@ -60827,6 +60841,12 @@ function Game3:collectModOwGuests(ow)
     end
     if type(ow.npcs) == "table" then
       for i = 1, #ow.npcs do take(ow.npcs[i]) end
+    end
+    -- Trailers live on the overworld proxy, not in the rebuilt entities
+    -- list. A camera move rebuilds that list and used to drop them before
+    -- the voxel pass posed anyone.
+    if type(ow.pokepcTrailers) == "table" then
+      for i = 1, #ow.pokepcTrailers do take(ow.pokepcTrailers[i]) end
     end
   end
   -- READ Wilds logic.entities (spawn book). Engine rebuild may wipe ow.entities
@@ -61166,6 +61186,26 @@ function Game3:drawModOwGuests()
         local chh = tonumber(type(def) == "table" and def.height) or 16
         if cw < 1 then cw = 16 end
         if chh < 1 then chh = 16 end
+        -- A 4x4 follow sheet is 32px frames in a 128px image. A record that
+        -- still says 16 crops the top-left corner of each frame, which is
+        -- the partial body on screen.
+        if iw >= 64 and ih >= 64 and iw % 4 == 0 then
+          local cell = math.floor(iw / 4)
+          if cell > cw and math.floor(ih / cell) >= 4 then
+            cw, chh = cell, cell
+            if type(def) == "table" then
+              def.width, def.height, def.cols = cell, cell, 4
+              if type(def.dirRows) ~= "table" then
+                def.dirRows = {
+                  down = 0, south = 0, front = 0,
+                  left = 1, west = 1,
+                  right = 2, east = 2,
+                  up = 3, north = 3, back = 3,
+                }
+              end
+            end
+          end
+        end
         local rows = math.max(1, math.floor(ih / chh))
         -- TWO SHEET LAYOUTS, ONE BLIT.
         --

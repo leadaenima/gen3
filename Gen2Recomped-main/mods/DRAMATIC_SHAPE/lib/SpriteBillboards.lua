@@ -108,8 +108,26 @@ end
 -- Game3:grabImage; billboards must match that resolution.
 -- Prefixed / live grabImage FIRST: an unprefixed miss often answers a 16x16
 -- placeholder, which would cache a dummy card and hide every NPC.
+local sheetCache = {}
+
 local function loadSheet(path)
   if type(path) ~= "string" or path == "" then return nil end
+  local cached = sheetCache[path]
+  if cached then return cached end
+  -- Follower sheets live in the mod tree. Assets.image and grabImage look
+  -- at the cartridge cache and answer a placeholder, or nothing, so the
+  -- billboard was dropped and the follower vanished in voxel. The file
+  -- itself is on the game filesystem; load that when it is there.
+  if love and love.filesystem and love.filesystem.getInfo
+      and love.graphics and love.graphics.newImage
+      and love.filesystem.getInfo(path) then
+    local okN, img = pcall(love.graphics.newImage, path)
+    if okN and img then
+      if img.setFilter then img:setFilter("nearest", "nearest") end
+      sheetCache[path] = img
+      return img
+    end
+  end
   if Assets.provides and Assets.provides(path) then
     local ok, img = pcall(Assets.image, path)
     if ok and img then return img end
@@ -150,6 +168,62 @@ local function loadSheet(path)
   return nil
 end
 
+function SpriteBillboards.sheet(path)
+  return loadSheet(path)
+end
+
+-- A follow sheet is a grid: columns are walk frames, rows are facings.
+-- A normal walker strip is one column or one row, and must not take this.
+local function followerSheet(def)
+  if type(def) ~= "table" then return false end
+  local id = tostring(def.id or "")
+  local image = tostring(def.image or def.path or "")
+  if id:find("OW_WILD", 1, true) or id:find("WILDS", 1, true) then return true end
+  if image:find("followsprites", 1, true) then return true end
+  if image:find("enhanced_overworld", 1, true) then return true end
+  return false
+end
+
+local function gridCell(def, iw, ih)
+  if not followerSheet(def) then return nil end
+  iw, ih = tonumber(iw), tonumber(ih)
+  if not iw or not ih or iw < 16 or ih < 16 then return nil end
+  local cw = tonumber(def.width) or tonumber(def.frameWidth)
+  local ch = tonumber(def.height) or tonumber(def.frameHeight)
+  if cw and ch and cw >= 8 and ch >= 8 and iw % cw == 0 and ih % ch == 0 then
+    local cols, rows = iw / cw, ih / ch
+    if cols >= 2 and rows >= 2 and cols <= 8 and rows <= 8 then
+      return cw, ch, cols, rows
+    end
+  end
+  if iw >= 64 and ih >= 64 and iw % 4 == 0 then
+    local cell = math.floor(iw / 4)
+    if cell >= 16 and ih % cell == 0 and math.floor(ih / cell) >= 2 then
+      return cell, cell, 4, math.floor(ih / cell)
+    end
+  end
+  return nil
+end
+
+-- Packed frame index (row * cols + col) for a follow grid, or nil when
+-- this sheet is an ordinary strip. Facing rows match the enhanced sheet:
+-- down, left, right, up. Phase 0/1 plus the step mirror pick the column.
+function SpriteBillboards.gridFrame(def, iw, ih, facing, phase, flip)
+  local cw, ch, cols, rows = gridCell(def, iw, ih)
+  if not cols then return nil end
+  local dir = tostring(facing or "down"):lower()
+  local row = ({
+    down = 0, south = 0, front = 0,
+    left = 1, west = 1,
+    right = 2, east = 2,
+    up = 3, north = 3, back = 3,
+  })[dir] or 0
+  local col = 0
+  if type(phase) == "number" and phase > 0 then col = 1 end
+  if cols >= 4 and flip then col = col + 2 end
+  return (row % rows) * cols + (col % cols), cw, ch
+end
+
 -- sampleW/H = sheet frame UVs. worldW/H = on-ground card (True Size may
 -- be larger than the strip it was sampled from).
 local function buildCardStated(img, frame, sampleW, sampleH, worldW, worldH)
@@ -161,16 +235,27 @@ local function buildCardStated(img, frame, sampleW, sampleH, worldW, worldH)
   if worldH < 8 then worldH = sampleH end
   frame = tonumber(frame) or 0
   local fx, fy = 0, 0
+  -- A follow grid packs the cell as row * cols + col. A strip still walks
+  -- the one axis that actually holds more than one frame.
+  local cols = math.floor(iw / sampleW)
+  local rows = math.floor(ih / sampleH)
+  local across
+  if cols >= 2 and rows >= 2 then
+    fx = (frame % cols) * sampleW
+    fy = (math.floor(frame / cols) % rows) * sampleH
+    across = nil
+  else
   -- Ruby extracts a HORIZONTAL strip (frames across). Emerald / stacked
   -- sheets are a column (frames down). Walk the axis that actually holds
   -- more than one frame so an unstacked Game3 sheet still shows a card.
-  local across = iw >= (sampleW * 2) and ih <= (sampleH + 1)
+  across = iw >= (sampleW * 2) and ih <= (sampleH + 1)
   if across then
     fx = frame * sampleW
     if fx + sampleW > iw then fx = 0 end
   else
     fy = frame * sampleH
     if fy + sampleH > ih then fy = 0 end
+  end
   end
   local u0, u1 = (fx + 0.02) / iw, (fx + sampleW - 0.02) / iw
   local v0, v1 = (fy + 0.05) / ih, (fy + sampleH - 0.05) / ih
@@ -237,6 +322,8 @@ end
 -- without them a True Size walker still falls back to 16×16 rather than
 -- stretching the species box.
 function SpriteBillboards.sheetFrame(def, iw, ih)
+  local gw, gh = gridCell(def, iw, ih)
+  if gw then return gw, gh end
   local fw, fh = statedFrame(def)
   if fw and fh then
     if iw and ih then

@@ -762,6 +762,22 @@ function Map:isWalkableCell(cx, cy)
   -- passable.  A cave mouth is a warp cell, so the sealed entrance was
   -- walkable on that line alone no matter what the script had written.
   if self:patchedImpassable(cx, cy) then return false end
+  -- GEN 3. Passability is the cell's collision bits, not a tile-id set.
+  -- A Hoenn tileset's behaviour byte says what the drawing IS (and MB_NORMAL
+  -- is the answer for grass, trees, houses and signs alike), so looking it
+  -- up in the Gen 1 walkable set said the whole town was a wall. The mesher
+  -- then had no floor to found anything on and drew the map as a flat sheet.
+  -- Elevation 1 is the surf datum: collision 0, and not a place you walk.
+  if self.blockCells == 1 and self.blockTiles == 2
+     and self.def.collisionCells then
+    if not self:inBounds(cx, cy) then return false end
+    if self:warpAtCell(cx, cy) then return true end
+    if self:cellCollision(cx, cy) ~= 0 then return false end
+    if self.def.elevationCells and self:cellElevation(cx, cy) == 1 then
+      return false
+    end
+    return true
+  end
   if self.walkable[self:cellTile(cx, cy)] then return true end
   if self.gen2BorderBlock ~= nil then
     -- Border-block heuristic: any block other than the border block is walkable

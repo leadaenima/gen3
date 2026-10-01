@@ -540,6 +540,58 @@ local function questHeadsetStop()
   questXrGiveUp = true
 end
 
+-- Drop the flat panel without refusing to open it again. First person
+-- takes the real headset session; if that session cannot start, the
+-- panel comes back.
+local function questReleaseFlat()
+  if questXr then pcall(function() questXr.stop() end) end
+  questXr, questXrGl = nil, nil
+  _G.QUEST_XR_BOOTSTRAP = false
+end
+
+local questEyeCooldown = 0
+local questWorldFrames = 0
+local questBlind = 0
+
+-- The title and the continue menu stay on the panel. Eyes start only
+-- once a map is actually loaded.
+local function questInWorld()
+  if Importer or editorMode or TouchEditor or bootReport then return false end
+  if not (Game and Game.phase == "play" and Game.map and not Game.boot) then
+    return false
+  end
+  return true
+end
+
+-- Voxel is on and the world mesh has been drawn, so the eye session
+-- has something to submit. Releasing the panel before that is what
+-- left the headset black.
+local function questWantEyes()
+  if questEyeCooldown > 0 then return false end
+  if not questInWorld() then
+    questWorldFrames = 0
+    return false
+  end
+  local ok, ready = pcall(function()
+    local exp = Game.mods and Game.mods.exports and Game.mods.exports.DRAMATIC_SHAPE
+    local Voxel = exp and exp.lib and exp.lib.require and exp.lib.require("VoxelState")
+    if not Voxel then return false end
+    local level = Voxel.level or 0
+    if level < 1 then
+      level = require("src.render.Pipelines").level("voxel") or 0
+    end
+    return level >= 1 and Voxel.ready == true
+  end)
+  if not (ok and ready) then
+    questWorldFrames = 0
+    return false
+  end
+  questWorldFrames = questWorldFrames + 1
+  -- A few frames of a real picture first, so the handoff is not the
+  -- same moment the map appears.
+  return questWorldFrames >= 12
+end
+
 local function quatRotate(q, v)
   local x, y, z, w = q[1], q[2], q[3], q[4]
   local tx = 2 * (y * v[3] - z * v[2])
@@ -601,6 +653,80 @@ local function questPointLauncher(time)
   end
 end
 
+-- Once a cartridge is running, the same controllers are the game's pad.
+-- A second OpenXR session (the mod's own) was replacing this panel with
+-- an empty view, which is the black screen under the title music.
+local questHeld = {}
+
+local function questSetBtn(inp, btn, down)
+  if down and not questHeld[btn] then
+    questHeld[btn] = true
+    pcall(function() inp:overlayPressed(btn) end)
+  elseif not down and questHeld[btn] then
+    questHeld[btn] = nil
+    pcall(function() inp:overlayReleased(btn) end)
+  end
+end
+
+local questCtl
+
+local function questDriveGame(ctl)
+  if not (Game and Game.input and ctl) then return end
+  local inp = Game.input
+  questSetBtn(inp, "a", ctl.a)
+  questSetBtn(inp, "b", ctl.b)
+  -- Y is Start. The controller's menu button is not. `start` is the
+  -- same click, read through the other action, so either binding works.
+  questSetBtn(inp, "start", (ctl.y or ctl.start) and true or false)
+  local mx, my = ctl.moveX or 0, ctl.moveY or 0
+  pcall(function()
+    inp:gamepadaxis(nil, "leftx", mx)
+    inp:gamepadaxis(nil, "lefty", -my)
+  end)
+  -- Right stick looks. The left stick stays walk.
+  if Game.gamepadaxis then
+    pcall(function()
+      Game:gamepadaxis(nil, "rightx", ctl.lookX or 0)
+      Game:gamepadaxis(nil, "righty", -(ctl.lookY or 0))
+    end)
+  end
+end
+
+_G.questApplyInput = function()
+  -- The panel and the eye session each have their own controller sample.
+  -- Prefer the one that is actually submitting frames.
+  local ctl = questCtl
+  if not _G.QUEST_XR_BOOTSTRAP and _G.QUEST_XR_CTL then
+    ctl = _G.QUEST_XR_CTL
+  end
+  if ctl then questDriveGame(ctl) end
+end
+
+-- Android in-game, panel or eyes. The menu button is the system menu.
+local function questOwnsPad()
+  if Importer or not (Game and Game.input) then return false end
+  local ok, os = pcall(function() return love.system.getOS() end)
+  return ok and os == "Android"
+end
+
+local questVoxelPushed = false
+
+local function questPushVoxel()
+  if questVoxelPushed then return end
+  if not (questInWorld() and Game.mods) then return end
+  local ok, os = pcall(function() return love.system.getOS() end)
+  if not ok or os ~= "Android" then return end
+  local Pipelines = require("src.render.Pipelines")
+  if (Pipelines.level("voxel") or 0) >= 6 then
+    questVoxelPushed = true
+    return
+  end
+  local exp = Game.mods.exports and Game.mods.exports.DRAMATIC_SHAPE
+  if not (exp and exp.setVoxelLevel) then return end
+  exp.setVoxelLevel(Game, 6)
+  questVoxelPushed = true
+end
+
 local function questHeadsetTick()
   if questXrGiveUp then return end
   local okOs, os = pcall(function() return love.system.getOS() end)
@@ -649,6 +775,9 @@ local function questHeadsetTick()
     end
     questXr = packOrErr.xr
     questXrGl = packOrErr.gl
+    -- The mod must not open its own session on top of this one. Two
+    -- sessions is what blanks the headset once a cartridge boots.
+    _G.QUEST_XR_BOOTSTRAP = true
     require("src.core.Logger").info("Quest VR: %s", tostring(questXr.status()))
   end
   if not questXr.poll() then return end
@@ -656,6 +785,11 @@ local function questHeadsetTick()
   local time = questXr.waitFrame()
   if not time then return end
   questPointLauncher(time)
+  local ctl = questXr.input and questXr.input(time)
+  if ctl then
+    questCtl = ctl
+    questDriveGame(ctl)
+  end
   pcall(function()
     local tex, w, h = questXr.acquireQuad()
     if tex then
@@ -677,13 +811,21 @@ function love.update(dt)
   -- Unwind anything the previous frame left on the graphics stack before this
   -- one starts building on top of it.
   GraphicsStack.drain()
-  -- Keep a headset frame going through the launcher. Once a cartridge is
-  -- booted the mod's own session owns the runtime, and two sessions at once
-  -- is how the row looks on but never takes the view.
-  if Game then
-    questHeadsetStop()
-  else
-    questHeadsetTick()
+  if questEyeCooldown > 0 then questEyeCooldown = questEyeCooldown - 1 end
+  -- The panel is the launcher and the flat game. Once voxel has drawn
+  -- a world, that session has to close BEFORE the eye session starts:
+  -- two OpenXR sessions at once is a black headset. The eye session
+  -- submits the stereo world (or, if that pass is empty, a quad) in
+  -- this same update, so the runtime is not left without a frame.
+  local handoff = questWantEyes()
+  if handoff and _G.QUEST_XR_BOOTSTRAP then
+    questReleaseFlat()
+  end
+  if _G.QUEST_XR_BOOTSTRAP or not _G.QUEST_XR_LIVE then
+    -- Keep submitting the panel until the eye session exists. After a
+    -- handoff LIVE is still false until Game:update below; skip the
+    -- panel on that one frame so we do not open the session again.
+    if not handoff then questHeadsetTick() end
   end
   -- The report deliberately runs nothing else: the boot path it is reporting on
   -- is the code that just died.
@@ -733,6 +875,25 @@ function love.update(dt)
   -- "attempt to index upvalue 'Game' (a nil value)" a second after launch.
   if not Game then return end
   Game:update(dt)
+  -- The eye session reports itself once it is submitting. If the
+  -- handoff never produces one, bring the panel back rather than
+  -- sitting in the three loading dots.
+  if _G.QUEST_XR_LIVE then
+    questBlind = 0
+  elseif not _G.QUEST_XR_BOOTSTRAP then
+    questBlind = questBlind + 1
+    if questBlind >= 180 then
+      questEyeCooldown = 120
+      questWorldFrames = 0
+      questBlind = 0
+      if _G.QUEST_XR_STOP then pcall(_G.QUEST_XR_STOP) end
+      _G.QUEST_XR_LIVE = false
+      _G.QUEST_XR_WORLD = false
+      questHeadsetTick()
+    end
+  else
+    questBlind = 0
+  end
 end
 
 function love.draw()
@@ -793,6 +954,20 @@ function love.gamepadpressed(joystick, button)
     if EditorApp.gamepadpressed then return EditorApp.gamepadpressed(button) end
     return
   end
+  -- Quest reports the system menu button as Start. The game's Start is Y.
+  if questOwnsPad() then
+    if button == "start" or button == "back" or button == "guide" then
+      return
+    end
+    if button == "y" then
+      Game.input:overlayPressed("start")
+      return
+    end
+    if button == "x" then
+      Game.input:overlayPressed("b")
+      return
+    end
+  end
   if Importer then return Importer:gamepadpressed(joystick, button) end
   if not Game then return end
   Game:gamepadpressed(joystick, button)
@@ -803,6 +978,19 @@ function love.gamepadreleased(joystick, button)
   if editorMode then
     if EditorApp.gamepadreleased then return EditorApp.gamepadreleased(button) end
     return
+  end
+  if questOwnsPad() then
+    if button == "start" or button == "back" or button == "guide" then
+      return
+    end
+    if button == "y" then
+      Game.input:overlayReleased("start")
+      return
+    end
+    if button == "x" then
+      Game.input:overlayReleased("b")
+      return
+    end
   end
   if Importer then return Importer:gamepadreleased(joystick, button) end
   if not Game then return end
@@ -829,6 +1017,9 @@ function love.joystickpressed(joystick, button)
     end
     return
   end
+  -- The Quest menu button arrives on this path as Start. Face buttons
+  -- are read above, from the gamepad names, and Y is the game's Start.
+  if _G.QUEST_XR_BOOTSTRAP and not Importer then return end
   if Importer then return Importer:joystickpressed(joystick, button) end
   if not Game then return end
   Game:joystickpressed(joystick, button)
@@ -836,6 +1027,7 @@ end
 
 function love.joystickreleased(joystick, button)
   if editorMode or TouchEditor then return end
+  if _G.QUEST_XR_BOOTSTRAP and not Importer then return end
   if Importer then return Importer:joystickreleased(joystick, button) end
   if not Game then return end
   Game:joystickreleased(joystick, button)

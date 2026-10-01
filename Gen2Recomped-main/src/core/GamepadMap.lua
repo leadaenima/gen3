@@ -73,8 +73,30 @@ local function nxActive()
   return false
 end
 
+-- Quest: the system menu button is SDL "start", and it must not open the
+-- game menu. The left face Y is Start. Right B stays B; left X is B too.
+local androidPads
+local function androidActive()
+  if not (love and love.system and love.system.getOS) then return false end
+  local ok, os = pcall(love.system.getOS)
+  return ok and os == "Android"
+end
+
 function GamepadMap.gamepadBindings()
   if nxActive() then return GamepadMap.NX_GAMEPAD_BINDINGS end
+  if androidActive() then
+    if not androidPads then
+      androidPads = {}
+      for button, action in pairs(GamepadMap.DEFAULT_GAMEPAD_BINDINGS) do
+        androidPads[button] = action
+      end
+      androidPads.start = nil
+      androidPads.guide = nil
+      androidPads.y = "start"
+      androidPads.x = "b"
+    end
+    return androidPads
+  end
   return GamepadMap.DEFAULT_GAMEPAD_BINDINGS
 end
 

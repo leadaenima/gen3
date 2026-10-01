@@ -131,6 +131,17 @@ function Input:applyBindings(overlay)
     local n = tonumber(padName:match("^joy(%d+)$"))
     if n then joys[n] = action end
   end
+  -- Headset: Y is Start even if a save still has the menu button in
+  -- that slot. The menu button is the system menu.
+  local okOs, os = pcall(function()
+    return love.system.getOS()
+  end)
+  if okOs and os == "Android" then
+    pads.start = nil
+    pads.guide = nil
+    pads.y = "start"
+    pads.x = "b"
+  end
   self.keyBindings = keys
   self.padBindings = pads
   self.joyBindings = joys
@@ -236,6 +247,14 @@ function Input:reconcile()
       local ok, down = pcall(kb.isDown, key)
       if ok and down then press(self, btn, "key:" .. key) end
     end
+  end
+  -- Quest Touch controllers show up as SDL joysticks whose sticks stay at
+  -- zero; OpenXR is what actually moves. Reading those zeros here released
+  -- the direction the headset had just pressed, so a save would load and
+  -- the player could not walk. The headset path reapplies itself instead.
+  if _G.QUEST_XR_BOOTSTRAP or _G.QUEST_XR_LIVE then
+    if _G.questApplyInput then _G.questApplyInput() end
+    return
   end
   local js = love and love.joystick
   if not (js and js.getJoysticks) then return end

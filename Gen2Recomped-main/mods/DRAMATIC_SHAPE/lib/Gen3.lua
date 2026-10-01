@@ -279,40 +279,16 @@ local function engineWorld(map)
   return nil
 end
 
--- The fallback: bake the pair ourselves.  Same code the engine's own 2D path
--- uses, so the two cannot disagree about what a metatile looks like.
-local function modWorld(map)
-  local tileset = map.tileset
-  local data = engineData()
-  local store = data and data.map_tilesets
-  local primary = store and store[tileset.primaryKey]
-  if not primary then
-    warn("nostore", "no map_tilesets entry for primary %s -- the world cannot "
-         .. "be textured and nothing will be meshed",
-         tostring(tileset.primaryKey))
-    return nil
-  end
-  local okMod, Gen3Tiles = pcall(require, "src.render.Gen3Tiles")
-  if not (okMod and Gen3Tiles) then
-    warn("nogen3tiles", "src.render.Gen3Tiles is unavailable on this host")
-    return nil
-  end
-  local layout = data and data.constants and data.constants.gen3Layout
-  local okNew, tiles = pcall(Gen3Tiles.new, {
-    primary = primary,
-    secondary = tileset.secondaryKey and store[tileset.secondaryKey] or nil,
-  }, layout)
-  if not (okNew and tiles) then
-    warn("nonew", "Gen3Tiles.new failed: %s", tostring(tiles))
-    return nil
-  end
-  say("fallback", "the host does not publish gen3WorldFor -- baking the pair "
-      .. "in the mod instead")
+-- A world record from a tiles object that already speaks attributes() and
+-- sheetLayout(). Shared by the Emerald raw-pair path and the Ruby sheet path
+-- so the two cannot disagree about what a metatile means.
+local function worldFromTiles(tileset, tiles, width, height)
   local cols, _, w, h = tiles:sheetLayout()
   return {
     generation = 3, tileset = tileset, pair = tileset,
     bottom = false, top = false,           -- images are the atlas's business
-    width = w, height = h, cols = cols or SHEET_COLS, cell = CELL,
+    width = width or w, height = height or h,
+    cols = cols or SHEET_COLS, cell = CELL,
     metatiles = tiles:metatileCount(),
     tiles = tiles,
     attributes = function(id)
@@ -326,6 +302,53 @@ local function modWorld(map)
       return (not ok2) or (v and true or false)
     end,
   }
+end
+
+-- The fallback: bake the pair ourselves.  Same code the engine's own 2D path
+-- uses, so the two cannot disagree about what a metatile looks like.
+--
+-- Ruby and Sapphire do not ship map_tilesets. Their art is the pair PNGs,
+-- which Gen3Sheets already bakes, and their behaviour bytes live on the
+-- tileset record. Returning nil here used to drop the whole context, and the
+-- mesher then answered every cell from walkability alone -- a town of walls
+-- with nothing to found a house or a tree on, drawn as one flat sheet.
+local function modWorld(map)
+  local tileset = map.tileset
+  local data = engineData()
+  local store = data and data.map_tilesets
+  local primary = store and store[tileset.primaryKey]
+  if primary then
+    local okMod, Gen3Tiles = pcall(require, "src.render.Gen3Tiles")
+    if not (okMod and Gen3Tiles) then
+      warn("nogen3tiles", "src.render.Gen3Tiles is unavailable on this host")
+      return nil
+    end
+    local layout = data and data.constants and data.constants.gen3Layout
+    local okNew, tiles = pcall(Gen3Tiles.new, {
+      primary = primary,
+      secondary = tileset.secondaryKey and store[tileset.secondaryKey] or nil,
+    }, layout)
+    if not (okNew and tiles) then
+      warn("nonew", "Gen3Tiles.new failed: %s", tostring(tiles))
+      return nil
+    end
+    say("fallback", "the host does not publish gen3WorldFor -- baking the pair "
+        .. "in the mod instead")
+    return worldFromTiles(tileset, tiles)
+  end
+  local okGS, Gen3Sheets = pcall(require, "src.render.Gen3Sheets")
+  if okGS and Gen3Sheets and type(Gen3Sheets.forTileset) == "function" then
+    local ok, rec = pcall(Gen3Sheets.forTileset, tileset, data)
+    if ok and type(rec) == "table" and rec.tiles then
+      say("sheets", "no map_tilesets for %s -- using the pair sheets",
+          tostring(tileset.id or tileset.primaryKey))
+      return worldFromTiles(tileset, rec.tiles, rec.width, rec.height)
+    end
+  end
+  warn("nostore", "no map_tilesets entry for primary %s -- the world cannot "
+       .. "be textured and nothing will be meshed",
+       tostring(tileset.primaryKey))
+  return nil
 end
 
 -- ---------------------------------------------------------------------------
@@ -734,6 +757,37 @@ function Gen3.forMap(map)
   local height = tonumber(def.height) or 0
   local elevationCells = def.elevationCells
   local collisionCells = def.collisionCells
+  -- Ruby stores collision and elevation IN the grid word (bits 10-11 and
+  -- 12-15, the same split as Game3.collisionOf / elevationOf) and does not
+  -- publish the two planes Emerald's extractor writes. Without them every
+  -- cell reads as unblocked, or, when the context is missing entirely, as a
+  -- wall -- and a town meshes as one flat sheet of its own tiles.
+  do
+    local n = width * height
+    local function planeOk(cells)
+      return type(cells) == "table" and n > 0 and cells[1] ~= nil
+        and cells[n] ~= nil
+    end
+    local grid = def.grid
+    if n > 0 and type(grid) == "table" and type(grid[1]) == "number"
+       and type(grid[n]) == "number"
+       and (not planeOk(collisionCells) or not planeOk(elevationCells)) then
+      local col, elev = {}, {}
+      for i = 1, n do
+        local word = grid[i] or 0
+        col[i] = math.floor(word / 1024) % 4
+        elev[i] = math.floor(word / 4096) % 16
+      end
+      if not planeOk(collisionCells) then
+        collisionCells = col
+        def.collisionCells = col
+      end
+      if not planeOk(elevationCells) then
+        elevationCells = elev
+        def.elevationCells = elev
+      end
+    end
+  end
 
   local elevHeight, levels = nil, 0
   if elevationCells then

@@ -31,9 +31,19 @@ local Wilds = {}
 
 local TERRAINS = { { id = "grass", label = "GRASS" },
                    { id = "water", label = "WATER" } }
+local GEN3_TERRAINS = {
+  { id = "land", label = "LAND" },
+  { id = "water", label = "WATER" },
+  { id = "rock", label = "ROCK" },
+  { id = "fish", label = "FISH" },
+}
 local TIMES = { { id = "day", label = "DAY" },
                 { id = "morn", label = "MORN" },
                 { id = "nite", label = "NIGHT" } }
+
+local function asText(id)
+  return tostring(id or "")
+end
 
 local function store(S)
   if not S.mapEdits then S.mapEdits = (MapEdits.load()) end
@@ -65,16 +75,18 @@ end
 -- reader is thinking in, and is not the order the ids sort in as strings.
 local function speciesIds(S)
   if S._wildSpecies then return S._wildSpecies end
+  local skip = { byId = true, byIndex = true, byName = true, byKey = true }
   local out = {}
   for id, entry in pairs((S.data and S.data.pokemon) or {}) do
-    if type(entry) == "table" then
+    if type(entry) == "table" and not skip[id] and (entry.name or entry.baseStats) then
+      local digits = asText(id):match("(%d+)$")
       out[#out + 1] = { id = id, n = tonumber(entry.index or entry.dex)
-                        or tonumber(id:match("(%d+)$") or "") or 0 }
+                        or tonumber(digits) or 0 }
     end
   end
   table.sort(out, function(a, b)
     if a.n ~= b.n then return a.n < b.n end
-    return a.id < b.id
+    return asText(a.id) < asText(b.id)
   end)
   local ids = {}
   for i, e in ipairs(out) do ids[i] = e.id end
@@ -84,7 +96,18 @@ end
 
 local function baseRecord(S)
   local enc = S.data and S.data.encounters
-  return enc and enc[S.mapId or ""] or nil
+  if type(enc) ~= "table" then return nil end
+  local id = S.mapId or ""
+  -- Ruby/Sapphire keep one header per map under byMap, with land / water /
+  -- rock / fish.  The Gen 2 shape is encounters[mapId].grass.
+  if type(enc.byMap) == "table" and type(enc.byMap[id]) == "table" then
+    return enc.byMap[id]
+  end
+  return enc[id]
+end
+
+local function gen3Header(base)
+  return type(base) == "table" and (base.land or base.rock or base.fish) ~= nil
 end
 
 -- The table being edited, and whether it is MINE or the cartridge's.
@@ -108,7 +131,10 @@ local function mutate(S, fn)
   local cur = currentTable(S) or { rate = 0, slots = {} }
   local next_ = { rate = cur.rate or 0, slots = {}, buckets = cur.buckets }
   for i, slot in ipairs(cur.slots or {}) do
-    next_.slots[i] = { species = slot.species, level = slot.level }
+    next_.slots[i] = {
+      species = slot.species, level = slot.level,
+      minLevel = slot.minLevel, maxLevel = slot.maxLevel,
+    }
   end
   fn(next_)
   MapEdits.setWildTable(store(S), game(S), S.mapId, terrain, time, next_)
@@ -124,7 +150,15 @@ end
 local DEFAULT_BUCKETS = { 77, 154, 205, 230, 243, 253, 256 }
 
 local function shareOf(tbl, i)
-  local b = (tbl and tbl.buckets) or DEFAULT_BUCKETS
+  local b = tbl and tbl.buckets
+  -- The 7-slot Johto shares are not the 12-slot land table or the 5-slot
+  -- water table.  Inventing them puts a percentage on a slot that does not
+  -- have that percentage.
+  if not b then
+    local n = tbl and tbl.slots and #tbl.slots or 0
+    if n ~= #DEFAULT_BUCKETS then return nil end
+    b = DEFAULT_BUCKETS
+  end
   local hi = b[i]
   if not hi then return nil end
   local lo = b[i - 1] or 0
@@ -141,20 +175,30 @@ function Wilds.draw(S, Kit, x, y, w, h)
     return
   end
 
-  S.wildTerrain = S.wildTerrain or "grass"
+  local header = baseRecord(S)
+  local hoenn = gen3Header(header)
+  local terrains = hoenn and GEN3_TERRAINS or TERRAINS
+  S.wildTerrain = S.wildTerrain or (hoenn and "land" or "grass")
+  local terrainOk = false
+  for _, t in ipairs(terrains) do
+    if t.id == S.wildTerrain then terrainOk = true end
+  end
+  if not terrainOk then S.wildTerrain = terrains[1].id end
   S.wildTime = S.wildTime or "day"
 
   Kit.caption(x, y, "WILD ENCOUNTERS - " .. tostring(S.mapId))
   local fy = y + Kit.textHeight("caption") + 6 * s
-  Kit.text("small", "one table per map -- every patch of grass rolls the same",
+  Kit.text("small", hoenn
+    and "one table per terrain -- land, water, rocks and fishing share the map"
+    or "one table per map -- every patch of grass rolls the same",
            x, fy, PAL.muted)
   fy = fy + 18 * s
 
-  -- TERRAIN, then TIME. Water has one table and no time of day, so its row
-  -- disappears rather than sitting there doing nothing.
+  -- TERRAIN, then TIME. Hoenn has no morning/day/night split, and water
+  -- has one table, so a row that would do nothing is not drawn.
   local chipH = 26 * s
-  local cw = (w - 6 * s) / 2
-  for i, t in ipairs(TERRAINS) do
+  local cw = (w - (#terrains - 1) * 6 * s) / #terrains
+  for i, t in ipairs(terrains) do
     if Kit.chip(x + (i - 1) * (cw + 6 * s), fy, cw, chipH, t.label,
                 S.wildTerrain == t.id) then
       S.wildTerrain = t.id
@@ -162,7 +206,7 @@ function Wilds.draw(S, Kit, x, y, w, h)
   end
   fy = fy + chipH + 6 * s
 
-  if S.wildTerrain == "grass" then
+  if not hoenn and S.wildTerrain == "grass" then
     local tw = (w - 12 * s) / 3
     for i, t in ipairs(TIMES) do
       if Kit.chip(x + (i - 1) * (tw + 6 * s), fy, tw, chipH, t.label,
@@ -206,7 +250,7 @@ function Wilds.draw(S, Kit, x, y, w, h)
   if mine and Kit.button(x + w - 110 * s, fy - 6 * s, 110 * s, 24 * s,
                          "REVERT", { font = "small" }) then
     local terrain = S.wildTerrain
-    local time = (terrain == "grass") and S.wildTime or "day"
+    local time = (not hoenn and terrain == "grass") and S.wildTime or "day"
     MapEdits.setWildTable(store(S), game(S), S.mapId, terrain, time, nil)
     markEdited(S)
   end
@@ -215,7 +259,28 @@ function Wilds.draw(S, Kit, x, y, w, h)
   -- THE SLOTS.
   local rowH = 34 * s
   local slots = tbl.slots or {}
-  local count = math.max(#slots, 7)
+  local count = hoenn and math.max(#slots, 1) or math.max(#slots, 7)
+  local function levelLabel(slot)
+    if slot.minLevel or slot.maxLevel then
+      local lo = slot.minLevel or slot.level or 0
+      local hi = slot.maxLevel or lo
+      if lo == hi then return "L" .. tostring(lo) end
+      return tostring(lo) .. "-" .. tostring(hi)
+    end
+    return "L" .. tostring(slot.level or 0)
+  end
+  local function shiftLevel(slot, delta)
+    if slot.minLevel or slot.maxLevel then
+      local lo = math.max(1, math.min(100, (slot.minLevel or slot.level or 2) + delta))
+      local span = (slot.maxLevel or lo) - (slot.minLevel or lo)
+      if span < 0 then span = 0 end
+      slot.minLevel = lo
+      slot.maxLevel = math.max(lo, math.min(100, lo + span))
+      slot.level = lo
+    else
+      slot.level = math.max(1, math.min(100, (slot.level or 5) + delta))
+    end
+  end
   for i = 1, count do
     local slot = slots[i]
     local share = shareOf(tbl, i)
@@ -235,16 +300,12 @@ function Wilds.draw(S, Kit, x, y, w, h)
 
     if slot then
       if Kit.stepper(x + w - bw, ry, 26 * s, rowH - 6 * s, "-") then
-        mutate(S, function(t)
-          t.slots[i].level = math.max(1, (t.slots[i].level or 5) - 1)
-        end)
+        mutate(S, function(t) shiftLevel(t.slots[i], -1) end)
       end
-      Kit.textCenter("small", "L" .. tostring(slot.level or 0),
+      Kit.textCenter("small", levelLabel(slot),
                      x + w - bw + 28 * s, ry + 9 * s, 44 * s)
       if Kit.stepper(x + w - bw + 74 * s, ry, 26 * s, rowH - 6 * s, "+") then
-        mutate(S, function(t)
-          t.slots[i].level = math.min(100, (t.slots[i].level or 5) + 1)
-        end)
+        mutate(S, function(t) shiftLevel(t.slots[i], 1) end)
       end
       if Kit.button(x + w - 44 * s, ry, 44 * s, rowH - 6 * s, "x",
                     { font = "small" }) then
@@ -254,8 +315,9 @@ function Wilds.draw(S, Kit, x, y, w, h)
   end
   fy = fy + count * rowH + 6 * s
 
-  Kit.text("small",
-    "slot 1 is the commonest; the share is fixed by position, not by species",
+  Kit.text("small", hoenn
+    and "the level is a range; the game picks a level inside it"
+    or "slot 1 is the commonest; the share is fixed by position, not by species",
     x, fy, PAL.muted)
 
   -- the picker floats over the rows it edits
@@ -303,7 +365,9 @@ function Wilds.drawPicker(S, Kit, x, y, w, h)
   local shown = 0
   for _, id in ipairs(speciesIds(S)) do
     local label = speciesLabel(S, id)
-    if q == "" or label:lower():find(q, 1, true) or id:lower():find(q, 1, true) then
+    local sid = asText(id)
+    if q == "" or tostring(label):lower():find(q, 1, true)
+        or sid:lower():find(q, 1, true) then
       shown = shown + 1
       if shown > 10 then break end
       if Kit.button(px0 + pad, cy, pw - 2 * pad, fieldH - 2 * s, label,
@@ -311,7 +375,12 @@ function Wilds.drawPicker(S, Kit, x, y, w, h)
         mutate(S, function(t)
           t.slots[i] = t.slots[i] or { level = 5 }
           t.slots[i].species = id
-          t.slots[i].level = t.slots[i].level or 5
+          if t.slots[i].minLevel or t.slots[i].maxLevel then
+            t.slots[i].minLevel = t.slots[i].minLevel or t.slots[i].level or 5
+            t.slots[i].maxLevel = t.slots[i].maxLevel or t.slots[i].minLevel
+          else
+            t.slots[i].level = t.slots[i].level or 5
+          end
         end)
         S.wildPick = nil
       end

@@ -504,13 +504,29 @@ Voxel3D.lookFlat = { 0, 0, -1 }
 Voxel3D.descent = 0
 
 -- Canvas Y-down vs GL +Y. Constant; used to be Mat4.scale(1,-1,1) every frame.
+-- Quest's canvases are already oriented the other way: applying this there
+-- turns the whole world upside down.
 local YFLIP = { 1, 0, 0, 0,
                 0,-1, 0, 0,
                 0, 0, 1, 0,
                 0, 0, 0, 1 }
+local vpProj, vpFlipped, vpLook, vpOut = {}, {}, {}, {}
+-- True when clip +Y was negated so LOVE's Y-down canvases match.
+-- Quest canvases are already the other way, so the flip is skipped
+-- and the sky's pixel rows have to be mirrored to meet that horizon.
+Voxel3D.clipYFlipped = true
+local function orientProj(proj)
+  local ok, os = pcall(function() return love.system.getOS() end)
+  if ok and os == "Android" then
+    Voxel3D.clipYFlipped = false
+    for i = 1, 16 do vpFlipped[i] = proj[i] end
+    return vpFlipped
+  end
+  Voxel3D.clipYFlipped = true
+  return Mat4.mulInto(vpFlipped, YFLIP, proj)
+end
 local WORLD_UP = { 0, 1, 0 }
 local vpEye, vpFocus, vpUp = { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }
-local vpProj, vpFlipped, vpLook, vpOut = {}, {}, {}, {}
 local skyRayBase, skyRayDu, skyRayDv = { 0, 0, 0 }, { 0, 0, 0 }, { 0, 0, 0 }
 local skyRayScratch = { base = skyRayBase, du = skyRayDu, dv = skyRayDv }
 
@@ -545,7 +561,7 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
       Voxel3D.fovY = cam.fov
       -- the VR eyes bring their fan with them (VRRig.eyeCamera)
       Voxel3D.skyRayLive = cam.skyRay
-      Mat4.mulInto(vpFlipped, YFLIP, cam.proj)
+      orientProj(cam.proj)
       return Mat4.mulInto(vpOut, vpFlipped, cam.view)
     end
     local dx = eye[1] - focus[1]
@@ -560,7 +576,7 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
                          math.max(1, dist * 0.05), dist * 4 + 4096)
     -- the same clip-space Y flip the orbit needs, for the same reason: we
     -- bypass LOVE's transform_projection and canvas coordinates run Y down
-    Mat4.mulInto(vpFlipped, YFLIP, vpProj)
+    orientProj(vpProj)
     -- The camera's RAY FAN, for the sky's skybox path (Sky.paint's `ray`):
     -- a placed camera with a FREE PITCH -- the first-person rig, steered
     -- by a mouse on the flat screen -- must not hang its gradient off the
@@ -634,7 +650,7 @@ function Voxel3D.viewProjection(cx, cy, vw, vh)
   -- vertically mirrored: north at the bottom and buildings extruding
   -- downward. Winding flips with it, which is free here because the pass
   -- draws with culling off.
-  Mat4.mulInto(vpFlipped, YFLIP, vpProj)
+  orientProj(vpProj)
   return Mat4.mulInto(vpOut, vpFlipped, Mat4.lookAtInto(vpLook, vpEye, vpFocus, vpUp))
 end
 
@@ -671,7 +687,9 @@ function Voxel3D.horizonY(h)
   local y = m[5] * dx + m[7] * dz
   local w = m[13] * dx + m[15] * dz
   if w <= 1e-6 then return nil end
-  return (y / w * 0.5 + 0.5) * h
+  local row = (y / w * 0.5 + 0.5) * h
+  if not Voxel3D.clipYFlipped then row = h - row end
+  return row
 end
 
 -- The horizon as a LINE rather than a row, for a camera that can ROLL --
@@ -706,7 +724,10 @@ function Voxel3D.horizonLine(w, h, elev)
     local y = m[5] * vx + m[6] * vy + m[7] * vz
     local ww = m[13] * vx + m[14] * vy + m[15] * vz
     if ww <= 1e-6 then return nil end
-    return (x / ww * 0.5 + 0.5) * w, (y / ww * 0.5 + 0.5) * h
+    local px = (x / ww * 0.5 + 0.5) * w
+    local py = (y / ww * 0.5 + 0.5) * h
+    if not Voxel3D.clipYFlipped then py = h - py end
+    return px, py
   end
   local qx, qy = proj(dx, 0, dz)
   if not qx then return nil end

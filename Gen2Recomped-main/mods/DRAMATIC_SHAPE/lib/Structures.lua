@@ -47,6 +47,7 @@ local V = ...
 local Assets = require("src.render.Assets")
 local Map = require("src.world.Map")
 local Buildings = V.require("Buildings")
+local EmeraldPieces = V.require("EmeraldPieces")
 local TileShape = V.require("TileShape")
 local Gen3 = V.require("Gen3")
 local Budget = V.require("BuildBudget")
@@ -276,7 +277,7 @@ local GEN3_MAX_LAND = 32
 -- Keeping the constant HERE, beside the rules it describes, is the point: the
 -- edit that changes the shapes and the edit that invalidates the cache are in
 -- the same file, a few lines apart.
-Structures.SHAPE_REV = "g3-sward-282"
+Structures.SHAPE_REV = "g3-house-pins-286"
 -- one cell of world height: the step a building may straddle and still be
 -- treated as having one foundation
 local COURSE = 16
@@ -10250,6 +10251,7 @@ function Structures.forMap(map)
   Structures.buildDrawnTerraces(S, map, x0, x1, y0, y1)
 
   Buildings.build(S, map, pixels(tileset, map), perRow)
+  EmeraldPieces.build(S, map)
 
   -- Fold doors into their buildings. A door cell is WALKABLE (the player
   -- steps onto it to warp), so it resolves to ground and punches a hole in
@@ -25021,6 +25023,7 @@ function Structures.invalidate(mapId)
     -- map reload is what `VoxelScene.forgetMasks` exists for)
     ringBodyMemo = {}
     Buildings.invalidate()
+    EmeraldPieces.invalidate()
   end
 end
 

@@ -986,6 +986,36 @@ local function pairSheetsFor(tilesetDef, data)
   }
 end
 
+-- Gen3Sheets.forTileset answers the mod contract (tiles:bakeLayer) and
+-- does not attach the two GPU images TileRenderer draws with. The map
+-- editor hits that path, because Ruby has no raw map_tilesets primary,
+-- and newSpriteBatch(nil) is the blue error screen on the first map.
+local function imagesFromBake(record)
+  local tiles = record and record.tiles
+  if not (tiles and type(tiles.bakeLayer) == "function") then return nil end
+  if not (love.image and love.image.newImageData and love.graphics
+          and love.graphics.newImage) then
+    return nil
+  end
+  local w, h = tonumber(record.width), tonumber(record.height)
+  if not (w and h and w > 0 and h > 0) then return nil end
+  local built = {}
+  for layer = 1, 2 do
+    local surface = love.image.newImageData(w, h)
+    local plot = function(x, y, r, g, b)
+      if x >= 0 and y >= 0 and x < w and y < h then
+        surface:setPixel(x, y, (r or 0) / 255, (g or 0) / 255, (b or 0) / 255, 1)
+      end
+    end
+    if type(tiles.setAnimFrame) == "function" then tiles:setAnimFrame(0) end
+    tiles:bakeLayer(layer, plot)
+    local img = love.graphics.newImage(surface)
+    img:setFilter("nearest", "nearest")
+    built[layer] = img
+  end
+  return built
+end
+
 function TileRenderer.gen3SheetsFor(tilesetDef, data, layout)
   if not (tilesetDef and tilesetDef.blockTiles == 2) then return nil end
   local key = tilesetDef.id
@@ -1005,8 +1035,17 @@ function TileRenderer.gen3SheetsFor(tilesetDef, data, layout)
     if okGS and Gen3Sheets and type(Gen3Sheets.forTileset) == "function" then
       local got, record = pcall(Gen3Sheets.forTileset, tilesetDef, data)
       if got and type(record) == "table" and record.tiles then
-        gen3Sheets[key] = record
-        return record
+        if not (record.bottom and record.top) then
+          local okImg, built = pcall(imagesFromBake, record)
+          if okImg and built and built[1] and built[2] then
+            record.bottom, record.top = built[1], built[2]
+            record.slots = record.slots or record.metatiles
+          end
+        end
+        if record.bottom and record.top then
+          gen3Sheets[key] = record
+          return record
+        end
       end
     end
     local pair = pairSheetsFor(tilesetDef, data)
@@ -1634,7 +1673,7 @@ function TileRenderer:ensureWindow(camX, camY, vw, vh)
   ty0 = math.max(0, ty0 - WINDOW_MARGIN)
   tx1 = math.min(W, tx1 + WINDOW_MARGIN)
   ty1 = math.min(H, ty1 + WINDOW_MARGIN)
-  if self.gen3 then
+  if self.gen3 and self.gen3.bottom and self.gen3.top then
     TileRenderer.touchGen3(self.gen3Key)
     -- one quad per CELL into each of the two layer batches.  The tile-grid
     -- bounds above are still the right window -- a Gen 3 cell is two tiles

@@ -118,7 +118,7 @@ end
 -- these unreadable.
 local function spriteLabel(S, id)
   local species = monSpeciesOf(id)
-  if not species then return id end
+  if not species then return tostring(id) end
   local name = speciesLabel(S, species)
   if name == species then return id end        -- no species table loaded
   return name .. "  (" .. id .. ")"
@@ -127,7 +127,8 @@ end
 local function spriteMatches(S, id, query)
   if query == "" then return true end
   query = query:lower()
-  if id:lower():find(query, 1, true) then return true end
+  local sid = tostring(id)
+  if sid:lower():find(query, 1, true) then return true end
   -- ...and by the species name, so "lugia" finds SPRITE_MON_249.
   local species = monSpeciesOf(id)
   if species then
@@ -261,11 +262,24 @@ local function markDirty(S) S.mapEditsDirty = true end
 local function writeField(S, obj, key, value)
   local st, g, mapId = store(S), game(S), S.mapId
   obj[key] = value
+  -- The panel edits the names it was built with.  Ruby still reads the
+  -- cartridge names, so a change has to land in both or the game keeps
+  -- the old item, sprite, or sight range.
+  local mirror = (key == "item" and "itemId")
+    or (key == "sprite" and "graphicsId")
+    or (key == "sightRange" and "trainerRange")
+    or (key == "eventFlag" and "flagId")
+  if mirror and (obj[mirror] ~= nil or value == nil or type(value) == "number") then
+    obj[mirror] = value
+  else
+    mirror = nil
+  end
   if obj.added then
     local m = MapEdits.bucket(st, g, mapId, true)
     local slot = m.added and m.added[obj.editorSlot]
     if slot then
       slot[key] = value
+      if mirror then slot[mirror] = value end
     else
       -- THE WRITE THAT WENT NOWHERE, SAID OUT LOUD.
       --
@@ -295,6 +309,7 @@ local function writeField(S, obj, key, value)
     m.objects = m.objects or {}
     local patch = m.objects[obj.index] or {}
     patch[key] = value
+    if mirror then patch[mirror] = value end
     m.objects[obj.index] = patch
   end
   markDirty(S)
@@ -515,13 +530,16 @@ end
 -- for POTION expects it where the game puts it.
 local function itemIds(S)
   if S._itemIds then return S._itemIds end
+  local skip = { byId = true, byIndex = true, byName = true, byKey = true }
   local out = {}
   for id, entry in pairs((S.data and S.data.items) or {}) do
-    out[#out + 1] = { id = id, index = (type(entry) == "table" and entry.index) or 0 }
+    if type(entry) == "table" and not skip[id] and (entry.name or entry.itemId) then
+      out[#out + 1] = { id = id, index = entry.index or entry.id or 0 }
+    end
   end
   table.sort(out, function(a, b)
     if a.index ~= b.index then return a.index < b.index end
-    return a.id < b.id
+    return tostring(a.id) < tostring(b.id)
   end)
   local ids = {}
   for i, e in ipairs(out) do ids[i] = e.id end
@@ -544,11 +562,22 @@ end
 -- So the list is the table's own keys, which cannot be wrong by construction.
 local function trainerClassIds(S)
   if S._trainerIds then return S._trainerIds end
-  local out = {}
-  for id in pairs((S.data and S.data.trainers) or {}) do
-    if type(id) == "string" then out[#out + 1] = id end
+  local skip = { byId = true, byIndex = true, byName = true, byKey = true,
+                 classes = true, count = true }
+  local trainers = (S.data and S.data.trainers) or {}
+  local seen, out = {}, {}
+  local function add(id, row)
+    if skip[id] or seen[id] then return end
+    if type(row) ~= "table" then return end
+    if not (row.name or row.className or row.party) then return end
+    seen[id] = true
+    out[#out + 1] = id
   end
-  table.sort(out)
+  for id, row in pairs(trainers) do add(id, row) end
+  if type(trainers.byId) == "table" then
+    for id, row in pairs(trainers.byId) do add(id, row) end
+  end
+  table.sort(out, function(a, b) return tostring(a) < tostring(b) end)
   S._trainerIds = out
   return out
 end
@@ -557,7 +586,9 @@ end
 -- `name` is what the game prints over the battle box.
 local function trainerLabel(S, id)
   if not id or id == "" then return nil end
-  local row = S.data and S.data.trainers and S.data.trainers[id]
+  local trainers = S.data and S.data.trainers
+  local row = trainers and (trainers[id]
+    or (type(trainers.byId) == "table" and trainers.byId[id]))
   local name = type(row) == "table" and row.name or nil
   if name and name ~= "" and name ~= id then
     return tostring(name) .. "  (" .. id .. ")"
@@ -579,8 +610,8 @@ end
 local function trainerMatches(id, label, query)
   if not query or query == "" then return true end
   query = query:lower()
-  return (id or ""):lower():find(query, 1, true) ~= nil
-      or (label or ""):lower():find(query, 1, true) ~= nil
+  return tostring(id or ""):lower():find(query, 1, true) ~= nil
+      or tostring(label or ""):lower():find(query, 1, true) ~= nil
 end
 
 -- IN THE ORDER THE RUNTIME CHECKS THEM. OverworldController's talk handler

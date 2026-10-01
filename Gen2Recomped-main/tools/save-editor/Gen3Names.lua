@@ -93,13 +93,60 @@ Gen3Names.flagKey = flagKey
 
 -- Title-case a header's MAP TYPE so it reads as a qualifier next to a
 -- shouted place name ("PETALBURG CITY - Indoor") instead of a second shout.
+local MAP_TYPE_WORD = {
+  [0] = "None",
+  [1] = "Town",
+  [2] = "City",
+  [3] = "Route",
+  [4] = "Underground",
+  [5] = "Underwater",
+  [6] = "Ocean",
+  [8] = "Indoor",
+  [9] = "Secret Base",
+}
+
 local function prettyType(mapType)
+  if type(mapType) == "number" then return MAP_TYPE_WORD[mapType] end
   if type(mapType) ~= "string" or mapType == "" then return nil end
   local words = {}
   for word in mapType:gmatch("[^_]+") do
     words[#words + 1] = word:sub(1, 1):upper() .. word:sub(2):lower()
   end
   return table.concat(words, " ")
+end
+
+-- pokeemerald's directory name, "LittlerootTown_BrendansHouse_1F", as words.
+-- The g-code is the storage key. This is the name the map was authored under.
+local function prettyDir(raw)
+  local s = raw:gsub("_", " ")
+  s = s:gsub("(%l)(%u)", "%1 %2")
+  s = s:gsub("(%u)(%u%l)", "%1 %2")
+  s = s:gsub("(%a)(%d)", "%1 %2")
+  s = s:gsub("%s+", " ")
+  return s
+end
+
+local decompByKey
+local function decompDir(id)
+  if decompByKey == nil then
+    decompByKey = false
+    local ok, pack = pcall(require, "mods.DRAMATIC_SHAPE.data.gen3_maps")
+    if ok and type(pack) == "table" and type(pack.maps) == "table" then
+      local byKey = {}
+      for key, row in pairs(pack.maps) do
+        if type(key) == "string" and type(row) == "table"
+            and type(row.name) == "string" and row.name ~= "" then
+          byKey[key] = row.name
+        end
+      end
+      decompByKey = byKey
+    end
+  end
+  if not decompByKey or type(id) ~= "string" then return nil end
+  if decompByKey[id] then return decompByKey[id] end
+  local g, n = id:match("^g(%d+)_(%d+)$")
+  if not g then return nil end
+  return decompByKey[("MAP_G%02d_N%02d"):format(tonumber(g), tonumber(n))]
 end
 
 local function mapSectionName(data, def)
@@ -139,15 +186,20 @@ local function buildMaps(data)
   local out = {}
   for id, def in pairs(maps) do
     if type(id) == "string" and type(def) == "table" then
-      local name = mapSectionName(data, def)
-      if type(name) == "string" and name ~= "" then
-        -- the ROM's own names carry line breaks for the two-line sign
-        name = name:gsub("[\n\f\v]", " ")
-        if (share[name] or 0) > 1 then
-          local qualifier = prettyType(def.mapType) or id
-          out[id] = name .. "  -  " .. qualifier
-        else
-          out[id] = name
+      local dir = decompDir(id)
+      if type(dir) == "string" and dir ~= "" then
+        out[id] = prettyDir(dir)
+      else
+        local name = mapSectionName(data, def)
+        if type(name) == "string" and name ~= "" then
+          -- the ROM's own names carry line breaks for the two-line sign
+          name = name:gsub("[\n\f\v]", " ")
+          if (share[name] or 0) > 1 then
+            local qualifier = prettyType(def.mapType)
+            out[id] = qualifier and (name .. "  -  " .. qualifier) or name
+          else
+            out[id] = name
+          end
         end
       end
     end
@@ -245,23 +297,25 @@ local function trainerLabels(data, out)
   local constants = data and data.constants or {}
   local base = tonumber(constants.gen3TrainerFlagBase)
   if not base then return end
-  for _, entry in pairs(data.trainers or {}) do
-    if type(entry) == "table" and tonumber(entry.index) then
-      local k = flagKey(base + entry.index)
-      if not out[k] then
-        -- gTrainers[0] is the unused placeholder and has NO name; several
-        -- of the Frontier's records are blank the same way.  A label of
-        -- "beaten: HIKER " with nothing after it is worse than saying which
-        -- record it is, so an empty name falls back to the index.
-        local who = entry.name
-        if type(who) ~= "string" or who:match("^%s*$") then
-          who = ("#%d"):format(entry.index)
-        end
-        local class = entry.className
-        out[k] = ("beaten: %s"):format(
-          (type(class) == "string" and class ~= "") and (class .. " " .. who) or who)
-      end
+  local trainers = data.trainers or {}
+  local function consider(entry)
+    if type(entry) ~= "table" then return end
+    -- Ruby's trainer rows are keyed by `id`.  An older extract used `index`.
+    local idx = tonumber(entry.index or entry.id)
+    if not idx then return end
+    local k = flagKey(base + idx)
+    if out[k] then return end
+    local who = entry.name
+    if type(who) ~= "string" or who:match("^%s*$") then
+      who = ("#%d"):format(idx)
     end
+    local class = entry.className
+    out[k] = ("beaten: %s"):format(
+      (type(class) == "string" and class ~= "") and (class .. " " .. who) or who)
+  end
+  for _, entry in pairs(trainers) do consider(entry) end
+  if type(trainers.byId) == "table" then
+    for _, entry in pairs(trainers.byId) do consider(entry) end
   end
 end
 
@@ -279,6 +333,10 @@ local function mapEventLabels(data, mapNames, out)
         local k = type(sign) == "table" and asFlagKey(sign.eventFlag)
         if k and not out[k] then
           local item = sign.item
+          if type(item) == "number" then
+            local row = data.items and data.items[item]
+            item = (type(row) == "table" and row.name) or item
+          end
           out[k] = ("hidden %s on %s"):format(
             (type(item) == "string" and item ~= "") and item or "item", where)
         end

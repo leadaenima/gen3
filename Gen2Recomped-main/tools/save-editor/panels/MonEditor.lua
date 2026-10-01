@@ -290,7 +290,12 @@ function MonEditor.draw(S, Kit, x, y, w, h)
       ry + (rowH - Kit.textHeight("mono")) / 2, PAL.faint)
     local nameX = rightX + 28 * s
     local nameW2 = math.max(20 * s, clearX - 12 * s - ppW - nameX)
-    Kit.text("monoRow", Kit.ellipsize("monoRow", mv and mv.id or "-- --", nameW2),
+    local moveName = "-- --"
+    if mv then
+      local mdef = S.data and S.data.moves and S.data.moves[mv.id]
+      moveName = (type(mdef) == "table" and mdef.name) or mv.id or "-- --"
+    end
+    Kit.text("monoRow", Kit.ellipsize("monoRow", tostring(moveName), nameW2),
       nameX, ry + (rowH - Kit.textHeight("monoRow")) / 2,
       mv and PAL.text or PAL.faint)
     Kit.textRight("tiny", ppText, clearX - 10 * s,

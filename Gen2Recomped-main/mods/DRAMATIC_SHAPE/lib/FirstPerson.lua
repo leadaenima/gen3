@@ -309,6 +309,14 @@ end
 -- range it is the first-person problem word for word.
 function FirstPerson.hidePlayer()
   if ThirdPerson.showsPlayer() then return false end
+  -- In the head the eye stands inside the 16px card. Left drawn, that
+  -- card is a flat sheet of the sprite's own texels across the lens,
+  -- transparent where the sheet is keyed out. Hide it for the whole
+  -- settled blend, not only on the frame the placed camera happens to
+  -- be the same table the rig stored.
+  if Voxel.isFirstPerson() and ease(FirstPerson.blend) > 0.75 then
+    return true
+  end
   return FirstPerson.cardBlend() > 0.9
 end
 
@@ -473,8 +481,13 @@ end
 -- a d-pad; the raw pair is the analog truth), then a touch d-pad finger,
 -- then the held keys. Magnitude caps at 1.
 function FirstPerson.moveVector()
-  local ok, Game = pcall(require, "src.core.Game")
-  local input = ok and Game.input or nil
+  local input
+  local host = V.mod and V.mod.game
+  if type(host) == "table" and host.input then input = host.input end
+  if not input then
+    local ok, Game = pcall(require, "src.core.Game")
+    input = ok and Game.input or nil
+  end
 
   local ax = input and input.stickAxis or nil
   if ax then
@@ -731,10 +744,13 @@ function FirstPerson.shadowCenter(sx, sy, vh)
   local e = FirstPerson.cardBlend()
   if e <= 0 then return sx, sy end
   local fx, fz = FirstPerson.lookFlat()
-  local ShadowMap = V.require("ShadowMap")
-  local cap = (ShadowMap.FAR_CAP or 2.5) * vh
-  return sx + fx * 0.6 * vh * e,
-         sy + fz * (fz > 0 and (cap - vh * 0.5) or vh * 0.4) * e
+  -- A short push along the look, snapped to 8px. The old south/north
+  -- split jumped by a whole view the instant the bearing crossed east
+  -- or west, and the sun's box followed, so the lit edge swept the
+  -- frame. Eight pixels is coarser than a shadow texel of crawl.
+  local reach = vh * 0.85 * e
+  return math.floor((sx + fx * reach) / 8) * 8,
+         math.floor((sy + fz * reach) / 8) * 8
 end
 
 -- The first-person facts a shadow signature has to include: the sun's
@@ -854,6 +870,7 @@ function FirstPerson.install()
   end
   bindGame3Look(Game)
   bindGame3Look(rawget(_G, "Game"))
+  if V.mod and V.mod.game then bindGame3Look(V.mod.game) end
 
   -- ------- mouse
   --

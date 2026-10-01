@@ -111,8 +111,17 @@ end
 -- (a warp mat, the water it is surfing, a cell an NPC just stepped
 -- against).
 
+-- The live game. src.core.Game is the Gen 1 module; on Ruby the pad,
+-- the field data and the menus live on the Game3 instance the mod
+-- was given. Falling through to the module keeps Gen 1 unchanged.
+local function liveGame()
+  local host = V.mod and V.mod.game
+  if type(host) == "table" and host.input then return host end
+  return require("src.core.Game")
+end
+
 local function pairBlocked(map, surfing, sx, sy, tx, ty)
-  local Game = require("src.core.Game")
+  local Game = liveGame()
   local tp = Game.data and Game.data.field and Game.data.field.tilePairs
   if not tp then return false end
   local list = surfing and tp.water or tp.land
@@ -129,9 +138,32 @@ local function pairBlocked(map, surfing, sx, sy, tx, ty)
   return false
 end
 
+local function airborne(game)
+  if type(game) ~= "table" or type(game.isFreeFlying) ~= "function" then
+    return false
+  end
+  local ok, flying = pcall(game.isFreeFlying, game)
+  return ok and flying and true or false
+end
+
+-- A ledge lip in the direction of this slide. Walkable lips (Lilycove
+-- beach, collision 0) are still hops: stepping onto them skips the jump.
+-- Side-on movement is not an entry, so walking along a ledge stays free.
+local function ledgeEntry(game, cx, cy, adx, ady)
+  if type(game) ~= "table" then return false end
+  if game.surfing or airborne(game) then return false end
+  if (adx or 0) == 0 and (ady or 0) == 0 then return false end
+  if type(game.ledgeAccepts) ~= "function" then return false end
+  if type(game.behaviorAt) ~= "function" then return false end
+  local b = game:behaviorAt(game.map, cx, cy)
+  return game.ledgeAccepts(b, adx or 0, ady or 0) and true or false
+end
+
 -- Why (cx, cy) refuses the player's body, or nil when it may enter:
 -- "bounds" | "tile" | "entity", the grid verdict's own names.
-local function blockedCell(state, p, cx, cy)
+-- adx/ady, when set, are the cardinal of the axis being slid, so a
+-- ledge lip can refuse entry even when its collision bit is clear.
+local function blockedCell(state, p, cx, cy, adx, ady)
   if cx == p.cellX and cy == p.cellY then return nil end
   local map = state.map
   if not map:inBounds(cx, cy) then return "bounds" end
@@ -143,6 +175,7 @@ local function blockedCell(state, p, cx, cy)
   end
   local Collision = require("src.world.Collision")
   if Collision.occupied(state.entities, cx, cy, p) then return "entity" end
+  if ledgeEntry(liveGame(), cx, cy, adx, ady) then return "tile" end
   return nil
 end
 
@@ -155,7 +188,28 @@ FreeMove._blockedCell = blockedCell   -- named for the suite
 -- the blocked axis stops and the free one keeps going. Returns the
 -- refusal ("bounds"/"tile"/"entity") when this axis was clamped.
 
-local function slideX(state, p, dx)
+-- Keep the ledge whose lip is nearest the body. The circle covers two
+-- cells, and the one beside the centre is often a wall, not the lip.
+local function nearerLedge(prev, cx, cy)
+  if not prev then return true end
+  local function dist(x, y)
+    local dx = (x + 0.5) * 16 - pos.x
+    local dz = (y + 0.5) * 16 - pos.z
+    return dx * dx + dz * dz
+  end
+  return dist(cx, cy) < dist(prev[1], prev[2])
+end
+
+local function noteLedge(ledges, key, game, cx, cy, adx, ady)
+  if not ledges or not ledgeEntry(game, cx, cy, adx, ady) then return end
+  local ox, oy = cx - adx, cy - ady
+  local prev = ledges[key]
+  if nearerLedge(prev, ox, oy) then
+    ledges[key] = { ox, oy, adx, ady }
+  end
+end
+
+local function slideX(state, p, dx, ledges)
   if dx == 0 then return nil end
   local r = FreeMove.RADIUS
   local nx = pos.x + dx
@@ -164,9 +218,12 @@ local function slideX(state, p, dx)
   local hit = nil
   local edge = dx > 0 and math.floor((nx + r) / 16)
                or math.floor((nx - r) / 16)
+  local adx = dx > 0 and 1 or -1
+  local game = liveGame()
   for zc = z0, z1 do
-    hit = blockedCell(state, p, edge, zc)
-    if hit then break end
+    local why = blockedCell(state, p, edge, zc, adx, 0)
+    if why and not hit then hit = why end
+    noteLedge(ledges, "x", game, edge, zc, adx, 0)
   end
   if hit then
     if dx > 0 then nx = math.min(nx, edge * 16 - r - EPS)
@@ -176,7 +233,7 @@ local function slideX(state, p, dx)
   return hit
 end
 
-local function slideZ(state, p, dz)
+local function slideZ(state, p, dz, ledges)
   if dz == 0 then return nil end
   local r = FreeMove.RADIUS
   local nz = pos.z + dz
@@ -185,9 +242,12 @@ local function slideZ(state, p, dz)
   local hit = nil
   local edge = dz > 0 and math.floor((nz + r) / 16)
                or math.floor((nz - r) / 16)
+  local ady = dz > 0 and 1 or -1
+  local game = liveGame()
   for xc = x0, x1 do
-    hit = blockedCell(state, p, xc, edge)
-    if hit then break end
+    local why = blockedCell(state, p, xc, edge, 0, ady)
+    if why and not hit then hit = why end
+    noteLedge(ledges, "z", game, xc, edge, 0, ady)
   end
   if hit then
     if dz > 0 then nz = math.min(nz, edge * 16 - r - EPS)
@@ -195,6 +255,22 @@ local function slideZ(state, p, dz)
   end
   pos.z = nz
   return hit
+end
+
+-- Start a hop from the cell the body is actually against, which may not
+-- be the centre cell the grid walker would have queried.
+local function commitLedge(from)
+  if not from then return false end
+  local game = liveGame()
+  if type(game.tryLedgeHop) ~= "function" then return false end
+  local px, py = game.playerX, game.playerY
+  game.playerX, game.playerY = from[1], from[2]
+  local ok, took = pcall(game.tryLedgeHop, game, game.map, from[3], from[4])
+  if not ok or not took then
+    game.playerX, game.playerY = px, py
+    return false
+  end
+  return true
 end
 
 -- ------- the blocked push
@@ -229,9 +305,10 @@ local function pushSpecials(state, dir, why)
     if okDoor and took then return true end
   end
   if why ~= "entity" and state:canCollisionWarp() then
-    local Game = require("src.core.Game")
+    local Game = liveGame()
+    local carpets = Game.data and Game.data.field and Game.data.field.warpCarpets
     local Warp = require("src.world.Warp")
-    local w = Warp.onCollision(state.map, Game.data.field.warpCarpets,
+    local w = carpets and Warp.onCollision(state.map, carpets,
                                p.cellX, p.cellY, dir)
     if w then
       state:takeWarp(w.def)
@@ -267,7 +344,7 @@ function FreeMove.tick(state)
   end
   if not pos or p.px ~= lastPx or p.py ~= lastPy then adopt(p) end
 
-  local Game = require("src.core.Game")
+  local Game = liveGame()
   local input = Game.input
 
   -- the head is the facing: what A talks to, what the sun's card shows,
@@ -358,8 +435,34 @@ function FreeMove.tick(state)
   speed = speed * (dt * 60)
   local dx, dz = wx * speed, wz * speed
 
-  local hitX = slideX(state, p, dx)
-  local hitZ = slideZ(state, p, dz)
+  local ledges = {}
+  local hitX = slideX(state, p, dx, ledges)
+  local hitZ = slideZ(state, p, dz, ledges)
+
+  -- A push into a lip, including one the centre cell does not face and
+  -- one whose collision bit is clear. The stronger axis wins; the other
+  -- still counts while it is at least half of that, so an angled approach
+  -- hops instead of sliding along the lip. A graze (mostly parallel) does
+  -- not, or walking the top of a ledge would throw you off it.
+  if math.max(math.abs(dx), math.abs(dz)) > 0.4 * speed then
+    local function aimed(component, other)
+      local a, b = math.abs(component), math.abs(other)
+      return a > 1e-4 and (a >= b or a >= b * 0.5)
+    end
+    local order
+    if math.abs(dz) >= math.abs(dx) then
+      order = { { ledges.z, dz, dx }, { ledges.x, dx, dz } }
+    else
+      order = { { ledges.x, dx, dz }, { ledges.z, dz, dx } }
+    end
+    for i = 1, #order do
+      local from, component, other = order[i][1], order[i][2], order[i][3]
+      if from and aimed(component, other) and commitLedge(from) then
+        FreeMove.drop()
+        return
+      end
+    end
+  end
 
   -- the walk cycle: the wall-bonk clock animates the legs of a player the
   -- grid thinks is standing still, refreshed while the free walk covers
@@ -406,26 +509,36 @@ end
 -- and nothing else. Every gate ABOVE the call (scripted moves, trainer
 -- engagement, transitions, anything on the stack) still applies to the
 -- free walk, because the wrap sits below them all.
-function FreeMove.install()
-  local OverworldState = require("src.world.OverworldController")
-  if OverworldState.dramaticShapeFreeMoveHook then return end
-  local inner = OverworldState.handleInput
-
-  function OverworldState:handleInput()
+local function wrapHandleInput(host, name)
+  if host[name] then return end
+  local inner = host.handleInput
+  host.handleInput = function(state)
     if not FirstPerson.driving() then
-      if pos then
+      if pos and state and state.player then
         -- stepping off the rung: back onto the grid, on the cell the
         -- free walk stood in
-        local p = self.player
+        local p = state.player
         p.px, p.py = p.cellX * 16, p.cellY * 16
         FreeMove.drop()
       end
-      return inner(self)
+      return inner(state)
     end
-    return FreeMove.tick(self)
+    return FreeMove.tick(state)
   end
+  host[name] = true
+end
 
-  OverworldState.dramaticShapeFreeMoveHook = true
+function FreeMove.install()
+  -- Gen 1 reads the pad on the controller. Ruby reads it on
+  -- OverworldAPI and never calls the controller, so a wrap that only
+  -- lands on the controller leaves first person on the grid: the
+  -- camera yaws and the body keeps the facing it had.
+  wrapHandleInput(require("src.world.OverworldController"),
+                  "dramaticShapeFreeMoveHook")
+  local ok, API = pcall(require, "src.world.gen3.OverworldAPI")
+  if ok and type(API) == "table" and type(API.handleInput) == "function" then
+    wrapHandleInput(API, "dramaticShapeFreeMoveHook")
+  end
 end
 
 return FreeMove

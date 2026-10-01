@@ -267,11 +267,26 @@ end
 -- the map list
 -- ---------------------------------------------------------------------------
 
+local function mapLabel(S, id)
+  if type(id) ~= "string" then return tostring(id) end
+  local ok, Catalog = pcall(require, "Catalog")
+  if ok and Catalog and type(Catalog.mapLabel) == "function" then
+    local label = Catalog.mapLabel(S and S.data, id)
+    if type(label) == "string" and label ~= "" then return label end
+  end
+  return id
+end
+
 -- Gen 2 map ids are MAP_G<group>_N<number> before the aliases resolve, and
 -- readable names after. Both sort into something usable, so the grouping is
 -- taken from the id's leading word rather than invented: ROUTE_29 and
 -- ROUTE_29_ROUTE_46_GATE land together, and so do every ...S_HOUSE.
-local function areaOf(id)
+local function areaOf(S, id)
+  local label = mapLabel(S, id)
+  if label ~= id then
+    local head = label:match("^(%S+)")
+    if head and head ~= "" then return head end
+  end
   local head = id:match("^(MAP_G%x+)") or id:match("^([A-Z0-9]+)")
   return head or id
 end
@@ -316,13 +331,19 @@ local function mapList(S)
   local q = (S.pvQuery or ""):lower()
   local out = {}
   for id, def in pairs((S.data and S.data.maps) or {}) do
+    local label = mapLabel(S, id)
     if type(id) == "string" and type(def) == "table"
        and (q == "" or id:lower():find(q, 1, true)
+            or label:lower():find(q, 1, true)
             or (def.name and tostring(def.name):lower():find(q, 1, true))) then
       out[#out + 1] = id
     end
   end
-  table.sort(out)
+  table.sort(out, function(a, b)
+    local la, lb = mapLabel(S, a):lower(), mapLabel(S, b):lower()
+    if la == lb then return a < b end
+    return la < lb
+  end)
   S.pvList, S.pvListFor = out, key
   return out
 end
@@ -335,7 +356,7 @@ local function areaList(S)
   if S.pvAreas and S.pvAreasFor == key then return S.pvAreas end
   local seen, out = {}, {}
   for id in pairs((S.data and S.data.maps) or {}) do
-    local a = areaOf(id)
+    local a = areaOf(S, id)
     if not seen[a] then seen[a] = true; out[#out + 1] = a end
   end
   table.sort(out)
@@ -985,15 +1006,24 @@ function Preview.paintAt(S, cx, cy)
   if not (Sidebar and Sidebar.openId(S) == "tiles") then return false end
   local ok, Tiles = pcall(require, "tools.map-editor.panels.Tiles")
   if not (ok and type(Tiles) == "table") then return false end
-  local bx, by = math.floor(cx / 2), math.floor(cy / 2)
   local def = S.data and S.data.maps and S.data.maps[S.mapId or ""]
+  local ts = def and S.data.tilesets and S.data.tilesets[def.tileset]
+  -- A Hoenn metatile IS the cell. Halving the coordinate paints the block
+  -- two cells up and to the left, which is a different picture.
+  local gen3 = type(ts) == "table" and tonumber(ts.blockTiles) == 2
+    and tonumber(ts.blockCells) == 1
+  local bx, by = gen3 and cx or math.floor(cx / 2),
+                 gen3 and cy or math.floor(cy / 2)
 
   if S.tileMode == "pick" then
     -- THE EYEDROPPER. Matching ground you can see beats hunting the palette
     -- for it, and on a tileset of two hundred blocks it is the difference
     -- between a tool and a puzzle.
     if def and def.blocks then
-      S.tilePick = def.blocks[by * def.width + bx + 1]
+      local word = def.blocks[by * def.width + bx + 1]
+      -- The palette is indexed by metatile id. The map word also carries
+      -- collision and elevation in the bits above 1024.
+      S.tilePick = (gen3 and type(word) == "number") and (word % 1024) or word
       -- and the QUADRANT under the pointer with it, so the eyedropper hands
       -- back the 16px square you pointed at rather than the 32px block it
       -- happens to sit in -- which is the unit the brush paints in.
@@ -1019,13 +1049,13 @@ function Preview.paintAt(S, cx, cy)
     -- hundred of them for one room.
     local n = Tiles.fill(S, bx, by, S.tilePick)
     S.tileNotice = string.format("filled %d blocks", n)
-  elseif (S.tileGrain or "cell") == "cell" then
+  elseif gen3 or (S.tileGrain or "cell") ~= "cell" then
+    Tiles.paint(S, bx, by, S.tilePick)
+  else
     -- THE CELL UNDER THE POINTER, not the block around it. Painting a block
     -- changed a 2x2 area snapped to the block grid, so a click at cell (5,3)
     -- repainted cells (4..5, 2..3) -- up and to the left of the pointer.
     Tiles.paintCell(S, cx, cy, S.tilePick, nil, S.tilePickQ)
-  else
-    Tiles.paint(S, bx, by, S.tilePick)
   end
   return true
 end
@@ -1594,6 +1624,30 @@ local function drawOverlays(S, map, Kit)
     end
   end
 
+  -- Signs and hidden items are not objects.  They live in bgEvents, and
+  -- leaving them off the map is what made a route look emptier than it is.
+  for _, ev in ipairs(S.pvShowObjects ~= false and (def.bgEvents or {}) or {}) do
+    if ev.x and ev.y then
+      local ox, oy = rect(ev.x, ev.y)
+      local hidden = ev.itemId ~= nil or ev.hiddenId ~= nil
+      if hidden then
+        love.graphics.setColor(0.95, 0.78, 0.2, 0.85)
+      else
+        love.graphics.setColor(0.45, 0.85, 0.95, 0.85)
+      end
+      love.graphics.rectangle("line", ox + 3, oy + 3, CELL - 6, CELL - 6)
+    end
+  end
+
+  -- Tiles that run a script when you step on them (coord events).
+  for _, ev in ipairs(S.pvShowObjects ~= false and (def.coordEvents or {}) or {}) do
+    if ev.x and ev.y then
+      local ox, oy = rect(ev.x, ev.y)
+      love.graphics.setColor(0.75, 0.45, 0.95, 0.9)
+      love.graphics.rectangle("line", ox + 5, oy + 5, CELL - 10, CELL - 10)
+    end
+  end
+
   -- THE WHOLE SELECTION, IN YELLOW, ALL OF IT.
   --
   -- A faint outline on the extras and a bright one on the primary read as one
@@ -2065,7 +2119,7 @@ function Preview.draw(S, Kit, x, y, w, h)
 
   local ids = {}
   for _, id in ipairs(mapList(S)) do
-    if S.pvArea == "ALL AREAS" or areaOf(id) == S.pvArea then
+    if S.pvArea == "ALL AREAS" or areaOf(S, id) == S.pvArea then
       ids[#ids + 1] = id
     end
   end
@@ -2084,7 +2138,8 @@ function Preview.draw(S, Kit, x, y, w, h)
     end
     Kit.row(x + pad, ry, listW - 2 * pad, rowH - 3 * s, id == S.mapId)
     local n = MapEdits.count(store(S), game(S), id)
-    local label = Kit.ellipsize("small", id,
+    local shown = mapLabel(S, id)
+    local label = Kit.ellipsize("small", shown,
       listW - 2 * pad - 14 * s - (n > 0 and 26 * s or 0))
     Kit.text("small", label, x + pad + 7 * s, ry + 5 * s)
     if n > 0 then
@@ -2122,9 +2177,7 @@ function Preview.draw(S, Kit, x, y, w, h)
     Kit.emptyBox(vx0, y + vpad, vinner, h - 2 * vpad,
                  "Pick an area on the left to start editing it.")
   else
-    Kit.text("monoBig", tostring(S.mapId), vx0,
-             y + vpad + (headH - Kit.textHeight("monoBig")) / 2, PAL.heading)
-
+    local headName = mapLabel(S, S.mapId)
 
     -- UNDO / REDO LIVE IN THE MAP'S OWN HEADER.
     --
@@ -2136,21 +2189,7 @@ function Preview.draw(S, Kit, x, y, w, h)
     --
     -- Greyed rather than hidden when there is nothing to undo: a control that
     -- comes and goes is a control you have to look for.
-    if History then
-      local uW, uH = 62 * s, headH
-      local ux = vx0 + Kit.textWidth("monoBig", tostring(S.mapId)) + 14 * s
-      local nUndo, nRedo = History.depth(S)
-      if Kit.button(ux, y + vpad, uW, uH,
-                    nUndo > 0 and ("< " .. nUndo) or "<",
-                    { font = "small", kind = "ghost", enabled = nUndo > 0 }) then
-        S.pvNotice = History.undo(S) and "undone" or "nothing to undo"
-      end
-      if Kit.button(ux + uW + 4 * s, y + vpad, uW, uH,
-                    nRedo > 0 and (nRedo .. " >") or ">",
-                    { font = "small", kind = "ghost", enabled = nRedo > 0 }) then
-        S.pvNotice = History.redo(S) and "redone" or "nothing to redo"
-      end
-    end
+    -- Placed after the view buttons so a long map name cannot cover them.
 
     -- THE HEADER, laid out in ONE right-to-left pass.
     --
@@ -2253,6 +2292,31 @@ function Preview.draw(S, Kit, x, y, w, h)
     headerButton("2D", 40 * s, S.pvView ~= "voxel", function()
       S.pvView = "2d"
     end)
+
+    -- Drawn after the right-hand cluster, so a long name stops before the
+    -- view buttons instead of running through them. The g-code stays the id
+    -- the tools save under; this is only what the header says.
+    local nameRight = cur - 8 * s
+    local undoX
+    if History then
+      local uW = 62 * s
+      undoX = nameRight - (uW * 2 + 4 * s)
+      nameRight = undoX - 8 * s
+      local nUndo, nRedo = History.depth(S)
+      if Kit.button(undoX, y + vpad, uW, headH,
+                    nUndo > 0 and ("< " .. nUndo) or "<",
+                    { font = "small", kind = "ghost", enabled = nUndo > 0 }) then
+        S.pvNotice = History.undo(S) and "undone" or "nothing to undo"
+      end
+      if Kit.button(undoX + uW + 4 * s, y + vpad, uW, headH,
+                    nRedo > 0 and (nRedo .. " >") or ">",
+                    { font = "small", kind = "ghost", enabled = nRedo > 0 }) then
+        S.pvNotice = History.redo(S) and "redone" or "nothing to redo"
+      end
+    end
+    local nameW = math.max(48 * s, nameRight - vx0)
+    Kit.text("monoBig", Kit.ellipsize("monoBig", headName, nameW), vx0,
+             y + vpad + (headH - Kit.textHeight("monoBig")) / 2, PAL.heading)
 
     -- THE VOXEL SOURCE MOVED OUT OF THE HEADER.
     --
@@ -2885,6 +2949,12 @@ function Preview.draw(S, Kit, x, y, w, h)
       string.format("%d x %d blocks", def.width or 0, def.height or 0),
       string.format("%d edits stored", MapEdits.count(store(S), game(S), S.mapId)),
     }
+    if #(def.bgEvents or {}) > 0 then
+      table.insert(lines, 3, string.format("%d signs / hidden items", #def.bgEvents))
+    end
+    if #(def.coordEvents or {}) > 0 then
+      lines[#lines + 1] = string.format("%d step triggers", #def.coordEvents)
+    end
     if def.editorCreated then
       lines[#lines + 1] = "created in this editor"
     end
@@ -3271,7 +3341,7 @@ function Preview.drawWorld(S, Kit, x, y, w, h)
     Theme.stroke(mx, my, mw, mh, 2 * s, here and PAL.blue or PAL.cardBorder,
                  here and 0.9 or 0.45, here and 2 * s or 1)
     if mw > 46 * s and mh > 16 * s then
-      Kit.text("small", Kit.ellipsize("small", id, mw - 6 * s),
+      Kit.text("small", Kit.ellipsize("small", mapLabel(S, id), mw - 6 * s),
                mx + 3 * s, my + 3 * s, here and PAL.heading or PAL.muted)
     end
     -- CLICK TO GO THERE. Walking the world and opening what you are looking at
@@ -3279,7 +3349,7 @@ function Preview.drawWorld(S, Kit, x, y, w, h)
     if Kit.press(mx, my, mw, mh) and not here then
       S.mapId = id
       S._pvCenteredFor = nil
-      S.pvNotice = "opened " .. id
+      S.pvNotice = "opened " .. mapLabel(S, id)
     end
   end
   Kit.popClip()

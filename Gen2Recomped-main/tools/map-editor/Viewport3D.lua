@@ -216,6 +216,7 @@ end
 -- missing.
 function Viewport3D.whyNoPicture()
   return Viewport3D.unavailableReason() or Viewport3D.lastDrawError
+    or Viewport3D.lastBuildError
     or "the 3D pass did not run"
 end
 
@@ -659,20 +660,37 @@ end
 -- headless run has no love.graphics to make a mesh with.
 function Viewport3D.build(S, map, opts)
   opts = opts or {}
-  if not opts.countOnly and not Viewport3D.available() then return nil end
+  Viewport3D.lastBuildError = nil
+  if not opts.countOnly and not Viewport3D.available() then
+    Viewport3D.lastBuildError = Viewport3D.unavailableReason()
+      or "3D is not available on this driver"
+    return nil
+  end
   local renderer = map.renderer
-  local image = renderer and renderer.image
-  if not image then return nil end
-  local iw, ih = image:getDimensions()
   local tileset = map.tileset
+  -- WHICH MOD, before the texture. A Hoenn tileset has no Gen 1 sheet, so
+  -- renderer.image is nil and the old check returned here -- the mesh was
+  -- never built and the panel could only say the pass did not run. The
+  -- game textures that mesh from the mod's relaid 8px atlas.
+  local sourceId = VoxelClasses.resolveId(S.voxelSource)
+  local image = renderer and renderer.image
+  local gen3Pixels
+  if not image and tileset then
+    local img, data = ModShapes.atlas(map, sourceId)
+    if img then image, gen3Pixels = img, data end
+  end
+  if not image then
+    Viewport3D.lastBuildError =
+      "no tileset image -- the 3D mesh has nothing to texture from"
+    return nil
+  end
+  local iw, ih = image:getDimensions()
   local perRow = tileset.tilesPerRow or math.max(1, math.floor(iw / 8))
 
   local def = map.def
-  -- ONE ANSWER TO "WHICH MOD", USED BY EVERY READ BELOW. See the note at the
-  -- resolver: nil is read differently by VoxelClasses and ModShapes, so it is
-  -- resolved here and never passed on.
-  local sourceId = VoxelClasses.resolveId(S.voxelSource)
-  -- `S.voxelSource` names which installed mod's voxel data to resolve against.
+  -- sourceId was resolved above, with the texture. nil does not mean the
+  -- same thing to VoxelClasses and ModShapes, so it is concrete before
+  -- either of them sees it.
   -- Two mods will disagree on purpose -- a class list is authored content --
   -- so the editor has to be told whose world it is showing.
   local _, info = VoxelClasses.list(def.tileset, sourceId)
@@ -910,10 +928,13 @@ function Viewport3D.build(S, map, opts)
   -- back -- but the mesh is TEXTURED with the renderer's atlas, so the shapes
   -- come from here and the colours come from whatever the 2D view is showing.
   -- That keeps a GBC-recoloured world looking like itself in 3D.
-  local okData, atlas = pcall(function()
-    return require("src.render.Assets").imageData(tileset.image)
-  end)
-  atlas = okData and atlas or nil
+  local atlas = gen3Pixels
+  if not atlas then
+    local okData, got = pcall(function()
+      return require("src.render.Assets").imageData(tileset.image)
+    end)
+    atlas = okData and got or nil
+  end
   local atlasW, atlasH = 0, 0
   if atlas then atlasW, atlasH = atlas:getDimensions() end
 
@@ -1216,9 +1237,17 @@ function Viewport3D.build(S, map, opts)
              carved = atlas ~= nil, modGeo = modGeo or false,
              census = top, bmin = minB, bmax = maxB }
   end
-  if #verts == 0 then return nil end
+  if #verts == 0 then
+    Viewport3D.lastBuildError = Viewport3D.lastResolverWhy
+      or ModShapes.lastError
+      or "the mesh build produced no triangles"
+    return nil
+  end
   local ok, mesh = pcall(love.graphics.newMesh, FORMAT, verts, "triangles", "static")
-  if not ok or not mesh then return nil end
+  if not ok or not mesh then
+    Viewport3D.lastBuildError = "the driver refused the mesh: " .. tostring(mesh)
+    return nil
+  end
   pcall(mesh.setVertexMap, mesh, vmap)
   pcall(mesh.setTexture, mesh, image)
   -- `texture` is kept beside the mesh so the SOLID shading mode can take the

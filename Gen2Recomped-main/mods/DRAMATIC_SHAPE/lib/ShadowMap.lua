@@ -319,6 +319,17 @@ ShadowMap.sunDir = sunDir
 ShadowMap.FAR_CAP = 2.5     -- multiples of the view height
 
 local function groundReach(vh)
+  -- In the head the orbit's horizon cap is a deep box. Sixteen bits of
+  -- shadow depth across that range flicker, and the lit rim crosses the
+  -- view. A short box around the body stays put; the shader fades the rim.
+  local fp = 0
+  pcall(function()
+    local FP = V.require("FirstPerson")
+    if FP.engaged and FP.engaged() then
+      fp = (FP.blendEased and FP.blendEased()) or 0
+    end
+  end)
+  if fp > 0.5 then return math.max(vh * 0.75, 48) end
   local a = Voxel.angle or 0
   local cap = ShadowMap.FAR_CAP * vh
   -- half the vertical field of view: the same FOCAL the camera projects
@@ -417,8 +428,15 @@ local function fit(cx, cy, vw, vh)
   -- flip clip-space Y for the same reason the camera does: we bypass
   -- LOVE's transform_projection, and canvas coordinates run Y DOWN, so
   -- without this the map is stored upside down relative to the uv the
-  -- main pass reads it with
-  Mat4.mulInto(fitFlipped, YFLIP, proj)
+  -- main pass reads it with. Quest canvases are already the other way
+  -- (see Voxel3D.orientProj): flipping only the sun stores the map
+  -- upside down against those uvs and the compare strobes.
+  local okOs, osName = pcall(function() return love.system.getOS() end)
+  if okOs and osName == "Android" then
+    for i = 1, 16 do fitFlipped[i] = proj[i] end
+  else
+    Mat4.mulInto(fitFlipped, YFLIP, proj)
+  end
 
   Mat4.mulInto(clipVP, fitFlipped, view)
   Mat4.mulInto(uvVP, TO_UNIT, clipVP)

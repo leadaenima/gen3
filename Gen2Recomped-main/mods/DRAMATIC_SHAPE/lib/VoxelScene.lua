@@ -608,6 +608,23 @@ local function gen1Facing(facing)
 end
 
 local function frameFor(def, facing, phase, flip, stated, sprite)
+  -- Follow grids name the cell by facing and step, not by the Gen 1
+  -- stand/walk row. A normal strip returns nil here and keeps the tables.
+  if type(def) == "table" and SpriteBillboards.gridFrame then
+    local img
+    if sprite and type(sprite.resolveImage) == "function" then
+      local okI, got = pcall(sprite.resolveImage, sprite)
+      if okI and got and got.getDimensions then img = got end
+    end
+    if not img and type(def.image) == "string" and SpriteBillboards.sheet then
+      img = SpriteBillboards.sheet(def.image)
+    end
+    if img and img.getDimensions then
+      local iw, ih = img:getDimensions()
+      local packed = SpriteBillboards.gridFrame(def, iw, ih, facing, phase, flip)
+      if packed then return packed, false end
+    end
+  end
   local SR = require("src.render.SpriteRenderer")
   local frame, mirror = 0, false
   -- A SHEET ROW THE OBJECT NAMES ITSELF OUTRANKS THE FACING TABLE.
@@ -749,6 +766,17 @@ end
 -- Drop the card; never retire the whole voxel pipeline on a missing sheet.
 local function hasCardSprite(sprite)
   return type(sprite) == "table" and type(sprite.def) == "table"
+end
+
+-- Gen3 followers pose() a bare sheet record (image path, no .def). The
+-- billboard needs a renderer-shaped sprite or the card is dropped and the
+-- follower is invisible for the whole voxel pass.
+local function cardOf(sprite)
+  if hasCardSprite(sprite) then return sprite end
+  if type(sprite) ~= "table" then return nil end
+  local image = sprite.image or sprite.path
+  if type(image) ~= "string" or image == "" then return nil end
+  return { def = sprite }
 end
 
 local function drawShadow(sprite, px, py, facing, phase, flip, gh, lift,
@@ -899,7 +927,12 @@ local function drawEntity(sprite, px, py, facing, phase, flip, gh, colors,
   if not hasCardSprite(sprite) then return false end
   local def = sprite.def
   local tex = nil
-  if type(sprite.resolveImage) == "function" then
+  -- The mod PNG, when it is on disk, is the picture. resolveImage often
+  -- answers the cartridge placeholder for that same path.
+  if type(def.image) == "string" and SpriteBillboards.sheet then
+    tex = SpriteBillboards.sheet(def.image)
+  end
+  if not tex and type(sprite.resolveImage) == "function" then
     local okTex, got = pcall(sprite.resolveImage, sprite)
     if okTex then tex = got end
   end
@@ -1861,6 +1894,7 @@ local function consider(e)
   local state = w.state
   if state.flyAnim and e == state.player then return end
   local sprite, vx, vy, facing, phase, flip = poseActor(e)
+  sprite = cardOf(sprite)
   if not castHides(e, e == state.player) and hasCardSprite(sprite) then
     local row = takePoseRow()
     writePose(row, sprite, vx, e.py, facing, phase, flip,
@@ -1894,6 +1928,7 @@ local function posesOf(state, spriteColors)
     if npc and not seenScratch[npc] then
       seenScratch[npc] = true
       local sprite, vx, vy, facing, phase, flip = poseActor(npc)
+      sprite = cardOf(sprite)
       if not castHides(npc) and hasCardSprite(sprite) then
         local gmap = g.map or state.map
         local ox, oy = tonumber(g.ox) or 0, tonumber(g.oy) or 0
