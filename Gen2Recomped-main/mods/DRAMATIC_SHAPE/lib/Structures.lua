@@ -9541,6 +9541,10 @@ end
 
 function Structures.forMap(map)
   local S = cache[map.id]
+  -- A draft is already drawable. Returning it here lets a second caller
+  -- see the ground while the build coroutine is still in the later passes.
+  -- The coroutine itself does not re-enter this line; it resumes after
+  -- the handoff.
   if S then return S end
   -- Yield before a cold analysis if this frame's slice is already spent,
   -- so arriving on a new map keeps the 2D fallback walking instead of
@@ -10249,6 +10253,13 @@ function Structures.forMap(map)
   Structures.markGen3Stairs(S, map, x0, x1, y0, y1)
   Structures.buildGen3SynthLevels(S, map, x0, x1, y0, y1)
   Structures.buildDrawnTerraces(S, map, x0, x1, y0, y1)
+
+  -- The floor grid is enough to extrude. Hand it to the mesher now so the
+  -- picture appears, then keep going through buildings and furniture.
+  if not S.draft then
+    S.draft = true
+    Budget.handoff()
+  end
 
   Buildings.build(S, map, pixels(tileset, map), perRow)
   EmeraldPieces.build(S, map)
@@ -11447,6 +11458,7 @@ function Structures.forMap(map)
     end
   end
 
+  S.complete = true
   return S
 end
 

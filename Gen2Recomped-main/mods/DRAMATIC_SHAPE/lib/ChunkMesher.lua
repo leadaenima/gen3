@@ -2345,6 +2345,10 @@ local function runJob(job)
     end
     swapSlot(c, job.slot, mesh or false)
     swapSlot(c, waterSlot(job.slot), water or false)
+    local shaped = Structures.peek and Structures.peek(map)
+    if shaped and shaped.complete then
+      print("voxel buildings mesh " .. tostring(job.id))
+    end
   end
   if c.stale then
     c.stale[job.slot] = nil
@@ -2503,6 +2507,9 @@ function ChunkMesher.pump(covered)
     if not (map and Structures.peek) then return true end
     local S = Structures.peek(map)
     if not S then return true end
+    -- A draft mesh is already on screen. The rest of the passes can
+    -- share the frame with the picture instead of holding it at 10fps.
+    if S.draft or S.complete then return false end
     -- terraceStats is set at the end of the roles pass -- the log the
     -- player was waiting on. A positive synthZ from elevation is enough
     -- to stand on in the meantime.
@@ -2518,6 +2525,22 @@ function ChunkMesher.pump(covered)
   local function pickJob()
     local urgent, first = nil, jobs[1]
     if not first then return nil end
+    -- The map under the player, ahead of a room they already left. The
+    -- old urgent job otherwise keeps the only slice and the room they
+    -- are standing in stays queued.
+    local prefer = ChunkMesher.preferId
+    if prefer then
+      for _, j in ipairs(jobs) do
+        if j.id == prefer and jobNeedsHeight(j) then return j end
+      end
+      -- The ground is already on screen. Finish THIS map's buildings
+      -- before spending the slice on every neighbour.
+      for _, j in ipairs(jobs) do
+        if j.id == prefer and j.co and coroutine.status(j.co) ~= "dead" then
+          return j
+        end
+      end
+    end
     for _, j in ipairs(jobs) do
       if j.urgent then
         if not urgent then urgent = j end
@@ -2536,7 +2559,21 @@ function ChunkMesher.pump(covered)
   -- slice, not only the map underfoot.
   local cold = false
   if not covered and jobNeedsHeight(pick) then cold = true end
-  local slice = cold and COLD_SLICE or sliceFor(pick.urgent, covered)
+  -- 12ms a frame is why the first Hoenn room sits on "Building the voxel
+  -- world" for minutes on a Quest. While that note is up the flat map is
+  -- the picture, so spend most of the frame on the build.
+  local slice = cold and (_G.VOXEL_PANEL_NOTE and 0.070 or COLD_SLICE)
+                or sliceFor(pick.urgent, covered)
+  -- The draft on screen is the ground. House shells are the rest of
+  -- the same job. The idle slice left that pass unfinished, so the
+  -- street stayed empty. Keep this map's build moving until it is.
+  if not cold and pick.map and Structures.peek then
+    local shaped = Structures.peek(pick.map)
+    local live = pick.co and coroutine.status(pick.co) ~= "dead"
+    if live and not (shaped and shaped.complete) and slice < 0.020 then
+      slice = 0.020
+    end
+  end
   local deadline = started + slice
   while pick do
     if not pick.co then
@@ -2545,6 +2582,30 @@ function ChunkMesher.pump(covered)
     Budget.begin(pick.co, deadline - clock())
     local ok, err = coroutine.resume(pick.co, pick)
     Budget.finish()
+    if ok and err == "draft" then
+      -- The floor grid is published. Extrude it now so the picture can
+      -- show while buildings and furniture keep building.
+      local sink = newSink()
+      local waterSink = newSink()
+      local built, mesh, water = pcall(function()
+        runGeometry(pick.map, pick.slot == "body", pick.masks, sink, waterSink)
+        return sink.finish(), waterSink.finish()
+      end)
+      if built and (mesh or water) and (gen[pick.id] or 0) == pick.gen then
+        local slot = entry(pick.id)
+        swapSlot(slot, pick.slot, mesh or false)
+        swapSlot(slot, waterSlot(pick.slot), water or false)
+        print("voxel draft mesh " .. tostring(pick.id))
+      elseif not built then
+        print("voxel draft mesh failed for " .. tostring(pick.id)
+              .. ": " .. tostring(mesh))
+        if water and water.release then pcall(water.release, water) end
+      elseif mesh and mesh.release then
+        pcall(mesh.release, mesh)
+      end
+      lastSpend = clock() - started
+      return
+    end
     if not ok then
       finishJob(pick, false, err)
     elseif coroutine.status(pick.co) == "dead" then

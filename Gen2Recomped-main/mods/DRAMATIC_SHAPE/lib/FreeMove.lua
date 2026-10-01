@@ -499,6 +499,43 @@ function FreeMove.tick(state)
     -- the push handlers may have turned the facing; the walk still rules
     p.facing = FirstPerson.pointBody(wx, wz)
   end
+
+  -- A door is one cell wide and the body only collides when its circle
+  -- meets that cell dead-on, so an angled walk slides along the frame
+  -- and the warp never fires. If the player is in the near half of the
+  -- cell in front of a door and still walking toward it, take the door.
+  if math.max(math.abs(wx), math.abs(wz)) > 0.35
+      and type(state.checkDoorWarp) == "function" then
+    local Game = liveGame()
+    local map = state.map
+    if Game and map and Game.warpAt then
+      local reach = FreeMove.RADIUS + 8
+      local doors = {
+        { 1, 0, "right", (p.cellX + 1) * 16 - pos.x, wx },
+        { -1, 0, "left", pos.x - p.cellX * 16, -wx },
+        { 0, 1, "down", (p.cellY + 1) * 16 - pos.z, wz },
+        { 0, -1, "up", pos.z - p.cellY * 16, -wz },
+      }
+      local best, bestGap
+      for i = 1, 4 do
+        local d = doors[i]
+        local gap, toward = d[4], d[5]
+        if toward > 0.2 and gap < reach and gap > -2
+            and Game.warpAt(map, p.cellX + d[1], p.cellY + d[2]) then
+          if not bestGap or gap < bestGap then
+            best, bestGap = d[3], gap
+          end
+        end
+      end
+      if best then
+        local okDoor, took = pcall(state.checkDoorWarp, state, best)
+        if okDoor and took then
+          FreeMove.drop()
+          return
+        end
+      end
+    end
+  end
 end
 
 -- ------- the seam

@@ -308,6 +308,12 @@ local DEPTH_FORMATS = { "depth24", "depth24stencil8", "depth32f", "depth16" }
 
 local function newDepth(w, h)
   if not (love.graphics and love.graphics.newCanvas) then return nil end
+  -- Quest accepts a readable depth texture and then drops every color
+  -- clear and draw that shares its framebuffer. The panel stays the
+  -- empty blue behind the world. The internal depth buffer is the one
+  -- this driver actually renders with; water reflections can wait.
+  local okOS, osname = pcall(function() return love.system.getOS() end)
+  if okOS and osname == "Android" then return nil end
   local c = nil
   for _, format in ipairs(DEPTH_FORMATS) do
     local ok, made = pcall(love.graphics.newCanvas, w, h,
@@ -328,7 +334,10 @@ end
 -- The bound target for the slot this pass holds: the colour canvas plus
 -- either the readable depth canvas or the internal buffer.
 local depthBind = { nil, depthstencil = nil }
-local depthBindSimple = { canvas = nil, depth = true }
+-- Array slot 1 is the colour canvas. A named `canvas` field is ignored,
+-- and a table with no colour target unbinds the pass: the clear and the
+-- town then miss this canvas and the panel stays empty.
+local depthBindSimple = { nil, depth = true }
 local mirrorBind = { nil, depthstencil = nil }
 
 local function depthTarget()
@@ -337,7 +346,7 @@ local function depthTarget()
     depthBind.depthstencil = held.depth
     return depthBind
   end
-  depthBindSimple.canvas = canvas
+  depthBindSimple[1] = canvas
   return depthBindSimple
 end
 
@@ -512,16 +521,11 @@ local YFLIP = { 1, 0, 0, 0,
                 0, 0, 0, 1 }
 local vpProj, vpFlipped, vpLook, vpOut = {}, {}, {}, {}
 -- True when clip +Y was negated so LOVE's Y-down canvases match.
--- Quest canvases are already the other way, so the flip is skipped
--- and the sky's pixel rows have to be mirrored to meet that horizon.
+-- The headset panel is one of those canvases. Skipping the flip put
+-- every corner of the map outside the clip volume, the mesh was culled,
+-- and the panel stayed the empty blue behind it.
 Voxel3D.clipYFlipped = true
 local function orientProj(proj)
-  local ok, os = pcall(function() return love.system.getOS() end)
-  if ok and os == "Android" then
-    Voxel3D.clipYFlipped = false
-    for i = 1, 16 do vpFlipped[i] = proj[i] end
-    return vpFlipped
-  end
   Voxel3D.clipYFlipped = true
   return Mat4.mulInto(vpFlipped, YFLIP, proj)
 end
@@ -955,6 +959,11 @@ function Voxel3D.beginScene(w, h, cx, cy, vw, vh, sky, slot)
   -- where the sky's bottom edge lands, which is what the reflection
   -- reads its bands against (see Water). nil when nothing painted bands.
   Voxel3D.skyEdge = (sky and sky.bands) and Sky.region(h, hy) or nil
+  -- A scissor left by the 2D pass is in the panel's pixels. On this
+  -- canvas it clips the clear and the mesh down to a corner, and the
+  -- rest of the frame stays the empty blue.
+  love.graphics.origin()
+  if love.graphics.setScissor then love.graphics.setScissor() end
   if sky then
     love.graphics.clear(sky[1], sky[2], sky[3], sky[4] or 1, true, true)
     -- The sky goes down here, in the one window in this function where a

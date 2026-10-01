@@ -425,18 +425,11 @@ local function fit(cx, cy, vw, vh)
   -- clean out of the pass instead of merely casting a truncated shadow
   local near, far = -zf - 64, -zn + 64
   local proj = Mat4.orthoInto(fitProj, l, r, b, t, near, far)
-  -- flip clip-space Y for the same reason the camera does: we bypass
-  -- LOVE's transform_projection, and canvas coordinates run Y DOWN, so
-  -- without this the map is stored upside down relative to the uv the
-  -- main pass reads it with. Quest canvases are already the other way
-  -- (see Voxel3D.orientProj): flipping only the sun stores the map
-  -- upside down against those uvs and the compare strobes.
-  local okOs, osName = pcall(function() return love.system.getOS() end)
-  if okOs and osName == "Android" then
-    for i = 1, 16 do fitFlipped[i] = proj[i] end
-  else
-    Mat4.mulInto(fitFlipped, YFLIP, proj)
-  end
+  -- Same clip-space Y flip as the camera (Voxel3D.orientProj). The two
+  -- have to agree: a sun map stored the other way up is sampled against
+  -- the wrong depth and the compare strobes, which is the whole town's
+  -- light flickering. The panel is a LOVE canvas, so Quest flips too.
+  Mat4.mulInto(fitFlipped, YFLIP, proj)
 
   Mat4.mulInto(clipVP, fitFlipped, view)
   Mat4.mulInto(uvVP, TO_UNIT, clipVP)

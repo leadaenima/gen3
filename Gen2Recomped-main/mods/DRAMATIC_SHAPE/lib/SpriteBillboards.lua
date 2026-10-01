@@ -110,10 +110,21 @@ end
 -- placeholder, which would cache a dummy card and hide every NPC.
 local sheetCache = {}
 
+local function canvasBound()
+  if not (love and love.graphics and love.graphics.getCanvas) then return false end
+  local ok, canvas = pcall(love.graphics.getCanvas)
+  return ok and canvas ~= nil
+end
+
 local function loadSheet(path)
   if type(path) ~= "string" or path == "" then return nil end
   local cached = sheetCache[path]
   if cached then return cached end
+  -- newImage while the sun pass has its canvas bound detaches that target.
+  -- The rest of the casters then miss the map, and the next recast paints a
+  -- different broken frame: the whole town's shadows strobe. Warm the cache
+  -- before the pass; a miss during it waits for the next unbound frame.
+  if canvasBound() then return nil end
   -- Follower sheets live in the mod tree. Assets.image and grabImage look
   -- at the cartridge cache and answer a placeholder, or nothing, so the
   -- billboard was dropped and the follower vanished in voxel. The file
@@ -170,6 +181,23 @@ end
 
 function SpriteBillboards.sheet(path)
   return loadSheet(path)
+end
+
+-- Load a sheet even if a playfield canvas is already bound. The sun pass
+-- must not call this: restoring that canvas would drop its depth buffer.
+-- VoxelScene warms every posed image before ShadowMap.begin instead.
+function SpriteBillboards.warm(path)
+  if type(path) ~= "string" or path == "" then return nil end
+  if sheetCache[path] then return sheetCache[path] end
+  local prev
+  if love and love.graphics and love.graphics.getCanvas then
+    local ok, canvas = pcall(love.graphics.getCanvas)
+    if ok then prev = canvas end
+  end
+  if prev and love.graphics.setCanvas then love.graphics.setCanvas() end
+  local img = loadSheet(path)
+  if prev and love.graphics.setCanvas then pcall(love.graphics.setCanvas, prev) end
+  return img
 end
 
 -- A follow sheet is a grid: columns are walk frames, rows are facings.

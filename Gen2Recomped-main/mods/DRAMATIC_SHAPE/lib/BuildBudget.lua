@@ -60,4 +60,14 @@ function B.check()
   end
 end
 
+-- The ground grid is published and a mesh can be drawn from it. Yield out
+-- so the pump can upload that picture before the remaining passes run.
+-- Outside the build coroutine this is a no-op, so a synchronous caller
+-- still runs the whole analysis in one call.
+function B.handoff()
+  if buildCo and coroutine.running() == buildCo then
+    coroutine.yield("draft")
+  end
+end
+
 return B

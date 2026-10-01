@@ -294,6 +294,50 @@ function voidFill.check()
   voidFill.last = now
 end
 
+-- A blank voxel frame is transparent. Composited over the window it
+-- leaves the blue void and looks like the game has stopped. A few
+-- texels are enough to tell "the world is in this picture" from "the
+-- clear colour is". Checked on a stride so the readback is not every frame.
+local voxelPictureTick = 0
+local voxelPictureOk = false
+local voxelPictureLogged = false
+
+local function voxelFrameHasPicture(canvas)
+  voxelPictureTick = voxelPictureTick + 1
+  if voxelPictureTick % 15 ~= 1 then return voxelPictureOk end
+  if not (canvas and canvas.newImageData and canvas.getWidth) then
+    voxelPictureOk = false
+    return false
+  end
+  local okSize, w, h = pcall(function()
+    return canvas:getWidth(), canvas:getHeight()
+  end)
+  if not okSize or not w or not h or w < 2 or h < 2 then
+    voxelPictureOk = false
+    return false
+  end
+  local spots = {
+    { 0.5, 0.5 }, { 0.35, 0.62 }, { 0.65, 0.62 },
+    { 0.5, 0.78 }, { 0.28, 0.4 },
+  }
+  local hit = false
+  for i = 1, #spots do
+    local x = math.max(0, math.min(w - 1, math.floor(w * spots[i][1])))
+    local y = math.max(0, math.min(h - 1, math.floor(h * spots[i][2])))
+    local ok, data = pcall(canvas.newImageData, canvas, nil, 1, x, y, 1, 1)
+    if ok and data and data.getPixel then
+      local pr, pg, pb, pa = data:getPixel(0, 0)
+      if data.release then data:release() end
+      if (pa or 0) > 0.15 then
+        hit = true
+        break
+      end
+    end
+  end
+  voxelPictureOk = hit
+  return hit
+end
+
 mod.content.render_pipelines:register("voxel", {
   label = "VOXEL",
   levels = Voxel.ANGLE_LABELS,
@@ -375,10 +419,14 @@ mod.content.render_pipelines:register("voxel", {
       local hs = headset()
       if hs and hs.update then pcall(hs.update, dt) end
     end
-    if not Voxel.active() then return end
+    if not Voxel.active() then
+      _G.VOXEL_PANEL_NOTE = nil
+      return
+    end
     local Game = require("src.core.Game")
     local ow = Game and Game.overworld
     if ow and ow.map and ow.camera then
+      ChunkMesher.preferId = ow.map.id
       pcall(VoxelScene.prefetch, ow)
     end
     -- THE BUILD SLICE, MEASURED SEPARATELY FROM THE FRAME.
@@ -427,7 +475,20 @@ mod.content.render_pipelines:register("voxel", {
     local rw, rh = AntiAlias.expand(sw, sh)
     local canvas = VoxelScene.render(ctx.state, rw, rh,
                                      ctx.vw, ctx.vh, ctx.paletteFor)
-    if not canvas then return nil end   -- fall back to the 2D path
+    -- No mesh yet: the engine keeps the flat map and says so. A canvas
+    -- that came back is the world, even when a readback of it looks
+    -- empty -- that read was hiding a finished mesh behind the flat map.
+    if not canvas then
+      _G.VOXEL_PANEL_NOTE = "Building the voxel world"
+      return nil
+    end
+    if not voxelPictureLogged then
+      voxelPictureLogged = true
+      local note = "unread"
+      if voxelFrameHasPicture(canvas) then note = "opaque" else note = "clear" end
+      print("voxel picture " .. note)
+    end
+    _G.VOXEL_PANEL_NOTE = nil
     if Voxel3D.beginOverlay() then
       -- the FX closures are ordinary 2D draws sized in DISPLAY pixels, and
       -- they are drawing into the supersampled canvas alongside everything

@@ -127,7 +127,10 @@ local SKY_FADE_DEG = 8
 
 local function skyStrength(angleRad)
   local deg = math.deg(angleRad or 0)
-  if deg <= 0 then return 0 end
+  -- A straight-down frame used to clear transparent. On the headset that
+  -- composite is the blue void, and the picture test then keeps the flat
+  -- map up forever. Outdoors the sky is the backdrop the ground draws over.
+  if deg <= 0 then return 1 end
   local t = deg / SKY_FADE_DEG
   return t < 1 and t or 1
 end
@@ -2497,6 +2500,19 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
 
   local posed, me = posesOf(state, spriteColors)
 
+  -- Follower sheets are real files, loaded with newImage. That has to happen
+  -- before the sun pass binds its canvas: a create during the pass unbinds
+  -- the map and the shadows strobe. frameFor still asks for the sheet later,
+  -- and a hit is only a cache lookup.
+  if SpriteBillboards.warm then
+    for _, p in ipairs(posed) do
+      local def = p.sprite and p.sprite.def
+      if type(def) == "table" and type(def.image) == "string" then
+        SpriteBillboards.warm(def.image)
+      end
+    end
+  end
+
   -- THE CAMERA RIDES WITH THE PLAYER, IN Y AS WELL AS IN X AND Z.
   --
   -- The orbit is centred on the view centre the flat renderer already
@@ -2575,6 +2591,11 @@ function VoxelScene.render(state, w, h, vw, vh, paletteFor, eyes)
   -- reaches far north and barely south, which is right for every rung
   -- but a head free to face south.
   local shCx, shCy = FirstPerson.shadowCenter(cx, cy, vh)
+  -- The light box follows this centre. A one-pixel camera step is smaller
+  -- than a shadow texel, and rebuilding on it slides every tree and wall
+  -- edge. Four world pixels is the hold; the sun's own drift still recasts.
+  shCx = math.floor(shCx / 4) * 4
+  shCy = math.floor(shCy / 4) * 4
   castShadows(state, terrain, nbMesh, posed, shCx, shCy, vw, vh, atlasFor,
               water, nbWater, battleCards, battleToken)
 

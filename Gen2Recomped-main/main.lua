@@ -412,9 +412,18 @@ function love.load(args)
      and not _G.POKEPORT_PAYLOAD_MOUNTED then
     local report = BootTrace.previousFailureReport()
     if report then
-      BootTrace.mark("showing previous failure report")
-      bootReport = { text = report, args = args }
-      return
+      local android = false
+      pcall(function() android = love.system.getOS() == "Android" end)
+      if android then
+        -- The headset has no click that dismisses this, and the last
+        -- failure was the panel itself. Blocking here is a black visor.
+        BootTrace.mark("boot report skipped on headset")
+        print("XR boot report skipped")
+      else
+        BootTrace.mark("showing previous failure report")
+        bootReport = { text = report, args = args }
+        return
+      end
     end
   end
   return realLoad(args)
@@ -605,7 +614,7 @@ local function quatRotate(q, v)
 end
 
 -- The launcher quad sits 1.4m ahead, 1.6m wide, identity orientation.
--- The right controller's aim ray is the pointer; the trigger and A click.
+-- The right controller's aim ray is the pointer. The A button clicks it.
 local function questPointLauncher(time)
   if not (Importer and Importer._padCursor and questXr and questXr.input) then
     return
@@ -645,8 +654,13 @@ local function questPointLauncher(time)
       (Importer._padCursor.y or hh * 0.5) - my * 700 * dt))
     Importer._padCursorActive = true
   end
-  if Importer._padCursorActive
-      and ((ctl.a and ctl.aChanged) or (ctl.fire and ctl.fireChanged)) then
+  -- A clicks the cursor. The trigger does too. B is cancel, not A.
+  local aClick = ctl.a and ctl.aChanged
+  local trigClick = ctl.fire and ctl.fireChanged
+  if aClick or trigClick then
+    if Importer._activatePadCursor then
+      pcall(function() Importer:_activatePadCursor() end)
+    end
     pcall(function()
       Importer:mousepressed(Importer._padCursor.x, Importer._padCursor.y, 1)
     end)
@@ -656,6 +670,7 @@ end
 -- Once a cartridge is running, the same controllers are the game's pad.
 -- A second OpenXR session (the mod's own) was replacing this panel with
 -- an empty view, which is the black screen under the title music.
+local questCtl
 local questHeld = {}
 
 local function questSetBtn(inp, btn, down)
@@ -668,15 +683,15 @@ local function questSetBtn(inp, btn, down)
   end
 end
 
-local questCtl
-
 local function questDriveGame(ctl)
   if not (Game and Game.input and ctl) then return end
   local inp = Game.input
-  questSetBtn(inp, "a", ctl.a)
-  questSetBtn(inp, "b", ctl.b)
-  -- Y is Start. The controller's menu button is not. `start` is the
-  -- same click, read through the other action, so either binding works.
+  -- The headset takes the buttons, so the pad events never arrive.
+  -- A is the action button (keyboard Z). Right B cancels. Y is Start.
+  -- X and the right trigger are A as well, so a dead A button still
+  -- confirms. The left trigger is B.
+  questSetBtn(inp, "a", ctl.a or ctl.x or ctl.fire)
+  questSetBtn(inp, "b", ctl.rb or ctl.b)
   questSetBtn(inp, "start", (ctl.y or ctl.start) and true or false)
   local mx, my = ctl.moveX or 0, ctl.moveY or 0
   pcall(function()
@@ -726,6 +741,8 @@ local function questPushVoxel()
   exp.setVoxelLevel(Game, 6)
   questVoxelPushed = true
 end
+
+local questFrameTime = nil
 
 local function questHeadsetTick()
   if questXrGiveUp then return end
@@ -790,21 +807,240 @@ local function questHeadsetTick()
     questCtl = ctl
     questDriveGame(ctl)
   end
+  -- The picture is drawn later this frame. Submitting now would copy an
+  -- empty buffer: on the Quest that is a black panel.
+  questFrameTime = time
+end
+
+local questFlushCanvas
+local questProbeTick = 0
+local questCapture
+local questCapturing = false
+local questRawSetCanvas
+
+-- The game finishes a frame by calling setCanvas() with no target, which
+-- means "the window". On the headset the window is never shown. While the
+-- panel is the picture, that call has to come back to the panel canvas or
+-- the visor stays on the clear colour (black once a cartridge is running).
+local function questHookSetCanvas()
+  if questRawSetCanvas or not (love.graphics and love.graphics.setCanvas) then
+    return
+  end
+  questRawSetCanvas = love.graphics.setCanvas
+  love.graphics.setCanvas = function(target, ...)
+    if questCapturing and target == nil and select("#", ...) == 0 then
+      return questRawSetCanvas{ questCapture, stencil = true }
+    end
+    return questRawSetCanvas(target, ...)
+  end
+end
+
+-- LOVE keeps the frame's draws in a batch until present(), which runs
+-- after love.draw. Copying the window before that flush sends the headset
+-- the cleared black frame and nothing else.
+local function questFlushDraws()
+  if not (love.graphics and love.graphics.setCanvas) then return end
+  local ok, cur = pcall(love.graphics.getCanvas)
+  if ok and cur then return end
+  if not questFlushCanvas then
+    local made, canvas = pcall(love.graphics.newCanvas, 1, 1)
+    if not made then return end
+    questFlushCanvas = canvas
+  end
   pcall(function()
+    love.graphics.setCanvas(questFlushCanvas)
+    love.graphics.setCanvas()
+  end)
+end
+
+local function questCompanion()
+  local exp = Game and Game.mods and Game.mods.exports
+      and Game.mods.exports.DRAMATIC_SHAPE
+  if not (exp and exp.vrCompanion) then return nil end
+  local ok, comp = pcall(exp.vrCompanion)
+  return ok and comp or nil
+end
+
+local function questFreeCam()
+  local ok, yes = pcall(function()
+    local exp = Game.mods.exports.DRAMATIC_SHAPE
+    local Voxel = exp.lib.require("VoxelState")
+    return Voxel.isFreeCam() and Voxel.ready == true and Voxel.active()
+  end)
+  return ok and yes or false
+end
+
+-- A menu or a text box is up. The world can stay around the player;
+-- the words still need a surface.
+local function questUiUp()
+  if not (Game and Game.displayGateOK) then return true end
+  local ok, free = pcall(function() return Game:displayGateOK() end)
+  return not (ok and free)
+end
+
+local function questHeadLock()
+  local pos, quat = { 0, 0, -1.4 }, { 0, 0, 0, 1 }
+  if questXr.locateViews and questFrameTime then
+    local views = questXr.locateViews(questFrameTime)
+    local eye = views and views[1]
+    if eye and eye.pose and eye.pose.pos and eye.pose.quat then
+      local q = eye.pose.quat
+      local fwd = quatRotate(q, { 0, 0, -1 })
+      local p = eye.pose.pos
+      pos = { p[1] + fwd[1] * 1.4, p[2] + fwd[2] * 1.4, p[3] + fwd[3] * 1.4 }
+      quat = q
+    end
+  end
+  return pos, quat
+end
+
+local function questBlitCapture(tex, w, h)
+  local sent = false
+  if questCapture and questXrGl.canvasFBO and questXrGl.blitToTexture then
+    local id = questXrGl.canvasFBO(questCapture)
+    if id then
+      local pw, ph = questCapture:getPixelDimensions()
+      sent = questXrGl.blitToTexture(id, pw, ph, tex, w, h, "flipy")
+        and true or false
+    end
+  end
+  if not sent and questXrGl.copyFrontRegionToTexture then
+    local ww, hh = love.graphics.getPixelDimensions()
+    questXrGl.copyFrontRegionToTexture(tex, 0, 0, ww, hh, w, h)
+  end
+end
+
+-- 1ST and 3RD: the world around the head, on the session that is
+-- already running. A failed eye pass must not be the frame — that is
+-- a black visor — so the caller keeps the panel.
+local function questPresentEyes()
+  if not (questFreeCam() and questXr.locateViews and questXr.acquireEye) then
+    return false
+  end
+  local comp = questCompanion()
+  if not (comp and comp.headsetEyes) then return false end
+  local views = questXr.locateViews(questFrameTime)
+  if not (views and views[1] and views[2]) then return false end
+  local okC, canvases = pcall(comp.headsetEyes, views)
+  if not (okC and type(canvases) == "table" and canvases[1] and canvases[2]) then
+    return false
+  end
+  local drew = true
+  for i = 1, 2 do
+    local tex, tw, th = questXr.acquireEye(i)
+    local sent = false
+    if tex and questXrGl and questXrGl.canvasFBO and questXrGl.blitToTexture then
+      local id = questXrGl.canvasFBO(canvases[i])
+      if id then
+        local pw, ph = canvases[i]:getPixelDimensions()
+        -- The projection flips Y for the LOVE canvas. The swapchain
+        -- does not, so the eye copy has to flip it back. Skipping that
+        -- stands the world on its head.
+        sent = questXrGl.blitToTexture(id, pw, ph, tex, tw, th, "flipy")
+          and true or false
+      end
+    end
+    if questXr.releaseEye then questXr.releaseEye(i) end
+    if not sent then drew = false end
+  end
+  if not drew then return false end
+  local quadPose = nil
+  if questUiUp() then
     local tex, w, h = questXr.acquireQuad()
     if tex then
-      if questXrGl and questXrGl.copyFrontRegionToTexture then
+      questBlitCapture(tex, w, h)
+      questXr.releaseQuad()
+      local pos, quat = questHeadLock()
+      quadPose = { pos = pos, quat = quat, width = 1.6 }
+    end
+  end
+  questXr.endFrame(questFrameTime, true, quadPose)
+  return true
+end
+
+local function questHeadsetPresent()
+  local time = questFrameTime
+  questFrameTime = nil
+  if not (time and questXr) then return end
+  questFlushDraws()
+  -- Put the time back for the eye pass; it reads the same frame the
+  -- tick waited on. Cleared again once that pass owns the submit.
+  questFrameTime = time
+  if questPresentEyes() then
+    questFrameTime = nil
+    return
+  end
+  questFrameTime = nil
+  pcall(function()
+    local tex, w, h = questXr.acquireQuad()
+    if tex and questXrGl then
+      local sent = false
+      if questCapture and questXrGl.canvasFBO and questXrGl.blitToTexture then
+        local id = questXrGl.canvasFBO(questCapture)
+        if id then
+          -- getWidth is the layout size. The canvas buffer is taller by the
+          -- window's pixel density, and copying only the layout size drops
+          -- the bottom of the menu, including Play.
+          local pw, ph = questCapture:getPixelDimensions()
+          sent = questXrGl.blitToTexture(id, pw, ph, tex, w, h, "flipy")
+            and true or false
+        end
+      end
+      if not sent and questXrGl.copyFrontRegionToTexture then
         local ww, hh = love.graphics.getPixelDimensions()
         questXrGl.copyFrontRegionToTexture(tex, 0, 0, ww, hh, w, h)
       end
       questXr.releaseQuad()
     end
   end)
+  -- Lock the panel to the face. A quad parked at the session origin
+  -- sits behind the player the moment they look around, which reads
+  -- as an empty visor.
+  local pos, quat = { 0, 0, -1.4 }, { 0, 0, 0, 1 }
+  if questXr.locateViews then
+    local views = questXr.locateViews(time)
+    local eye = views and views[1]
+    if eye and eye.pose and eye.pose.pos and eye.pose.quat then
+      local q = eye.pose.quat
+      local fwd = quatRotate(q, { 0, 0, -1 })
+      local p = eye.pose.pos
+      pos = { p[1] + fwd[1] * 1.4, p[2] + fwd[2] * 1.4, p[3] + fwd[3] * 1.4 }
+      quat = q
+    end
+  end
   questXr.endFrame(time, nil, {
-    pos = { 0, 0, -1.4 },
-    quat = { 0, 0, 0, 1 },
+    pos = pos,
+    quat = quat,
     width = 1.6,
   })
+  questProbeTick = questProbeTick + 1
+  if questProbeTick % 60 == 0 and questXrGl then
+    print("XR panel " .. tostring(questXrGl.lastCopy))
+  end
+end
+
+local function questCaptureBegin()
+  if not questFrameTime then return false end
+  local w, h = love.graphics.getDimensions()
+  w, h = math.floor(w), math.floor(h)
+  if w < 2 or h < 2 then return false end
+  questHookSetCanvas()
+  questCapturing = true
+  if not questCapture or questCapture:getWidth() ~= w
+      or questCapture:getHeight() ~= h then
+    questCapture = love.graphics.newCanvas(w, h)
+  end
+  -- The launcher stamps its panels through the stencil buffer. A plain
+  -- canvas rejects that draw and the frame dies before the headset sees it.
+  love.graphics.setCanvas{ questCapture, stencil = true }
+  -- The window scissor does not apply to this canvas. Left in place it
+  -- clips the whole menu away and the panel stays the clear colour.
+  love.graphics.origin()
+  love.graphics.setScissor()
+  if love.graphics.setStencilTest then love.graphics.setStencilTest() end
+  local r, g, b, a = love.graphics.getBackgroundColor()
+  love.graphics.clear(r, g, b, a or 1)
+  return true
 end
 
 function love.update(dt)
@@ -817,7 +1053,10 @@ function love.update(dt)
   -- two OpenXR sessions at once is a black headset. The eye session
   -- submits the stereo world (or, if that pass is empty, a quad) in
   -- this same update, so the runtime is not left without a frame.
-  local handoff = questWantEyes()
+  -- The truck map is the moment voxel reports ready. Handing the visor
+  -- to the eye session there replaces the panel with empty frames, and
+  -- the picture stays black. Stay on the panel until that pass has a world.
+  local handoff = false
   if handoff and _G.QUEST_XR_BOOTSTRAP then
     questReleaseFlat()
   end
@@ -875,6 +1114,15 @@ function love.update(dt)
   -- "attempt to index upvalue 'Game' (a nil value)" a second after launch.
   if not Game then return end
   Game:update(dt)
+  -- After the stick, so the head wins. 1ST and 3RD look where the
+  -- headset is pointed; the orbit rungs stay a picture on the panel.
+  if _G.QUEST_XR_BOOTSTRAP and questXr and questFrameTime and questFreeCam() then
+    local views = questXr.locateViews and questXr.locateViews(questFrameTime)
+    local comp = questCompanion()
+    if views and comp and comp.steerFromHead then
+      pcall(comp.steerFromHead, views, dt)
+    end
+  end
   -- The eye session reports itself once it is submitting. If the
   -- handoff never produces one, bring the panel back rather than
   -- sitting in the three loading dots.
@@ -898,26 +1146,40 @@ end
 
 function love.draw()
   GraphicsStack.drain()
-  if bootReport then return drawBootReport() end
-  if editorMode then return EditorApp.draw() end
-  if TouchEditor then return TouchEditor.draw() end
-  if Importer then return Importer:draw() end
-
-  if not Game then return end
-  Game:draw()
-  -- frame capture requested by a driver
-  if Game.capturePath then
-    local path = Game.capturePath
-    Game.capturePath = nil
-    love.graphics.captureScreenshot(function(imagedata)
-      local fd = imagedata:encode("png")
-      local f = io.open(path, "wb")
-      if f then
-        f:write(fd:getString())
-        f:close()
+  -- The Quest window is not the picture the headset shows. Draw this
+  -- frame into a canvas and hand that texture to the panel.
+  local capturing = questCaptureBegin()
+  local drew, drawErr = pcall(function()
+    if bootReport then
+      drawBootReport()
+    elseif editorMode then
+      EditorApp.draw()
+    elseif TouchEditor then
+      TouchEditor.draw()
+    elseif Importer then
+      Importer:draw()
+    elseif Game then
+      Game:draw()
+      -- frame capture requested by a driver
+      if Game.capturePath then
+        local path = Game.capturePath
+        Game.capturePath = nil
+        love.graphics.captureScreenshot(function(imagedata)
+          local fd = imagedata:encode("png")
+          local f = io.open(path, "wb")
+          if f then
+            f:write(fd:getString())
+            f:close()
+          end
+        end)
       end
-    end)
-  end
+    end
+  end)
+  if not drew then print("XR draw: " .. tostring(drawErr)) end
+  questCapturing = false
+  if capturing then pcall(love.graphics.setCanvas) end
+  -- After the pixels exist. The Quest panel is a copy of this frame.
+  questHeadsetPresent()
 end
 
 function love.keypressed(key, scancode, isrepeat)
@@ -954,7 +1216,9 @@ function love.gamepadpressed(joystick, button)
     if EditorApp.gamepadpressed then return EditorApp.gamepadpressed(button) end
     return
   end
-  -- Quest reports the system menu button as Start. The game's Start is Y.
+  -- While the headset is reading the controllers, it does not also
+  -- deliver these as pad events. Falling through here pressed nothing.
+  if questOwnsPad() and questCtl then return end
   if questOwnsPad() then
     if button == "start" or button == "back" or button == "guide" then
       return
@@ -979,6 +1243,7 @@ function love.gamepadreleased(joystick, button)
     if EditorApp.gamepadreleased then return EditorApp.gamepadreleased(button) end
     return
   end
+  if questOwnsPad() and questCtl then return end
   if questOwnsPad() then
     if button == "start" or button == "back" or button == "guide" then
       return
@@ -1003,6 +1268,7 @@ function love.gamepadaxis(joystick, axis, value)
     if EditorApp.gamepadaxis then return EditorApp.gamepadaxis(axis, value) end
     return
   end
+  if questOwnsPad() and questCtl then return end
   if Importer then return Importer:gamepadaxis(joystick, axis, value) end
   if not Game then return end
   Game:gamepadaxis(joystick, axis, value)

@@ -62516,7 +62516,13 @@ function Game3:presentWorldCanvas(canvas, pw, ph)
   end
   local G = love.graphics
   G.setColor(1, 1, 1, 1)
+  -- The 3D frame is the whole picture. Alpha-blending it over the void
+  -- leaves the void wherever a texel was written with alpha 0, which on
+  -- the headset is the entire panel.
+  local prevBlend, prevAlpha = G.getBlendMode()
+  G.setBlendMode("replace", "premultiplied")
   G.draw(canvas, 0, 0, 0, tw / cw, th / ch)
+  G.setBlendMode(prevBlend or "alpha", prevAlpha or "alphamultiply")
   return true
 end
 
@@ -62742,6 +62748,24 @@ function Game3:drawPlayHud()
   self:drawCoinsBox()
 end
 
+-- Shown while voxel mode is on but its picture is still empty. The
+-- alternative is the blue void behind the world, which looks frozen.
+function Game3:drawVoxelPanelNote(w, h)
+  local note = rawget(_G, "VOXEL_PANEL_NOTE")
+  if type(note) ~= "string" or note == "" then return end
+  local G = love.graphics
+  if G.setShader then G.setShader() end
+  local scale = math.max(2, math.floor((tonumber(h) or 160) / 280))
+  local font = G.getFont and G.getFont()
+  local tw = (font and font.getWidth and font:getWidth(note) or #note * 8) * scale
+  local th = (font and font.getHeight and font:getHeight() or 12) * scale
+  local x, y = 20, 20
+  G.setColor(0.04, 0.07, 0.12, 0.88)
+  G.rectangle("fill", x, y, tw + 28, th + 16, 8, 8)
+  G.setColor(1, 1, 1, 1)
+  G.print(note, x + 14, y + 8, 0, scale, scale)
+end
+
 function Game3:drawOverworldWindow(w, h)
   local G = love.graphics
   local Tilt = require("src.render.Tilt")
@@ -62787,6 +62811,7 @@ function Game3:drawOverworldWindow(w, h)
     self:drawWorldBody(s, w, h)
   end
   self:drawWorldFx(w, h, s)
+  self:drawVoxelPanelNote(w, h)
   -- Flat / tilt: drawActors may skip on some mobile paths, so guests still
   -- blit here. A world pipeline already drew them as billboards.
   if self.phase == "play" and not self:worldPipelineId() then
